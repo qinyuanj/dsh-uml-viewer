@@ -189,16 +189,6 @@ fn declaration(rest: &[u8], kw: Option<&str>) -> (Option<Vec<u8>>, bool) {
     }
 }
 
-fn rest_of_line(s: &[u8]) -> &[u8] {
-    let end = s.iter().position(|&c| c == b'\n').unwrap_or(s.len());
-    &s[..end]
-}
-
-/// `[ \t]*` prefix skip.
-fn space_tab_skip(s: &[u8]) -> &[u8] {
-    &s[s.iter().take_while(|&&c| c == b' ' || c == b'\t').count()..]
-}
-
 fn statement_before(text: &[u8], i: usize) -> Vec<u8> {
     let before = &text[..i - 1];
     let start = before
@@ -224,8 +214,10 @@ fn find_binding(text: &[u8], pos: usize) -> Option<(usize, usize, Vec<u8>, Vec<u
     None
 }
 
-/// `local%s+([%a_][%w_]*)%s*=%s*require%s*%(?%s*["']([%a_][%w_%.]*)` at `i`.
-/// Returns (end, binding, module) with `end` 1-based inclusive like Lua's `b`.
+/// `local%s+([%a_][%w_]*)%s*=%s*require` at `i`, then the literal module that
+/// `require_at` reads there (so a concatenated name binds nothing).
+/// Returns (end, binding, module) with `end` the 1-based inclusive end of
+/// `require`, like Lua's `b`.
 fn match_binding_at(t: &[u8], i: usize) -> Option<(usize, Vec<u8>, Vec<u8>)> {
     let mut p = i - 1;
     if !t.get(p..)?.starts_with(b"local") {
@@ -251,28 +243,10 @@ fn match_binding_at(t: &[u8], i: usize) -> Option<(usize, Vec<u8>, Vec<u8>)> {
     }
     p += 1;
     p += t[p..].iter().take_while(|&&c| is_space(c)).count();
-    if !t[p..].starts_with(b"require") {
-        return None;
+    match require_at(t, p + 1)? {
+        Require::Module(module) => Some((p + 7, binding, module)),
+        Require::Dynamic => None,
     }
-    p += 7;
-    p += t[p..].iter().take_while(|&&c| is_space(c)).count();
-    if t.get(p) == Some(&b'(') {
-        p += 1;
-    }
-    p += t[p..].iter().take_while(|&&c| is_space(c)).count();
-    if !matches!(t.get(p), Some(b'"') | Some(b'\'')) {
-        return None;
-    }
-    p += 1;
-    if !t.get(p).is_some_and(|&c| is_alpha_(c)) {
-        return None;
-    }
-    let module_start = p;
-    while t.get(p).is_some_and(|&c| is_word(c) || c == b'.') {
-        p += 1;
-    }
-    let module = t[module_start..p].to_vec();
-    Some((p, binding, module))
 }
 
 /// A `require` call at `i`: a literal module name, or a call whose argument
@@ -282,26 +256,75 @@ enum Require {
     Dynamic,
 }
 
+/// `[%w_%.%-/]`: a byte of a module name as the searchers read it.
+fn module_byte(c: u8) -> bool {
+    is_word(c) || matches!(c, b'.' | b'-' | b'/')
+}
+
+/// `^([%a_][%w_%.%-/]*)`: the module name opening `s`, `/` read as `.`.
+/// The searchers turn `.` into the directory separator, so
+/// `require "lib/lume"` loads the file `require "lib.lume"` does; `-` is an
+/// ordinary name byte (`game-state.lua`).
+fn required_name(s: &[u8]) -> Option<Vec<u8>> {
+    if !s.first().is_some_and(|&c| is_alpha_(c)) {
+        return None;
+    }
+    let len = s.iter().take_while(|&&c| module_byte(c)).count();
+    Some(
+        s[..len]
+            .iter()
+            .map(|&c| if c == b'/' { b'.' } else { c })
+            .collect(),
+    )
+}
+
+/// `s:gsub('%s+$', '')`.
+fn trim_end(s: &[u8]) -> &[u8] {
+    &s[..s.iter().rposition(|&c| !is_space(c)).map_or(0, |p| p + 1)]
+}
+
+/// `pcall%s*%(%s*$` before the `require` at 1-based `i`:
+/// `pcall(require, "m")` loads `m` like `require "m"`, failing softly.
+fn protected(text: &[u8], i: usize) -> bool {
+    let Some(before) = trim_end(&text[..i - 1]).strip_suffix(b"(") else {
+        return false;
+    };
+    let before = trim_end(before);
+    before.len() >= 5 && keyword(text, before.len() - 4, b"pcall")
+}
+
 fn require_at(text: &[u8], i: usize) -> Option<Require> {
     if !keyword(text, i, b"require") {
         return None;
     }
-    let after = space_tab_skip(text::sub(text, (i + 7) as i64, text.len() as i64));
-    let mut tail = rest_of_line(after);
-    let call = tail.first() == Some(&b'(');
-    if call {
-        tail = rest_of_line(space_tab_skip(&tail[1..]));
-    }
+    // `%s*`, newlines too: the argument may open the next line, and the
+    // comments between are already blank.
+    let after = text::sub(text, (i + 7) as i64, text.len() as i64);
+    let after = &after[strip_spaces(after)..];
+    let (call, tail) = match after.first() {
+        Some(b'(') => (true, &after[1..]),
+        Some(b',') if protected(text, i) => (true, &after[1..]),
+        _ => (false, after),
+    };
+    let tail = &tail[strip_spaces(tail)..];
     match tail.first() {
-        Some(b'"' | b'\'') => {
-            let s = &tail[1..];
-            if !s.first().is_some_and(|&c| is_alpha_(c)) {
-                return None;
+        // `require("states." .. name)`: the literal is only a prefix. Without
+        // parentheses `require "v" .. "-dev"` concatenates the call's result.
+        Some(&q @ (b'"' | b'\'')) => {
+            let name = required_name(&tail[1..])?;
+            let after = &tail[(text::scan_quoted(tail, 1, q, None) - 1).min(tail.len())..];
+            if call && after[strip_spaces(after)..].starts_with(b"..") {
+                Some(Require::Dynamic)
+            } else {
+                Some(Require::Module(name))
             }
-            let len = s.iter().take_while(|&&c| is_word(c) || c == b'.').count();
-            Some(Require::Module(s[..len].to_vec()))
         }
-        Some(&c) if call && is_alpha_(c) && !matches!(at(text, i - 1), Some(b'.' | b':')) => {
+        // `require(name)`, and `require(... .. ".x")` relative to the vararg.
+        Some(&c)
+            if call
+                && (is_alpha_(c) || c == b'(' || tail.starts_with(b"..."))
+                && !matches!(at(text, i - 1), Some(b'.' | b':')) =>
+        {
             Some(Require::Dynamic)
         }
         _ => None,
@@ -338,13 +361,11 @@ fn literal_modules(t: &[u8], p: usize) -> Option<Vec<Vec<u8>>> {
             .iter()
             .take_while(|&&c| c != quote && c != b'\n')
             .count();
-        let name = &t[start..start + len];
-        let module = name.first().is_some_and(|&c| is_alpha_(c))
-            && name.iter().all(|&c| is_word(c) || c == b'.');
-        if !module || t.get(start + len) != Some(&quote) {
+        let module = required_name(&t[start..start + len]).filter(|m| m.len() == len)?;
+        if t.get(start + len) != Some(&quote) {
             return None;
         }
-        out.push(name.to_vec());
+        out.push(module);
         p = skip_ws(t, start + len + 1);
         if matches!(t.get(p), Some(b',' | b';')) {
             p = skip_ws(t, p + 1);
@@ -391,12 +412,13 @@ fn block_open(t: &[u8], holes: &[(usize, usize)], from: usize, to: usize) -> boo
     true
 }
 
-/// `require(name)` at 1-based `i` where `name` is the value of the nearest
-/// open `for _, name in ipairs(list) do` over a literal list (inline, or a
-/// `local list = {...}`): the listed modules, which are static after all.
+/// `require(name)` (or `pcall(require, name)`) at 1-based `i` where `name`
+/// is the value of the nearest open `for _, name in ipairs(list) do` over a
+/// literal list (inline, or a `local list = {...}`): the listed modules,
+/// which are static after all.
 fn loop_literal_modules(t: &[u8], holes: &[(usize, usize)], i: usize) -> Option<Vec<Vec<u8>>> {
     let p = skip_ws(t, i - 1 + 7);
-    let p = skip_ws(t, p + (t.get(p) == Some(&b'(')) as usize);
+    let p = skip_ws(t, p + matches!(t.get(p), Some(b'(' | b',')) as usize);
     let name_end = ident_end(t, p)?;
     let name = &t[p..name_end];
     if t.get(skip_ws(t, name_end)) != Some(&b')') {
@@ -482,7 +504,8 @@ fn dynamic_require_warning(file: &str, lines: &[Value]) -> Option<String> {
     (!at.is_empty()).then(|| format!("Unresolved dynamic require: {}", at.join(", ")))
 }
 
-/// `read_module(source)`: requires, definitions and setmetatable bases.
+/// `read_module(source)`: requires, definitions and the bases named by a
+/// top-level `setmetatable`, `Base:extend()` or middleclass `class(n, Base)`.
 /// A definition is nested inside a function body or a table constructor,
 /// as crapper counts entries; a top-level `if`/`do` block does not nest.
 /// `require(name)` cannot be resolved statically; its line is reported,
@@ -498,6 +521,13 @@ pub fn read_module(source: &[u8]) -> Value {
     // Open blocks, innermost last: `true` for a function body.
     let mut blocks: Vec<bool> = Vec::new();
     let mut braces: usize = 0;
+    let mut pos = 1;
+    while let Some((a, b, binding, module)) = find_binding(&text, pos) {
+        if !in_hole(&holes, a) {
+            bindings.push((binding, module));
+        }
+        pos = b + 1;
+    }
     for i in 1..=text.len() {
         if in_hole(&holes, i) {
             continue;
@@ -534,23 +564,17 @@ pub fn read_module(source: &[u8]) -> Value {
                     ]));
                 }
             }
-            if blocks.is_empty() && keyword(&text, i, b"setmetatable") {
+            if blocks.is_empty() {
                 let rest = text::sub(&text, i as i64, text.len() as i64);
-                if let Some(tail) = match_setmetatable(rest)
-                    && let Some(base) = match_base(&tail)
-                {
-                    base_names.push(base);
+                if keyword(&text, i, b"setmetatable") {
+                    base_names.extend(match_setmetatable(rest).and_then(match_base));
+                } else {
+                    base_names
+                        .extend(match_extend(rest).or_else(|| middleclass_base(rest, &bindings)));
                 }
             }
             track_block(&mut blocks, kw_found);
         }
-    }
-    let mut pos = 1;
-    while let Some((a, b, binding, module)) = find_binding(&text, pos) {
-        if !in_hole(&holes, a) {
-            bindings.push((binding, module));
-        }
-        pos = b + 1;
     }
     for b in &base_names {
         if let Some((_, module)) = bindings.iter().find(|(name, _)| name == b) {
@@ -568,26 +592,140 @@ pub fn read_module(source: &[u8]) -> Value {
     ])
 }
 
-/// `text:sub(i):match('^setmetatable%s*%(%s*(.*)')`.
-fn match_setmetatable(rest: &[u8]) -> Option<Vec<u8>> {
+/// `text:sub(i):match('^setmetatable%s*%(%s*(.*)')`, past the line end: a
+/// metatable constructor may span several lines.
+fn match_setmetatable(rest: &[u8]) -> Option<&[u8]> {
     let s = rest.strip_prefix(b"setmetatable")?;
     let s = &s[strip_spaces(s)..];
     let s = s.strip_prefix(b"(")?;
+    Some(&s[strip_spaces(s)..])
+}
+
+/// `^([%a_][%w_]*)%s*:%s*extend%s*[%(\"'{]`, or `subclass` for `extend`:
+/// classic's (and 30log's) `Base:extend()` derives a class from `Base`, as
+/// middleclass's `Base:subclass("Name")` does.
+fn match_extend(rest: &[u8]) -> Option<Vec<u8>> {
+    let len = ident_end(rest, 0)?;
+    let s = &rest[len..];
     let s = &s[strip_spaces(s)..];
-    Some(rest_of_line(s).to_vec())
+    let s = s.strip_prefix(b":")?;
+    let s = &s[strip_spaces(s)..];
+    let s = s
+        .strip_prefix(b"extend")
+        .or_else(|| s.strip_prefix(b"subclass"))?;
+    let s = &s[strip_spaces(s)..];
+    matches!(s.first(), Some(b'(' | b'"' | b'\'' | b'{')).then(|| rest[..len].to_vec())
+}
+
+/// `^([%a_][%w_]*)%s*%(%s*(["'])[^\n]-%2%s*,%s*([%a_][%w_]*)%s*%)` where the
+/// callee is bound to `require "middleclass"` (or `"lib.middleclass"`):
+/// middleclass's `class("Lemon", Fruit)` derives `Lemon` from `Fruit`.
+fn middleclass_base(rest: &[u8], bindings: &[(Vec<u8>, Vec<u8>)]) -> Option<Vec<u8>> {
+    let len = ident_end(rest, 0)?;
+    let (_, module) = bindings.iter().find(|(name, _)| *name == rest[..len])?;
+    if module.rsplit(|&c| c == b'.').next() != Some(b"middleclass") {
+        return None;
+    }
+    let s = &rest[len..];
+    let s = &s[strip_spaces(s)..];
+    let s = s.strip_prefix(b"(")?;
+    let s = &s[strip_spaces(s)..];
+    let quote = *s.first().filter(|&&c| c == b'"' || c == b'\'')?;
+    let close = text::scan_quoted(s, 1, quote, None) - 1;
+    if close > s.len() || s[..close].contains(&b'\n') {
+        return None;
+    }
+    let s = &s[close..];
+    let s = &s[strip_spaces(s)..];
+    let s = s.strip_prefix(b",")?;
+    let s = &s[strip_spaces(s)..];
+    let base = ident_end(s, 0)?;
+    let after = &s[base..];
+    (after[strip_spaces(after)..].first() == Some(&b')')).then(|| s[..base].to_vec())
+}
+
+/// `%b{}` opening `s`: one past its closing brace. Quoted strings are
+/// skipped; comments and long strings are already blank.
+fn constructor_end(s: &[u8]) -> Option<usize> {
+    if s.first() != Some(&b'{') {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut k = 0;
+    while k < s.len() {
+        let c = s[k];
+        match c {
+            b'"' | b'\'' => {
+                k = text::scan_quoted(s, k + 1, c, None) - 1;
+                continue;
+            }
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(k + 1);
+                }
+            }
+            _ => {}
+        }
+        k += 1;
+    }
+    None
+}
+
+/// `%b{}` opening `s` searched at its own depth for
+/// `[{,;]%s*__index%s*=%s*([%a_][%w_]*)%s*[,;}]`: the `__index` field among
+/// the metatable's other fields (`__call`, `__tostring`), on any line.
+/// Quoted strings are skipped; comments and long strings are already blank.
+fn index_field(s: &[u8]) -> Option<Vec<u8>> {
+    let mut depth = 0usize;
+    let mut k = 0;
+    while k < s.len() {
+        let c = s[k];
+        match c {
+            b'"' | b'\'' => {
+                k = text::scan_quoted(s, k + 1, c, None) - 1;
+                continue;
+            }
+            b'{' | b'(' | b'[' => depth += 1,
+            b'}' | b')' | b']' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+        if depth == 1 && matches!(c, b'{' | b',' | b';') {
+            let f = &s[k + 1..];
+            let f = &f[strip_spaces(f)..];
+            if let Some(f) = f.strip_prefix(b"__index") {
+                let f = &f[strip_spaces(f)..];
+                if let Some(f) = f.strip_prefix(b"=") {
+                    let f = &f[strip_spaces(f)..];
+                    if let Some(len) = ident_end(f, 0) {
+                        let after = &f[len..];
+                        let after = &after[strip_spaces(after)..];
+                        if matches!(after.first(), Some(b',' | b';' | b'}')) {
+                            return Some(f[..len].to_vec());
+                        }
+                    }
+                }
+            }
+        }
+        k += 1;
+    }
+    None
 }
 
 /// The base-name alternatives after the first `setmetatable` argument.
 fn match_base(tail: &[u8]) -> Option<Vec<u8>> {
-    // `^%{%s*%}%s*,%s*(.*)` or `^[%a_][%w_%.]*%s*,%s*(.*)`
+    // `^%b{}%s*,%s*(.*)` (the new class's own fields may be filled in) or
+    // `^[%a_][%w_%.]*%s*,%s*(.*)`
     let rest: Option<&[u8]> = if tail.first() == Some(&b'{') {
-        let s = &tail[1..];
+        let s = &tail[constructor_end(tail)?..];
         let s = &s[strip_spaces(s)..];
-        s.strip_prefix(b"}").map(|s| {
-            let s = &s[strip_spaces(s)..];
-            s.strip_prefix(b",")
-                .map(|s| rest_of_line(&s[strip_spaces(s)..]))
-        })?
+        s.strip_prefix(b",").map(|s| &s[strip_spaces(s)..])
     } else if tail.first().is_some_and(|&c| is_alpha_(c)) {
         let len = tail
             .iter()
@@ -595,35 +733,14 @@ fn match_base(tail: &[u8]) -> Option<Vec<u8>> {
             .count();
         let s = &tail[len..];
         let s = &s[strip_spaces(s)..];
-        s.strip_prefix(b",")
-            .map(|s| rest_of_line(&s[strip_spaces(s)..]))
+        s.strip_prefix(b",").map(|s| &s[strip_spaces(s)..])
     } else {
         None
     };
     let rest = rest?;
-    // `^%{%s*__index%s*=%s*([%a_][%w_]*)%s*%}%s*%)` or `^([%a_][%w_]*)%s*%)`
+    // `{ __index = Base, ... }` (see `index_field`) or `^([%a_][%w_]*)%s*%)`
     if rest.first() == Some(&b'{') {
-        let s = &rest[1..];
-        let s = &s[strip_spaces(s)..];
-        if let Some(s) = s.strip_prefix(b"__index") {
-            let s = &s[strip_spaces(s)..];
-            if let Some(s) = s.strip_prefix(b"=") {
-                let s = &s[strip_spaces(s)..];
-                if s.first().is_some_and(|&c| is_alpha_(c)) {
-                    let len = s.iter().take_while(|&&c| is_word(c)).count();
-                    let base = s[..len].to_vec();
-                    let s = &s[len..];
-                    let s = &s[strip_spaces(s)..];
-                    if let Some(s) = s.strip_prefix(b"}") {
-                        let s = &s[strip_spaces(s)..];
-                        if s.first() == Some(&b')') {
-                            return Some(base);
-                        }
-                    }
-                }
-            }
-        }
-        None
+        index_field(rest)
     } else if rest.first().is_some_and(|&c| is_alpha_(c)) {
         let len = rest.iter().take_while(|&&c| is_word(c)).count();
         let base = rest[..len].to_vec();
@@ -646,7 +763,12 @@ fn module_relative(path: &str, root: &str) -> String {
             rel = stripped.to_owned();
         }
     }
-    let rel = rel.strip_suffix(".lua").unwrap_or(&rel);
+    module_path(&rel)
+}
+
+/// The module a `?.lua;?/init.lua` searcher finds at the relative path `rel`.
+fn module_path(rel: &str) -> String {
+    let rel = rel.strip_suffix(".lua").unwrap_or(rel);
     let rel = if rel == "init" {
         ""
     } else {
@@ -713,6 +835,9 @@ impl Scanner for LuaScanner {
         let mut metas = Vec::new();
         let mut by_rel: Vec<(String, Value)> = Vec::new();
         let mut by_ns: Vec<(String, Value)> = Vec::new();
+        // The unstripped path from the scan or project root: a LÖVE game
+        // requires from its own root (`require "src.entities.player"`).
+        let mut by_path: Vec<(String, Value)> = Vec::new();
         for f in &sorted {
             let rel = module_relative(&f.path, root);
             let ns = if rel == ns_prefix || rel.starts_with(&format!("{ns_prefix}.")) {
@@ -722,6 +847,12 @@ impl Scanner for LuaScanner {
             };
             let cid = scan::id_of(&ns, Some(&Value::String(prefix.clone())));
             metas.push((f, rel.clone(), ns.clone(), cid.clone()));
+            for base in [root, cwd] {
+                let path = module_path(&scan::relative_path(&f.path, base));
+                if !path.is_empty() {
+                    by_path.push((path, cid.clone()));
+                }
+            }
             if !rel.is_empty() {
                 by_rel.push((rel, cid.clone()));
             }
@@ -729,6 +860,16 @@ impl Scanner for LuaScanner {
                 by_ns.push((ns, cid));
             }
         }
+        // A required name, then the package `a` that `a.init` spells out.
+        let resolve = |name: &str| {
+            let package = name.strip_suffix(".init").unwrap_or(name);
+            [name, package].into_iter().find_map(|n| {
+                [&by_rel, &by_ns, &by_path]
+                    .into_iter()
+                    .find_map(|index| index.iter().find(|(r, _)| r == n))
+                    .map(|(_, cid)| cid.clone())
+            })
+        };
         let mut classes = Vec::new();
         let mut edges: Vec<Value> = Vec::new();
         let mut foreigns: Vec<Value> = Vec::new();
@@ -774,12 +915,7 @@ impl Scanner for LuaScanner {
                     Value::String(s) => s.clone(),
                     _ => continue,
                 };
-                let target = by_rel
-                    .iter()
-                    .find(|(r, _)| *r == name)
-                    .or_else(|| by_ns.iter().find(|(r, _)| *r == name))
-                    .map(|(_, cid)| cid.clone());
-                if let Some(target) = target {
+                if let Some(target) = resolve(&name) {
                     edge(&mut edges, target, "inheritance");
                 }
             }
@@ -788,12 +924,7 @@ impl Scanner for LuaScanner {
                     Value::String(s) => s.clone(),
                     _ => continue,
                 };
-                let target = by_rel
-                    .iter()
-                    .find(|(r, _)| *r == name)
-                    .or_else(|| by_ns.iter().find(|(r, _)| *r == name))
-                    .map(|(_, cid)| cid.clone());
-                let target = match target {
+                let target = match resolve(&name) {
                     Some(target) => target,
                     None => {
                         let foreign = Value::keyword(&name);
@@ -901,6 +1032,218 @@ mod tests {
                 Value::Integer(6),
                 Value::Integer(7)
             ][..],
+            seq(get(&surface, "dynamic-requires"))
+        );
+    }
+
+    fn requires(source: &str) -> Vec<String> {
+        let surface = read_module(source.as_bytes());
+        strings(seq(get(&surface, "requires")))
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn a_slash_or_hyphen_module_name_is_the_dotted_module() {
+        let source = "local lume = require \"lib/lume\"\n\
+                      local menu = require('src/states/menu')\n\
+                      local state = require(\"game-state\")\n\
+                      -- require(\"lib/no\")\n\
+                      local s = \"require('lib/no')\"\n";
+        assert_eq!(
+            vec!["lib.lume", "src.states.menu", "game-state"],
+            requires(source)
+        );
+    }
+
+    #[test]
+    fn a_protected_require_names_its_module() {
+        let source = "local ok, jit = pcall(require, \"jit\")\n\
+                      local has, m = pcall ( require , 'a.b' )\n\
+                      local ok2, n = pcall(require, name)\n\
+                      register(require, \"no\")\n\
+                      -- pcall(require, \"no\")\n\
+                      local s = 'pcall(require, \"no\")'\n\
+                      for _, p in ipairs({ \"plug.a\" }) do pcall(require, p) end\n";
+        let surface = read_module(source.as_bytes());
+        assert_eq!(vec!["jit", "a.b", "plug.a"], requires(source));
+        assert_eq!(
+            &[Value::Integer(3)][..],
+            seq(get(&surface, "dynamic-requires"))
+        );
+    }
+
+    #[test]
+    fn a_require_argument_may_start_on_the_next_line() {
+        let source = "local a = require(\n  \"a.b\"\n)\n\
+                      local c = require\n  'c'\n\
+                      local d = require(\n  -- the module\n  \"d\")\n\
+                      local r = require\n\
+                      return r\n";
+        assert_eq!(vec!["a.b", "c", "d"], requires(source));
+    }
+
+    /// The `(from, to)` dependency edges of a scan over in-memory files.
+    fn dependencies(root: &str, cwd: &str, files: &[(&str, &str)]) -> Vec<(String, String)> {
+        let files: Vec<SourceFile> = files
+            .iter()
+            .map(|(path, source)| SourceFile {
+                path: format!("{cwd}/{path}"),
+                source: source.as_bytes().to_vec(),
+            })
+            .collect();
+        let opts = edn::parse("{:prefix \"game\"}").unwrap();
+        let graph = SCANNER.scan(root, &opts, &files, cwd).unwrap();
+        seq(get(&graph, "edges"))
+            .iter()
+            .map(|e| {
+                let end = |k| edn::record::name(get(e, k).unwrap());
+                (end("from"), end("to"))
+            })
+            .collect()
+    }
+
+    fn pairs(edges: &[(&str, &str)]) -> Vec<(String, String)> {
+        edges
+            .iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn a_love_require_names_the_module_from_the_game_root() {
+        let files = [
+            (
+                "main.lua",
+                "local Player = require(\"src.entities.player\")\n\
+                 local menu = require \"src/states/menu\"\n\
+                 local lume = require(\"lib.lume\")\n",
+            ),
+            ("lib/lume.lua", "return {}\n"),
+            ("src/entities/player.lua", "return {}\n"),
+            (
+                "src/states/menu.lua",
+                "local Player = require(\"src.entities.player\")\n",
+            ),
+        ];
+        assert_eq!(
+            pairs(&[
+                ("main", "entities.player"),
+                ("main", "states.menu"),
+                ("main", "lib.lume"),
+                ("states.menu", "entities.player"),
+            ]),
+            dependencies("/g", "/g", &files)
+        );
+        assert_eq!(
+            pairs(&[("states.menu", "entities.player")]),
+            dependencies("/g/src", "/g", &files[2..])
+        );
+    }
+
+    #[test]
+    fn a_require_of_an_init_module_names_its_package() {
+        let files = [
+            ("app/main.lua", "local hump = require(\"hump.init\")\n"),
+            ("app/hump/init.lua", "return {}\n"),
+        ];
+        assert_eq!(
+            pairs(&[("main", "hump")]),
+            dependencies("/g/app", "/g", &files)
+        );
+    }
+
+    fn bases(source: &str) -> Vec<String> {
+        let surface = read_module(source.as_bytes());
+        strings(seq(get(&surface, "bases")))
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn a_class_extended_from_a_required_class_names_its_base() {
+        let source = "local Object = require(\"lib.classic\")\n\
+                      local Entity = require \"src.entities.entity\"\n\
+                      local Other = require(\"other\")\n\
+                      local Player = Entity:extend()\n\
+                      local Boss = Object : extend \"Boss\"\n\
+                      local helper = Other:extend_with(1)\n\
+                      local s = \"Other:extend()\"\n\
+                      -- Other:extend()\n\
+                      function Player:spawn() return Other:extend() end\n\
+                      return Player\n";
+        assert_eq!(vec!["src.entities.entity", "lib.classic"], bases(source));
+    }
+
+    #[test]
+    fn a_middleclass_subclass_names_its_base() {
+        let source = "local class = require(\"lib.middleclass\")\n\
+                      local Fruit = require(\"fruit\")\n\
+                      local Bird = require(\"bird\")\n\
+                      local Other = require(\"other\")\n\
+                      local Lemon = class(\"Lemon\", Fruit)\n\
+                      local Duck = Bird:subclass('Duck')\n\
+                      local x = print(\"x\", Other)\n\
+                      local Plain = class(\"Plain\")\n";
+        assert_eq!(vec!["fruit", "bird"], bases(source));
+    }
+
+    #[test]
+    fn a_metatable_over_a_populated_table_names_its_base() {
+        let source = "local Entity = require(\"entity\")\n\
+                      local Mixin = require(\"mixin\")\n\
+                      local Other = require(\"other\")\n\
+                      local Player = setmetatable({ speed = 10, tag = \"}\" }, { __index = Entity })\n\
+                      local Mob = setmetatable({\n  hp = { max = 3 },\n}, Mixin)\n\
+                      local T = setmetatable({ Other }, nil)\n";
+        assert_eq!(vec!["entity", "mixin"], bases(source));
+    }
+
+    #[test]
+    fn a_metatable_index_among_other_fields_names_its_base() {
+        let source = "local Base = require(\"base\")\n\
+                      local Mixin = require(\"mixin\")\n\
+                      local Other = require(\"other\")\n\
+                      local D = {}\n\
+                      setmetatable(D, { __index = Base, __call = function(cls, ...) return cls.new(...) end })\n\
+                      local E = setmetatable({}, {\n\
+                      \x20 __tostring = function() return \"}\" end,\n\
+                      \x20 __index = Mixin,\n\
+                      })\n\
+                      local F = setmetatable({}, { __index = function(t, k) return Other[k] end })\n\
+                      local G = setmetatable({}, { __newindex = Other, name = \"x, __index = Other\" })\n\
+                      local H = setmetatable({}, { meta = { __index = Other } })\n";
+        assert_eq!(vec!["base", "mixin"], bases(source));
+    }
+
+    #[test]
+    fn a_require_of_a_concatenated_name_is_reported_dynamic() {
+        let source = "local function load(name)\n  return require(\"states.\" .. name)\nend\n\
+                      local c = require('conf' .. suffix)\n\
+                      local v = require \"version\" .. \"-dev\"\n\
+                      local m = require(\"states.menu\"):new()\n\
+                      local B = require(\"base\" .. variant)\n\
+                      local D = B:extend()\n";
+        let surface = read_module(source.as_bytes());
+        assert_eq!(vec!["version", "states.menu"], requires(source));
+        assert_eq!(
+            &[Value::Integer(2), Value::Integer(4), Value::Integer(7)][..],
+            seq(get(&surface, "dynamic-requires"))
+        );
+        assert!(bases(source).is_empty());
+    }
+
+    #[test]
+    fn a_require_relative_to_the_vararg_is_reported_dynamic() {
+        let source = "local x = require(... .. \".x\")\n\
+                      local y = require((...):gsub(\"%.init$\", \"\") .. \".y\")\n\
+                      local z = require()\n";
+        let surface = read_module(source.as_bytes());
+        assert!(seq(get(&surface, "requires")).is_empty());
+        assert_eq!(
+            &[Value::Integer(1), Value::Integer(2)][..],
             seq(get(&surface, "dynamic-requires"))
         );
     }

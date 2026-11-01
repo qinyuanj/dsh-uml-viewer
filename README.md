@@ -888,20 +888,29 @@ then `/` becomes `.`, so `src/calc/init.lua` and `src/calc/util.lua`
 become `calc` (`:calc`) and `calc.util` (`:calc.util`). It skips
 `*_spec.lua` and paths under `spec`, `lua_modules`, `dist`, `build`,
 `target`, and `.metrics`. `require "a.b"`, `require("a.b")`, and
-`require 'a.b'` are dependencies; a name that is not a project module is
-foreign (`lfs` stays `:lfs`). Comments, strings, and long brackets are
-masked, so a `require` inside them is ignored. Top-level functions that
+`require 'a.b'` are dependencies, as is `pcall(require, "a.b")`. The
+argument may start on the next line. A slash in the name is read as a dot,
+so `require "a/b"` names `a.b`; a hyphen stays part of the filename.
+LÖVE paths such as `src.entities.player` resolve from the project root,
+and an explicit `.init` names that package. A name that is not a project
+module is foreign (`lfs` stays `:lfs`). Comments, strings, and long brackets
+are masked, so a `require` inside them is ignored. Top-level functions that
 are not `local` are `:ops`, named as written in the source (`M.clamp`,
 `Account:deposit`). A function declared inside another, or inside a table
 constructor (`M.t = { f = function() end }`), is not an op; one in a
 top-level `if` or `do` block is, as crapper counts entries.
-`require(name)` cannot be resolved statically: it draws no edge, and
-`uml ir` prints `Unresolved dynamic require: <file>:<line>` to stderr
-(same-line calls only).
+`require(name)`, `require("prefix." .. name)`, and a name built from `...`
+cannot be resolved statically: they draw no edge, and `uml ir` prints
+`Unresolved dynamic require: <file>:<line>` to stderr.
 A top-level `setmetatable(t, {__index = Base})` or
 `setmetatable(t, Base)`, where `local Base = require("app.base")` names a
-project module, is `:inheritance` on that module. This is a pattern match,
-not an evaluation: a `setmetatable` inside a function makes an instance and
+project module, is `:inheritance` on that module. The first table may have
+fields, and `__index` may sit among other metatable fields across lines.
+`Base:extend()`, `Base:subclass("Name")`, and middleclass's
+`class("Name", Base)` also name that base; the last form requires `class`
+to be bound to `require "middleclass"` (or a dotted path ending in it).
+This is a pattern match, not an evaluation: a `setmetatable` inside a
+function makes an instance and
 draws nothing, and a base that is not a local bound by `require` is not
 followed. There are no `:implements` edges and no interface stereotype.
 
