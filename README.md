@@ -813,18 +813,28 @@ requires each scanner so it registers; `ir-generator` looks the scanner
 up.
 
 **TypeScript** (`crates/ir/src/scan/typescript.rs`) emits
-one class per module file (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`).
-It skips `*.test.*`, `*.spec.*`, `*.d.ts`, and paths under `node_modules`,
-`dist`, and `target`. A relative import is a dependency, and `import type`
-counts. An asset import (CSS, images, JSON, and the like) is ignored. A
-bare specifier is foreign: `@tauri-apps/api/core` becomes
-`:at.tauri-apps.api.core`. A listed `:foreign` prefix such as
-`at.tauri-apps` collapses that id. `export function f(): T` and
-`export const x: T` are `:implements` when `T` is an imported project
-name. `Promise<Book>` and `TreeNode[]` are not. A module that exports an
-interface and no values is `:stereotype :interface`. Exported functions,
-constants, classes, and enums are `:ops`. `invoke("name")` is recorded
-for the cross-language link.
+one class per module file (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`,
+`.mjs`, `.cjs`). It skips `*.test.*`, `*.spec.*`, declaration files
+(`.d.ts`, `.d.mts`, `.d.cts`), and paths under `node_modules`, `dist`, and
+`target`. Imports, type imports, re-exports, literal `import("./a")`, and
+`require("./a")` count as dependencies. An ESM specifier such as `./a.js`
+can resolve to `a.ts`; `.mjs` and `.cjs` can resolve to `.mts` and `.cts`.
+The source root's `tsconfig.json` or `jsconfig.json`, then its parent's
+inside the project, supplies `compilerOptions.paths` and `baseUrl`;
+inherited configs are not followed. An asset import (CSS, images, JSON,
+and the like) is ignored. An unresolved bare specifier is foreign:
+`@tauri-apps/api/core` becomes `:at.tauri-apps.api.core`. A listed
+`:foreign` prefix such as `at.tauri-apps` collapses that id.
+`export function f(): T`, `export const x: T`, and a typed arrow function
+are `:implements` when `T` is an imported project name. `Promise<Book>`
+and `TreeNode[]` are not. Exported class/interface `extends` and class
+`implements` clauses resolve imported names to their modules. A module
+that exports only interfaces or type aliases is `:stereotype :interface`.
+Exported functions, constants, classes, and enums are `:ops`, including
+modified declarations such as `declare`, `abstract`, and `const enum`.
+Strings, regexes, and template text are masked; executable `${...}`
+expressions are scanned. Dynamic specifiers draw no guessed edge.
+`invoke("name")` is recorded for the cross-language link.
 
 **Rust** (`crates/ir/src/scan/rust.rs`) walks the modules
 reachable from `lib.rs` and `main.rs` through `mod`. The crate name is

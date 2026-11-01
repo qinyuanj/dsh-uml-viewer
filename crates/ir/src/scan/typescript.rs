@@ -89,14 +89,34 @@ const REGEX_KEYWORDS: &[&[u8]] = &[
     b"do", b"in", b"of",
 ];
 
-/// `regex_end(s, i)`: whether the `/` at 1-based `i` opens a regex literal;
-/// returns one past the closing flags.
-fn regex_end(s: &[u8], i: usize) -> Option<usize> {
-    let mut j = i as i64 - 1;
+/// The last non-space position at or before 1-based `j`; 0 when none.
+fn skip_space_back(s: &[u8], mut j: i64) -> i64 {
     while j > 0 && at(s, j as usize).is_some_and(is_space) {
         j -= 1;
     }
-    let c = at(s, j.max(0) as usize);
+    j
+}
+
+/// `regex_end(s, i)`: whether the `/` at 1-based `i` opens a regex literal;
+/// returns one past the closing flags.
+fn regex_end(s: &[u8], i: usize) -> Option<usize> {
+    let mut j = skip_space_back(s, i as i64 - 1);
+    let mut c = at(s, j.max(0) as usize);
+    // `++` or `--` is postfix after an operand, so the `/` divides; any
+    // other is prefix and may precede a regex.
+    if j > 1 && matches!(c, Some(b'+' | b'-')) && at(s, j as usize - 1) == c {
+        let operand = skip_space_back(s, j - 2);
+        if text::sub(s, operand + 1, j - 2)
+            .iter()
+            .any(|&c| c == b'\n' || c == b'\r')
+        {
+            // A line terminator before the update makes it prefix (ASI).
+            j = 0;
+        } else {
+            j = operand;
+        }
+        c = at(s, j.max(0) as usize);
+    }
     if j > 0 && (ident(c) || c == Some(b')') || c == Some(b']')) {
         let mut k = j;
         while k > 0 && ident(at(s, k as usize)) {
@@ -137,10 +157,54 @@ fn in_hole(holes: &[(usize, usize)], i: usize) -> bool {
     holes.iter().any(|&(a, b)| i >= a && i < b)
 }
 
-/// `mask(s)`: comments blanked; regexes and quoted strings kept as holes.
+/// `quoted_end(s, i, quote)`: one past the `'` or `"` string opening at
+/// 1-based `i`. The string ends with its line, as in JavaScript, so the
+/// apostrophe of JSX text (`<p>Don't</p>`) opens no string past it; a `\`
+/// before LF, CR or CR LF continues it onto the next line.
+fn quoted_end(s: &[u8], i: usize, quote: u8) -> usize {
+    let mut j = i + 1;
+    while let Some(c) = at(s, j) {
+        if c == b'\\' {
+            let crlf = at(s, j + 1) == Some(b'\r') && at(s, j + 2) == Some(b'\n');
+            j += if crlf { 3 } else { 2 };
+        } else if c == quote {
+            return j + 1;
+        } else if c == b'\n' || c == b'\r' {
+            return j;
+        } else {
+            j += 1;
+        }
+    }
+    s.len() + 1
+}
+
+/// `template_end(s, i)`: one past the template text that the `` ` `` or the
+/// interpolation-closing `}` at 1-based `i` starts, and whether a `${`
+/// (rather than the closing `` ` ``) ends it.
+fn template_end(s: &[u8], i: usize) -> (usize, bool) {
+    let mut j = i + 1;
+    while let Some(c) = at(s, j) {
+        if c == b'\\' {
+            j += 2;
+        } else if c == b'`' {
+            return (j + 1, false);
+        } else if c == b'$' && at(s, j + 1) == Some(b'{') {
+            return (j + 2, true);
+        } else {
+            j += 1;
+        }
+    }
+    (s.len() + 1, false)
+}
+
+/// `mask(s)`: comments blanked; regexes, quoted strings and template text
+/// kept as holes. A template's `${...}` is code, up to the `}` that closes
+/// it at its own brace depth.
 fn mask(s: &[u8]) -> (Vec<u8>, Vec<(usize, usize)>) {
     let mut out = Vec::new();
     let mut holes = Vec::new();
+    // The brace depth of the code, and that of each open `${`.
+    let (mut depth, mut interpolations) = (0usize, Vec::new());
     let mut i = 1;
     while i <= s.len() {
         let c = at(s, i);
@@ -156,14 +220,28 @@ fn mask(s: &[u8]) -> (Vec<u8>, Vec<(usize, usize)>) {
         let mut finish = None;
         if c == Some(b'/') && nxt.is_some() && nxt != Some(b'*') {
             finish = regex_end(s, i);
-        } else if matches!(c, Some(b'"') | Some(b'\'') | Some(b'`')) {
-            finish = Some(text::scan_quoted(s, i, c.unwrap(), None));
+        } else if matches!(c, Some(b'"') | Some(b'\'')) {
+            finish = Some(quoted_end(s, i, c.unwrap()));
+        } else if c == Some(b'`') || (c == Some(b'}') && interpolations.last() == Some(&depth)) {
+            if c == Some(b'}') {
+                interpolations.pop();
+            }
+            let (end, interpolation) = template_end(s, i);
+            if interpolation {
+                interpolations.push(depth);
+            }
+            finish = Some(end);
         }
         if let Some(finish) = finish {
             out.extend_from_slice(&s[i - 1..finish - 1]);
             holes.push((i, finish));
             i = finish;
         } else {
+            match c {
+                Some(b'{') => depth += 1,
+                Some(b'}') => depth = depth.saturating_sub(1),
+                _ => {}
+            }
             out.push(c.unwrap());
             i += 1;
         }
@@ -171,7 +249,9 @@ fn mask(s: &[u8]) -> (Vec<u8>, Vec<(usize, usize)>) {
     (out, holes)
 }
 
-/// `statement_end(s, start, header)`: inclusive end position.
+/// `statement_end(s, start, header)`: inclusive end position. A header
+/// closes its braces too: a destructured parameter `({ a }: T)` must not
+/// keep the body's `{` from ending it.
 fn statement_end(s: &[u8], start: usize, header: bool) -> usize {
     let (mut paren, mut brace, mut bracket) = (0i64, 0i64, 0i64);
     let mut i = start;
@@ -190,7 +270,7 @@ fn statement_end(s: &[u8], start: usize, header: bool) -> usize {
                 return i - 1;
             }
             brace += 1;
-        } else if c == b'}' && !header {
+        } else if c == b'}' {
             brace = (brace - 1).max(0);
         } else if paren == 0 && bracket == 0 && brace == 0 {
             if header && (c == b'=' || c == b';') {
@@ -256,35 +336,140 @@ fn return_type(header: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
+/// `^export%s+(type%s+)?` then the `{...}` or `%*(%s+as%s+ID)?` clause, then
+/// `%s*from%s*["']([^"']+)["']`: only the `from` that ends the clause. A
+/// statement without `;` runs on, and `"loaded from './x'"` later is no
+/// specifier.
+fn export_spec(stmt: &[u8]) -> Option<Vec<u8>> {
+    let rest = strip_prefix_word(stmt, b"export")?;
+    let rest = strip_prefix_word(rest, b"type").unwrap_or(rest);
+    let rest = if rest.first() == Some(&b'{') {
+        let close = rest.iter().position(|&c| c == b'}')?;
+        &rest[close + 1..]
+    } else {
+        let rest = rest.strip_prefix(b"*")?;
+        match strip_prefix_word(strip_spaces(rest), b"as") {
+            Some(name) => &name[capture_id(name)?..],
+            None => rest,
+        }
+    };
+    let rest = strip_spaces(strip_spaces(rest).strip_prefix(b"from")?);
+    let quote = *rest.first()?;
+    if quote != b'"' && quote != b'\'' {
+        return None;
+    }
+    spec_capture(&rest[1..])
+}
+
+/// `^=%s*(async%s+)?%b()%s*:%s*(ID)%s*=>`: the declared return type of an
+/// arrow function initializer.
+fn arrow_return_type(init: &[u8]) -> Option<Vec<u8>> {
+    let rest = strip_spaces(init.strip_prefix(b"=")?);
+    let rest = strip_prefix_word(rest, b"async").unwrap_or(rest);
+    if rest.first() != Some(&b'(') {
+        return None;
+    }
+    return_type(&rest[..find_subslice(rest, b"=>")?])
+}
+
+/// The `extends` and `implements` names of a class or interface declaration,
+/// read up to its body's `{`. Only names at depth 0 of `<>` and `()` count
+/// (`<T extends B>` is a constraint, `mixin(A, B)` a call; `=>` closes
+/// nothing), each by its first dotted segment (`ns.B` names the namespace
+/// import `ns`). The header would end at a type parameter default's `=`.
+fn heritage(stmt: &[u8]) -> (Vec<Value>, Vec<Value>) {
+    let (mut extends, mut implements) = (Vec::new(), Vec::new());
+    let mut clause: Option<&mut Vec<Value>> = None;
+    let mut expect = false;
+    let mut depth = 0i64;
+    let mut i = 0;
+    while i < stmt.len() {
+        let c = stmt[i];
+        if c == b'{' && depth == 0 {
+            break;
+        } else if c == b'<' || c == b'(' {
+            depth += 1;
+        } else if c == b')' || (c == b'>' && i > 0 && stmt[i - 1] != b'=') {
+            depth = (depth - 1).max(0);
+        } else if c == b',' && depth == 0 {
+            expect = clause.is_some();
+        } else if is_id_start(c) && (i == 0 || !is_ts_ident(stmt[i - 1])) {
+            let len = capture_id(&stmt[i..]).unwrap();
+            let word = &stmt[i..i + len];
+            if depth == 0 && word == b"extends" {
+                (clause, expect) = (Some(&mut extends), true);
+            } else if depth == 0 && word == b"implements" {
+                (clause, expect) = (Some(&mut implements), true);
+            } else if depth == 0
+                && expect
+                && let Some(names) = clause.as_deref_mut()
+            {
+                names.push(Value::String(text::text(word)));
+                expect = false;
+            }
+            i += len;
+            continue;
+        }
+        i += 1;
+    }
+    (extends, implements)
+}
+
+/// An import ends at its first string outside `{...}`, the specifier:
+/// without `;` the statement would run on to the next line's `from "..."`.
+/// A string inside the braces is a name (`{ "kebab-name" as k }`).
+fn through_first_string(stmt: &[u8]) -> &[u8] {
+    let mut brace = 0i64;
+    let Some(open) = stmt.iter().position(|&c| {
+        if c == b'{' {
+            brace += 1;
+        } else if c == b'}' {
+            brace = (brace - 1).max(0);
+        }
+        brace == 0 && (c == b'"' || c == b'\'')
+    }) else {
+        return stmt;
+    };
+    match stmt[open + 1..].iter().position(|&c| c == stmt[open]) {
+        Some(close) => &stmt[..open + close + 2],
+        None => stmt,
+    }
+}
+
 fn starts_with_word(s: &[u8], word: &[u8]) -> bool {
     s.starts_with(word) && !s.get(word.len()).is_some_and(|&c| is_ts_ident(c))
 }
 
-/// `export_fact(stmt, header)`.
+/// `export_fact(stmt, header)`. The `declare` and `abstract` modifiers and
+/// the `const` of `const enum` leave the declaration visible; a class or an
+/// interface also records its heritage names.
 fn export_fact(stmt: &[u8], header: &[u8]) -> Option<Value> {
-    // `^export%s+type%s*{` or `^export%s+%*`
+    let spec = || {
+        export_spec(stmt)
+            .map(|s| Value::String(text::text(&s)))
+            .unwrap_or(Value::Nil)
+    };
+    // `^export%s+type%s*{` or `^export%s+(type%s+)?%*`
     if match_export_type_star(stmt) {
-        return Some(record(vec![(
-            "spec",
-            from_spec(stmt)
-                .map(|s| Value::String(text::text(&s)))
-                .unwrap_or(Value::Nil),
-        )]));
+        return Some(record(vec![("spec", spec())]));
     }
     if match_prefix_brace(stmt, b"export") {
         return Some(record(vec![
-            (
-                "spec",
-                from_spec(stmt)
-                    .map(|s| Value::String(text::text(&s)))
-                    .unwrap_or(Value::Nil),
-            ),
+            ("spec", spec()),
             ("ops", Value::Vector(brace_names(stmt))),
         ]));
     }
-    // tail = stmt minus `^export%s+` minus `^default%s+`
-    let mut tail = strip_prefix_word(stmt, b"export").unwrap_or(stmt);
-    tail = strip_prefix_word(tail, b"default").unwrap_or(tail);
+    // decl = stmt minus `^export%s+` minus `^declare%s+`; tail = decl minus
+    // `^default%s+` minus `^abstract%s+`, and minus the `const` of `const enum`
+    let decl = strip_prefix_word(stmt, b"export").unwrap_or(stmt);
+    let decl = strip_prefix_word(decl, b"declare").unwrap_or(decl);
+    let mut tail = strip_prefix_word(decl, b"default").unwrap_or(decl);
+    tail = strip_prefix_word(tail, b"abstract").unwrap_or(tail);
+    if let Some(rest) = strip_prefix_word(tail, b"const")
+        && starts_with_word(rest, b"enum")
+    {
+        tail = rest;
+    }
     if let Some(rest) = strip_prefix_word(tail, b"async") {
         if !starts_with_word(rest, b"function") {
             return None;
@@ -293,33 +478,39 @@ fn export_fact(stmt: &[u8], header: &[u8]) -> Option<Value> {
     }
     let mut n: Option<Vec<u8>> = None;
     let mut typ: Option<Vec<u8>> = None;
+    let (mut extends, mut implements) = (Vec::new(), Vec::new());
     if starts_with_word(tail, b"function") {
-        // `^function%s+%*?%s*(ID)`
+        // `^function%s*%*?%s*(ID)`: `function*` needs no space.
         let rest = strip_spaces(&tail[8..]);
         let rest = rest.strip_prefix(b"*").map(strip_spaces).unwrap_or(rest);
-        // NOTE: `%*?` consumes the star only when directly after %s+.
-        let rest = if tail[8..].iter().take_while(|&&c| is_space(c)).count() > 0 {
-            rest
-        } else {
-            return None;
-        };
         n = capture_id(rest).map(|len| rest[..len].to_vec());
         typ = return_type(header);
     } else if starts_with_word(tail, b"class") {
         let rest = strip_spaces(&tail[5..]);
         if tail[5..].iter().take_while(|&&c| is_space(c)).count() > 0 {
-            n = capture_id(rest).map(|len| rest[..len].to_vec());
+            // `class extends Base` is anonymous.
+            n = capture_id(rest)
+                .map(|len| rest[..len].to_vec())
+                .filter(|n| n != b"extends" && n != b"implements");
         }
-    } else if starts_with_word(tail, b"interface") {
-        return Some(record(vec![("interface", Value::Bool(true))]));
+        (extends, implements) = heritage(stmt);
+    } else if starts_with_word(tail, b"interface") || match_type_alias(tail) {
+        let mut entries = vec![("interface", Value::Bool(true))];
+        if starts_with_word(tail, b"interface") {
+            let (extends, _) = heritage(stmt);
+            if !extends.is_empty() {
+                entries.push(("extends", Value::Vector(extends)));
+            }
+        }
+        return Some(record(entries));
     } else if starts_with_word(tail, b"enum") {
         let rest = strip_spaces(&tail[4..]);
         if tail[4..].iter().take_while(|&&c| is_space(c)).count() > 0 {
             n = capture_id(rest).map(|len| rest[..len].to_vec());
         }
-    } else if starts_with_word(strip_prefix_word(stmt, b"export").unwrap_or(stmt), b"const")
-        || starts_with_word(strip_prefix_word(stmt, b"export").unwrap_or(stmt), b"let")
-        || starts_with_word(strip_prefix_word(stmt, b"export").unwrap_or(stmt), b"var")
+    } else if starts_with_word(decl, b"const")
+        || starts_with_word(decl, b"let")
+        || starts_with_word(decl, b"var")
     {
         // `^%a+%s+(ID)` on the tail
         let letters = tail
@@ -334,21 +525,34 @@ fn export_fact(stmt: &[u8], header: &[u8]) -> Option<Value> {
         }
         typ = ["const", "let", "var"]
             .iter()
-            .find_map(|k| match_const_typed(header, k.as_bytes()));
+            .find_map(|k| match_const_typed(header, k.as_bytes()))
+            .or_else(|| arrow_return_type(stmt.get(header.len()..)?));
     }
-    n.map(|n| {
-        let mut entries = vec![
-            ("ops", Value::Vector(vec![Value::String(text::text(&n))])),
-            ("value", Value::Bool(true)),
-        ];
-        if let Some(typ) = typ {
-            entries.push(("type", Value::String(text::text(&typ))));
+    if n.is_none() && extends.is_empty() && implements.is_empty() {
+        return None;
+    }
+    let mut entries = Vec::new();
+    if let Some(n) = n {
+        entries.push(("ops", Value::Vector(vec![Value::String(text::text(&n))])));
+    }
+    entries.push(("value", Value::Bool(true)));
+    if let Some(typ) = typ {
+        entries.push(("type", Value::String(text::text(&typ))));
+    }
+    for (key, names) in [("extends", extends), ("implements", implements)] {
+        if !names.is_empty() {
+            entries.push((key, Value::Vector(names)));
         }
-        record(entries)
-    })
+    }
+    Some(record(entries))
 }
 
-/// `^export%s+type%s*{` or `^export%s+%*`.
+/// `^type%s+ID`: a type alias; `type {` and `type *` are re-exports.
+fn match_type_alias(tail: &[u8]) -> bool {
+    strip_prefix_word(tail, b"type").is_some_and(|rest| capture_id(rest).is_some())
+}
+
+/// `^export%s+type%s*{` or `^export%s+(type%s+)?%*`.
 fn match_export_type_star(stmt: &[u8]) -> bool {
     let Some(rest) = strip_prefix_word(stmt, b"export") else {
         return false;
@@ -359,9 +563,9 @@ fn match_export_type_star(stmt: &[u8]) -> bool {
     let Some(rest) = strip_prefix_word(rest, b"type") else {
         return false;
     };
-    // `type%s*{`: spaces then `{` — strip_prefix_word required spaces already.
+    // `type%s*{` or `type%s+%*` — strip_prefix_word required spaces already.
     let rest = strip_spaces(rest);
-    rest.first() == Some(&b'{')
+    matches!(rest.first(), Some(b'{') | Some(b'*'))
 }
 
 /// `^export%s+{`: export, spaces, then `{`.
@@ -454,6 +658,7 @@ pub fn read_module(source: &[u8]) -> Value {
                         statement_end(&text, at_pos, true) as i64,
                     );
                     if word == "import" {
+                        let stmt = through_first_string(stmt);
                         let spec = from_spec(stmt).or_else(|| match_bare_import(stmt));
                         if let Some(spec) = spec {
                             let mut names = brace_names(stmt);
@@ -553,7 +758,74 @@ pub fn read_module(source: &[u8]) -> Value {
         ("imports", Value::Vector(imports)),
         ("exports", Value::Vector(exports)),
         ("invokes", Value::Vector(invokes)),
+        ("calls", Value::Vector(call_specs(&text, &holes))),
     ])
+}
+
+/// `import("...")` and `require("...")` with a literal specifier, in source
+/// order; `import x = require("...")` is a require. Not a member call
+/// (`loader.require`; a spread `...require` is a call), not a concatenation
+/// (`"./a/" + b`) and not a template with a `${}`. Comments are blanked and
+/// a call inside a string or regex starts in a hole.
+fn call_specs(text: &[u8], holes: &[(usize, usize)]) -> Vec<Value> {
+    let mut found: Vec<(usize, Value)> = Vec::new();
+    for word in [&b"import"[..], b"require"] {
+        let mut i = 1;
+        while let Some(at_pos) = text::find_plain(text, word, i) {
+            i = at_pos + 1;
+            let before = at(text, at_pos.wrapping_sub(1));
+            let member = before == Some(b'.') && at(text, at_pos.wrapping_sub(2)) != Some(b'.');
+            if ident(before)
+                || member
+                || ident(at(text, at_pos + word.len()))
+                || in_hole(holes, at_pos)
+            {
+                continue;
+            }
+            let mut j = at_pos + word.len();
+            while at(text, j).is_some_and(is_space) {
+                j += 1;
+            }
+            if at(text, j) != Some(b'(') {
+                continue;
+            }
+            j += 1;
+            while at(text, j).is_some_and(is_space) {
+                j += 1;
+            }
+            let quote = at(text, j);
+            if !matches!(quote, Some(b'"') | Some(b'\'') | Some(b'`')) {
+                continue;
+            }
+            let Ok(hole) = holes.binary_search_by_key(&j, |&(a, _)| a) else {
+                continue;
+            };
+            let finish = holes[hole].1;
+            let spec = text::sub(text, (j + 1) as i64, finish as i64 - 2);
+            if finish < j + 2
+                || at(text, finish - 1) != quote
+                || spec.is_empty()
+                || (quote == Some(b'`') && find_subslice(spec, b"${").is_some())
+            {
+                continue;
+            }
+            let mut k = finish;
+            while at(text, k).is_some_and(is_space) {
+                k += 1;
+            }
+            if matches!(at(text, k), Some(b')') | Some(b',')) {
+                found.push((at_pos, Value::String(text::text(spec))));
+            }
+        }
+    }
+    found.sort_by_key(|&(at_pos, _)| at_pos);
+    let mut specs: Vec<Value> = Vec::new();
+    for (_, spec) in found {
+        if !specs.contains(&spec) {
+            specs.push(spec);
+        }
+    }
+    specs
 }
 
 /// `^import%s*["']([^"']+)["']` — a side-effect import.
@@ -598,7 +870,10 @@ fn accepts(path: &str) -> bool {
     if !TS_EXTENSIONS.iter().any(|ext| path.ends_with(ext)) {
         return false;
     }
-    if path.ends_with(".d.ts") {
+    if [".d.ts", ".d.mts", ".d.cts"]
+        .iter()
+        .any(|declaration| path.ends_with(declaration))
+    {
         return false;
     }
     // `%.test%.[cm]?[jt]sx?$` and `%.spec%.[cm]?[jt]sx?$`
@@ -664,6 +939,118 @@ fn strip_ts_extension(rel: &str) -> String {
 
 const EXTS: &[&str] = &[".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 
+/// An ESM specifier names the emitted file: `./a.js` is the source `a.ts`.
+const ESM_SOURCES: &[(&str, &[&str])] = &[
+    (".js", &[".ts", ".tsx"]),
+    (".jsx", &[".tsx"]),
+    (".mjs", &[".mts"]),
+    (".cjs", &[".cts"]),
+];
+
+/// `metadata_paths(root)`: the tsconfig (or jsconfig) of the source root,
+/// then of its parent.
+fn metadata_paths(root: &str) -> Vec<String> {
+    let mut dirs = vec![root];
+    if let Some((parent, _)) = root.rsplit_once('/') {
+        dirs.push(parent);
+    }
+    dirs.iter()
+        .flat_map(|dir| {
+            [
+                format!("{dir}/tsconfig.json"),
+                format!("{dir}/jsconfig.json"),
+            ]
+        })
+        .collect()
+}
+
+/// `compilerOptions.paths` and `baseUrl` of the project tsconfig, made
+/// absolute: `paths` substitutions sit under `baseUrl` when it is set, else
+/// beside the tsconfig.
+#[derive(Default)]
+struct Aliases {
+    base: Option<String>,
+    paths: Vec<(String, Vec<String>)>,
+}
+
+impl Aliases {
+    fn read(path: &str, source: &[u8]) -> Option<Aliases> {
+        let options = jsonc(source)?
+            .get(&Value::String("compilerOptions".into()))?
+            .clone();
+        let option = |key: &str| options.get(&Value::String(key.into()));
+        let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
+        let base = match option("baseUrl") {
+            Some(Value::String(url)) => Some(normalize(&format!("{dir}/{url}"))),
+            _ => None,
+        };
+        let under = base.clone().unwrap_or_else(|| dir.to_owned());
+        let mut paths = Vec::new();
+        if let Some(Value::Map(entries)) = option("paths") {
+            for (key, subs) in entries {
+                if let Value::String(key) = key {
+                    let subs = seq(Some(subs))
+                        .iter()
+                        .filter_map(|s| match s {
+                            Value::String(s) => Some(format!("{under}/{s}")),
+                            _ => None,
+                        })
+                        .collect();
+                    paths.push((key.clone(), subs));
+                }
+            }
+        }
+        Some(Aliases { base, paths })
+    }
+
+    /// The paths a bare specifier may name, in TypeScript's order: the exact
+    /// `paths` key, else the `*` key with the longest prefix, each
+    /// substitution in turn; then the specifier under `baseUrl`.
+    fn candidates(&self, spec: &str) -> Vec<String> {
+        let exact = self
+            .paths
+            .iter()
+            .find(|(key, _)| key == spec)
+            .map(|(_, subs)| (subs, ""));
+        let wildcard = || {
+            self.paths
+                .iter()
+                .filter_map(|(key, subs)| {
+                    let (prefix, suffix) = key.split_once('*')?;
+                    let star = spec.strip_prefix(prefix)?.strip_suffix(suffix)?;
+                    Some((prefix.len(), subs, star))
+                })
+                .max_by_key(|&(prefix, ..)| prefix)
+                .map(|(_, subs, star)| (subs, star))
+        };
+        let mut out: Vec<String> = match exact.or_else(wildcard) {
+            Some((subs, star)) => subs
+                .iter()
+                .map(|s| normalize(&s.replacen('*', star, 1)))
+                .collect(),
+            None => Vec::new(),
+        };
+        if let Some(base) = &self.base {
+            out.push(normalize(&format!("{base}/{spec}")));
+        }
+        out
+    }
+}
+
+/// A tsconfig is JSONC: with comments blanked by `mask` and the `:` outside
+/// strings dropped it reads as EDN, where commas (trailing ones too) are
+/// whitespace. An editor's UTF-8 BOM leads no value.
+fn jsonc(source: &[u8]) -> Option<Value> {
+    let source = source.strip_prefix(b"\xef\xbb\xbf").unwrap_or(source);
+    let (mut text, holes) = mask(source);
+    for (i, c) in text.iter_mut().enumerate() {
+        if *c == b':' && !in_hole(&holes, i + 1) {
+            *c = b' ';
+        }
+    }
+    edn::parse(std::str::from_utf8(&text).ok()?).ok()
+}
+
 pub struct TypeScriptScanner;
 
 pub static SCANNER: TypeScriptScanner = TypeScriptScanner;
@@ -671,6 +1058,10 @@ pub static SCANNER: TypeScriptScanner = TypeScriptScanner;
 impl Scanner for TypeScriptScanner {
     fn accepts(&self, relative: &str, _opts: &Value) -> bool {
         accepts(relative)
+    }
+
+    fn metadata_paths(&self, root: &str) -> Vec<String> {
+        metadata_paths(root)
     }
 
     fn scan(
@@ -700,21 +1091,24 @@ impl Scanner for TypeScriptScanner {
             by_path.insert(f.path.clone(), cid.clone());
             project.insert(crate::value::encode_key(&cid));
         }
-        let resolve = |file: &str, spec: &Value| -> Option<Value> {
-            let spec = match spec {
-                Value::String(s) => s.clone(),
-                _ => return None,
-            };
-            if !spec.starts_with('.') {
-                return None;
-            }
-            let dir = match file.rsplit_once('/') {
-                Some((d, _)) => d,
-                None => "",
-            };
-            let base = normalize(&format!("{dir}/{spec}"));
-            if let Some(cid) = by_path.get(&base) {
+        let aliases = metadata_paths(root)
+            .iter()
+            .filter(|path| scan::relative_path(path, cwd) != **path)
+            .find_map(|path| files.iter().find(|f| f.path == *path))
+            .and_then(|f| Aliases::read(&f.path, &f.source))
+            .unwrap_or_default();
+        let lookup = |base: &str| -> Option<Value> {
+            if let Some(cid) = by_path.get(base) {
                 return Some(cid.clone());
+            }
+            for (emitted, sources) in ESM_SOURCES {
+                if let Some(stem) = base.strip_suffix(emitted) {
+                    for ext in *sources {
+                        if let Some(cid) = by_path.get(&format!("{stem}{ext}")) {
+                            return Some(cid.clone());
+                        }
+                    }
+                }
             }
             for ext in EXTS {
                 if let Some(cid) = by_path.get(&format!("{base}{ext}")) {
@@ -728,6 +1122,23 @@ impl Scanner for TypeScriptScanner {
             }
             None
         };
+        let resolve = |file: &str, spec: &Value| -> Option<Value> {
+            let spec = match spec {
+                Value::String(s) => s.clone(),
+                _ => return None,
+            };
+            if !spec.starts_with('.') {
+                return aliases
+                    .candidates(&spec)
+                    .iter()
+                    .find_map(|base| lookup(base));
+            }
+            let dir = match file.rsplit_once('/') {
+                Some((d, _)) => d,
+                None => "",
+            };
+            lookup(&normalize(&format!("{dir}/{spec}")))
+        };
         let mut classes = Vec::new();
         let mut edges: Vec<Value> = Vec::new();
         let mut foreigns: Vec<Value> = Vec::new();
@@ -739,6 +1150,7 @@ impl Scanner for TypeScriptScanner {
             let mut bindings: Vec<(String, Value)> = Vec::new();
             let mut specs: Vec<Value> = Vec::new();
             let mut impls: Vec<Value> = Vec::new();
+            let mut inherits: Vec<Value> = Vec::new();
             let mut interface = false;
             let mut value = false;
             for imp in seq(get(&surface, "imports")) {
@@ -777,8 +1189,23 @@ impl Scanner for TypeScriptScanner {
                 {
                     impls.push(to.clone());
                 }
+                for (key, group) in [("implements", &mut impls), ("extends", &mut inherits)] {
+                    for n in seq(get(exp, key)) {
+                        if let Value::String(n) = n
+                            && let Some((_, to)) = bindings.iter().find(|(b, _)| b == n)
+                            && !group.contains(to)
+                        {
+                            group.push(to.clone());
+                        }
+                    }
+                }
                 interface = interface || flag(exp, "interface");
                 value = value || flag(exp, "value");
+            }
+            for spec in seq(get(&surface, "calls")) {
+                if !specs.contains(spec) {
+                    specs.push(spec.clone());
+                }
             }
             let mut c = record(vec![
                 ("id", cid.clone()),
@@ -836,6 +1263,7 @@ impl Scanner for TypeScriptScanner {
                 (&requires, "dependency"),
                 (&external, "dependency"),
                 (&impls, "implements"),
+                (&inherits, "inheritance"),
             ] {
                 for to in group {
                     if cid != *to {
@@ -865,5 +1293,490 @@ impl Scanner for TypeScriptScanner {
             ("edges", Value::Vector(edges)),
             ("invokes", Value::Map(invokes_map)),
         ]))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::value::id_name;
+
+    const V: &str = "export const v = 1;\n";
+
+    fn scan_files(root: &str, cwd: &str, files: &[(&str, &str)]) -> Value {
+        let files: Vec<SourceFile> = files
+            .iter()
+            .map(|(path, source)| SourceFile {
+                path: path.to_string(),
+                source: source.as_bytes().to_vec(),
+            })
+            .collect();
+        let opts = record(vec![("prefix", Value::String("p".into()))]);
+        SCANNER.scan(root, &opts, &files, cwd).unwrap()
+    }
+
+    /// Scans project `/p` with source root `/p/src`; paths are
+    /// project-relative.
+    fn scan(files: &[(&str, &str)]) -> Value {
+        let files: Vec<(String, &str)> = files
+            .iter()
+            .map(|(path, source)| (format!("/p/{path}"), *source))
+            .collect();
+        let files: Vec<(&str, &str)> = files.iter().map(|(p, s)| (p.as_str(), *s)).collect();
+        scan_files("/p/src", "/p", &files)
+    }
+
+    /// `to kind` of each edge out of `from`, in scan order.
+    fn edges_from(scan: &Value, from: &str) -> Vec<String> {
+        seq(get(scan, "edges"))
+            .iter()
+            .filter(|e| id_name(get(e, "from").unwrap()) == from)
+            .map(|e| {
+                let to = id_name(get(e, "to").unwrap());
+                format!("{to} {}", id_name(get(e, "kind").unwrap()))
+            })
+            .collect()
+    }
+
+    fn edges(files: &[(&str, &str)], from: &str) -> Vec<String> {
+        edges_from(&scan(files), from)
+    }
+
+    fn class(files: &[(&str, &str)], id: &str) -> Value {
+        seq(get(&scan(files), "classes"))
+            .iter()
+            .find(|c| id_name(get(c, "id").unwrap()) == id)
+            .unwrap()
+            .clone()
+    }
+
+    fn ops(files: &[(&str, &str)], id: &str) -> Vec<String> {
+        seq(get(&class(files, id), "ops"))
+            .iter()
+            .map(|op| id_name(get(op, "name").unwrap()))
+            .collect()
+    }
+
+    #[test]
+    fn an_import_or_require_call_with_a_literal_names_a_dependency() {
+        let main = "export async function load() { return import(\"./a\"); }\n\
+                    import('./b').then((m) => m.v);\n\
+                    const c = require(\"./c\");\n\
+                    import d = require(\"./d\");\n\
+                    module.exports = { ...require(`./e`) };\n\
+                    const l = require(\"./locales/\" + lang);\n\
+                    const t = import(`./locales/${lang}`);\n\
+                    // require(\"./x\")\n\
+                    /* import(\"./x\") */\n\
+                    const s = \"import('./x')\";\n\
+                    const u = `require(\"./x\")`;\n\
+                    const re = /require\\(\"\\.\\/x\"\\)/;\n\
+                    loader.require(\"./x\");\n";
+        let files = [
+            ("src/a.ts", V),
+            ("src/b.ts", V),
+            ("src/c.ts", V),
+            ("src/d.ts", V),
+            ("src/e.ts", V),
+            ("src/x.ts", V),
+            ("src/locales/index.ts", V),
+            ("src/main.ts", main),
+        ];
+        assert_eq!(
+            vec![
+                "a dependency",
+                "b dependency",
+                "c dependency",
+                "d dependency",
+                "e dependency"
+            ],
+            edges(&files, "main")
+        );
+    }
+
+    #[test]
+    fn an_esm_specifier_names_its_typescript_source() {
+        let files = [
+            ("src/a.ts", V),
+            ("src/b.tsx", V),
+            ("src/c.tsx", V),
+            ("src/m.mts", V),
+            ("src/n.cts", V),
+            ("src/plain.js", V),
+            (
+                "src/main.ts",
+                "import { a } from \"./a.js\";\n\
+                 export { b } from \"./b.js\";\n\
+                 import c from \"./c.jsx\";\n\
+                 import \"./m.mjs\";\n\
+                 import \"./n.cjs\";\n\
+                 import \"./plain.js\";\n",
+            ),
+        ];
+        assert_eq!(
+            vec![
+                "a dependency",
+                "c dependency",
+                "m dependency",
+                "n dependency",
+                "plain dependency",
+                "b dependency"
+            ],
+            edges(&files, "main")
+        );
+    }
+
+    #[test]
+    fn an_import_without_a_semicolon_ends_at_its_specifier() {
+        let files = [
+            ("src/side.ts", V),
+            ("src/a.ts", V),
+            ("src/b.ts", V),
+            ("src/c.ts", V),
+            (
+                "src/main.ts",
+                "import \"./side\"\n\
+                 import x from \"./a\"\n\
+                 import type { Fs } from \"./b\"\n\
+                 import { \"kebab-name\" as kebab } from \"./c\"\n\
+                 export const v: Fs = x\n",
+            ),
+        ];
+        assert_eq!(
+            vec![
+                "side dependency",
+                "a dependency",
+                "b dependency",
+                "c dependency",
+                "b implements"
+            ],
+            edges(&files, "main")
+        );
+    }
+
+    #[test]
+    fn a_from_in_a_later_string_names_no_module() {
+        let files = [
+            ("src/cache.ts", V),
+            (
+                "src/main.ts",
+                "const a = 1\nexport { a }\nconst msg = \"loaded from './cache'\"\n",
+            ),
+        ];
+        assert!(edges(&files, "main").is_empty());
+        assert_eq!(vec!["a"], ops(&files, "main"));
+    }
+
+    #[test]
+    fn a_type_only_star_export_depends_on_its_module() {
+        let files = [
+            ("src/a.ts", V),
+            ("src/b.ts", V),
+            (
+                "src/main.ts",
+                "export type * from \"./a\";\nexport type * as B from \"./b\";\n",
+            ),
+        ];
+        assert_eq!(vec!["a dependency", "b dependency"], edges(&files, "main"));
+    }
+
+    #[test]
+    fn a_modified_declaration_names_its_operation() {
+        let files = [(
+            "src/main.ts",
+            "export abstract class Shape {}\n\
+             export default abstract class Base {}\n\
+             export const enum Color { Red }\n\
+             export function* gen() {}\n\
+             export async function* agen() {}\n\
+             export declare function declared(): void;\n\
+             export declare const dc: number;\n",
+        )];
+        assert_eq!(
+            vec!["Shape", "Base", "Color", "gen", "agen", "declared", "dc"],
+            ops(&files, "main")
+        );
+    }
+
+    #[test]
+    fn a_function_returning_an_imported_interface_implements_it() {
+        let files = [
+            ("src/fs.ts", "export interface Fs { read(): string; }\n"),
+            (
+                "src/destructured.ts",
+                "import type { Fs } from \"./fs\";\n\
+                 export function make({ root }: { root: string }): Fs { return root as Fs; }\n",
+            ),
+            (
+                "src/arrow.ts",
+                "import type { Fs } from \"./fs\";\n\
+                 export const make = ({ root }: Opts): Fs => root as Fs;\n",
+            ),
+        ];
+        let scan = scan(&files);
+        assert_eq!(
+            vec!["fs dependency", "fs implements"],
+            edges_from(&scan, "destructured")
+        );
+        assert_eq!(
+            vec!["fs dependency", "fs implements"],
+            edges_from(&scan, "arrow")
+        );
+    }
+
+    #[test]
+    fn a_heritage_clause_names_its_base_and_interfaces() {
+        let files = [
+            ("src/fs.ts", "export interface Fs { read(): string; }\n"),
+            (
+                "src/closer.ts",
+                "export interface Closer { close(): void; }\n",
+            ),
+            ("src/base.ts", "export class Base<T> {}\n"),
+            (
+                "src/node.ts",
+                "import type { Fs } from \"./fs\";\n\
+                 import * as closer from \"./closer\";\n\
+                 import { Base } from \"./base\";\n\
+                 export class NodeFs<T> extends Base<T> implements Fs, closer.Closer {\n  \
+                 read() { return \"\"; }\n  close() {}\n}\n",
+            ),
+            (
+                "src/anon.ts",
+                "import { Base } from \"./base\";\nexport default class extends Base<string> {}\n",
+            ),
+            (
+                "src/rich.ts",
+                "import type { Fs } from \"./fs\";\nexport interface RichFs extends Fs { size(): number; }\n",
+            ),
+            (
+                "src/boxed.ts",
+                "import { Base } from \"./base\";\nexport class Boxed<T = string> extends Base<T> {}\n",
+            ),
+            (
+                "src/mixed.ts",
+                "import { Base } from \"./base\";\nimport type { Fs } from \"./fs\";\n\
+                 export class Mixed extends mixin(Fs, Base) {}\n",
+            ),
+        ];
+        let scan = scan(&files);
+        assert_eq!(
+            vec![
+                "fs dependency",
+                "closer dependency",
+                "base dependency",
+                "fs implements",
+                "closer implements",
+                "base inheritance"
+            ],
+            edges_from(&scan, "node")
+        );
+        assert_eq!(
+            vec!["base dependency", "base inheritance"],
+            edges_from(&scan, "anon")
+        );
+        assert_eq!(
+            vec!["fs dependency", "fs inheritance"],
+            edges_from(&scan, "rich")
+        );
+        assert_eq!(
+            vec!["base dependency", "base inheritance"],
+            edges_from(&scan, "boxed"),
+            "a type parameter default does not end the header"
+        );
+        assert_eq!(
+            vec!["base dependency", "fs dependency"],
+            edges_from(&scan, "mixed"),
+            "a mixin call's arguments are not bases"
+        );
+        assert_eq!(vec!["NodeFs"], ops(&files, "node"));
+        assert!(ops(&files, "anon").is_empty());
+    }
+
+    #[test]
+    fn an_apostrophe_in_jsx_text_hides_only_its_line() {
+        let files = [
+            ("src/a.ts", V),
+            (
+                "src/page.tsx",
+                "export function Intro() {\n  return <p>Don't panic</p>;\n}\n\
+                 export function Outro() {\n  return <p>Bye</p>;\n}\n\
+                 export { a } from \"./a\";\n",
+            ),
+        ];
+        assert_eq!(vec!["a dependency"], edges(&files, "page"));
+        assert_eq!(vec!["Intro", "Outro", "a"], ops(&files, "page"));
+    }
+
+    #[test]
+    fn a_line_continuation_keeps_a_string_open() {
+        // An odd run of `\` before LF or CR LF continues the string; an even
+        // run is escaped backslashes, and the JSX apostrophe ends its line.
+        let main = "const lf = \"first \\\nimport { fake } from './fake';\";\n\
+                    const crlf = 'first \\\r\nimport { fake } from \"./fake\";';\r\n\
+                    const odd = \"a \\\\\\\nimport { fake } from './fake';\";\n\
+                    import { real } from './real';\n";
+        let page = "export const Tip = () => (\n  <p>\n    Don't type C:\\\\\n    \
+                    {lazy(() => import('./real'))}\n  </p>\n);\n";
+        let files = [
+            ("src/fake.ts", V),
+            ("src/real.ts", V),
+            ("src/main.ts", main),
+            ("src/page.tsx", page),
+        ];
+        let scan = scan(&files);
+        assert_eq!(vec!["real dependency"], edges_from(&scan, "main"));
+        assert_eq!(vec!["real dependency"], edges_from(&scan, "page"));
+    }
+
+    #[test]
+    fn a_call_in_a_template_interpolation_names_a_dependency() {
+        // The `${...}` expression is code; the template text around it is not.
+        let main = "const a = `${require(\"./real\")} and require(\"./fake\")`;\n\
+                    const b = `outer ${`inner ${import('./nested')}`} import('./fake')`;\n\
+                    const c = `${ {k: require('./obj')}.k } require(\"./fake\")`;\n\
+                    const d = `${ \"}\" + '}' /* } */ } require(\"./fake\")`;\n\
+                    const e = `${name}\nimport { fake } from './fake';\n`;\n";
+        let files = [
+            ("src/fake.ts", V),
+            ("src/real.ts", V),
+            ("src/nested.ts", V),
+            ("src/obj.ts", V),
+            ("src/main.ts", main),
+        ];
+        assert_eq!(
+            vec!["real dependency", "nested dependency", "obj dependency"],
+            edges(&files, "main")
+        );
+    }
+
+    #[test]
+    fn a_slash_after_a_postfix_update_divides() {
+        // `i++ /` and `i-- /` divide; a unary `+` or a prefix `++` still
+        // precedes a regex, whose `` ` `` opens no template text.
+        let inc = "export const f = (i: number, n: number, m: number) => \
+                   `${i++ / n}/${m} require(\"./fake\")`;\n\
+                   export const g = () => require(\"./real\");\n";
+        let dec = "export const f = (i: number, n: number, m: number) => \
+                   `${i-- / n}/${m} require(\"./fake\")`;\n\
+                   export const g = () => require(\"./real\");\n";
+        let unary = "export const f = (s: string) => s + +/`/.test(s);\n\
+                     export const g = () => require(\"./real\");\n";
+        let prefix = "export const f = (n: number) => n + ++/`/.lastIndex;\n\
+                      export const g = () => require(\"./real\");\n";
+        let newline = "let n = 0; n\n++/`/.lastIndex;\n\
+                       export const g = () => require(\"./real\");\n";
+        let files = [
+            ("src/fake.ts", V),
+            ("src/real.ts", V),
+            ("src/inc.ts", inc),
+            ("src/dec.ts", dec),
+            ("src/unary.ts", unary),
+            ("src/prefix.ts", prefix),
+            ("src/newline.ts", newline),
+        ];
+        let scan = scan(&files);
+        assert_eq!(vec!["real dependency"], edges_from(&scan, "inc"));
+        assert_eq!(vec!["real dependency"], edges_from(&scan, "dec"));
+        assert_eq!(vec!["real dependency"], edges_from(&scan, "unary"));
+        assert_eq!(vec!["real dependency"], edges_from(&scan, "prefix"));
+        assert_eq!(vec!["real dependency"], edges_from(&scan, "newline"));
+    }
+
+    #[test]
+    fn a_module_of_type_aliases_is_an_interface() {
+        let files = [
+            (
+                "src/types.ts",
+                "export type Props = { a: number };\nexport type Id<T> = T;\n",
+            ),
+            (
+                "src/mixed.ts",
+                "export type Props = { a: number };\nexport const v = 1;\n",
+            ),
+        ];
+        assert_eq!(
+            Some(&Value::keyword("interface")),
+            get(&class(&files, "types"), "stereotype")
+        );
+        assert_eq!(None, get(&class(&files, "mixed"), "stereotype"));
+    }
+
+    #[test]
+    fn a_module_declaration_file_is_not_a_source() {
+        assert!(!accepts("src/env.d.ts"));
+        assert!(!accepts("src/env.d.mts"));
+        assert!(!accepts("src/env.d.cts"));
+        assert!(accepts("src/env.mts"));
+    }
+
+    #[test]
+    fn tsconfig_paths_resolve_an_alias_to_its_module() {
+        let tsconfig = "{\n  // JSONC: comments and trailing commas\n  \
+                        \"compilerOptions\": {\n    /* \"paths\": {} */\n    \
+                        \"paths\": {\n      \"@/*\": [\"./src/*\"],\n      \
+                        \"@/components/*\": [\"src/ui/*\"],\n      \
+                        \"~lib/*\": [\"missing/*\", \"src/lib/*\",],\n      \
+                        \"config\": [\"src/settings.ts\"],\n    },\n  },\n}\n";
+        let files = [
+            ("tsconfig.json", tsconfig),
+            ("src/lib/util.ts", V),
+            ("src/ui/Button.tsx", V),
+            ("src/settings.ts", V),
+            (
+                "src/page.ts",
+                "import { util } from \"@/lib/util\";\n\
+                 import { Button } from \"@/components/Button\";\n\
+                 import { util as u2 } from \"~lib/util\";\n\
+                 import config from \"config\";\n\
+                 import React from \"react\";\n",
+            ),
+        ];
+        assert_eq!(
+            vec![
+                "lib.util dependency",
+                "ui.Button dependency",
+                "settings dependency",
+                "react dependency"
+            ],
+            edges(&files, "page")
+        );
+    }
+
+    #[test]
+    fn a_jsconfig_base_url_resolves_a_bare_specifier_under_it() {
+        // `baseUrl: "."` above the `src` root: the specifier's foreign id
+        // (`src.components.Button`) is not the class id. An editor's BOM
+        // leads the file.
+        let files = [
+            (
+                "jsconfig.json",
+                "\u{feff}{ \"compilerOptions\": { \"baseUrl\": \".\" } }\n",
+            ),
+            ("src/components/Button.tsx", V),
+            (
+                "src/page.ts",
+                "import { Button } from \"src/components/Button\";\n\
+                 import React from \"react\";\n",
+            ),
+        ];
+        assert_eq!(
+            vec!["components.Button dependency", "react dependency"],
+            edges(&files, "page")
+        );
+    }
+
+    #[test]
+    fn a_tsconfig_outside_the_project_is_ignored() {
+        let files = [
+            (
+                "/tsconfig.json",
+                "{ \"compilerOptions\": { \"paths\": { \"lib\": [\"p/a.ts\"] } } }",
+            ),
+            ("/p/a.ts", V),
+            ("/p/main.ts", "import { v } from \"lib\";\n"),
+        ];
+        let scan = scan_files("/p", "/p", &files);
+        assert_eq!(vec!["lib dependency"], edges_from(&scan, "main"));
     }
 }

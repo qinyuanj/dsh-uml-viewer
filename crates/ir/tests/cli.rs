@@ -146,6 +146,37 @@ fn an_ir_document_given_as_policy_and_output_keeps_its_bytes() {
 }
 
 #[test]
+fn a_tsconfig_beside_the_source_root_resolves_path_aliases() {
+    let dir = tempdir("tsconfig");
+    std::fs::create_dir_all(dir.join("src/lib")).unwrap();
+    std::fs::write(
+        dir.join("tsconfig.json"),
+        "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"./src/*\"] } } }\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("src/lib/util.ts"), "export const util = 1;\n").unwrap();
+    std::fs::write(
+        dir.join("src/page.ts"),
+        "import { util } from \"@/lib/util\";\nexport const page = util;\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("policy.edn"),
+        "{:lang :typescript :src \"src\" :prefix \"app\"}",
+    )
+    .unwrap();
+    assert_eq!(
+        ExitCode::SUCCESS,
+        run_in(&dir, &["policy.edn", "result.edn"])
+    );
+    let document = std::fs::read_to_string(dir.join("result.edn")).unwrap();
+    assert!(
+        document.contains("{:from :page :kind :dependency :to :lib.util}"),
+        "{document}"
+    );
+}
+
+#[test]
 fn a_policy_without_a_source_declaration_still_detects_its_language() {
     // #166 out of scope: :src and :lang stay optional (src default + detection).
     let dir = tempdir("no-source");
