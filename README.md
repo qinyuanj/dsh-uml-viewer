@@ -254,12 +254,30 @@ case-sensitive. Tool option arrays cannot declare owned routing flags (`--root`,
 Scope fields own roots/exclusions; only explicit refresh arguments request full
 mutation. Refresh arguments cannot override configured roots/exclusions.
 
-With standard scope configured, mutation expands supplied files/directories (or
-`--changed` Git additions/modifications/untracked files) and filters to business
-sources before calling Mutator. Without targets it selects the configured trees.
-An empty filtered selection fails explicitly without launching a tool. Missing
-paths fail; scoped refresh does not accept textual path filters. Omitted targets
-are diagnosed on stderr. Mutation retains differential behavior and snapshots.
+With standard scope configured, `./uml mutate` passes the declared roots and
+exclusions to Mutator as `-s` and `--exclude` and forwards its targets without
+expanding them: either `--changed`, forwarded as the flag, or named files and
+directories, each forwarded once as its project-relative path, in the order
+named. `--changed` together with a named target fails (exit 1) without
+launching a tool or publishing a record, because Mutator would mutate only the
+changed set and ignore the names; run them separately.
+A named file outside every root or matching an exclusion is not forwarded, nor
+is a named directory that is excluded or that neither lies inside a root nor
+contains one; each gets this line on stderr:
+`uml: omitted mutation target outside business scope: <path>`. Missing paths,
+symbolic links and paths outside the project fail; scoped refresh does not accept textual path filters. A call with neither
+`--changed` nor a remaining target fails (exit 1) without launching a tool or
+publishing a record. Mutator decides which files in a forwarded directory or
+changed set are sources, by crapper's selection rules, and exits 0 with `No
+source files to mutate.` when none remain. Mutation retains differential
+behavior and snapshots.
+
+When it passes `-s` or `--exclude`, `./uml mutate` or `./uml dry` first runs
+`<tool> --help`. If the installed Mutator or Dryer does not list `--exclude`,
+the call fails (exit 1) and asks for `get-uml-viewer --install-only`; it does
+not launch the tool or publish a record. An older tool would reject
+`--exclude`, or mutate the whole `-s` tree instead of the named file. Without
+declared roots or exclusions nothing is probed.
 
 Without persistent configuration, supply scope flags per invocation:
 
@@ -277,11 +295,16 @@ in a full-tree refresh. A failed refresh preserves the previous snapshot rather
 than replacing other classes' metrics with a partial result. `--no-coverage`
 explicitly requests complexity only; it does not establish fresh coverage.
 
-Mutator currently accepts repeated `--source-root` but **has no `--exclude`
-option**. The standard scope adapter supplies selected business files rather
-than passing unsupported exclusions. Without a `standardTools` declaration the
-scope is the project root; declare roots/exclusions or supply changed
-business files explicitly. Crapper exclusions alone do not apply to mutation.
+Mutator accepts repeated `-s`/`--source-root` and `--exclude` and selects files
+by crapper's rules. With `-s`, named paths and `--changed` are narrowed to the
+source roots: a named file outside every root is dropped with
+`Skipping <path>; it is outside the source roots` on stderr, files reached through a named
+directory or `--changed` are dropped silently, and `--exclude` applies
+afterwards. Given both `--changed` and named paths, Mutator takes only the
+changed set. Without a `standardTools` declaration no `-s` or `--exclude` is
+passed and the scope is the project root; declare roots/exclusions or supply
+changed business files explicitly. Crapper exclusions alone do not apply to
+mutation.
 `mutate` stays
 differential; only explicitly passing `--mutate-all` requests all sites. Passing `--max-workers 3`
 to `./uml mutate src/calc/init.lua` caps parallel workers without changing
@@ -300,12 +323,13 @@ failures. Findings retain snapshots and never request an automatic rerun or
 CRAP or mutation remains red.
 
 Dryer writes `.metrics/dry.edn` on exit 0 only; exit 1 is a usage error and exit
-2 an unknown `--format`, so neither is a valid quality result. It has no
-`--exclude` flag, so with no declared exclusions `./uml dry` forwards the source
-roots with `-s` and lets dryer skip test/spec/vendor itself. With exclusions it
-enumerates the matching business files and passes them explicitly, which keeps
-the same glob semantics as CRAP and mutation. An empty selection fails without
-launching dryer. Nothing in the viewer reads `dry.edn` yet.
+2 an unknown `--format`, so neither is a valid quality result. `./uml dry`
+passes the declared roots and exclusions as `-s` and `--exclude`, then
+`dryerOptions` and the caller's arguments, and never lists files itself. Dryer
+selects files by crapper's rules, so its rows name the same sources as
+`crap.edn`; without declared roots it walks the project root, and with nothing
+left to analyze it exits 0 with `No source files to analyze.`. Nothing in the
+viewer reads `dry.edn` yet.
 
 Run `python -I scripts/test_posix_entries.py` for the public-entry checks: real
 `./uml ir`, the four scanners, standard and configured quality scope, serial

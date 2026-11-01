@@ -1,6 +1,5 @@
 """POSIX 质量分发：声明 scope、串行执行和原子结果记录。"""
 import json
-import os
 from pathlib import Path
 import re
 import subprocess
@@ -9,8 +8,6 @@ import sys
 from uml_posix import atomic_write
 
 TOOLS = {'crap': ('crapper', [0, 2]), 'mutate': ('mutator', [0, 3]), 'dry': ('dryer', [0])}
-SKIP = {'.git', '.uml-viewer', '.venv', 'test', 'tests', 'spec', 'specs', 'vendor', 'node_modules', 'target', '__pycache__'}
-EXTENSIONS = {'.clj', '.cljc', '.cljs', '.cljd', '.bb', '.java', '.go', '.ts', '.tsx', '.mts', '.cts', '.rs', '.py', '.lua'}
 VALUES = {'--coverage-command', '--threshold', '--test-command', '--busted-task', '--timeout-factor', '--mutation-warning', '--max-workers', '--lines', '--min-lines', '--min-nodes', '--format'}
 ROUTING = {'--root', '--source-root', '-s', '--exclude', '--full-tree', '--changed', '--mutate-all', '--edn', '--text'}
 
@@ -98,51 +95,99 @@ def business(root, path, roots, exclusions):
     return canonical.is_relative_to(root) and any(canonical.is_relative_to(p) for p in roots) and not excluded(path.relative_to(root).as_posix(), exclusions)
 
 
-def targets(root, forward, roots, exclusions):
-    options, named = [], []  # (name, named by the caller)
+def scope_args(standard, flag):
+    """声明的根目录和排除项，按工具自己的 -s/--exclude 选项传递。"""
+    args = [value for source in standard.get('sourceRoots', []) for value in (flag, source)]
+    return args + [value for pattern in standard.get('exclude', []) for value in ('--exclude', pattern)]
+
+
+def split(forward):
+    """分出调用方选项和目标；--changed 作为目标原样转发。"""
+    options, names = [], []
     index = 0
     while index < len(forward):
         arg = forward[index]
-        if arg == '--changed':
-            for command in (['diff', '--name-only', '-z', '--diff-filter=AM', 'HEAD'], ['ls-files', '--others', '--exclude-standard', '-z']):
-                result = subprocess.run(['git', '-C', str(root), *command], capture_output=True, check=True)
-                named += [(os.fsdecode(x), False) for x in result.stdout.split(b'\0') if x]
-        elif arg.startswith('-'):
-            if arg in ('--root', '--source-root', '-s', '--exclude'):
-                raise ValueError('mutation scope 由 standardTools 声明')
+        if arg in ('--root', '--source-root', '-s', '--exclude'):
+            raise ValueError('mutation scope 由 standardTools 声明')
+        if arg == '--changed' or not arg.startswith('-'):
+            names.append(arg)
+        else:
             options.append(arg)
             if arg in VALUES:
                 index += 1
                 if index == len(forward):
                     raise ValueError(f'{arg} 缺少参数值')
                 options.append(forward[index])
-        else:
-            named.append((arg, True))
         index += 1
-    files = []
-    for name, explicit in named:
-        path = root / name
-        if path.is_symlink():
-            raise ValueError(f'mutation 不允许符号链接：{name}')
-        candidates = sorted(path.rglob('*')) if path.is_dir() else [path]
-        for file in candidates:
-            if file.is_symlink():
-                raise ValueError(f'mutation 不允许符号链接：{file}')
-            if not file.is_file():
-                continue
-            if not file.resolve().is_relative_to(root):
-                raise ValueError(f'mutation 目标位于项目之外：{file}')
-            relative = file.relative_to(root)
-            if file.suffix not in EXTENSIONS or SKIP.intersection(relative.parts):
-                continue
-            if not business(root, file, roots, exclusions):
-                if explicit and file == path:
-                    print(f'uml: omitted mutation target outside business scope: {relative.as_posix()}', file=sys.stderr)
-            elif str(relative) not in files:
-                files.append(str(relative))
-    if not files:
+    return options, names
+
+
+def in_scope(root, path, roots, exclusions):
+    """点名文件必须位于根目录内；点名目录也可以包含根目录。"""
+    if business(root, path, roots, exclusions):
+        return True
+    holds = path.is_dir() and any(source.is_relative_to(path.resolve()) for source in roots)
+    return holds and not excluded(path.relative_to(root).as_posix(), exclusions)
+
+
+def target(root, name, roots, exclusions):
+    """返回要转发的项目相对路径；scope 之外的点名目标返回 None。"""
+    if name == '--changed':
+        return name
+    path = root / name
+    if path.is_symlink():
+        raise ValueError(f'mutation 不允许符号链接：{name}')
+    if not path.exists():
+        raise ValueError(f'mutation 目标不存在：{name}')
+    if not path.resolve().is_relative_to(root):
+        raise ValueError(f'mutation 目标位于项目之外：{name}')
+    relative = path.relative_to(root).as_posix()
+    if in_scope(root, path, roots, exclusions):
+        return relative
+    print(f'uml: omitted mutation target outside business scope: {relative}', file=sys.stderr)
+    return None
+
+
+def targets(root, forward, roots, exclusions):
+    options, names = split(forward)
+    if '--changed' in names and set(names) != {'--changed'}:
+        # mutator 同时收到两者时只取变更集合，点名目标会被静默忽略。
+        raise ValueError('--changed 不能与点名的 mutation 目标同时使用；请分开运行。')
+    selection = []
+    for name in names:
+        chosen = target(root, name, roots, exclusions)
+        if chosen and chosen not in selection:
+            selection.append(chosen)
+    if not selection:
         raise ValueError('没有业务 mutation 目标；请提供明确文件或 --changed。')
-    return options, files
+    return options, selection
+
+
+def takes_scope(python, tool, root):
+    """旧版 mutator/dryer 没有 --exclude，也不会把点名路径和 --changed 限制在 -s 之内。"""
+    try:
+        result = subprocess.run([str(python), '-m', tool, '--help'], cwd=root,
+                                capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0 and '--exclude' in result.stdout
+
+
+def standard_command(root, operation, standard, roots, forward):
+    """标准工具的 argv 和 crapScope；声明的 scope 交给工具自己的 -s/--exclude。"""
+    tool = TOOLS[operation][0]
+    python = root / '.uml-viewer' / tool / '.venv/bin/python'
+    if not python.is_file():
+        raise ValueError(f'缺少 {python}；请重新运行 get-uml-viewer。')
+    argv = [str(python), '-m', tool]
+    options = standard.get(tool + 'Options', [])
+    if operation == 'crap':
+        return argv + ['--full-tree'] + scope_args(standard, '--source-root') + options + forward, 'whole-tree'
+    extra, selection = targets(root, forward, roots, standard.get('exclude', [])) if operation == 'mutate' else ([], forward)
+    scope = scope_args(standard, '-s')
+    if scope and not takes_scope(python, tool, root):
+        raise ValueError(f'.uml-viewer/{tool} 不接受 -s/--exclude 范围选择；请运行 get-uml-viewer --install-only 更新工具。')
+    return argv + scope + options + extra + selection, None
 
 
 def dispatch(root, operation, forward):
@@ -153,7 +198,6 @@ def dispatch(root, operation, forward):
     roots = scope(root, standard)
     tool, codes = TOOLS[operation]
     override = config.get('operations', {}).get(operation)
-    scope_name = None
     if override:
         argv = override['argv'] + (forward if override['forwardArgs'] == 'append' else [])
         if argv[0].lower().endswith(('.ps1', '.exe', '.bat', '.cmd')):
@@ -164,29 +208,8 @@ def dispatch(root, operation, forward):
     else:
         if standard and any(x in ('--root', '--source-root', '-s', '--exclude') for x in forward):
             raise ValueError('业务 scope 已由 standardTools 声明，不能用 refresh 参数覆盖')
-        directory = root / '.uml-viewer' / tool
-        python = directory / '.venv/bin/python'
-        if not python.is_file():
-            raise ValueError(f'缺少 {python}；请重新运行 get-uml-viewer。')
-        argv = [str(python), '-m', tool]
-        options = standard.get(tool + 'Options', [])
-        if operation == 'crap':
-            scope_args = [value for source in standard.get('sourceRoots', []) for value in ('--source-root', source)]
-            scope_args += [value for exclude in standard.get('exclude', []) for value in ('--exclude', exclude)]
-            commands = [argv + ['--full-tree'] + scope_args + options + forward]
-            scope_name = 'whole-tree'
-        elif operation == 'mutate':
-            extra, files = targets(root, forward, roots, standard.get('exclude', []))
-            commands = [argv + options + extra + files]
-        else:
-            if standard.get('exclude'):
-                files = sorted({str(p.relative_to(root)) for source in roots for p in source.rglob('*') if p.is_file() and not p.is_symlink() and p.suffix in EXTENSIONS and business(root, p, roots, standard['exclude'])})
-                if not files:
-                    raise ValueError('没有重复检测目标')
-                scope_args = files
-            else:
-                scope_args = [value for source in standard.get('sourceRoots', []) for value in ('-s', source)]
-            commands = [argv + scope_args + options + forward]
+        argv, scope_name = standard_command(root, operation, standard, roots, forward)
+        commands = [argv]
     valid = True
     code = 0
     for argv in commands:
