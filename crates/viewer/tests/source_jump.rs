@@ -270,3 +270,37 @@ fn splits_a_body_into_numbered_rows_with_the_target_highlighted() {
     }
     assert!(contrast(theme::SOURCE_COMMENT, background) >= 3.0);
 }
+
+#[test]
+fn opening_a_member_of_an_open_file_moves_its_window_to_that_member() {
+    let root = std::env::temp_dir().join(format!("uml-source-reuse-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("a.lua"),
+        "function pick() end\n\nfunction drop() end\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("b.lua"), "function other() end\n").unwrap();
+    let mut gui = viewer::gui::Gui::default();
+    gui.open_source_file("lua", "a.lua", Some("pick"), &root)
+        .unwrap();
+    gui.open_source_file("lua", "b.lua", Some("other"), &root)
+        .unwrap();
+    gui.open_source_file("lua", "a.lua", Some("drop"), &root)
+        .unwrap();
+
+    let files: Vec<_> = gui.sources.iter().map(|w| w.file.as_str()).collect();
+    assert_eq!(2, files.len(), "one window per file: {files:?}");
+    let newest = gui.sources.last().unwrap();
+    assert!(newest.file.ends_with("a.lua"));
+    assert_eq!(Some(3), newest.line);
+    assert_eq!("a.lua:3", newest.title);
+    let marked: Vec<_> = newest
+        .rows
+        .iter()
+        .filter(|r| r.marker.is_some())
+        .map(|r| r.number)
+        .collect();
+    assert_eq!(vec![3], marked);
+}

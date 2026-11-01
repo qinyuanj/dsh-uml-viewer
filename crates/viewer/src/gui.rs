@@ -252,6 +252,7 @@ impl Gui {
     }
 
     /// Open a source window; `Err` carries the reason for the status line.
+    /// A file already open keeps its one window, which moves to the member.
     pub fn open_source(&mut self, ident: &Ident, root: &Path) -> Result<(), String> {
         let files = source::Files {
             root: Some(root.to_string_lossy().into_owned()),
@@ -261,9 +262,15 @@ impl Gui {
         let opened = source::member_source(ident, &files).ok_or("Source not found")?;
         let rows = source::rows(&opened.body, opened.line);
         let displays: Vec<_> = rows.iter().map(|r| source::display(&r.text)).collect();
-        self.serial += 1;
+        let serial = match self.sources.iter().position(|w| w.file == opened.file) {
+            Some(i) => self.sources.remove(i).serial,
+            None => {
+                self.serial += 1;
+                self.serial
+            }
+        };
         self.sources.push(SourceWindow {
-            serial: self.serial,
+            serial,
             title: opened.title,
             file: opened.file,
             line: opened.line,
@@ -280,7 +287,7 @@ impl Gui {
             target_visible: false,
             selection: String::new(),
         });
-        self.focused_source = Some(self.serial);
+        self.focused_source = Some(serial);
         Ok(())
     }
 
@@ -1113,6 +1120,11 @@ impl Gui {
                     }
                     touched
                 });
+            if let Some(shown) = &shown
+                && w.pending
+            {
+                ctx.move_to_top(shown.response.layer_id);
+            }
             w.pending = false;
             if let Some(shown) = shown {
                 self.areas.push(view_rect(shown.response.rect, origin));
