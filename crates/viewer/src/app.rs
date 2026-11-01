@@ -1091,6 +1091,27 @@ impl Viewer {
         }
     }
 
+    /// A right press on the canvas selects what it hits, real or replayed, so
+    /// the element menu opening on the release targets that element.
+    fn secondary_press(&mut self, ctx: &egui::Context) {
+        let (pressed, pos) = ctx.input(|i| {
+            (
+                i.pointer.button_pressed(egui::PointerButton::Secondary),
+                i.pointer.interact_pos(),
+            )
+        });
+        let Some(pos) = pos.filter(|_| pressed) else {
+            return;
+        };
+        let origin = ctx.content_rect().min;
+        let (x, y) = ((pos.x - origin.x) as f64, (pos.y - origin.y) as f64);
+        if self.search.captures(x, y) || self.gui.captures(x, y, self.window_w) {
+            return;
+        }
+        let dims = self.dims(ctx);
+        self.canvas(Canvas::SecondaryPress(x, y), dims);
+    }
+
     /// Execute in order; release observes state after the preceding actions.
     fn execute_real_action(
         &mut self,
@@ -1316,6 +1337,7 @@ impl eframe::App for Viewer {
         for input in pending {
             self.apply_input(input, ctx);
         }
+        self.secondary_press(ctx);
 
         // Hot reload: IR or metrics stamp change, or R.
         let effects = self.session.process(Event::Tick, Now::read());

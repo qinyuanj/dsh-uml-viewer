@@ -189,6 +189,8 @@ pub(crate) enum Event {
 pub(crate) enum Canvas {
     Press(f64, f64),
     DoublePress(f64, f64),
+    /// A right-button press: select what it hits for the element menu.
+    SecondaryPress(f64, f64),
     Move(f64, f64),
     /// The pointer moved with the button down.
     Drag(f64, f64),
@@ -443,6 +445,7 @@ impl ViewerSession {
         self.state = match input {
             Canvas::Press(x, y) => events::on_left_press(s, x, y),
             Canvas::DoublePress(x, y) => events::on_double_press(s, x, y),
+            Canvas::SecondaryPress(x, y) => events::on_secondary_press(s, x, y),
             Canvas::Move(x, y) => events::on_move(s, x, y),
             Canvas::Drag(x, y) => events::on_drag(s, x, y),
             Canvas::Release(x, y) => events::on_release(s, x, y),

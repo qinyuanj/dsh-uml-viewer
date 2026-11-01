@@ -545,6 +545,13 @@ pub fn element_menu(selection: Option<&Value>) -> bool {
     kind == "class" || kind == "child" || layer_id(Some(selection)).is_some()
 }
 
+/// Right-button press: select what it hits (blank clears), so the element
+/// menu that opens on the release names the element under the pointer.
+pub fn on_secondary_press(s: &ViewState, x: f64, y: f64) -> ViewState {
+    let (wx, wy) = world_xy(s, x, y);
+    select(s, hit::at(&s.scene, wx, wy).as_ref())
+}
+
 pub fn on_move(s: &ViewState, x: f64, y: f64) -> ViewState {
     let mut n = s.clone();
     let (wx, wy) = world_xy(s, x, y);

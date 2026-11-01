@@ -566,6 +566,26 @@ fn a_drag_starting_on_a_class_does_nothing_but_the_press_selects() {
 }
 
 #[test]
+fn a_right_press_selects_what_it_hits_without_arming_a_drag() {
+    let mut s = tree();
+    s.selected = Some(parse("{:kind :class :id :other}").unwrap());
+    let c = scene::hit::class_by_id(&s.scene, &kw("source"))
+        .unwrap()
+        .clone();
+    let r = scene::Rect::from_value(get(&c, "rect").unwrap()).unwrap();
+    let z = events::zoom_of(&s);
+    let (x, y) = ((r.x + 5.0 - s.cam_x) * z, (r.y + 5.0 - s.cam_y) * z);
+    let a = events::on_secondary_press(&s, x, y);
+    assert!(a.drag.is_none());
+    assert_eq!(Some(&kw("source")), get(a.selected.as_ref().unwrap(), "id"));
+    assert!(events::element_menu(a.selected.as_ref()));
+    let blank = events::on_secondary_press(&s, 1000.0, 800.0);
+    assert!(blank.drag.is_none());
+    assert!(blank.selected.is_none());
+    assert!(!events::element_menu(blank.selected.as_ref()));
+}
+
+#[test]
 fn numeric_and_absent_keys_are_ignored_and_keyword_aliases_work() {
     let s = tree();
     assert_eq!(None, events::zoom_dir(Some("45"), &Dims::default()));
