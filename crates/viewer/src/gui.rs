@@ -183,6 +183,21 @@ fn themed_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
     ui.add(button)
 }
 
+/// Popup menu items as whole rows: each spans the menu width and lights up
+/// on hover, so the hit and highlight area is the row, not the label box.
+fn menu_rows<'a>(
+    ui: &mut egui::Ui,
+    labels: impl IntoIterator<Item = &'a str>,
+) -> Vec<egui::Response> {
+    ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+        labels
+            .into_iter()
+            .map(|label| ui.add(egui::Button::new(label).frame_when_inactive(false)))
+            .collect()
+    })
+    .inner
+}
+
 impl Gui {
     pub fn inspector_width(&self) -> f64 {
         inspector::clamp_width(self.width, self.window_w)
@@ -398,9 +413,11 @@ impl Gui {
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style())
                     .show(ui, |ui| {
-                        strings::MENU
-                            .iter()
-                            .map(|(op, label)| (ui.button(*label), format!("menu-{op}")))
+                        let labels = strings::MENU.iter().map(|(_, label)| *label);
+                        menu_rows(ui, labels)
+                            .into_iter()
+                            .zip(strings::MENU)
+                            .map(|(row, (op, _))| (row, format!("menu-{op}")))
                             .collect::<Vec<_>>()
                     })
                     .inner
@@ -630,8 +647,9 @@ impl Gui {
                 .show(ctx, |ui| {
                     egui::Frame::popup(ui.style())
                         .show(ui, |ui| {
-                            let rename = ui.button(strings::RENAME);
-                            let delete = ui.button(strings::DELETE);
+                            let mut rows = menu_rows(ui, [strings::RENAME, strings::DELETE]);
+                            let delete = rows.pop().expect("two rows");
+                            let rename = rows.pop().expect("two rows");
                             (rename, delete)
                         })
                         .inner
