@@ -2,7 +2,9 @@
 //! this repository's own diagram, under the pinned Sarasa face and the real
 //! fit the painter applies. A clone without the face provisions it through
 //! the installer's font step first: another face has other advances, so it
-//! would measure nothing.
+//! would measure nothing. That provisioning goes under Cargo's target, never
+//! into the source tree: a mutation worker overlay leaves `.uml-viewer/` out
+//! and treats any new file in it as a poisoned worker.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -18,7 +20,12 @@ fn every_view_draws_its_canvas_text_at_the_canvas_size() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     // Verifies the pinned hash and downloads the face only when it is
     // missing or wrong.
-    let fonts_dir = root.join(".uml-viewer/fonts");
+    let provisioned = root.join(".uml-viewer/fonts");
+    let fonts_dir = if provisioned.join(viewer::fonts::SARASA).is_file() {
+        provisioned
+    } else {
+        Path::new(env!("CARGO_TARGET_TMPDIR")).join("uml-viewer/fonts")
+    };
     let step = std::process::Command::new("python3")
         .arg("-I")
         .arg(root.join("scripts/uml_posix.py"))
