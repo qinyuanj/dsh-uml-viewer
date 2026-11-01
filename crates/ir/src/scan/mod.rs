@@ -2,8 +2,8 @@
 //! `love/uml/<lang>_language/` and the shared parts of `love/uml/graph.lua`.
 //! A scanner implements [`Scanner`] over [`SourceFile`] snapshots; the id and
 //! path rules below are the ones every scanner applies, so adding a language
-//! starts here. Scanner limitations are preserved exactly: the JVM goldens
-//! encode them.
+//! starts here. The JVM goldens pin existing fixture output; scanner fixes
+//! add regression cases for source forms those fixtures do not cover.
 
 use edn::Value;
 use edn::record::record;

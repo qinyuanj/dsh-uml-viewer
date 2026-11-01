@@ -924,6 +924,13 @@ function makes an instance and
 draws nothing, and a base that is not a local bound by `require` is not
 followed. There are no `:implements` edges and no interface stereotype.
 
+These scanners match static source patterns. They do not evaluate Lua
+`package.path`, dynamic import names, or arbitrary class factories.
+TypeScript JSX text is not fully tokenized, and Python nested f-string
+format specifications can still hide later imports. The fixed JVM
+fixtures remain compatibility checks; regression tests cover additional
+source forms.
+
 `merge-scans` links a TypeScript `invoke("read_text")` to the Rust class
 that owns `#[tauri::command] fn read_text`, as a `:dependency`. Two
 project classes with the same id are an error. When a dependency and an
