@@ -431,6 +431,8 @@ instructions before starting fresh.
 - Double-click a component to open the next level. Esc or the ← label goes
   up a level, including after drilling a proposal group. Esc does not quit.
   The window close box or a `:quit-for-restart` mail message exits the app.
+  Reload, mail and exit handling keep running while the window is hidden;
+  SIGTERM/SIGINT follows the normal close path and releases the companion.
 - Hover an arrow for a popup of every `from -> to` it bundles, in any
   declutter mode. Violating pairs are red.
 - Right-click a class or component for **刷新 CRAP**, **刷新 mutation**,

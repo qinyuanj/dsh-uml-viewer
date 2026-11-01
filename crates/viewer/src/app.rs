@@ -511,6 +511,7 @@ impl Viewer {
             Input::Drag { to, .. } => self.driver_pointer = Some((to[0], to[1])),
             _ => {}
         }
+        let reload = matches!(&input, Input::Key { key, .. } if key == "r");
         let canvas = match input {
             Input::Click { x, y } => {
                 if self.chrome_press(x, y) {
@@ -600,6 +601,10 @@ impl Viewer {
             }
         };
         self.canvas(canvas, dims);
+        if reload {
+            // `logic` runs before this input, so its next pass does the reload.
+            ctx.request_repaint();
+        }
     }
 
     /// Hand uncaptured canvas input to the viewer session.
@@ -876,7 +881,8 @@ impl Viewer {
         }
     }
 
-    /// A normal close: the session stops the helper without keeping it.
+    /// A normal close: the session stops the helper without keeping it. The
+    /// next pass's `logic` runs the checkpoint that closes once it settled.
     fn begin_normal_close(&mut self, ctx: &egui::Context) {
         let effects = self.session.process(Event::NormalClose, Now::read());
         self.carry_out(effects, ctx);
@@ -944,6 +950,8 @@ impl Viewer {
         }
         if closed && !self.quit {
             self.begin_normal_close(ctx);
+            // `logic` already ran its checkpoint for this frame.
+            ctx.request_repaint();
         }
     }
 
@@ -1294,6 +1302,56 @@ impl eframe::App for Viewer {
         self.take_gui_batch(raw_input);
     }
 
+    /// eframe runs this before each `ui`, and alone while the window is
+    /// hidden (minimised or occluded) or its redraw is overdue. Reload, mail,
+    /// the restart exit and the normal close live here, so a hidden viewer
+    /// still acts on them; nothing here draws. The frame's input reaches the
+    /// session after this, so `r` reloads on the next pass.
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Hot reload: IR or metrics stamp change, or R.
+        let effects = self.session.process(Event::Tick, Now::read());
+        self.carry_out(effects, ctx);
+        self.publish();
+        // Mail is polled only when the waker saw a change (or at startup):
+        // an unchanged project does no mailbox work and no repaint. `ui`
+        // has not counted this frame yet, so these are the first two.
+        let mail_due = self.frames < 2 || self.waker.as_ref().is_some_and(|waker| waker.take());
+        if mail_due {
+            let effects = self.session.process(Event::MailDue, Now::read());
+            self.carry_out(effects, ctx);
+            self.publish();
+        }
+        // A restart request saves the session and exits; a stopped helper
+        // keeps being polled so the replacement viewer never binds a ghost.
+        let chrome = self.chrome();
+        let effects = self
+            .session
+            .process(Event::RestartExit(chrome), Now::read());
+        self.carry_out(effects, ctx);
+
+        // A termination signal is a normal close: release the companion and
+        // exit through the same path a window close takes.
+        if signal::terminated() && !self.quit {
+            self.begin_normal_close(ctx);
+        }
+        let effects = self
+            .session
+            .process(Event::NormalCloseCheckpoint, Now::read());
+        self.carry_out(effects, ctx);
+        if let Some(seconds) = self.test_seconds
+            && self.started.elapsed().as_secs_f64() >= seconds
+        {
+            // The test duration is the normal close: the companion is
+            // stopped here and the normal-close checkpoint closes the window.
+            self.begin_normal_close(ctx);
+        }
+        // A timed run keeps the poll cadence even while hidden, so its
+        // duration still runs out.
+        if self.bench.is_none() && self.test_seconds.is_some() {
+            ctx.request_repaint_after(POLL_INTERVAL);
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let ctx = &ctx;
@@ -1339,25 +1397,6 @@ impl eframe::App for Viewer {
         }
         self.secondary_press(ctx);
 
-        // Hot reload: IR or metrics stamp change, or R.
-        let effects = self.session.process(Event::Tick, Now::read());
-        self.carry_out(effects, ctx);
-        self.publish();
-        // Mail is polled only when the waker saw a change (or at startup):
-        // an unchanged project does no mailbox work and no repaint.
-        let mail_due = self.frames <= 2 || self.waker.as_ref().is_some_and(|waker| waker.take());
-        if mail_due {
-            let effects = self.session.process(Event::MailDue, Now::read());
-            self.carry_out(effects, ctx);
-            self.publish();
-        }
-        // A restart request saves the session and exits; a stopped helper
-        // keeps being polled so the replacement viewer never binds a ghost.
-        let chrome = self.chrome();
-        let effects = self
-            .session
-            .process(Event::RestartExit(chrome), Now::read());
-        self.carry_out(effects, ctx);
         let dims = self.dims(ctx);
         self.canvas(Canvas::Fit, dims);
 
@@ -1406,29 +1445,12 @@ impl eframe::App for Viewer {
             }
         }
 
-        // A termination signal is a normal close: release the companion and
-        // exit through the same path a window close takes.
-        if signal::terminated() && !self.quit {
-            self.begin_normal_close(ctx);
-        }
-        let effects = self
-            .session
-            .process(Event::NormalCloseCheckpoint, Now::read());
-        self.carry_out(effects, ctx);
-        if let Some(seconds) = self.test_seconds
-            && self.started.elapsed().as_secs_f64() >= seconds
-        {
-            // The test duration is the normal close: the companion is
-            // stopped here and the normal-close checkpoint closes the window.
-            self.begin_normal_close(ctx);
-        }
-        // Idle: no cadence; input and the wake watcher repaint. Drivers,
-        // timed runs and pending screenshots keep the poll cadence.
+        // Idle: no cadence; input and the wake watcher repaint. Drivers and
+        // pending screenshots keep the poll cadence; `logic` keeps it for a
+        // timed run.
         let shots_pending = self.shots_requested.len() > self.shots_sent.len()
             || (self.evidence.is_some() && self.frames < 4);
-        if self.bench.is_none()
-            && (self.driver.is_some() || self.test_seconds.is_some() || shots_pending)
-        {
+        if self.bench.is_none() && (self.driver.is_some() || shots_pending) {
             ctx.request_repaint_after(POLL_INTERVAL);
         }
     }
@@ -1751,6 +1773,118 @@ mod tests {
             gui_inflight: false,
             waker: None,
         }
+    }
+
+    /// One pass for a hidden window, as eframe runs it: no egui pass, only
+    /// `App::logic`. Returns what it asked of the root viewport.
+    fn hidden_pass(app: &mut Viewer) -> Vec<ViewportCommand> {
+        let ctx = app.ctx.clone();
+        let mut frame = eframe::Frame::_new_kittest();
+        let mut output = ctx.run_logic(&egui::RawInput::default(), |ctx| {
+            eframe::App::logic(app, ctx, &mut frame)
+        });
+        output
+            .viewport_commands
+            .remove(&egui::ViewportId::ROOT)
+            .unwrap_or_default()
+    }
+
+    fn inbox(app: &Viewer) -> PathBuf {
+        app.project_root.join(".uml-viewer/to-viewer.edn")
+    }
+
+    const DIAGRAM: &str = "{:title \"Hidden\" :packages [{:label \"P\" :classes [{:id :target :ns \"app.target\"}]}]}";
+
+    #[test]
+    fn a_hidden_window_reloads_and_takes_mail_without_a_frame() {
+        let mut app = viewer();
+        assert!(app.session.hint().is_some(), "no diagram yet");
+        std::fs::write(app.project_root.join("diagram.edn"), DIAGRAM).unwrap();
+        std::fs::write(
+            inbox(&app),
+            "{:next-id 2 :queue [{:id 1 :op :context :context :real}]}",
+        )
+        .unwrap();
+        assert!(hidden_pass(&mut app).is_empty(), "nothing to close");
+        assert!(app.session.hint().is_none(), "the diagram was reloaded");
+        assert!(app.session.state().document.is_some());
+        assert_eq!(1, app.session.state().mail_seen, "the mail was applied");
+        assert_eq!(
+            "{:next-id 2 :queue []}",
+            std::fs::read_to_string(inbox(&app)).unwrap(),
+            "and popped"
+        );
+        assert_eq!(0, app.frames, "no frame was counted");
+    }
+
+    #[test]
+    fn a_hidden_window_takes_the_restart_exit() {
+        let mut app = viewer();
+        std::fs::write(
+            inbox(&app),
+            "{:next-id 2 :queue [{:id 1 :op :quit-for-restart}]}",
+        )
+        .unwrap();
+        assert_eq!(vec![ViewportCommand::Close], hidden_pass(&mut app));
+        assert!(app.quit);
+        assert_eq!(0, app.exit.load(Ordering::SeqCst));
+        assert!(
+            app.project_root.join(".uml-viewer/session.edn").exists(),
+            "the restart snapshot was saved"
+        );
+    }
+
+    #[test]
+    fn a_hidden_window_takes_the_normal_close() {
+        let mut app = viewer();
+        // The test duration is a normal close, like a termination signal.
+        app.test_seconds = Some(0.0);
+        assert_eq!(vec![ViewportCommand::Close], hidden_pass(&mut app));
+        assert!(app.quit);
+        assert!(
+            !app.project_root.join(".uml-viewer/session.edn").exists(),
+            "a normal close saves no snapshot"
+        );
+        assert!(hidden_pass(&mut app).is_empty(), "the close is sent once");
+    }
+
+    #[test]
+    fn a_hidden_timed_run_keeps_its_cadence() {
+        // A new context owes one pass; the startup passes serve it.
+        let asks_again = |app: &mut Viewer| {
+            for _ in 0..3 {
+                assert!(hidden_pass(app).is_empty(), "nothing to close");
+            }
+            app.ctx.has_requested_repaint()
+        };
+        assert!(!asks_again(&mut viewer()), "an idle viewer waits");
+        let mut app = viewer();
+        app.test_seconds = Some(3600.0);
+        assert!(asks_again(&mut app), "a timed run asks for its next pass");
+    }
+
+    #[test]
+    fn the_r_key_requests_the_logic_pass_that_reloads() {
+        let mut app = viewer();
+        let ctx = app.ctx.clone();
+        for _ in 0..3 {
+            let _ = ctx.run_logic(&egui::RawInput::default(), |_| {});
+        }
+        assert!(!ctx.has_requested_repaint(), "an idle viewer waits");
+        let _ = ctx.run_logic(&egui::RawInput::default(), |ctx| {
+            app.apply_input(
+                Input::Key {
+                    key: "r".into(),
+                    ctrl: false,
+                    shift: false,
+                },
+                ctx,
+            );
+        });
+        assert!(
+            ctx.has_requested_repaint(),
+            "the next logic pass consumes the refresh"
+        );
     }
 
     #[test]
