@@ -21,7 +21,8 @@ fn trim(s: &[u8]) -> &[u8] {
 }
 
 /// `flags(s, i)`: string-prefix flags for a quote at 1-based `i`;
-/// `(raw, f)` or `None` when `i` is not a string start.
+/// `(raw, f)` or `None` when `i` is no quote. A `t` (template, PEP 750)
+/// string interpolates like an `f` one.
 fn flags(s: &[u8], i: usize) -> Option<(bool, bool)> {
     let q = at(s, i)?;
     if q != b'"' && q != b'\'' {
@@ -31,17 +32,20 @@ fn flags(s: &[u8], i: usize) -> Option<(bool, bool)> {
     let mut f = false;
     let mut j = i as i64 - 1;
     while j > 0
-        && matches!(at(s, j as usize), Some(c) if matches!(c, b'r' | b'R' | b'u' | b'U' | b'b' | b'B' | b'f' | b'F'))
+        && matches!(at(s, j as usize), Some(c) if matches!(c, b'r' | b'R' | b'u' | b'U' | b'b' | b'B' | b'f' | b'F' | b't' | b'T'))
     {
         let c = at(s, j as usize).unwrap().to_ascii_lowercase();
         raw = raw || c == b'r';
-        f = f || c == b'f';
+        f = f || c == b'f' || c == b't';
         j -= 1;
     }
     if j == 0 || !ident(at(s, j as usize)) {
         return Some((raw, f));
     }
-    None
+    // Outside a string every quote opens one. A word glued to it that is
+    // not all prefix letters is a name or keyword before a plain string:
+    // `return"x"`, `x or"y"`, `if"z" in w`.
+    Some((false, false))
 }
 
 /// `skip_string(s, i)`: one past the closing quote(s), or `#s + 1`.
@@ -106,15 +110,27 @@ fn mask(s: &[u8]) -> (Vec<u8>, Vec<(usize, usize)>) {
     (out, holes)
 }
 
-/// `statement_end(s, i)`: position of the statement-ending newline
-/// (`#s + 1` at end of input).
-fn statement_end(s: &[u8], mut i: usize) -> usize {
+/// Length of the backslash line continuation at 1-based `i`: `\` then `\n`
+/// (2) or `\r\n` (3); 0 when there is none.
+fn continuation(s: &[u8], i: usize) -> usize {
+    match (at(s, i), at(s, i + 1), at(s, i + 2)) {
+        (Some(b'\\'), Some(b'\n'), _) => 2,
+        (Some(b'\\'), Some(b'\r'), Some(b'\n')) => 3,
+        _ => 0,
+    }
+}
+
+/// `statement_end(s, i, import)`: position of the statement-ending newline
+/// (`#s + 1` at end of input). An import holds no `;`, so its first `;`
+/// ends it too (`import a; import b`, `from a import f; f("(")`), before
+/// any bracket after it can carry the scan past the line.
+fn statement_end(s: &[u8], mut i: usize, import: bool) -> usize {
     let (mut p, mut b, mut c) = (0i64, 0i64, 0i64);
     while i <= s.len() {
         let x = at(s, i).unwrap();
-        if x == b'\\' && at(s, i + 1) == Some(b'\n') {
-            i += 2;
-        } else if x == b'\n' && p == 0 && b == 0 && c == 0 {
+        if continuation(s, i) > 0 {
+            i += continuation(s, i);
+        } else if (x == b'\n' && p == 0 && b == 0 && c == 0) || (import && x == b';') {
             return i;
         } else {
             match x {
@@ -182,6 +198,8 @@ fn parts(s: &[u8]) -> Vec<Value> {
             continue;
         }
         if let Some((name, bind)) = parse_part(part) {
+            // `alias`: the bind is an explicit `as`, not the first segment.
+            let alias = bind.is_some();
             let bind = bind.unwrap_or_else(|| {
                 let first = name.iter().take_while(|&&c| c != b'.').count();
                 name[..first].to_vec()
@@ -189,6 +207,7 @@ fn parts(s: &[u8]) -> Vec<Value> {
             out.push(record(vec![
                 ("name", Value::String(text::text(&name))),
                 ("bind", Value::String(text::text(&bind))),
+                ("alias", Value::Bool(alias)),
             ]));
         }
     }
@@ -199,26 +218,28 @@ fn strip_spaces(s: &[u8]) -> &[u8] {
     &s[s.iter().take_while(|&&c| is_space(c)).count()..]
 }
 
-/// `parse_import(s)`: the statement text without its trailing newline.
-fn parse_import(s: &[u8]) -> Option<Value> {
-    // trim(s:gsub('\\\n',' '):gsub('%s+',' '))
-    let mut collapsed = Vec::with_capacity(s.len());
-    let mut i = 0;
-    while i < s.len() {
-        if s[i] == b'\\' && s.get(i + 1) == Some(&b'\n') {
-            collapsed.push(b' ');
-            i += 2;
-        } else if is_space(s[i]) {
-            collapsed.push(b' ');
-            i += 1;
-            while i < s.len() && is_space(s[i]) {
-                i += 1;
+/// `s:gsub('\\\r?\n',' '):gsub('%s+',' ')`: each run of whitespace and
+/// backslash continuations becomes one space.
+fn collapse(s: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(s.len());
+    let mut i = 1;
+    while i <= s.len() {
+        let skip = continuation(s, i);
+        if skip > 0 || is_space(s[i - 1]) {
+            if out.last() != Some(&b' ') {
+                out.push(b' ');
             }
         } else {
-            collapsed.push(s[i]);
-            i += 1;
+            out.push(s[i - 1]);
         }
+        i += skip.max(1);
     }
+    out
+}
+
+/// `parse_import(s)`: the statement text without its trailing newline.
+fn parse_import(s: &[u8]) -> Option<Value> {
+    let collapsed = collapse(s);
     let s = trim(&collapsed);
     if s.starts_with(b"from ") {
         // `^from%s+([^ ]*)%s+import%s+(.+)$` — whitespace already collapsed.
@@ -264,6 +285,8 @@ fn parse_import(s: &[u8]) -> Option<Value> {
 
 /// `read_module(source)`: imports and top-level defs.
 pub fn read_module(source: &[u8]) -> Value {
+    // A UTF-8 BOM is not text: line 1 starts after it.
+    let source = source.strip_prefix(b"\xef\xbb\xbf").unwrap_or(source);
     let (text, holes) = mask(source);
     let mut imports = Vec::new();
     let mut defs = Vec::new();
@@ -281,7 +304,7 @@ pub fn read_module(source: &[u8]) -> Value {
             && !in_hole(&holes, i)
             && statement_is_clean(&text, i)
         {
-            let finish = statement_end(&text, i);
+            let finish = statement_end(&text, i, true);
             if let Some(imp) = parse_import(&text[i - 1..finish - 1]) {
                 imports.push(imp);
             }
@@ -304,35 +327,17 @@ pub fn read_module(source: &[u8]) -> Value {
             && name.first() != Some(&b'_')
             && !in_hole(&holes, i)
         {
-            // `header:gsub('%s+',' ')` — collapse each whitespace run.
-            let end = statement_end(&text, i);
-            let raw = &text[i - 1..end - 1];
-            let mut header = Vec::with_capacity(raw.len());
-            let mut in_space = false;
-            for &c in raw {
-                if is_space(c) {
-                    if !in_space {
-                        header.push(b' ');
-                    }
-                    in_space = true;
-                } else {
-                    header.push(c);
-                    in_space = false;
-                }
-            }
+            // A `\` continuation is whitespace: `class X(A, \` then `B):`
+            // keeps `B`.
+            let end = statement_end(&text, i, false);
+            let header = collapse(&text[i - 1..end - 1]);
             if line.starts_with(b"class") {
                 let body = match_class_bases(&header);
                 let mut bases = Vec::new();
                 if let Some(body) = &body {
-                    for part in body.split(|&c| c == b',') {
-                        let part = trim(part);
-                        if part.is_empty() {
-                            continue;
-                        }
-                        let valid = part.first().is_some_and(|&c| is_alpha_(c))
-                            && part.iter().all(|&c| is_word(c) || c == b'.');
-                        if valid {
-                            bases.push(Value::String(text::text(part)));
+                    for part in top_level_parts(body) {
+                        if let Some(base) = base_name(trim(part)) {
+                            bases.push(Value::String(text::text(base)));
                         }
                     }
                 }
@@ -365,12 +370,14 @@ pub fn read_module(source: &[u8]) -> Value {
     ])
 }
 
-/// The statement-before check: `([^\n;]*)$` then `^%s*$`.
+/// The statement-before check: `([^\n;:]*)$` then `^%s*$`. A `:` ends a
+/// compound header, so `try: import x` and `if TYPE_CHECKING: from a import
+/// B` count; no expression may hold `import`/`from` after a `:`.
 fn statement_is_clean(text: &[u8], i: usize) -> bool {
     let before = &text[..i - 1];
     let start = before
         .iter()
-        .rposition(|&c| c == b'\n' || c == b';')
+        .rposition(|&c| c == b'\n' || c == b';' || c == b':')
         .map_or(0, |p| p + 1);
     before[start..].iter().all(|&c| is_space(c))
 }
@@ -406,19 +413,83 @@ fn match_def_name(line: &[u8], word: &[u8], async_def: bool) -> Option<Vec<u8>> 
     Some(rest[..len].to_vec())
 }
 
-/// `%(([^)]*)%)%s*:` on the collapsed header.
+/// `%((.-)%)%s*:` on the collapsed header, the `)` matched by depth:
+/// `class A(B, metaclass=make())` keeps `B`.
 fn match_class_bases(header: &[u8]) -> Option<Vec<u8>> {
     let open = header.iter().position(|&c| c == b'(')?;
-    let close = header[open + 1..]
+    let mut depth = 0i64;
+    let close = header[open..]
         .iter()
-        .position(|&c| c == b')')
-        .map(|p| open + 1 + p)?;
+        .position(|&c| {
+            match c {
+                b'(' => depth += 1,
+                b')' => depth -= 1,
+                _ => {}
+            }
+            depth == 0
+        })
+        .map(|p| open + p)?;
     let rest = strip_spaces(&header[close + 1..]);
     if rest.first() == Some(&b':') {
         Some(header[open + 1..close].to_vec())
     } else {
         None
     }
+}
+
+/// The bases body split at depth-0 commas: `Mapping[str, int], Base` is
+/// two parts.
+fn top_level_parts(body: &[u8]) -> Vec<&[u8]> {
+    let mut parts = Vec::new();
+    let (mut depth, mut start) = (0i64, 0);
+    for (k, &c) in body.iter().enumerate() {
+        match c {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b',' if depth == 0 => {
+                parts.push(&body[start..k]);
+                start = k + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&body[start..]);
+    parts
+}
+
+/// A base part's `^[%a_][%w_%.]*$` name. A subscript is dropped
+/// (`Repository[User]` is `Repository`, `Protocol[T]` is `Protocol`), but
+/// `Generic[T]` only declares type parameters: no base. Of the keywords only
+/// `metaclass=ABCMeta` names one, the marker of an abstract class.
+fn base_name(part: &[u8]) -> Option<&[u8]> {
+    let len = dotted_len(part)?;
+    let (name, rest) = part.split_at(len);
+    let rest = strip_spaces(rest);
+    // Only a leading `name =` is a keyword; an `=` in a subscript is not
+    // (`User[Literal["a=b"]]`, `User[Annotated[int, Field(gt=0)]]`).
+    if let Some(value) = rest.strip_prefix(b"=") {
+        // `^metaclass%s*=%s*([%a_][%w_%.]*)$` naming `ABCMeta`.
+        let value = trim(value);
+        let abc = dotted_len(value) == Some(value.len()) && name_tail(value) == b"ABCMeta";
+        return (name == b"metaclass" && abc).then_some(value);
+    }
+    if rest.is_empty() {
+        return Some(name);
+    }
+    let subscript = rest.first() == Some(&b'[') && rest.last() == Some(&b']');
+    (subscript && name_tail(name) != b"Generic").then_some(name)
+}
+
+/// `^[%a_][%w_%.]*` length.
+fn dotted_len(s: &[u8]) -> Option<usize> {
+    s.first()
+        .is_some_and(|&c| is_alpha_(c))
+        .then(|| s.iter().take_while(|&&c| is_word(c) || c == b'.').count())
+}
+
+/// The last dotted segment: `typing.Generic` is `Generic`.
+fn name_tail(name: &[u8]) -> &[u8] {
+    name.rsplit(|&c| c == b'.').next().unwrap_or(name)
 }
 
 /// `%)%s*%->%s*([%a_][%w_]*)%s*:` on the collapsed header.
@@ -519,6 +590,12 @@ enum Hit {
         id: Value,
         bind: Option<String>,
         path: Option<String>,
+    },
+    /// A name bound with no dependency: a package on the path of `import
+    /// a.b.c` (`a`, `a.b`).
+    Bind {
+        bind: String,
+        id: Value,
     },
     Foreign(String),
 }
@@ -629,13 +706,29 @@ impl Scanner for PythonScanner {
                             Some(Value::String(s)) => Some(s.clone()),
                             _ => None,
                         };
+                        // `import a.b.c` binds `a`, not `a.b.c`, and loads
+                        // `a.b` too: each package on the path names its own
+                        // `X` (`a.X`, `a.b.X`); `a.b.c.X` resolves by path.
+                        // `import a.b as a` binds `a.b` alone.
+                        let packages: Vec<String> = if get(part, "alias").is_some() {
+                            Vec::new()
+                        } else {
+                            n.match_indices('.')
+                                .map(|(k, _)| n[..k].to_owned())
+                                .collect()
+                        };
                         match exact(&n) {
                             Some(id) => hits.push(Hit::Id {
                                 id,
-                                bind,
+                                bind: if packages.is_empty() { bind } else { None },
                                 path: Some(n),
                             }),
                             None => hits.push(Hit::Foreign(n)),
+                        }
+                        for package in packages {
+                            if let Some(id) = exact(&package) {
+                                hits.push(Hit::Bind { bind: package, id });
+                            }
                         }
                     }
                 } else {
@@ -678,8 +771,9 @@ impl Scanner for PythonScanner {
                                 Some(Value::String(s)) => Some(s.clone()),
                                 _ => None,
                             };
-                            let id = exact(&join(&rootmod, &name))
-                                .or_else(|| if relative_only { None } else { rootid.clone() });
+                            // `from . import db` names the package's own `db`, like
+                            // `from app import db` does.
+                            let id = exact(&join(&rootmod, &name)).or_else(|| rootid.clone());
                             if let Some(id) = id {
                                 hits.push(Hit::Id {
                                     id,
@@ -689,14 +783,16 @@ impl Scanner for PythonScanner {
                                 found = true;
                             }
                         }
-                        if !found && !relative_only {
+                        if !found {
                             if let Some(rootid) = rootid {
                                 hits.push(Hit::Id {
                                     id: rootid,
                                     bind: None,
                                     path: None,
                                 });
-                            } else if !rootmod.is_empty() {
+                            } else if !rootmod.is_empty() && !relative_only {
+                                // A package with no `__init__.py` is no module
+                                // and no foreign library either.
                                 hits.push(Hit::Foreign(rootmod));
                             }
                         }
@@ -721,6 +817,10 @@ impl Scanner for PythonScanner {
                         if !requires.contains(id) {
                             requires.push(id.clone());
                         }
+                    }
+                    Hit::Bind { bind, id } => {
+                        bindings.retain(|(k, _)| k != bind);
+                        bindings.push((bind.clone(), id.clone()));
                     }
                     Hit::Foreign(name) => {
                         let foreign = Value::keyword(name);
@@ -849,5 +949,381 @@ impl Scanner for PythonScanner {
             ("classes", Value::Vector(classes)),
             ("edges", Value::Vector(edges)),
         ]))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::value::id_name;
+
+    /// Scans `files` (paths under `src/`, prefix `app`): each interface as
+    /// `id <<interface>>`, then each edge as `from -> to kind`.
+    fn graph(files: &[(&str, &str)]) -> Vec<String> {
+        let files: Vec<SourceFile> = files
+            .iter()
+            .map(|(path, source)| SourceFile {
+                path: format!("/p/src/{path}"),
+                source: source.as_bytes().to_vec(),
+            })
+            .collect();
+        let opts = record(vec![("prefix", Value::String("app".into()))]);
+        let g = SCANNER.scan("/p/src", &opts, &files, "/p").unwrap();
+        let name = |m: &Value, k: &str| id_name(get(m, k).unwrap());
+        let interfaces = seq(get(&g, "classes"))
+            .iter()
+            .filter(|c| get(c, "stereotype").is_some())
+            .map(|c| format!("{} <<interface>>", name(c, "id")));
+        let edges = seq(get(&g, "edges")).iter().map(|e| {
+            format!(
+                "{} -> {} {}",
+                name(e, "from"),
+                name(e, "to"),
+                name(e, "kind")
+            )
+        });
+        interfaces.chain(edges).collect()
+    }
+
+    fn defs(source: &str) -> Vec<String> {
+        seq(get(&read_module(source.as_bytes()), "defs"))
+            .iter()
+            .filter_map(|d| match get(d, "name") {
+                Some(Value::String(n)) => Some(n.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_subscripted_base_is_inherited() {
+        let files = [
+            ("app/base.py", "class Repository:\n    pass\n"),
+            (
+                "app/kw.py",
+                "from app.base import Repository\n\
+                 class Kw(Repository, metaclass=make_meta()):\n    pass\n",
+            ),
+            ("app/models.py", "class User:\n    pass\n"),
+            (
+                "app/qualified.py",
+                "import app.base\nclass Ints(app.base.Repository[int]):\n    pass\n",
+            ),
+            (
+                "app/repo.py",
+                "from app.base import Repository\nfrom app.models import User\n\
+                 class UserRepo(Repository[User]):\n    pass\n",
+            ),
+            (
+                "app/wrapped.py",
+                "from app.base import Repository\n\
+                 class Wrapped(\n    Repository[\n        dict[str, int],\n    ],\n):\n    pass\n",
+            ),
+        ];
+        assert_eq!(
+            vec![
+                "kw -> base inheritance",
+                "kw -> base dependency",
+                "qualified -> base inheritance",
+                "qualified -> base dependency",
+                "repo -> base inheritance",
+                "repo -> base dependency",
+                "repo -> models dependency",
+                "wrapped -> base inheritance",
+                "wrapped -> base dependency",
+            ],
+            graph(&files)
+        );
+    }
+
+    #[test]
+    fn a_generic_protocol_or_abc_metaclass_marks_an_interface() {
+        let files = [
+            (
+                "app/box.py",
+                "from typing import Generic\nclass Box(Generic[T]):\n    pass\n",
+            ),
+            (
+                "app/port.py",
+                "from abc import ABCMeta\nclass Port(metaclass=ABCMeta):\n    pass\n",
+            ),
+            (
+                "app/reader.py",
+                "from typing import Protocol\nclass Reader(Protocol[T]):\n    def read(self) -> T: ...\n",
+            ),
+            (
+                "app/store.py",
+                "from abc import ABC\nfrom typing import Generic\n\
+                 class Store(ABC, Generic[K, V]):\n    pass\n",
+            ),
+        ];
+        assert_eq!(
+            vec![
+                "port <<interface>>",
+                "reader <<interface>>",
+                "store <<interface>>",
+                "box -> typing dependency",
+                "port -> abc dependency",
+                "reader -> typing dependency",
+                "store -> abc dependency",
+                "store -> typing dependency",
+            ],
+            graph(&files)
+        );
+    }
+
+    #[test]
+    fn a_relative_import_of_a_package_name_depends_on_the_package() {
+        let files = [
+            ("app/__init__.py", "db = object()\n"),
+            ("app/models.py", "from . import db\n"),
+            ("app/sub/__init__.py", ""),
+            ("app/sub/deep.py", "from .. import db\n"),
+            ("app/sub/sibling.py", "from . import deep\n"),
+            ("app/views.py", "from . import *\n"),
+        ];
+        assert_eq!(
+            vec![
+                "models -> app dependency",
+                "sub.deep -> app dependency",
+                "sub.sibling -> sub.deep dependency",
+                "views -> app dependency",
+            ],
+            graph(&files)
+        );
+    }
+
+    #[test]
+    fn a_dotted_import_binds_its_top_package() {
+        let files = [
+            ("app/__init__.py", "class Entity:\n    pass\n"),
+            ("app/models.py", "class User:\n    pass\n"),
+            (
+                "app/views.py",
+                "import app.models\nclass Page(app.Entity):\n    pass\n\
+                 class Form(app.models.User):\n    pass\n",
+            ),
+        ];
+        assert_eq!(
+            vec![
+                "views -> app inheritance",
+                "views -> models inheritance",
+                "views -> models dependency",
+            ],
+            graph(&files)
+        );
+    }
+
+    #[test]
+    fn an_import_after_a_compound_statement_colon_counts() {
+        let files = [
+            (
+                "app/compat.py",
+                "try: import app.util\nexcept ImportError: import app.models\n",
+            ),
+            (
+                "app/hints.py",
+                "from typing import TYPE_CHECKING\n\
+                 if TYPE_CHECKING: from app.models import User\n",
+            ),
+            ("app/models.py", ""),
+            (
+                "app/plain.py",
+                "\"\"\"Note: import app.util\n\"\"\"\n\
+                 d = {\"k\": \"import app.util\"}\nf = lambda: 0\n\
+                 s = 'x: import app.models'  # y: import app.util\n\
+                 raise ValueError() from None\n",
+            ),
+            ("app/util.py", ""),
+        ];
+        assert_eq!(
+            vec![
+                "compat -> util dependency",
+                "compat -> models dependency",
+                "hints -> models dependency",
+                "hints -> typing dependency",
+            ],
+            graph(&files)
+        );
+    }
+
+    #[test]
+    fn a_semicolon_ends_an_import_statement() {
+        let files = [
+            ("app/both.py", "import app.util; import app.models\n"),
+            (
+                "app/later.py",
+                "from app.util import helper; x = \"(\"\nimport app.models\n",
+            ),
+            ("app/models.py", ""),
+            ("app/util.py", ""),
+        ];
+        assert_eq!(
+            vec![
+                "both -> util dependency",
+                "both -> models dependency",
+                "later -> util dependency",
+                "later -> models dependency",
+            ],
+            graph(&files)
+        );
+    }
+
+    #[test]
+    fn an_import_scan_stops_at_its_semicolon() {
+        // Each `(` after a `;` stays open to the end of input: an import scan
+        // that passes the `;` rescans the rest of the file once per line.
+        let source = "import app.util; s = \"(\"\n".repeat(8000);
+        let started = std::time::Instant::now();
+        let surface = read_module(source.as_bytes());
+        let elapsed = started.elapsed();
+        assert_eq!(8000, seq(get(&surface, "imports")).len());
+        // Instrumentation and shared mutation workers measure host load.
+        let instrumented = cfg!(coverage)
+            || std::env::var_os("CARGO_TARGET_DIR").is_some_and(|dir| {
+                std::path::Path::new(&dir)
+                    .components()
+                    .any(|c| c.as_os_str() == "mutation-workers")
+            });
+        if !instrumented {
+            assert!(
+                elapsed < std::time::Duration::from_secs(3),
+                "8000 lines took {elapsed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn crlf_continuations_and_a_utf8_bom_keep_their_imports() {
+        let files = [
+            ("app/bom.py", "\u{feff}import app.models\n"),
+            ("app/crlf.py", "from app.models \\\r\n    import User\r\n"),
+            ("app/models.py", "class User:\r\n    pass\r\n"),
+        ];
+        assert_eq!(
+            vec!["bom -> models dependency", "crlf -> models dependency"],
+            graph(&files)
+        );
+        assert_eq!(vec!["Bom"], defs("\u{feff}class Bom:\n    pass\n"));
+    }
+
+    #[test]
+    fn a_template_string_or_one_glued_to_a_keyword_is_no_import() {
+        let files = [
+            ("app/__init__.py", "class Entity:\n    pass\n"),
+            (
+                "app/glued.py",
+                "def f(x):\n    if\"a: import app.util, b\" in x: return\"Note: import app.util, x\"\n\
+                 \x20   y = 1 if x else\"Else: import app.util, z\"\n\
+                 \x20   return x or\"Or: import app.util, y\"\n",
+            ),
+            (
+                "app/hint.py",
+                "msg = t\"Hint: import app.util, then retry\"\n\
+                 raw = rt\"Raw: import app.util, x\"\nup = T\"Up: {x:>4} import app.util, x\"\n\
+                 semi = t\"a; import app.util, b\"\n",
+            ),
+            ("app/models.py", ""),
+            (
+                "app/usage.py",
+                "USAGE = t\"\"\"\nExample: import requests\n\"\"\"\nimport app.models\n",
+            ),
+            ("app/util.py", ""),
+        ];
+        assert_eq!(vec!["usage -> models dependency"], graph(&files));
+    }
+
+    #[test]
+    fn an_explicit_alias_keeps_its_module() {
+        let files = [
+            ("app/__init__.py", "class Entity:\n    pass\n"),
+            ("app/models.py", "class User:\n    pass\n"),
+            (
+                "app/x.py",
+                "import app.models as app\nclass X(app.User):\n    pass\n\
+                 def make() -> app:\n    pass\n",
+            ),
+        ];
+        assert_eq!(
+            vec![
+                "x -> models implements",
+                "x -> models inheritance",
+                "x -> models dependency",
+            ],
+            graph(&files)
+        );
+    }
+
+    #[test]
+    fn a_dotted_import_binds_each_package_on_its_path() {
+        let files = [
+            ("app/__init__.py", "class Entity:\n    pass\n"),
+            ("app/a/__init__.py", "class Y:\n    pass\n"),
+            ("app/a/b.py", "class W:\n    pass\n"),
+            (
+                "app/x.py",
+                "import app.a.b\nclass E(app.Entity):\n    pass\n\
+                 class X(app.a.Y):\n    pass\nclass Z(app.a.b.W):\n    pass\n",
+            ),
+        ];
+        assert_eq!(
+            vec![
+                "x -> app inheritance",
+                "x -> a inheritance",
+                "x -> a.b inheritance",
+                "x -> a.b dependency",
+            ],
+            graph(&files)
+        );
+    }
+
+    #[test]
+    fn a_keyword_in_a_subscript_or_a_continued_header_keeps_its_bases() {
+        let files = [
+            ("app/__init__.py", "class Entity:\n    pass\n"),
+            (
+                "app/ann.py",
+                "from app.models import User\n\
+                 class A(User[Annotated[int, Field(gt=0)]]):\n    pass\n",
+            ),
+            (
+                "app/cont.py",
+                "from app import Entity\nfrom app.models import User\n\
+                 class X(Entity, \\\n        User):\n    pass\n",
+            ),
+            (
+                "app/crlf.py",
+                "from app import Entity\r\nfrom app.models import User\r\n\
+                 class X(Entity, \\\r\n        User):\r\n    pass\r\n",
+            ),
+            (
+                "app/lit.py",
+                "from app.models import User\nclass A(User[Literal[\"a=b\"]]):\n    pass\n",
+            ),
+            ("app/models.py", "class User:\n    pass\n"),
+            (
+                "app/port.py",
+                "import abc\nclass Port(metaclass = abc.ABCMeta):\n    pass\n",
+            ),
+        ];
+        assert_eq!(
+            vec![
+                "port <<interface>>",
+                "ann -> models inheritance",
+                "ann -> models dependency",
+                "cont -> app inheritance",
+                "cont -> models inheritance",
+                "cont -> app dependency",
+                "cont -> models dependency",
+                "crlf -> app inheritance",
+                "crlf -> models inheritance",
+                "crlf -> app dependency",
+                "crlf -> models dependency",
+                "lit -> models inheritance",
+                "lit -> models dependency",
+                "port -> abc dependency",
+            ],
+            graph(&files)
+        );
     }
 }

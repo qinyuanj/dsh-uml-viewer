@@ -862,13 +862,20 @@ prefix stays as written, so `src/tools/parse.py` and
 `src/tools/__init__.py` become `tools.parse` (`:parse`) and `tools`
 (`:tools`). It skips `test_*.py`, `*_test.py`, `*_tests.py`,
 `conftest.py`, and paths under `__pycache__`, `tests`, virtualenvs,
-`dist`, and `build`. `import` and
-`from ... import` are dependencies, including an import nested in a
-function. A relative import (`from . import`, `from ..mod import`) stays
-inside the package. A name that is not a project module is foreign
+`dist`, and `build`. `import` and `from ... import` are dependencies,
+including imports inside functions, after a compound header
+(`try: import x`), or separated by semicolons. LF/CRLF continuations and a UTF-8 BOM
+are accepted. `import a.b.c` binds its package names; an explicit `as`
+keeps the imported module. A relative import (`from . import`,
+`from ..mod import`) stays inside the package, falling back to the package
+module when the imported name is a package attribute. Strings, including
+Python 3.14 template strings, never supply imports.
+A name that is not a project module is foreign
 (`os.path` stays `os.path`, and a listed `:foreign` prefix such as `os`
 collapses it). `class Dog(Animal)` is `:inheritance` when `Animal` is a
-project module. A base of `Protocol` or `ABC` is `:implements`.
+project module; a subscripted base such as `Animal[T]` keeps that module.
+Class keywords such as `metaclass` do not hide the other bases. A base of
+`Protocol` or `ABC` is `:implements`.
 `def load() -> Animal` is `:implements` when `Animal` is a bare imported
 project name. `list[Animal]` is not. Public module-level functions and
 classes are `:ops`. A module whose public classes are only `Protocol` or

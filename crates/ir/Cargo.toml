@@ -7,3 +7,7 @@ publish.workspace = true
 
 [dependencies]
 edn = { path = "../edn" }
+
+[lints.rust]
+# cargo llvm-cov sets cfg(coverage) for the quality refresh.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage)"] }
