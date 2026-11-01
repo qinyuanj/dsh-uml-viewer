@@ -342,3 +342,6 @@ fn execute(opts: &Options) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
