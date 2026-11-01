@@ -178,13 +178,14 @@ fn wide_levels_run_from_the_outermost_on_the_left_to_level_zero_then_the_ovals()
 fn wide_indicators_stay_above_and_below_their_box() {
     let mut extra = common::wide();
     extra.assoc(Value::keyword("declutter"), Value::keyword("triangles"));
+    let mut drawn = 0;
     for (focus, scene) in common::self_hosted_views_with(&extra) {
         let rects: HashMap<String, Rect> = seq(get(&scene, "classes"))
             .iter()
             .filter_map(|c| Some((key(get(c, "id")?), rect(c)?)))
             .collect();
         let indicators = seq(get(&scene, "dep-indicators"));
-        assert!(!indicators.is_empty(), "{focus:?} has indicators");
+        drawn += indicators.len();
         for ind in indicators {
             let r = rects[&key(get(ind, "id").unwrap())];
             let ys: Vec<f64> = seq(get(ind, "triangle"))
@@ -198,6 +199,8 @@ fn wide_indicators_stay_above_and_below_their_box() {
             }
         }
     }
+    // Indicators stand for edges; a ports-only view (`:main`) draws none.
+    assert!(drawn > 0, "the sweep draws indicators");
 }
 
 #[test]

@@ -18,6 +18,7 @@ fn id_rect(v: &Value) -> Option<(&Value, Rect)> {
 
 #[test]
 fn no_view_of_the_self_hosted_diagram_draws_a_port_or_oval_on_a_box() {
+    let mut drawn = 0;
     for (focus, scene) in common::self_hosted_views_both() {
         let classes = seq(get(&scene, "classes"));
         let boxes: Vec<(&Value, Rect)> = classes
@@ -51,7 +52,9 @@ fn no_view_of_the_self_hosted_diagram_draws_a_port_or_oval_on_a_box() {
                     .map(move |(b, _)| (*p, *b))
             })
             .collect();
-        assert!(!ports_and_ovals.is_empty(), "{focus:?} has ports or ovals");
+        drawn += ports_and_ovals.len();
         assert!(on_a_box.is_empty(), "{focus:?} on a box: {on_a_box:?}");
     }
+    // An isolated view needs no ports; the sweep must still exercise them.
+    assert!(drawn > 0, "the sweep draws ports or ovals");
 }
