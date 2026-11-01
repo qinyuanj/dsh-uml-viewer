@@ -827,15 +827,33 @@ constants, classes, and enums are `:ops`. `invoke("name")` is recorded
 for the cross-language link.
 
 **Rust** (`crates/ir/src/scan/rust.rs`) walks the modules
-reachable from `lib.rs` and `main.rs` through `mod`. The `[lib] name` in
-`Cargo.toml` is the crate name, so `bookwriter_lib::run()` in `main.rs`
+reachable from `lib.rs` and `main.rs` through `mod`. The crate name is
+the `[lib] name` in `Cargo.toml`, else the `[package] name` when the root
+has a `lib.rs` (`-` becomes `_`), so `bookwriter_lib::run()` in `main.rs`
 depends on the lib class. Every Rust class is named by its source
 file. The directory box keeps the namespace segment. `pub fn` functions
 are `:ops`. `pub(crate)` functions are not,
 unless they are `#[tauri::command]` functions, which are `:ops` even when
-private. `impl Trait for Type` is `:implements` when the trait resolves
-to a project module. The first segment of a `use`, other than `crate`,
-`self`, `super`, or the lib crate, is a foreign crate.
+private. A `use` tree is expanded, so `use crate::{a, b::C};` depends on
+`a` and `b`. A path written in code needs no `use`: `crate::a::f()`,
+`super::g()`, and `dep::item` for a crate under `[dependencies]` count.
+A visible module or `use` binding shadows that crate; an import inside an
+inline module cannot change an outer `impl`. Repeated `super` segments
+climb one module each. A path names the deepest module on it, falling back
+to its crate root for a root item. Method turbofish syntax such as
+`value.log::<T>()` is not a path into a dependency called `log`.
+Another crate's path stays qualified (`egui::Context` is `egui.Context`):
+under `:sources` it joins the deepest module only when the scanned
+Cargo crate identity also matches. Thus `scene::document::ViewState`
+depends on `scene.document`, while an unrelated internal `scene` module
+cannot capture it. Within one crate, a path headed by a listed dependency
+whose id equals a module id is dropped rather than joined to that module.
+Across `:sources` roots, an exact id still joins that class: telling them
+apart would need distinct stub ids. Otherwise a listed `:foreign` prefix
+collapses it. `impl Trait for Type` is `:implements` when the trait
+resolves to a project module or a path into another crate
+(`impl eframe::App` implements `eframe`). Strings, including raw and
+byte-raw strings, and nested block comments never supply dependencies.
 
 **Python** (`crates/ir/src/scan/python.rs`) emits one class per
 `.py` module. `__init__.py` is the package. Point `:src` at the package
