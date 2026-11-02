@@ -18,3 +18,5 @@ __pycache__/
 .uml-viewer/
 uml-viewer-log.txt
 # END UML-VIEWER
+# Claude Code agent worktrees
+.claude/worktrees/
