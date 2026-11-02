@@ -2,7 +2,7 @@
 //! the self-hosted diagram, default and wide (#191), and each pill hangs on
 //! its own side of its box so the link's head shows (#189).
 
-mod common;
+use crate::common;
 
 use edn::Value;
 use edn::record::{flag, get, seq};

@@ -2,7 +2,7 @@
 //! golden view must match `fixtures/jvm-goldens/*.geometry.edn` exactly in
 //! structure, with every finite number within 1e-6; NaN/Inf fail.
 
-mod common;
+use crate::common;
 
 use common::{assert_close, assert_golden_tolerance, read_edn as read, repo};
 use edn::Value;

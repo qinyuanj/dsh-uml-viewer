@@ -2,7 +2,7 @@
 //! view routes one through a fallback candidate (#185), in the default or
 //! the wide layout (#191).
 
-mod common;
+use crate::common;
 
 #[test]
 fn no_view_of_the_self_hosted_diagram_drops_a_lane() {

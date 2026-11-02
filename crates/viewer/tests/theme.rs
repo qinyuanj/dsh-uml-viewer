@@ -1,7 +1,7 @@
 //! Theme parity with `love/uml/domain/theme.lua`: palette, ramps and the
 //! missing-means-grade-1 rule that paints unmeasured classes red.
 
-mod common;
+use crate::common;
 
 use common::{composite, contrast};
 use viewer::theme::{self, Rgb};

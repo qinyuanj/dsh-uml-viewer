@@ -3,7 +3,7 @@
 //! levels of the default layout from left to right, and routes no
 //! relationship across a box or oval it does not end at.
 
-mod common;
+use crate::common;
 
 use edn::Value;
 use edn::record::{flag, get, local_name, num, seq};

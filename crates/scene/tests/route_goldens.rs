@@ -38,7 +38,7 @@
 //! The strokes, tip, behind and draw bounds compared above are the scene's
 //! own output of that path.
 
-mod common;
+use crate::common;
 
 use common::{assert_close, assert_golden_tolerance, items, read_edn};
 use edn::record::get;

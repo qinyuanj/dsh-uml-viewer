@@ -4,6 +4,8 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+# tests/main.rs is the one test binary.
+autotests = false
 
 [dependencies]
 edn = { path = "../edn" }
@@ -23,3 +25,7 @@ winit = { version = "0.30", features = ["x11", "wayland"] }
 
 [dev-dependencies]
 serde_json = "1"
+
+[[test]]
+name = "integration"
+path = "tests/main.rs"

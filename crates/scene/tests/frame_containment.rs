@@ -4,7 +4,7 @@
 //! through the face that looks at the oval, never along another side as if
 //! it ran outside the package.
 
-mod common;
+use crate::common;
 
 use edn::Value;
 use edn::record::{flag, get, seq};

@@ -4,6 +4,8 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+# tests/main.rs is the one test binary.
+autotests = false
 
 [dependencies]
 edn = { path = "../edn" }
@@ -11,3 +13,7 @@ edn = { path = "../edn" }
 [lints.rust]
 # cargo llvm-cov sets cfg(coverage) for the quality refresh.
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage)"] }
+
+[[test]]
+name = "integration"
+path = "tests/main.rs"

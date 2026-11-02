@@ -2,7 +2,7 @@
 //! (`love/spec/class_boxes_spec.lua`, `love/spec/edges_spec.lua`): the
 //! pure scene -> command layer, independent of any renderer.
 
-mod common;
+use crate::common;
 
 use common::{composite, contrast};
 use edn::Value;

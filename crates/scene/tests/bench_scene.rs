@@ -160,7 +160,7 @@ impl FirstVector for Value {
     }
 }
 
-mod common;
+use crate::common;
 
 /// Sizes of the regenerated `:levels` scenes, a doubling apart.
 const LEVEL_SIZES: [usize; 4] = [250, 500, 1000, 2000];

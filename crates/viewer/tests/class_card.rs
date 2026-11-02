@@ -1,7 +1,7 @@
 //! Class card model (#141). Expected values are those of
 //! `love/spec/detail_spec.lua` and `detail_view_spec.lua`.
 
-mod common;
+use crate::common;
 
 use common::{composite, contrast};
 use edn::Value;

@@ -2,7 +2,7 @@
 //! are those of `love/spec/source_spec.lua` and `source_view_spec.lua`; byte
 //! positions here are 0-based where the Lua ones were 1-based.
 
-mod common;
+use crate::common;
 
 use common::{composite, contrast};
 use viewer::source::{self, Files, Ident, Pos};
