@@ -12,11 +12,17 @@ edition = "2024"
 rust-version = "1.99.1"
 publish = false
 
-# Each mutation worker relinks ~19 viewer test binaries per mutant; full
-# debuginfo peaked at 4.3 GB per worker and exhausted a 15 GiB WSL host with
-# three workers. Line tables keep backtraces and peak at 1.8 GB.
+# Each mutation worker relinked ~19 viewer test binaries per mutant (before
+# each crate's tests became one binary); full debuginfo peaked at 4.3 GB per
+# worker and exhausted a 15 GiB WSL host with three workers. Line tables keep
+# backtraces and peak at 1.8 GB.
 [profile.dev]
 debug = "line-tables-only"
+
+# Dependencies (eframe/wgpu/naga) dominate every relinked test binary; their
+# line tables only add bytes to write. Our crates keep them for backtraces.
+[profile.dev.package."*"]
+debug = false
 
 [profile.release]
 debug = false
