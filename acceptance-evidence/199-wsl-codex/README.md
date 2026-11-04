@@ -40,6 +40,7 @@
 | 正常关闭不恢复 | 通过：A viewer 正常关闭 → journal `:cancelled "Viewer closed; recovery revoked"`，Codex 与 controller 退出，没有 `runner-2`，Herdr session 删除，ownership `{}`；另在 B 里 Codex `/quit` → runner exit 0 → journal `:normal "Companion exited normally"`，不重启；之后关闭 B viewer 清理 | `run3/recovery-after-close.edn`、`run3-project-B/recovery-after-quit.edn` |
 | 多项目隔离 | 通过：B（`01a1a577-7d03-…`，Codex PID 942269）与 A 同时运行；A 的恢复、邮件与关闭期间 B 的 ownership sha、Codex PID、`agent_session` 不变，B 的邮件 b1 独立完成；用户的 `default` Herdr session 与另一个 Codex 进程（PID 556315）全程存活、未被触碰 | `run3-project-B/` |
 | 错误 occupant | 通过（带边界）：在 A 的 pane 里 `/new`。新对话直到第一条 prompt 才触发 SessionStart，所以紧接着的 wake（邮件 12）仍投给新对话并被处理；新对话随即上报 UUID `01a1a57b-1530-…`。之后的 wake（邮件 13）被拒：`Companion wake failed: No Codex CLI agent occupies the owned Herdr pane with its saved session`，没有投递 prompt，邮件 13 保留 | `run3/agent-session-after-new.txt`、`companion-worker-*.event-*.edn` |
+| companion 不自行启动生命周期 | 修复前**失败**（缺陷 3）：Codex 的探测命令里的裸 `./uml` 在 `/tmp/spec199-run1` 拉起了缺省 Claude 的 viewer + companion；修复后带 runner 标记重放同一命令与项目内裸 `./uml`，都在任何资源前 exit 1 拒绝 | `run2/stray-launch-command.txt`、`stray-restart.log`、`stray-launch-refused.txt` |
 
 SessionStart 时效：修复后的三次 fresh 都在 9 s 内上报（预算 45 s）；恢复的 SessionStart 在提交后数秒内以同一 UUID 到达。
 
@@ -55,16 +56,28 @@ SessionStart 时效：修复后的三次 fresh 都在 9 s 内上报（预算 45 
    （`ESC[99;5u`）送达，zsh 行首残留 `9;5u`，runner 命令 exit 127。现改为 `printf '\033[…'`，
    由 printf 自己展开。修复前后都在独立探针 Herdr session 里复现与核对（`MARKER-RAW` 127，
    `MARKER-FIXED` 正常执行）。
+3. **companion 自己拉起了另一个 viewer + companion**（缺陷 3，`crates/companion/src/preflight.rs`、
+   `recovery.rs`、`posix.rs`、`prompt.rs`、`scripts/uml_launch.py`）。Codex 在 run 2 启动回合
+   （2026-11-04T07:18:14Z，rollout 第 46 行，`run2/stray-launch-command.txt`）一边处理遗留的邮件 5
+   （`:refresh-mutate`，当时 `uml-quality.json` 已损坏），一边探查 `./uml mutate` 怎么用，执行了
+   `cd .uml-viewer && … ./uml-viewer/../../../uml 2>/dev/null; cd .. && ./uml mutate --help`。
+   `uml-viewer` 是指向工具 worktree 的符号链接，内核按物理路径解析到主 checkout 的 `uml`，该入口用
+   `cd "$(dirname "$0")"` 的逻辑路径把项目根算成 `/tmp/spec199-run1`；不带子命令就是 fresh 生命周期，
+   继承来的 `UML_VIEWER_TOOL_ROOT` 让它拉起了一个**缺省 Claude** 的 viewer + companion
+   （`run2/stray-restart.log`）。Codex 随后自己发 `:quit-for-restart`，剩下的 Claude companion 由验收者
+   经 `--restart` 加正常关闭清理，A/B 项目未受影响。
+   根因不在某个模型：常驻共享规则对 companion 说"Prefer ./uml (fresh start: spawn this companion…)"，
+   无人值守的 bypass 让探测命令直接执行，而生命周期入口不知道自己正在 companion 里运行。修复与
+   provider 无关：runner 给 agent child 设置 `UML_COMPANION_ROOT=<规范项目根>`；`launch` preflight
+   在 fresh 或 restart 写入任何资源前，只要见到该标记就拒绝 fresh，restart 只放行该标记自己的项目
+   （`:quit-for-restart` 之后的合法 restart）；launcher 不把标记传给它启动的 viewer；共享规则改为
+   "never run bare ./uml (a fresh start) or any ./uml lifecycle entry for another directory"。
+   修复后在同一 fixture 里带标记重放这条命令与项目内裸 `./uml`：都以
+   `Refusing to run the viewer lifecycle inside the companion …` exit 1，没有 viewer 启动
+   （`run2/stray-launch-refused.txt`）。
 
 ## 观察（未改动）
 
-- Codex 在 run 2 的启动回合里执行了 `cd .uml-viewer && ./uml-viewer/../../../uml`。`uml-viewer`
-  是指向工具 worktree 的符号链接，内核按物理路径解析到主 checkout 的 `uml`，而该入口用
-  `cd "$(dirname "$0")"` 的逻辑路径把项目根算成 `/tmp/spec199-run1`；继承来的
-  `UML_VIEWER_TOOL_ROOT` 让它成功拉起了一个**缺省 Claude** 的 viewer + companion。Codex 自己
-  发现并发 `:quit-for-restart`；剩下的 Claude companion 由验收者经 `--restart` 加正常关闭清理
-  （`run2/stray-restart.log`），没有改动 A/B 项目。这是模型行为，且依赖开发安装才继承的
-  `UML_VIEWER_TOOL_ROOT`；普通安装下该路径找不到 `uml_posix.py`。
 - 用户全局 Codex 配置里的 hook / 规则拦下了 `rm -f .uml-viewer/quality-result.json`；Codex 改为
   `mv` 到 `quality-result.prev.json` 再核对新记录，门控仍成立。
 - 失败的 fresh 会留下该次 session 的 `*-runner.edn*` 文件；worker 的 `command-*` / `event-*`

@@ -1404,6 +1404,12 @@ class ViewerLaunchEnv(unittest.TestCase):
         self.assertEqual('virgl', env['GALLIUM_DRIVER'])
         self.assertEqual('vulkan', env['WGPU_BACKEND'])
 
+    def test_a_viewer_restarted_by_its_companion_is_not_inside_it(self):
+        from uml_launch import viewer_env
+        env = viewer_env({'UML_COMPANION_ROOT': '/p', 'HOME': '/h'})
+        self.assertNotIn('UML_COMPANION_ROOT', env)
+        self.assertEqual('/h', env['HOME'])
+
 
 class RemovedRuntimeRecord(unittest.TestCase):
     """A launcher record left by the removed love runtime blocks only a

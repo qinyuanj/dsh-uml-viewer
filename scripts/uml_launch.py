@@ -88,8 +88,11 @@ RENDER_DEFAULTS = {} if platform.system() == 'Darwin' else {'GALLIUM_DRIVER': 'd
 
 
 def viewer_env(environ):
-    """The spawn environment: render defaults, user values never overridden."""
+    """The spawn environment: render defaults, user values never overridden.
+    A viewer restarted by its companion is not inside that companion, so the
+    runner's UML_COMPANION_ROOT marker stops here."""
     env = dict(environ)
+    env.pop('UML_COMPANION_ROOT', None)
     for key, value in RENDER_DEFAULTS.items():
         env.setdefault(key, value)
     return env

@@ -1,0 +1,5 @@
+# 修复后：带 runner 标记重放 Codex 的探测命令（cwd $A/.uml-viewer），以及项目内裸 ./uml
+uml: uml: Refusing to run the viewer lifecycle inside the companion for "/tmp/spec199-run1/A 项目": a companion never starts a viewer or companion, and restarts only its own project with ./uml --restart after :quit-for-restart
+exit 1
+uml: uml: Refusing to run the viewer lifecycle inside the companion for "/tmp/spec199-run1/A 项目": a companion never starts a viewer or companion, and restarts only its own project with ./uml --restart after :quit-for-restart
+exit 1

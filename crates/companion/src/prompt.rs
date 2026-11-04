@@ -92,8 +92,9 @@ the architecture under discussion until a later :context arrives.
 A companion wake-up means mail is waiting. If idle, pop and handle each
 to-agent command in order. If busy, finish first. Do not control the session backend yourself.
 After successful regen only, write :display with the generated EDN path.
-Prefer ./uml (fresh start: spawn this companion, wait for :display)
-and ./uml --restart (new Rust viewer, keep this session, restore last view).
+You are this project's companion: never run bare ./uml (a fresh start) or
+any ./uml lifecycle entry for another directory; the entry refuses both.
+./uml --restart starts a new Rust viewer, keeps this session and restores the last view.
 The viewer is the Rust egui binary; there is no JVM, Clojure or LOVE
 dependency. If ./uml is missing, tell the user to run get-uml-viewer in this
 directory (it clones uml-viewer into gitignored .uml-viewer/uml-viewer/).

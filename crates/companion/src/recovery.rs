@@ -319,6 +319,7 @@ pub fn run_child(identity: &Value, host: &Host) -> Result<Option<i32>> {
         &command,
         Path::new(&cwd),
         &["NO_COLOR"],
+        &[(crate::preflight::COMPANION_ROOT, &cwd)],
         &started_path,
         &exit_path,
     ) {
@@ -810,6 +811,24 @@ mod tests {
         let child = edn::record::get(&state, "child").unwrap();
         assert!(record::get_i64(child, "pid").unwrap_or(0) > 1);
         // A second run of the same generation now succeeds (lock released).
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn run_child_names_its_project_to_the_coding_agent() {
+        let directory = tempfile();
+        let root = directory.to_string_lossy().into_owned();
+        let runner_state = format!("{root}/.uml-viewer/runner.edn");
+        let identity = edn::parse(&format!(
+            r#"{{:cwd "{root}" :runner-token "gen" :runner-state "{runner_state}"
+                :command ["/bin/sh" "-c" "sleep 0.1; printf %s \"$UML_COMPANION_ROOT\" > marker"]}}"#
+        ))
+        .unwrap();
+        assert_eq!(Some(0), run_child(&identity, &Host::posix()).unwrap());
+        assert_eq!(
+            root,
+            std::fs::read_to_string(directory.join("marker")).unwrap()
+        );
         let _ = std::fs::remove_dir_all(&directory);
     }
 

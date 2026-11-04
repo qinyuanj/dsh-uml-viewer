@@ -52,6 +52,7 @@ pub fn launch_in(
     args: &[String],
     env: &dyn Fn(&str) -> Option<String>,
 ) -> Result<(Selected, CodingAgent)> {
+    companion_scope(root, args, env)?;
     let path = env("PATH").unwrap_or_default();
     let (selected, agent) = select_agent(root, args, false, &path)?;
     if agent == CodingAgent::Codex {
@@ -59,6 +60,31 @@ pub fn launch_in(
     }
     Ok((selected, agent))
 }
+
+/// The companion runner names its project in [`COMPANION_ROOT`]. A lifecycle
+/// entry run from inside a companion never starts a viewer or companion, and
+/// restarts only that companion's own project (after `:quit-for-restart`).
+fn companion_scope(
+    root: &str,
+    args: &[String],
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<()> {
+    let Some(owner) = env(COMPANION_ROOT).filter(|owner| !owner.is_empty()) else {
+        return Ok(());
+    };
+    let canonical = |path: &str| posix::canonical(path).unwrap_or_else(|_| path.to_owned());
+    if args.iter().any(|arg| arg == "--restart") && canonical(&owner) == canonical(root) {
+        return Ok(());
+    }
+    Err(Failure::new(format!(
+        "Refusing to run the viewer lifecycle inside the companion for {owner:?}: \
+         a companion never starts a viewer or companion, and restarts only its own \
+         project with ./uml --restart after :quit-for-restart"
+    )))
+}
+
+/// Set by the companion runner on its agent child to the canonical project root.
+pub const COMPANION_ROOT: &str = "UML_COMPANION_ROOT";
 
 /// Codex CLI requirements, each refused with its real cause: the executable
 /// (`CODEX_BIN` taken literally, else `codex` on PATH), its version floor,
@@ -474,6 +500,46 @@ mod tests {
                 .contains(&format!("CODEX_BIN {missing:?} is not an executable"))
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// #199: a Codex companion probing for the entry ran a bare `./uml` that
+    /// resolved to another directory and started a second viewer with a
+    /// Claude companion. Inside a companion (the runner names its project in
+    /// `UML_COMPANION_ROOT`) no fresh start passes, and a restart passes
+    /// only for that companion's own project.
+    #[test]
+    fn a_companion_may_restart_only_its_own_viewer_and_never_start_one() {
+        let root = temp_root();
+        let other = temp_root();
+        let bin = std::path::Path::new(&root).join("bin");
+        herdr_fixture(&bin, "0.9.5", 22, CODEX_CURRENT);
+        let inside = |marker: &str| {
+            let path = format!("{}:/definitely/empty", bin.display());
+            let marker = marker.to_owned();
+            move |name: &str| match name {
+                "PATH" => Some(path.clone()),
+                "UML_COMPANION_ROOT" => Some(marker.clone()),
+                _ => None,
+            }
+        };
+        for (project, values) in [
+            (&root, vec![]),
+            (&other, vec![]),
+            (&other, vec!["--restart"]),
+        ] {
+            let error = launch_in(project, &args(&values), &inside(&root)).unwrap_err();
+            assert!(
+                error.message.contains("inside the companion"),
+                "{}",
+                error.message
+            );
+        }
+        write_record(&root, &complete_record(&root, ""));
+        assert!(launch_in(&root, &args(&["--restart"]), &inside(&root)).is_ok());
+        assert!(launch_in(&root, &args(&["--restart"]), &inside(&format!("{root}/"))).is_ok());
+        assert!(launch_in(&other, &args(&[]), &inside("")).is_ok());
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&other);
     }
 
     #[test]

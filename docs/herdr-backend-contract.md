@@ -317,6 +317,12 @@ startup workspace，隔离 session 因此多出一个空 shell workspace。所�
 - Codex（#196）：restart 只重新绑定仍在运行的原 Codex 进程，`bind!` 核对
   occupant 与保存的 UUID（§5），不执行 `codex resume`、不开第二段对话；切换提供方
   必须先正常关闭旧 companion 再 fresh start，不支持热切换。
+- companion 内的生命周期入口（#199）：runner 给 agent child 设置
+  `UML_COMPANION_ROOT=<规范项目根>`，与提供方无关。launch preflight 见到该标记时，
+  在任何资源与等待之前拒绝 fresh，restart 只放行标记自己的项目（`:quit-for-restart`
+  之后的合法 restart）；其他目录的 fresh 或 restart 同样拒绝。launcher 不把标记传给
+  它启动的 viewer。#199 中 Codex 的探测命令里一个裸 `./uml` 经符号链接解析到另一个
+  目录，拉起了缺省 Claude 的 viewer + companion，这是该规则的来由。
 - Herdr server 独立于 Viewer JVM 存活（headless server 模型已验证），
   companion 跨 JVM 更换存活是设计预期；restart 绑定后调用 `recovery! true`
   核实既有 controller，不重置 generation/budget、不重建 ownership。

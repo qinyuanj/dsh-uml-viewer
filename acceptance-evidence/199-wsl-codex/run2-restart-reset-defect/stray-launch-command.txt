@@ -1,0 +1,2 @@
+rollout rollout-2026-11-04T15-17-38-01a1a56b-a890-7b80-9fcf-68e415e39e72.jsonl line 46 at 2026-11-04T07:18:14.404Z
+cd .uml-viewer && printf '%s' '{:next-id 6 :queue [{:id 5 :op :display :path "examples/ledger.edn"}]}' > to-viewer.edn.tmp && mv to-viewer.edn.tmp to-viewer.edn && cat to-viewer.edn; echo; ls uml-viewer/scripts | head -30; ./uml-viewer/../../../uml 2>/dev/null; cd .. && ./uml mutate --help 2>&1 | head -40

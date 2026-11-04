@@ -357,8 +357,21 @@ struct SpawnArgs {
 
 impl SpawnArgs {
     fn new(argv: &[OsString], remove: &[&str]) -> Result<SpawnArgs> {
+        SpawnArgs::with_env(argv, remove, &[])
+    }
+
+    /// Like [`SpawnArgs::new`], with `set` names replaced by their values.
+    fn with_env(argv: &[OsString], remove: &[&str], set: &[(&str, &str)]) -> Result<SpawnArgs> {
         let argv_text: Vec<CString> = argv.iter().map(|arg| cstring(arg)).collect::<Result<_>>()?;
-        let env_text = environment(remove)?;
+        let mut removed = remove.to_vec();
+        removed.extend(set.iter().map(|(name, _)| *name));
+        let mut env_text = environment(&removed)?;
+        for (name, value) in set {
+            env_text.push(
+                CString::new(format!("{name}={value}"))
+                    .map_err(|_| Failure::new("environment contains NUL"))?,
+            );
+        }
         let mut argv_ptrs: Vec<*const std::ffi::c_char> =
             argv_text.iter().map(|arg| arg.as_ptr()).collect();
         argv_ptrs.push(std::ptr::null());
@@ -595,13 +608,14 @@ pub fn spawn_native(executable: &OsStr, argv: &[OsString], cwd: &Path) -> Result
     identity(pid)?.ok_or_else(|| Failure::new("Native child exited before its identity was read"))
 }
 
-/// Child in this process's own stdio (the Herdr pane). Records its exact
-/// identity in `started_path` before waiting, so the supervising controller
-/// can verify it.
+/// Child in this process's own stdio (the Herdr pane), with `env_remove`
+/// unset and `env_set` set. Records its exact identity in `started_path`
+/// before waiting, so the supervising controller can verify it.
 pub fn start_attached(
     argv: &[OsString],
     cwd: &Path,
     env_remove: &[&str],
+    env_set: &[(&str, &str)],
     started_path: &Path,
     exit_path: &Path,
 ) -> Result<AttachedChild> {
@@ -609,7 +623,7 @@ pub fn start_attached(
     if !cwd.as_os_str().is_empty() {
         actions.add_chdir(cwd)?;
     }
-    let args = SpawnArgs::new(argv, env_remove)?;
+    let args = SpawnArgs::with_env(argv, env_remove, env_set)?;
     let mut pid: sys::pid_t = 0;
     // SAFETY: all pointers are valid and outlive the call.
     let spawned = unsafe {
@@ -975,6 +989,7 @@ mod tests {
             // its identity is read, and zombies count as gone by contract.
             &args(&["/bin/sh", "-c", "sleep 0.2; exit 37"]),
             Path::new("/tmp"),
+            &[],
             &[],
             &started,
             &exit,

@@ -195,7 +195,10 @@ is refused; fresh-start the viewer instead.
 
 `CLAUDE_BIN` selects the companion program; it defaults to `claude` on PATH.
 The runner execs it directly so its recorded identity is the agent's own
-process, and argv is passed literally, never through a shell.
+process, and argv is passed literally, never through a shell. It also sets
+`UML_COMPANION_ROOT` to the project root for the agent: inside a companion,
+`./uml` refuses a fresh start and any lifecycle entry for another directory,
+and allows only `./uml --restart` of its own project.
 
 The companion can be Codex CLI instead of Claude Code:
 `./uml --coding-agent codex` (fresh start; `./uml --restart` reuses the
