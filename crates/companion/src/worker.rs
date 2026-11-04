@@ -143,20 +143,20 @@ fn reclaim_stale(host: &Host, root: &str) {
 
 /// The provider's short name for viewer status text: the recorded ownership
 /// first, then the launch's explicit provider, else Claude.
-pub fn provider_noun(root: &str, coding_agent: Option<&str>) -> &'static str {
+pub fn agent_status_name(root: &str, agent: Option<CodingAgent>) -> &'static str {
     crate::ownership::read(root)
         .ok()
         .flatten()
         .filter(|record| *record != Value::Map(vec![]))
         .and_then(|record| crate::agent::identity_of(&record).ok())
         .map(|identity| identity.agent)
-        .or_else(|| coding_agent.and_then(|name| CodingAgent::parse(name).ok()))
+        .or(agent)
         .unwrap_or_default()
-        .noun()
+        .status_name()
 }
 
 /// The viewer-side start: write the request, then spawn the helper natively.
-pub fn start(root: &str, restart: bool, coding_agent: Option<&str>) -> Result<Worker> {
+pub fn start(root: &str, restart: bool, agent: Option<CodingAgent>) -> Result<Worker> {
     let host = Host::posix();
     let token = (host.token)();
     let base = format!("{root}/.uml-viewer/companion-worker-{token}");
@@ -175,7 +175,7 @@ pub fn start(root: &str, restart: bool, coding_agent: Option<&str>) -> Result<Wo
             ]),
         ),
     ];
-    fields.extend(coding_agent.map(|name| ("coding-agent", Value::keyword(name))));
+    fields.extend(agent.map(|agent| ("coding-agent", Value::keyword(agent.name()))));
     let request = edn::record::record(fields);
     reclaim_stale(&host, root);
     let request_path = format!("{base}.request.edn");
@@ -484,7 +484,7 @@ fn requested_agent(request: &Value) -> Result<Option<CodingAgent>> {
     match edn::record::get(request, "coding-agent") {
         None => Ok(None),
         Some(Value::Keyword(name)) => CodingAgent::parse(name).map(Some),
-        Some(_) => CodingAgent::parse("").map(Some),
+        Some(_) => Err(crate::agent::unknown_provider()),
     }
 }
 
@@ -537,7 +537,7 @@ fn run_body(
     session.borrow_mut().event("ready", ready)?;
     let mailbox = Mailbox::outbox(Path::new(root));
     let pane = record::get_name(&record_value, "pane").unwrap_or_default();
-    let provider = crate::agent::identity_of(&record_value)?.agent;
+    let owned = crate::agent::identity_of(&record_value)?.agent;
     let mut watched: Vec<(i64, i64)> = Vec::new();
     let mut watched_at = (host.clock)();
     loop {
@@ -551,7 +551,7 @@ fn run_body(
                     for id in settle(&mut watched, &status, seq, &|id| !mailbox.acknowledged(id)) {
                         session
                             .borrow_mut()
-                            .event("ready", Some(lost_wake(provider, id)))?;
+                            .event("ready", Some(lost_wake(owned, id)))?;
                     }
                 }
                 Err(error) => {
@@ -605,7 +605,7 @@ fn run_body(
 fn lost_wake(agent: CodingAgent, id: i64) -> String {
     format!(
         "Companion wake lost: {} went idle with {} still queued",
-        agent.noun(),
+        agent.status_name(),
         mail_token(id)
     )
 }

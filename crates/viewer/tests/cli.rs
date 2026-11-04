@@ -109,11 +109,11 @@ fn watch_stamp_has_nanoseconds_and_catches_equal_length_edits() {
 
 #[test]
 fn a_coding_agent_choice_is_carried_and_anything_else_is_refused() {
-    assert_eq!(
-        None,
-        viewer::cli::parse(&args(&["d.edn"])).unwrap().coding_agent
-    );
-    for name in ["claude", "codex"] {
+    assert_eq!(None, viewer::cli::parse(&args(&["d.edn"])).unwrap().agent);
+    for (name, agent) in [
+        ("claude", companion::CodingAgent::Claude),
+        ("codex", companion::CodingAgent::Codex),
+    ] {
         let options = viewer::cli::parse(&args(&[
             "--backend",
             "herdr",
@@ -122,7 +122,7 @@ fn a_coding_agent_choice_is_carried_and_anything_else_is_refused() {
             "d.edn",
         ]))
         .unwrap();
-        assert_eq!(Some(name.to_owned()), options.coding_agent);
+        assert_eq!(Some(agent), options.agent);
         assert_eq!(Some(PathBuf::from("d.edn")), options.path);
     }
     for values in [

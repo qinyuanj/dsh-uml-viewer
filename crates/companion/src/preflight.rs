@@ -55,9 +55,7 @@ pub fn launch_in(
     companion_scope(root, args, env)?;
     let path = env("PATH").unwrap_or_default();
     let (selected, agent) = select_agent(root, args, false, &path)?;
-    if agent == CodingAgent::Codex {
-        codex_ready(&selected, env)?;
-    }
+    agent.launch_ready(&selected, env)?;
     Ok((selected, agent))
 }
 
@@ -90,8 +88,8 @@ pub const COMPANION_ROOT: &str = "UML_COMPANION_ROOT";
 /// (`CODEX_BIN` taken literally, else `codex` on PATH), its version floor,
 /// a usable login, and a selected Herdr whose release and Codex integration
 /// report the agent session. Nothing is installed, logged in or configured.
-fn codex_ready(selected: &Selected, env: &dyn Fn(&str) -> Option<String>) -> Result<()> {
-    let executable = codex_executable(env)?;
+pub(crate) fn codex_ready(selected: &Selected, env: &dyn Fn(&str) -> Option<String>) -> Result<()> {
+    let executable = CodingAgent::Codex.executable(env)?;
     let run = |argv: &[&str]| {
         let argv: Vec<std::ffi::OsString> = argv.iter().map(std::ffi::OsString::from).collect();
         posix::run(&argv, Some(CHECK_TIMEOUT_MS), &[])
@@ -103,41 +101,6 @@ fn codex_ready(selected: &Selected, env: &dyn Fn(&str) -> Option<String>) -> Res
 }
 
 const CHECK_TIMEOUT_MS: i64 = 15_000;
-
-pub(crate) fn codex_executable(env: &dyn Fn(&str) -> Option<String>) -> Result<String> {
-    let executable = |candidate: &str| {
-        std::fs::metadata(candidate).is_ok_and(|metadata| {
-            metadata.is_file()
-                && std::os::unix::fs::PermissionsExt::mode(&metadata.permissions()) & 0o111 != 0
-        })
-    };
-    let named = env("CODEX_BIN").filter(|value| !value.is_empty());
-    if let Some(named) = &named
-        && named.contains('/')
-    {
-        return if executable(named) {
-            Ok(named.clone())
-        } else {
-            Err(Failure::new(format!(
-                "Codex CLI not found: CODEX_BIN {named:?} is not an executable file. {}",
-                rules::CODEX_GUIDANCE
-            )))
-        };
-    }
-    let name = named.as_deref().unwrap_or("codex");
-    env("PATH")
-        .unwrap_or_default()
-        .split(':')
-        .filter(|directory| !directory.is_empty())
-        .map(|directory| format!("{}/{name}", directory.trim_end_matches('/')))
-        .find(|candidate| executable(candidate))
-        .ok_or_else(|| {
-            Failure::new(format!(
-                "Codex CLI not found: {name:?} is not on PATH. {}",
-                rules::CODEX_GUIDANCE
-            ))
-        })
-}
 
 fn select_agent(
     root: &str,
@@ -182,7 +145,7 @@ pub fn run(args: &[std::ffi::OsString]) -> std::process::ExitCode {
                 "uml: selected Herdr {} at {} for {}",
                 selected.release,
                 selected.path,
-                agent.label()
+                agent.diagnostic_name()
             );
             std::process::ExitCode::SUCCESS
         }

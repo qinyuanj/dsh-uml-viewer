@@ -566,7 +566,7 @@ impl Herdr {
             Some(reported) if Some(&reported) == owned.session.as_ref() => Ok(true),
             Some(_) => self.fail(format!(
                 "Herdr reported another {} session in the owned pane; its saved session did not resume",
-                owned.agent.label()
+                owned.agent.diagnostic_name()
             )),
         }
     }
@@ -887,7 +887,7 @@ impl Herdr {
             },
             &format!(
                 "Herdr reported no {} session within {} s; start refused",
-                agent.label(),
+                agent.diagnostic_name(),
                 IDENTITY_WAIT_MS / 1000
             ),
         )??;
@@ -1017,36 +1017,36 @@ impl Herdr {
     /// session started later in the same pane is not this companion's.
     fn owned_agent(&self, identity: &Value, session: &str, pane: &str) -> Result<Json> {
         let owned = crate::agent::identity_of(identity)?;
-        let provider = owned.agent;
+        let agent = owned.agent;
         let snapshot = self.snapshot(session)?;
         let terminal_id = record::get_name(identity, "terminal-id").unwrap_or_default();
         let occupant = snapshot
             .get("agents")
             .and_then(Json::array_items)
             .and_then(|agents| {
-                agents.iter().find(|agent| {
-                    agent.get("pane_id").and_then(Json::as_str) == Some(pane)
-                        && agent.get("terminal_id").and_then(Json::as_str)
+                agents.iter().find(|entry| {
+                    entry.get("pane_id").and_then(Json::as_str) == Some(pane)
+                        && entry.get("terminal_id").and_then(Json::as_str)
                             == Some(terminal_id.as_str())
-                        && agent.get("agent").and_then(Json::as_str) == Some(provider.name())
+                        && entry.get("agent").and_then(Json::as_str) == Some(agent.name())
                 })
             })
             .cloned()
             .ok_or_else(|| {
                 Failure::new(format!(
                     "No {} agent occupies the owned Herdr pane",
-                    provider.label()
+                    agent.diagnostic_name()
                 ))
             })?;
-        if provider.awaits_reported_session()
+        if agent.awaits_reported_session()
             && !matches!(
-                rules::reported_session(&snapshot, pane, &terminal_id, provider),
+                rules::reported_session(&snapshot, pane, &terminal_id, agent),
                 Ok(Some(reported)) if Some(&reported) == owned.session.as_ref()
             )
         {
             return self.fail(format!(
                 "No {} agent occupies the owned Herdr pane with its saved session",
-                provider.label()
+                agent.diagnostic_name()
             ));
         }
         Ok(occupant)

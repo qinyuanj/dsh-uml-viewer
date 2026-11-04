@@ -153,7 +153,7 @@ impl Setup {
             options.restart,
             options.backend,
         );
-        launch.coding_agent = options.coding_agent.clone();
+        launch.agent = options.agent;
         let evidence = env_nonempty("UML_VIEWER_EVIDENCE").map(|dir| {
             let dir = PathBuf::from(dir);
             let _ = std::fs::create_dir_all(&dir);
@@ -1729,7 +1729,7 @@ mod tests {
                 diagram: root.join("diagram.edn"),
                 restart: false,
                 backend: false,
-                coding_agent: None,
+                agent: None,
                 snapshot: None,
             },
             || Box::new(crate::mail::Companion::mail_only()),

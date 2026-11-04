@@ -430,7 +430,7 @@ pub fn session_checked(identity: &Value, state: &Value, check: Result<bool>, now
             &format!(
                 "Herdr reported no {} session within {} s of recovery",
                 crate::agent::identity_of(identity)
-                    .map(|owned| owned.agent.label())
+                    .map(|owned| owned.agent.diagnostic_name())
                     .unwrap_or("coding-agent"),
                 SESSION_WAIT_MS / 1000
             ),

@@ -63,20 +63,13 @@ pub fn selection_args(args: &[String]) -> Result<(Vec<String>, Option<String>)> 
 /// `codex` are accepted, at most once; absence leaves the choice to the
 /// recorded ownership, or Claude for a fresh start.
 pub fn coding_agent_arg(args: &[String]) -> Result<Option<CodingAgent>> {
-    let refused = || {
-        Failure::new("Unknown or duplicate coding-agent provider; use --coding-agent claude|codex")
-    };
     let mut selected = None;
     let mut index = 0;
     while index < args.len() {
         if args[index] == "--coding-agent" {
-            let agent = match args.get(index + 1).map(String::as_str) {
-                Some("claude") => CodingAgent::Claude,
-                Some("codex") => CodingAgent::Codex,
-                _ => return Err(refused()),
-            };
+            let agent = CodingAgent::from_option(args.get(index + 1).map(String::as_str))?;
             if selected.replace(agent).is_some() {
-                return Err(refused());
+                return Err(CodingAgent::option_refused());
             }
             index += 2;
         } else {
@@ -100,7 +93,7 @@ pub fn provider(record: Option<&Value>, requested: Option<CodingAgent>) -> Resul
     match (recorded, requested) {
         (Some(recorded), Some(requested)) if recorded != requested => Err(Failure::new(format!(
             "Companion ownership records {}; --coding-agent {} conflicts with it. Nothing was replaced; close the companion normally, then start fresh with the other provider",
-            recorded.label(),
+            recorded.diagnostic_name(),
             requested.name()
         ))),
         (recorded, requested) => Ok(recorded.or(requested).unwrap_or_default()),

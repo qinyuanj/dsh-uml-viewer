@@ -10,6 +10,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use companion::CodingAgent;
 use companion::mailbox::Mailbox;
 use edn::Value;
 use edn::record::{get, local_name};
@@ -76,7 +77,7 @@ pub(crate) struct Launch {
     /// `--backend herdr`: show the waiting canvas until `:display`.
     pub backend: bool,
     /// `--coding-agent`: the provider the launch named, for the worker.
-    pub coding_agent: Option<String>,
+    pub agent: Option<CodingAgent>,
     /// The saved session snapshot a restart restores (read once).
     pub snapshot: Option<Value>,
 }
@@ -111,7 +112,7 @@ impl Launch {
             diagram,
             restart,
             backend,
-            coding_agent: None,
+            agent: None,
             snapshot,
         };
         (launch, chrome)
@@ -295,7 +296,7 @@ pub(crate) struct ViewerSession {
     /// A `--backend` launch: the identity waits for the helper's ready.
     backend: bool,
     /// The launch's explicit coding-agent provider, if any.
-    coding_agent: Option<String>,
+    agent: Option<CodingAgent>,
     /// The identity was recorded (at startup, or once the helper was ready).
     identity_recorded: bool,
     /// When the IR and metrics stamps were last polled; `None` is due.
@@ -326,7 +327,7 @@ impl ViewerSession {
             link_status: None,
             mail_watch: mail_watch::Watch::new(),
             backend: launch.backend,
-            coding_agent: launch.coding_agent.clone(),
+            agent: launch.agent,
             identity_recorded: false,
             last_poll: None,
             force_refresh: false,
@@ -347,14 +348,10 @@ impl ViewerSession {
     pub(crate) fn open_with_companion(launch: Launch) -> Result<ViewerSession, String> {
         let (root, restart, backend) =
             (launch.project_root.clone(), launch.restart, launch.backend);
-        let coding_agent = launch.coding_agent.clone();
+        let agent = launch.agent;
         ViewerSession::open(launch, move || -> Box<dyn CompanionLink> {
             if backend {
-                Box::new(mail::Companion::start(
-                    &root,
-                    restart,
-                    coding_agent.as_deref(),
-                ))
+                Box::new(mail::Companion::start(&root, restart, agent))
             } else {
                 Box::new(mail::Companion::mail_only())
             }
@@ -585,9 +582,9 @@ impl ViewerSession {
                         } else {
                             format!(
                                 "Regen queued; {} session not attached.",
-                                companion::worker::provider_noun(
+                                companion::worker::agent_status_name(
                                     &self.project_root.to_string_lossy(),
-                                    self.coding_agent.as_deref(),
+                                    self.agent,
                                 )
                             )
                         }
@@ -1030,7 +1027,7 @@ mod tests {
                 diagram: dir.join("diagram.edn"),
                 restart: false,
                 backend,
-                coding_agent: None,
+                agent: None,
                 snapshot: None,
             },
             move || Box::new(link),
@@ -1278,7 +1275,7 @@ mod tests {
                     diagram: dir.join("diagram.edn"),
                     restart: false,
                     backend: false,
-                    coding_agent: (!recorded).then(|| "codex".to_owned()),
+                    agent: (!recorded).then_some(CodingAgent::Codex),
                     snapshot: None,
                 },
                 move || Box::new(link),
@@ -1405,7 +1402,7 @@ mod tests {
                 diagram: dir.join("diagram.edn"),
                 restart: false,
                 backend: true,
-                coding_agent: Some("codex".to_owned()),
+                agent: Some(CodingAgent::Codex),
                 snapshot: None,
             },
             move || Box::new(link),

@@ -185,12 +185,9 @@ pub fn create(root: &str, host: &Host, options_in: CreateOptions) -> Result<(Val
     let (selected, _) = launch_preflight(root, host, &[], agent)?;
     // Codex runs as the executable its preflight checked, so the fresh and
     // recovery argv name that file rather than a later PATH lookup.
-    let executable = match (options_in.executable.clone(), agent) {
-        (Some(executable), _) => executable,
-        (None, CodingAgent::Codex) => {
-            crate::preflight::codex_executable(&|name| (host.variable)(name))?
-        }
-        (None, CodingAgent::Claude) => agent.executable(host),
+    let executable = match options_in.executable.clone() {
+        Some(executable) => executable,
+        None => agent.executable(&|name| (host.variable)(name))?,
     };
     let uuid = options_in.uuid.clone().unwrap_or_else(|| (host.token)());
     let session = session_name(root, &uuid, &config_root(host))?;

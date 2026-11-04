@@ -3,7 +3,6 @@
 //! provider and its session identity to the fresh and recovery argv and to
 //! the ownership fields; Herdr stays the only companion backend.
 
-use crate::host::Host;
 use crate::prompt;
 use crate::vocab::{Failure, Result};
 use edn::Value;
@@ -61,7 +60,7 @@ pub fn identity_of(record: &Value) -> Result<SessionIdentity> {
             _ => {
                 return Err(Failure::new(format!(
                     "{} companion ownership has no verifiable session; retained",
-                    agent.label()
+                    agent.diagnostic_name()
                 )));
             }
         }
@@ -91,7 +90,7 @@ pub fn relaunch_command(record: &Value) -> Result<Vec<String>> {
         }
         _ => Err(Failure::new(format!(
             "{} ownership has no valid recovery command for its saved session; recovery refused",
-            owned.agent.label()
+            owned.agent.diagnostic_name()
         ))),
     }
 }
@@ -119,8 +118,15 @@ fn explicit_resume(items: &[Value], session: Option<&str>, root: Option<&str>) -
             .any(|option| option == "--last" || option == "--all")
 }
 
-fn unknown_provider() -> Failure {
+pub(crate) fn unknown_provider() -> Failure {
     Failure::new("Companion ownership names an unknown coding-agent provider; retained")
+}
+
+fn executable_file(candidate: &str) -> bool {
+    std::fs::metadata(candidate).is_ok_and(|metadata| {
+        metadata.is_file()
+            && std::os::unix::fs::PermissionsExt::mode(&metadata.permissions()) & 0o111 != 0
+    })
 }
 
 /// RFC 4122 text form, any version: Codex reports UUIDv7 session ids.
@@ -141,11 +147,27 @@ pub enum CodingAgent {
 }
 
 impl CodingAgent {
+    /// A recorded provider keyword; any other name is an unknown provider.
     pub fn parse(name: &str) -> Result<Self> {
+        Self::named(name).ok_or_else(unknown_provider)
+    }
+
+    /// The value of an explicit `--coding-agent` option, as the entry, the
+    /// preflight and the viewer read it: one of the closed set, at most once.
+    pub fn from_option(value: Option<&str>) -> Result<Self> {
+        value.and_then(Self::named).ok_or_else(Self::option_refused)
+    }
+
+    /// The refusal for an unknown, missing or repeated `--coding-agent` value.
+    pub fn option_refused() -> Failure {
+        Failure::new("Unknown or duplicate coding-agent provider; use --coding-agent claude|codex")
+    }
+
+    fn named(name: &str) -> Option<Self> {
         match name {
-            "claude" => Ok(CodingAgent::Claude),
-            "codex" => Ok(CodingAgent::Codex),
-            _ => Err(unknown_provider()),
+            "claude" => Some(CodingAgent::Claude),
+            "codex" => Some(CodingAgent::Codex),
+            _ => None,
         }
     }
 
@@ -157,32 +179,74 @@ impl CodingAgent {
         }
     }
 
-    /// The product name used in status and error text.
-    pub fn label(self) -> &'static str {
+    /// The product name in preflight diagnostics and refusals.
+    pub fn diagnostic_name(self) -> &'static str {
         match self {
             CodingAgent::Claude => "Claude Code",
             CodingAgent::Codex => "Codex CLI",
         }
     }
 
-    /// The short name used in running status text.
-    pub fn noun(self) -> &'static str {
+    /// The short name in the viewer's and worker's running status text.
+    pub fn status_name(self) -> &'static str {
         match self {
             CodingAgent::Claude => "Claude",
             CodingAgent::Codex => "Codex",
         }
     }
 
-    /// The provider executable: its `*_BIN` override when set, otherwise the
-    /// bare name resolved on PATH.
-    pub fn executable(self, host: &Host) -> String {
+    /// The provider executable in `env`: its `*_BIN` override when set,
+    /// otherwise its bare name. Claude's is left to the PATH lookup the pane
+    /// launch makes. Codex's is resolved now (`CODEX_BIN` with a `/` taken
+    /// literally, else the name on PATH) and must be an executable file, so
+    /// the preflight checks and the argv names the same file.
+    pub fn executable(self, env: &dyn Fn(&str) -> Option<String>) -> Result<String> {
         let (variable, name) = match self {
             CodingAgent::Claude => ("CLAUDE_BIN", "claude"),
             CodingAgent::Codex => ("CODEX_BIN", "codex"),
         };
-        (host.variable)(variable)
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| name.to_owned())
+        let named = env(variable).filter(|value| !value.is_empty());
+        if self == CodingAgent::Claude {
+            return Ok(named.unwrap_or_else(|| name.to_owned()));
+        }
+        if let Some(named) = &named
+            && named.contains('/')
+        {
+            return if executable_file(named) {
+                Ok(named.clone())
+            } else {
+                Err(Failure::new(format!(
+                    "Codex CLI not found: {variable} {named:?} is not an executable file. {}",
+                    crate::preflight::rules::CODEX_GUIDANCE
+                )))
+            };
+        }
+        let name = named.as_deref().unwrap_or(name);
+        env("PATH")
+            .unwrap_or_default()
+            .split(':')
+            .filter(|directory| !directory.is_empty())
+            .map(|directory| format!("{}/{name}", directory.trim_end_matches('/')))
+            .find(|candidate| executable_file(candidate))
+            .ok_or_else(|| {
+                Failure::new(format!(
+                    "Codex CLI not found: {name:?} is not on PATH. {}",
+                    crate::preflight::rules::CODEX_GUIDANCE
+                ))
+            })
+    }
+
+    /// This provider's own launch requirements on the selected Herdr, each
+    /// refused with its real cause; Claude has none beyond the selection.
+    pub fn launch_ready(
+        self,
+        selected: &crate::herdr::select::Selected,
+        env: &dyn Fn(&str) -> Option<String>,
+    ) -> Result<()> {
+        match self {
+            CodingAgent::Claude => Ok(()),
+            CodingAgent::Codex => crate::preflight::codex_ready(selected, env),
+        }
     }
 
     /// The ownership field that holds this provider's session id.
@@ -472,26 +536,43 @@ mod tests {
 
     #[test]
     fn each_provider_prefers_its_own_bin_override() {
-        let with = |expected: &'static str, value: Option<&'static str>| Host {
-            variable: std::rc::Rc::new(move |name| {
+        let with = |expected: &'static str, value: Option<String>| {
+            move |name: &str| {
                 assert_eq!(expected, name);
-                value.map(str::to_owned)
-            }),
-            ..Host::fake()
+                value.clone()
+            }
         };
-        let claude = CodingAgent::Claude;
-        assert_eq!(
-            "/opt/claude",
-            claude.executable(&with("CLAUDE_BIN", Some("/opt/claude")))
+        let claude = |value: Option<&str>| {
+            CodingAgent::Claude
+                .executable(&with("CLAUDE_BIN", value.map(str::to_owned)))
+                .unwrap()
+        };
+        assert_eq!("/opt/claude", claude(Some("/opt/claude")));
+        assert_eq!("claude", claude(Some("")));
+        assert_eq!("claude", claude(None));
+        let directory =
+            std::env::temp_dir().join(format!("uml agent executable {}", std::process::id()));
+        let codex = crate::preflight::fixtures::script(&directory, "codex", "exit 0\n");
+        let path = format!("{}:/definitely/empty", directory.display());
+        let env = |bin: Option<&str>| {
+            let (path, bin) = (path.clone(), bin.map(str::to_owned));
+            move |name: &str| match name {
+                "PATH" => Some(path.clone()),
+                "CODEX_BIN" => bin.clone(),
+                _ => None,
+            }
+        };
+        let resolved = |bin: Option<&str>| CodingAgent::Codex.executable(&env(bin));
+        assert_eq!(codex, resolved(Some(&codex)).unwrap());
+        assert_eq!(codex, resolved(None).unwrap());
+        assert_eq!(codex, resolved(Some("")).unwrap());
+        assert!(
+            resolved(Some("codex-other"))
+                .unwrap_err()
+                .message
+                .contains("\"codex-other\" is not on PATH")
         );
-        assert_eq!("claude", claude.executable(&with("CLAUDE_BIN", Some(""))));
-        assert_eq!("claude", claude.executable(&with("CLAUDE_BIN", None)));
-        let codex = CodingAgent::Codex;
-        assert_eq!(
-            "/opt/codex",
-            codex.executable(&with("CODEX_BIN", Some("/opt/codex")))
-        );
-        assert_eq!("codex", codex.executable(&with("CODEX_BIN", None)));
+        let _ = std::fs::remove_dir_all(&directory);
     }
 
     #[test]

@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
+use companion::CodingAgent;
 use companion::worker::{self, Worker};
 use edn::Value;
 use scene::document::{self, MailBoundary, ViewState};
@@ -29,8 +30,8 @@ impl Companion {
     /// mail cursor before calling this, so a `:display` written during
     /// startup is consumed rather than skipped (the Lua `Mailbox.last_id`
     /// capture).
-    pub fn start(root: &Path, restart: bool, coding_agent: Option<&str>) -> Companion {
-        match worker::start(&root.to_string_lossy(), restart, coding_agent) {
+    pub fn start(root: &Path, restart: bool, agent: Option<CodingAgent>) -> Companion {
+        match worker::start(&root.to_string_lossy(), restart, agent) {
             Ok(started) => Companion {
                 worker: Some(started),
                 status: Some("Companion: starting".into()),

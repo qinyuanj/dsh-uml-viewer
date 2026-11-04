@@ -22,6 +22,7 @@ pub(crate) mod text;
 pub(crate) mod vocab;
 pub mod worker;
 
+pub use agent::CodingAgent;
 pub use vocab::{Failure, Result};
 
 /// `pub fn run(args: &[OsString]) -> ExitCode` for each `companion-*` role,

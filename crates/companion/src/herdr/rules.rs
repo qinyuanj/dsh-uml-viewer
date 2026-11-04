@@ -279,14 +279,14 @@ pub fn reported_session(
     {
         return Err(Failure::new(format!(
             "Herdr reported a session that is not this {} companion's; refused",
-            agent.label()
+            agent.diagnostic_name()
         )));
     }
     match field("value") {
         Some(id) if crate::agent::is_uuid(id) => Ok(Some(id.to_owned())),
         _ => Err(Failure::new(format!(
             "Herdr reported a {} session id that is not a UUID; refused",
-            agent.label()
+            agent.diagnostic_name()
         ))),
     }
 }
