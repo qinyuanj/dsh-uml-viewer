@@ -104,7 +104,8 @@ Herdr 的 pane ID 是 **session 局部** 的：两个命名 session 各自都有
   controller，之后 worker 才发布 ready。超时、提供方或来源不符、非 id 或非
   UUID 一律失败，不退回 Claude、不选最近会话、不新建会话；此时 recovery
   controller 尚未启动，只释放本次新建的 workspace、server 与命名 session，
-  确认后清空 ownership（释放失败则保留并报告）。独占 server 启动时去掉继承的
+  确认后删除本次的 `<session>-runner.edn`（及其 `.launch.edn`、`.lock`）并清空
+  ownership（释放失败则两者都保留并报告）。独占 server 启动时去掉继承的
   `CODEX_THREAD_ID`，否则 Herdr Codex hook 会丢弃 companion 自己的上报。
 - 创建前写 provisional 记录；部分失败后保留，禁止自动再建。
 - 每次 `probe!`/`bind!`/`wake!`/`cleanup!` 之前核对：session socket 可达、

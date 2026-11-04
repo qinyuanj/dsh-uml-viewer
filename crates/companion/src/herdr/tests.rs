@@ -1428,6 +1428,20 @@ fn codex_create(
     Checkpoints,
     Rc<RefCell<Option<Value>>>,
 ) {
+    codex_create_in(occupant, session, &Files::new())
+}
+
+fn codex_create_in(
+    occupant: &str,
+    session: Option<Json>,
+    files: &Files,
+) -> (
+    Herdr,
+    Shared,
+    Calls,
+    Checkpoints,
+    Rc<RefCell<Option<Value>>>,
+) {
     let state = create_state();
     state.borrow_mut().occupant = Some(occupant.to_owned());
     state.borrow_mut().agent_session = session;
@@ -1437,7 +1451,7 @@ fn codex_create(
     let mut backend = create_backend(
         state.clone(),
         calls.clone(),
-        &Files::new(),
+        files,
         checkpoints.clone(),
         recovered.clone(),
     );
@@ -1568,6 +1582,38 @@ fn a_fresh_codex_whose_session_is_never_reported_times_out_and_releases_its_star
         error.message
     );
     assert_released(&error, &state, &calls, &checkpoints, &recovered);
+}
+
+/// A refused start also removes the runner files it created (#195): its
+/// state, launch manifest and generation lock. Another session's are kept.
+#[test]
+fn a_refused_fresh_codex_removes_only_its_own_runner_files() {
+    let files = Files::new();
+    let runner = format!("{ROOT}/.uml-viewer/uml-viewer-A-runner.edn");
+    let other = format!("{ROOT}/.uml-viewer/uml-viewer-B-runner.edn");
+    files.put(&runner, "{:token \"t\" :phase :started}");
+    files.put(format!("{runner}.lock"), "");
+    files.put(&other, "{:token \"b\" :phase :started}");
+    let (mut backend, state, calls, checkpoints, recovered) = codex_create_in(
+        "codex",
+        Some(reported("codex", "herdr:codex", "id", "latest")),
+        &files,
+    );
+    let error = backend
+        .create("uml-viewer-A", ROOT, &codex_fresh())
+        .unwrap_err();
+    assert_released(&error, &state, &calls, &checkpoints, &recovered);
+    for leftover in [
+        runner.clone(),
+        format!("{runner}.launch.edn"),
+        format!("{runner}.lock"),
+    ] {
+        assert_eq!(None, files.get(&leftover), "{leftover}");
+    }
+    assert!(
+        files.get(&other).is_some(),
+        "another session's runner state"
+    );
 }
 
 #[test]

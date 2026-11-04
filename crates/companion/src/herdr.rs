@@ -902,8 +902,9 @@ impl Herdr {
     }
 
     /// A fresh start that cannot prove its session releases what it created:
-    /// its own Herdr session and ownership. No recovery controller runs yet,
-    /// so there is nothing to cancel first.
+    /// its own Herdr session, runner files and ownership. No recovery
+    /// controller runs yet, so there is nothing to cancel first. A failed
+    /// release retains the ownership and the files it still describes.
     fn release_fresh(&mut self, base: &Value, cause: Failure) -> Failure {
         let mut record = base.clone();
         edn::record::remove(&mut record, "supervisor");
@@ -912,6 +913,13 @@ impl Herdr {
         self.identity = Some(record.clone());
         let released = crate::ownership::write(&self.host, &cwd, &record)
             .and_then(|()| self.cleanup(&session))
+            .map(|()| {
+                if let Some(state) = record::get_name(&record, "runner-state") {
+                    for suffix in ["", ".launch.edn", ".lock"] {
+                        (self.host.remove)(Path::new(&format!("{state}{suffix}")));
+                    }
+                }
+            })
             .and_then(|()| crate::ownership::write(&self.host, &cwd, &Value::Map(vec![])));
         Failure::new(match released {
             Ok(()) => format!("{}; this start's Herdr session was released", cause.message),
