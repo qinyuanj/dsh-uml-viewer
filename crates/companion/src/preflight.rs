@@ -164,13 +164,23 @@ pub(crate) mod rules;
 
 #[cfg(test)]
 pub(crate) mod fixtures {
+    /// An executable `/bin/sh` script. A child process writes it: a write
+    /// descriptor in this process would leak into a child forked by a
+    /// concurrent test, and exec of a file open for writing fails ETXTBSY.
     pub(crate) fn script(directory: &std::path::Path, name: &str, body: &str) -> String {
         std::fs::create_dir_all(directory).unwrap();
         let path = directory.join(name);
-        std::fs::write(&path, format!("#!/bin/sh\n{body}")).unwrap();
-        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
-        std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
-        std::fs::set_permissions(&path, permissions).unwrap();
+        let status = std::process::Command::new("/bin/sh")
+            .args([
+                "-c",
+                "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"",
+                "sh",
+            ])
+            .arg(format!("#!/bin/sh\n{body}"))
+            .arg(&path)
+            .status()
+            .unwrap();
+        assert!(status.success(), "fixture script {}", path.display());
         path.to_string_lossy().into_owned()
     }
 
@@ -254,18 +264,12 @@ mod tests {
         let root = temp_root();
         // PATH points at a fixture directory with a compatible herdr.
         let bin = std::path::Path::new(&root).join("bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        let herdr = bin.join("herdr");
-        std::fs::write(
-            &herdr,
-            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'herdr 0.9.4'; exit 0; fi\n"
-                .to_owned()
-                + "echo '{\"$schema\":\"fixture\",\"protocol\":22,\"schema_version\":1}'\n",
-        )
-        .unwrap();
-        let mut permissions = std::fs::metadata(&herdr).unwrap().permissions();
-        std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
-        std::fs::set_permissions(&herdr, permissions).unwrap();
+        fixtures::script(
+            &bin,
+            "herdr",
+            "if [ \"$1\" = --version ]; then echo 'herdr 0.9.4'; exit 0; fi\n\
+             echo '{\"$schema\":\"fixture\",\"protocol\":22,\"schema_version\":1}'\n",
+        );
         let path = format!("{}:/definitely/empty", bin.display());
         let selected = select_on_path(
             &root,
@@ -669,12 +673,7 @@ mod tests {
     fn every_incompatible_path_candidate_is_reported() {
         let root = temp_root();
         let bin = std::path::Path::new(&root).join("a");
-        std::fs::create_dir_all(&bin).unwrap();
-        let herdr = bin.join("herdr");
-        std::fs::write(&herdr, "#!/bin/sh\necho 'herdr 0.9.2'\n").unwrap();
-        let mut permissions = std::fs::metadata(&herdr).unwrap().permissions();
-        std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
-        std::fs::set_permissions(&herdr, permissions).unwrap();
+        fixtures::script(&bin, "herdr", "echo 'herdr 0.9.2'\n");
         let path = format!("{}:/definitely/empty", bin.display());
         let error = select_on_path(&root, &[], false, &path).unwrap_err();
         assert!(

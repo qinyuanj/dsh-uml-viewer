@@ -1011,7 +1011,7 @@ mod tests {
         reclaim_stale(&Host::posix(), &directory.to_string_lossy());
         assert_eq!(kept, listing(&state));
         // The probe released the lock, so the new helper can take it.
-        let lock = posix::try_acquire(&state.join("companion-worker.lock")).unwrap();
+        let lock = posix::acquire_within(&state.join("companion-worker.lock"), 5000);
         assert!(lock.is_some());
         posix::release(lock);
         let _ = std::fs::remove_dir_all(&directory);
@@ -1293,7 +1293,6 @@ mod tests {
             std::process::id(),
             crate::posix::monotonic_ms()
         ));
-        std::fs::create_dir_all(directory.join(".uml-viewer")).unwrap();
         let bin = directory.join("bin");
         crate::preflight::fixtures::herdr(
             &bin,
@@ -1304,7 +1303,6 @@ mod tests {
         let path = format!("{}:/definitely/empty", bin.display());
         let mut host = Host::posix();
         host.variable = Rc::new(move |name: &str| (name == "PATH").then(|| path.clone()));
-        let root = directory.to_string_lossy().into_owned();
         for (generation, provider, expected) in [
             (
                 "codex",
@@ -1317,6 +1315,11 @@ mod tests {
                 "unknown coding-agent provider",
             ),
         ] {
+            // Each round owns a project: a child forked by a concurrent test
+            // can hold the previous round's released lock until it execs.
+            let project = directory.join(generation);
+            std::fs::create_dir_all(project.join(".uml-viewer")).unwrap();
+            let root = project.to_string_lossy().into_owned();
             let base = format!("{root}/.uml-viewer/companion-worker-{generation}");
             let request_path = format!("{base}.request.edn");
             let mut fields = vec![

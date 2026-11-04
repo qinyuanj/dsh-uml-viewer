@@ -727,6 +727,22 @@ pub fn release(lock: Option<Flock>) {
     drop(lock);
 }
 
+/// [`try_acquire`] retried for up to `timeout_ms`. A child forked by a
+/// concurrent test holds a copy of a released lock's descriptor until it
+/// execs, so a test that expects a free lock waits briefly; a lock that is
+/// still held never frees.
+#[cfg(test)]
+pub(crate) fn acquire_within(path: &Path, timeout_ms: i64) -> Option<Flock> {
+    let deadline = monotonic_ms() + timeout_ms;
+    loop {
+        let lock = try_acquire(path).unwrap();
+        if lock.is_some() || monotonic_ms() > deadline {
+            return lock;
+        }
+        sleep(25);
+    }
+}
+
 // --- Paths, stamps and atomic replacement ---------------------------------
 
 /// `realpath(3)` identity (port of posix_path.canonical).
@@ -808,7 +824,8 @@ mod tests {
 
     /// A forked child inherits open descriptors until it execs, so a lock that
     /// a parent already released can still look held for a few milliseconds.
-    /// Fork-using tests and the flock singleton test therefore never overlap.
+    /// Fork-using tests here and the flock singleton test therefore never
+    /// overlap; forks from other modules are covered by [`acquire_within`].
     static FORK_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn fork_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -964,7 +981,12 @@ mod tests {
         let log = temp_path("detached-env");
         spawn_detached(
             OsStr::new("/bin/sh"),
-            &args(&["-c", "printf '%s %s' \"${HOME:-unset}\" \"${PATH:+path}\""]),
+            // A brief lifetime, as for the attached child: an instant-exit
+            // child can be a zombie before its identity is read.
+            &args(&[
+                "-c",
+                "printf '%s %s' \"${HOME:-unset}\" \"${PATH:+path}\"; sleep 0.2",
+            ]),
             Path::new("/tmp"),
             Some(&log),
             Some(&log.with_extension("err")),
@@ -1015,7 +1037,7 @@ mod tests {
         let held = try_acquire(&path).unwrap().expect("first lock");
         assert!(try_acquire(&path).unwrap().is_none());
         release(Some(held));
-        assert!(try_acquire(&path).unwrap().is_some());
+        assert!(acquire_within(&path, 5000).is_some());
         let _ = std::fs::remove_file(&path);
     }
 
