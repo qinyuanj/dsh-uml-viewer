@@ -123,5 +123,72 @@ class RestartEntries(unittest.TestCase):
                 self.assertEqual([], list(self.state.glob('launch-*.json')))
 
 
+    SESSION = '01a1a458-f60d-7561-aa06-d04df3bd14f7'
+
+    def ownership(self, provider=''):
+        root = str(self.root.resolve())
+        text = ('{:backend :herdr :owner-role :companion :cwd ' + json.dumps(root) +
+                ' :session "uml-viewer-A" :pane "w1:p1" :socket "/s/herdr.sock" :workspace "w1"'
+                ' :terminal-id "term_A" :shell-pid 42 :owner-start "ss" :server-pid 41'
+                ' :server-start "rs" ' + provider + '}')
+        (self.state / 'companion.edn').write_text(text)
+        return text
+
+    def live_launcher(self):
+        # A live launcher whose identity matches: a refusal must come from the
+        # preflight, before the wrapper waits for it to exit.
+        sleeper = self.running_sleeper()
+        self.write('viewer-process.json',
+                   {'pid': sleeper.pid, 'started': start_identity(sleeper.pid), 'runtime': 'rust'})
+        return sleeper
+
+    def fixture_path(self, herdr='0.9.5', codex=None):
+        bin_dir = self.root / 'fixture bin'
+        bin_dir.mkdir(exist_ok=True)
+        (bin_dir / 'herdr').write_text(
+            '#!/bin/sh\ncase "$1" in\n'
+            f"--version) echo 'herdr {herdr}' ;;\n"
+            "api) echo '{\"$schema\":\"f\",\"protocol\":22,\"schema_version\":1}' ;;\n"
+            "integration) echo 'codex: current (v10) (/h/codex.sh)' ;;\nesac\n")
+        (bin_dir / 'herdr').chmod(0o755)
+        if codex:
+            (bin_dir / 'codex').write_text(
+                f"#!/bin/sh\ncase \"$1\" in\n--version) echo 'codex-cli {codex}' ;;\nesac\n")
+            (bin_dir / 'codex').chmod(0o755)
+        host = [d for d in os.environ['PATH'].split(':')
+                if d and not (Path(d) / 'herdr').exists() and not (Path(d) / 'codex').exists()]
+        self.env['PATH'] = ':'.join([str(bin_dir), *host])
+
+    def test_restart_refuses_a_provider_that_conflicts_with_ownership_before_waiting(self):
+        self.fixture_path(codex='0.166.0')
+        codex = f':coding-agent :codex :codex-session "{self.SESSION}"'
+        for recorded, requested, label in (('', 'codex', 'Claude Code'), (codex, 'claude', 'Codex CLI')):
+            with self.subTest(recorded=label):
+                text = self.ownership(recorded)
+                sleeper = self.live_launcher()
+                before = (self.state / 'viewer-process.json').read_bytes()
+                began = time.monotonic()
+                result = self.invoke('--restart', '--coding-agent', requested, 'diagram.edn')
+                self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+                self.assertIn(f'records {label}', result.stderr)
+                self.assertIn(f'--coding-agent {requested} conflicts', result.stderr)
+                self.assertLess(time.monotonic() - began, 10, 'refused without waiting')
+                self.assertIsNone(sleeper.poll(), 'the live viewer is not touched')
+                self.assertEqual(text, (self.state / 'companion.edn').read_text())
+                self.assertEqual(before, (self.state / 'viewer-process.json').read_bytes())
+
+    def test_restart_reuses_the_recorded_codex_provider_and_its_preflight(self):
+        # No option: the recorded Codex provider decides, so its Herdr floor
+        # refuses a 0.9.4 that a Claude project would accept.
+        self.fixture_path(herdr='0.9.4', codex='0.166.0')
+        text = self.ownership(f':coding-agent :codex :codex-session "{self.SESSION}"')
+        sleeper = self.live_launcher()
+        result = self.invoke('--restart', 'diagram.edn')
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn('the selected Herdr 0.9.4', result.stderr)
+        self.assertIsNone(sleeper.poll())
+        self.assertEqual(text, (self.state / 'companion.edn').read_text())
+
+
 if __name__ == '__main__':
     unittest.main()

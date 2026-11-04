@@ -106,3 +106,33 @@ fn watch_stamp_has_nanoseconds_and_catches_equal_length_edits() {
     let _ = std::fs::remove_dir_all(&dir);
     panic!("nanosecond mtime never changed across equal-length edits");
 }
+
+#[test]
+fn a_coding_agent_choice_is_carried_and_anything_else_is_refused() {
+    assert_eq!(
+        None,
+        viewer::cli::parse(&args(&["d.edn"])).unwrap().coding_agent
+    );
+    for name in ["claude", "codex"] {
+        let options = viewer::cli::parse(&args(&[
+            "--backend",
+            "herdr",
+            "--coding-agent",
+            name,
+            "d.edn",
+        ]))
+        .unwrap();
+        assert_eq!(Some(name.to_owned()), options.coding_agent);
+        assert_eq!(Some(PathBuf::from("d.edn")), options.path);
+    }
+    for values in [
+        vec!["--coding-agent"],
+        vec!["--coding-agent", "gemini"],
+        vec!["--coding-agent", "codex", "--coding-agent", "codex"],
+    ] {
+        assert_eq!(
+            "Unknown or duplicate coding-agent provider; use --coding-agent claude|codex",
+            viewer::cli::parse(&args(&values)).unwrap_err()
+        );
+    }
+}

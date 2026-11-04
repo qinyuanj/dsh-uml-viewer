@@ -75,6 +75,8 @@ pub(crate) struct Launch {
     pub restart: bool,
     /// `--backend herdr`: show the waiting canvas until `:display`.
     pub backend: bool,
+    /// `--coding-agent`: the provider the launch named, for the worker.
+    pub coding_agent: Option<String>,
     /// The saved session snapshot a restart restores (read once).
     pub snapshot: Option<Value>,
 }
@@ -109,6 +111,7 @@ impl Launch {
             diagram,
             restart,
             backend,
+            coding_agent: None,
             snapshot,
         };
         (launch, chrome)
@@ -341,9 +344,14 @@ impl ViewerSession {
     pub(crate) fn open_with_companion(launch: Launch) -> Result<ViewerSession, String> {
         let (root, restart, backend) =
             (launch.project_root.clone(), launch.restart, launch.backend);
+        let coding_agent = launch.coding_agent.clone();
         ViewerSession::open(launch, move || -> Box<dyn CompanionLink> {
             if backend {
-                Box::new(mail::Companion::start(&root, restart))
+                Box::new(mail::Companion::start(
+                    &root,
+                    restart,
+                    coding_agent.as_deref(),
+                ))
             } else {
                 Box::new(mail::Companion::mail_only())
             }
@@ -1013,6 +1021,7 @@ mod tests {
                 diagram: dir.join("diagram.edn"),
                 restart: false,
                 backend,
+                coding_agent: None,
                 snapshot: None,
             },
             move || Box::new(link),

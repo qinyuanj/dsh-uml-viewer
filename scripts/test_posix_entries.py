@@ -779,6 +779,126 @@ class PosixEntries(unittest.TestCase):
                 self.assertIn('已移除', result.stderr)
                 self.assertIsNone(self.launcher_record())
 
+    def test_only_the_lifecycle_entry_takes_a_coding_agent(self):
+        # #194: IR, scene and quality commands refuse the provider option
+        # before anything is dispatched, wherever the option sits.
+        record, env = self.rust_stub()
+        for args in (('ir', '--coding-agent', 'codex'), ('--coding-agent', 'claude', 'ir'),
+                     ('scene', '--coding-agent', 'claude'), ('crap', '--coding-agent', 'codex'),
+                     ('mutate', 'src/a.lua', '--coding-agent', 'codex'), ('dry', '--coding-agent')):
+            with self.subTest(args=args):
+                (self.root / '.uml-viewer/quality-result.json').unlink(missing_ok=True)
+                result = subprocess.run([str(self.root / 'uml'), *args], cwd=self.root, env=env,
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+                self.assertIn('--coding-agent', result.stderr)
+                self.assertIn(args[0] if args[0] != '--coding-agent' else 'ir', result.stderr)
+                self.assertFalse(record.exists(), 'nothing may be dispatched')
+                self.assertIsNone(self.launcher_record())
+
+    def test_the_lifecycle_entry_forwards_a_coding_agent_literally(self):
+        record, env = self.rust_stub()
+        result = subprocess.run([str(self.root / 'uml'), '--coding-agent', 'codex', 'd.edn'],
+                                cwd=self.root, env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(0, result.returncode, result.stderr)
+        launcher = self.launcher_record()
+        self.addCleanup(self.stop_stub, launcher)
+        self.assertEqual(['viewer', '--backend', 'herdr', '--coding-agent', 'codex', 'd.edn'],
+                         launcher['argv'])
+
+    def provider_fixtures(self, herdr='0.9.5', protocol=22, integration='current', codex=None):
+        """A PATH without the host's herdr/codex, plus fixture executables."""
+        bin_dir = self.root / 'fixture bin'
+        bin_dir.mkdir(exist_ok=True)
+        herdr_path = bin_dir / 'herdr'
+        herdr_path.write_text(
+            '#!/bin/sh\ncase "$1" in\n'
+            f"--version) echo 'herdr {herdr}' ;;\n"
+            f"api) echo '{{\"$schema\":\"f\",\"protocol\":{protocol},\"schema_version\":1}}' ;;\n"
+            f"integration) echo 'codex: {integration} (v10) (/h/codex.sh)' ;;\nesac\n")
+        herdr_path.chmod(0o755)
+        if codex:
+            self.codex_fixture(bin_dir / 'codex', codex)
+        host = [d for d in os.environ['PATH'].split(':')
+                if d and not (Path(d) / 'herdr').exists() and not (Path(d) / 'codex').exists()]
+        return dict(self.env, PATH=':'.join([str(bin_dir), *host]))
+
+    def codex_fixture(self, path, version, login=0, record=None):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        log = f'printf "%s\\n" "$0" "$@" >> {str(record)!r}\n' if record else ''
+        path.write_text(f'#!/bin/sh\n{log}case "$1" in\n--version) echo \'codex-cli {version}\' ;;\n'
+                        f'login) echo "Not logged in"; exit {login} ;;\nesac\n')
+        path.chmod(0o755)
+        return path
+
+    def assert_refused_before_resources(self, result, expected):
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn(expected, result.stderr)
+        self.assertIsNone(self.launcher_record())
+        self.assertFalse((self.root / '.uml-viewer/companion.edn').exists())
+
+    def test_an_unknown_or_duplicate_coding_agent_is_refused_before_a_viewer(self):
+        env = self.provider_fixtures(codex='0.166.0')
+        for args in (('--coding-agent', 'gemini'), ('--coding-agent',),
+                     ('--coding-agent', 'codex', '--coding-agent', 'codex', 'd.edn')):
+            with self.subTest(args=args):
+                result = subprocess.run([str(self.root / 'uml'), *args], cwd=self.root, env=env,
+                                        capture_output=True, text=True, timeout=600)
+                self.assert_refused_before_resources(result, '--coding-agent claude|codex')
+
+    def test_codex_preflight_refuses_each_real_cause_before_a_viewer(self):
+        cases = (
+            ({}, 'Codex CLI not found'),
+            ({'codex': '0.165.0'}, 'Codex CLI 0.165.0 at'),
+            ({'codex': '0.166.0', 'herdr': '0.9.4'}, 'the selected Herdr 0.9.4'),
+            ({'codex': '0.166.0', 'protocol': 21}, 'bundled schema is not protocol 22'),
+            ({'codex': '0.166.0', 'integration': 'outdated'}, 'Codex integration is outdated'),
+        )
+        for fixtures, expected in cases:
+            with self.subTest(**{k: str(v) for k, v in fixtures.items()}):
+                env = self.provider_fixtures(**fixtures)
+                result = subprocess.run([str(self.root / 'uml'), '--coding-agent', 'codex', 'd.edn'],
+                                        cwd=self.root, env=env, capture_output=True, text=True,
+                                        timeout=600)
+                self.assert_refused_before_resources(result, expected)
+
+    def test_codex_bin_reaches_the_preflight_as_a_literal_argv_and_overrides_path(self):
+        # A current codex on PATH must not stand in for the CODEX_BIN one,
+        # whose path keeps its spaces, Unicode and shell metacharacters.
+        env = self.provider_fixtures(codex='0.166.0')
+        record = self.root / 'codex-argv.txt'
+        named = self.codex_fixture(self.root / '代码 $HOME;`x`' / "co dex'*", '0.150.0',
+                                   record=record)
+        env['CODEX_BIN'] = str(named)
+        result = subprocess.run([str(self.root / 'uml'), '--coding-agent', 'codex'],
+                                cwd=self.root, env=env, capture_output=True, text=True, timeout=600)
+        self.assert_refused_before_resources(result, f'Codex CLI 0.150.0 at {named} is not a supported')
+        self.assertEqual([str(named), '--version'], record.read_text().splitlines())
+        env['CODEX_BIN'] = str(named) + ' missing'
+        result = subprocess.run([str(self.root / 'uml'), '--coding-agent', 'codex'],
+                                cwd=self.root, env=env, capture_output=True, text=True, timeout=600)
+        self.assert_refused_before_resources(result, 'is not an executable file')
+
+    def test_a_claude_project_keeps_the_herdr_093_floor(self):
+        # The preflight role answers `herdr` for the default and the explicit
+        # Claude choice on Herdr 0.9.3 even when no Codex is installed.
+        env = self.provider_fixtures(herdr='0.9.3', integration='not installed')
+        binary = subprocess.run([sys.executable, '-I', '-c',
+                                 'import sys; sys.path.insert(0, sys.argv[1]); import uml_posix;'
+                                 'print(uml_posix.rust_command(uml_posix.Path(sys.argv[2])))',
+                                 str(REPO / 'scripts'), str(REPO)],
+                                capture_output=True, text=True, timeout=600, env=env)
+        self.assertEqual(0, binary.returncode, binary.stderr)
+        for args in ([], ['--coding-agent', 'claude']):
+            with self.subTest(args=args):
+                result = subprocess.run([binary.stdout.strip(), 'companion-preflight',
+                                         str(self.root), '--backend', 'herdr', *args],
+                                        env=env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual('herdr\n', result.stdout)
+                self.assertIn('Herdr 0.9.3', result.stderr)
+                self.assertIn('Claude Code', result.stderr)
+
     def test_default_runtime_dispatches_headless_subcommands_to_the_rust_binary(self):
         # #144: no --runtime flag selects the Rust binary.
         record, env = self.rust_stub()

@@ -116,6 +116,20 @@ pub fn select(root: &str, args: &[String]) -> Result<Selected> {
     crate::preflight::select(root, args, false)
 }
 
+/// The launch preflight for `agent`, in the host's environment: the
+/// recorded provider must match it and its own requirements must hold.
+fn launch_preflight(
+    root: &str,
+    host: &Host,
+    extra: &[&str],
+    agent: CodingAgent,
+) -> Result<(Selected, CodingAgent)> {
+    let mut args = vec!["--backend", "herdr", "--coding-agent", agent.name()];
+    args.extend(extra);
+    let args: Vec<String> = args.into_iter().map(str::to_owned).collect();
+    crate::preflight::launch_in(root, &args, &|name| (host.variable)(name))
+}
+
 /// The lifecycle backend configuration: the selected Herdr, the binary's own
 /// runner and controller roles, and the worker's progress callback.
 fn config(selected: Selected, progress: Option<ProgressFn>) -> Result<Config> {
@@ -163,19 +177,20 @@ fn provisional_record(
 
 pub fn create(root: &str, host: &Host, options_in: CreateOptions) -> Result<(Value, Herdr)> {
     let agent = options_in.agent;
-    if agent.awaits_reported_session() {
-        // Ready needs the session Herdr reports after launch (#195).
-        return Err(Failure::new(format!(
-            "{} companion cannot start yet: its reported session is not awaited",
-            agent.label()
-        )));
-    }
     if load(root, host)?.is_some() {
         return Err(Failure::new(
             "Companion ownership already recorded; use --restart or resolve it before fresh start",
         ));
     }
-    let selected = select(root, &["--backend".to_owned(), "herdr".to_owned()])?;
+    let (selected, _) = launch_preflight(root, host, &[], agent)?;
+    if agent.awaits_reported_session() {
+        // The preflight passed, but ready needs the session Herdr reports
+        // after launch (#195); stop before any ownership or resource.
+        return Err(Failure::new(format!(
+            "{} companion cannot start yet: its reported session is not awaited",
+            agent.label()
+        )));
+    }
     let executable = options_in
         .executable
         .clone()
@@ -210,10 +225,14 @@ pub struct CreateOptions {
     pub progress: Option<ProgressFn>,
 }
 
-pub fn restart(root: &str, host: &Host) -> Result<(Value, Herdr)> {
+/// Rebind the recorded companion. An explicit provider may only confirm the
+/// recorded one; without one the recorded provider is reused.
+pub fn restart(root: &str, host: &Host, requested: Option<CodingAgent>) -> Result<(Value, Herdr)> {
     let plain = load(root, host)?
         .ok_or_else(|| Failure::new("Companion ownership is missing; cannot restart"))?;
-    let selected = select(root, &["--backend".to_owned(), "herdr".to_owned()])?;
+    let recorded = crate::agent::identity_of(&plain)?.agent;
+    let (selected, _) =
+        launch_preflight(root, host, &["--restart"], requested.unwrap_or(recorded))?;
     let backend = Herdr::new(Some(plain.clone()), host.clone(), config(selected, None)?);
     let session = record::get_name(&plain, "session").unwrap_or_default();
     let pane = record::get_name(&plain, "pane").unwrap_or_default();
@@ -749,20 +768,50 @@ mod tests {
         let _ = std::fs::remove_dir_all(&directory);
     }
 
+    /// A project directory with fixture Herdr and Codex executables, and a
+    /// host whose environment names only them.
+    fn codex_project(codex: &str) -> (std::path::PathBuf, String, Host) {
+        static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let directory = std::env::temp_dir().join(format!(
+            "uml lifecycle codex {} {}",
+            std::process::id(),
+            SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(directory.join(".uml-viewer")).unwrap();
+        let bin = directory.join("bin");
+        crate::preflight::fixtures::herdr(
+            &bin,
+            "0.9.5",
+            22,
+            crate::preflight::fixtures::CODEX_CURRENT,
+        );
+        crate::preflight::fixtures::codex(&bin, "codex", codex, 0);
+        let path = format!("{}:/definitely/empty", bin.display());
+        let mut host = Host::posix();
+        host.variable = std::rc::Rc::new(move |name: &str| (name == "PATH").then(|| path.clone()));
+        let root = directory.to_string_lossy().into_owned();
+        (directory, root, host)
+    }
+
     #[test]
-    fn a_codex_fresh_start_is_refused_before_any_resource_is_touched() {
-        // Host::fake fails any capability it was not given, so reading
-        // ownership, selecting Herdr or writing would surface another error.
-        let error = create(
-            "/p",
-            &Host::fake(),
-            CreateOptions {
-                agent: CodingAgent::Codex,
-                ..CreateOptions::default()
-            },
-        )
-        .err()
-        .unwrap();
+    fn a_codex_fresh_start_runs_its_preflight_and_then_stops_before_any_resource() {
+        let options = || CreateOptions {
+            agent: CodingAgent::Codex,
+            ..CreateOptions::default()
+        };
+        let (directory, root, host) = codex_project("codex-cli 0.165.0");
+        let error = create(&root, &host, options()).err().unwrap();
+        assert!(
+            error.message.contains("Codex CLI 0.165.0 at"),
+            "{}",
+            error.message
+        );
+        assert!(!ownership::exists(&root));
+        let _ = std::fs::remove_dir_all(&directory);
+        // A passing preflight still stops: the launch and the reported
+        // session wait land in #195, so no ownership or Herdr resource exists.
+        let (directory, root, host) = codex_project("codex-cli 0.166.0");
+        let error = create(&root, &host, options()).err().unwrap();
         assert!(
             error
                 .message
@@ -770,6 +819,8 @@ mod tests {
             "{}",
             error.message
         );
+        assert!(!ownership::exists(&root));
+        let _ = std::fs::remove_dir_all(&directory);
     }
 
     #[test]

@@ -527,15 +527,37 @@ def install(args):
     return 0 if args else command(root, [])
 
 
+NON_LIFECYCLE = ('ir', 'scene', 'crap', 'mutate', 'dry')
+
+
+def refuse_coding_agent_outside_lifecycle(args):
+    """--coding-agent 只属于 viewer 生命周期入口；其值由 Rust preflight 校验。"""
+    if '--coding-agent' not in args:
+        return
+    rest, index = [], 0
+    while index < len(args):
+        if args[index] == '--coding-agent':
+            index += 2
+        else:
+            rest.append(args[index])
+            index += 1
+    if rest and rest[0] in NON_LIFECYCLE:
+        raise ValueError(f'--coding-agent 只用于 viewer 生命周期入口（./uml 与 ./uml --restart），'
+                         f'{rest[0]} 不接受该选项。')
+
+
 def command(root, args):
     root = root.resolve()
     os.chdir(root)
     if args in (['--help'], ['-h']):
-        print('usage: uml [--runtime rust] [--backend herdr] [--restart | ir | scene | crap | mutate | dry] [args]\n'
-              '  rust 是唯一运行时；love 与 JVM 已移除。')
+        print('usage: uml [--runtime rust] [--backend herdr] [--coding-agent claude|codex]\n'
+              '           [--restart | ir | scene | crap | mutate | dry] [args]\n'
+              '  rust 是唯一运行时；love 与 JVM 已移除。\n'
+              '  --coding-agent 只用于 fresh/restart 生命周期，缺省 claude；Codex 用 CODEX_BIN 或 PATH 上的 codex。')
         return 0
     host()
     args = take_runtime(args)
+    refuse_coding_agent_outside_lifecycle(args)
     tool_root = Path(os.environ.get('UML_VIEWER_TOOL_ROOT', root / '.uml-viewer/uml-viewer')).resolve()
     if args and args[0] == 'ir':
         values = args[1:]
