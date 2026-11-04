@@ -60,8 +60,9 @@ The diagram is already on screen.
 - `:context` mail: `{:context :real}` or `{:context :proposal :proposal-id
   id :name "..."}` is the diagram under discussion. Stay on that context
   until a later `:context` arrives.
-- Prefer `./uml` (fresh start: spawn this companion and the Rust viewer, wait
-  for `:display`) and `./uml --restart` (new Rust process, keep this session,
+- `./uml` is the user's or maintainer's fresh start (spawn the companion and
+  the Rust viewer, wait for `:display`); a companion never runs it and uses only
+  its own project's `./uml --restart` (new Rust process, keep this session,
   restore last view). If `./uml` is missing, tell the user to run
   `get-uml-viewer` in this directory (it clones uml-viewer into gitignored
   `.uml-viewer/uml-viewer/`).

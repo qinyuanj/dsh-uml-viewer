@@ -671,8 +671,10 @@ mod tests {
         assert!(relaunch(r#"{:command ["claude" "fresh"] :recovery-command []}"#).is_empty());
     }
 
+    /// Claude keeps its argv shape; the fingerprints pin today's prompts,
+    /// which since #199 tell a companion never to run a fresh `./uml`.
     #[test]
-    fn claude_fresh_and_recovery_argv_are_unchanged() {
+    fn claude_argv_keeps_its_shape_and_carries_the_current_prompts() {
         let fresh = CodingAgent::Claude.fresh_command("/opt/claude", "/p", Some("u-1"));
         assert_eq!(
             [

@@ -20,6 +20,11 @@ Codex 0.166.0 另有 `app-server` 子命令，可以经 JSON-RPC 直接创建和
   snapshot 中占据 pane 的 agent 带 `agent_session {:agent "codex" :source "herdr:codex" :kind "id" :value <uuid>}`。
   fresh 启动在提交 ownership 前等待并验证它，写入 `:codex-session` 和显式 `codex resume <uuid>` 恢复命令，之后才 ready。
   等不到或不符即启动失败，只释放本次新建资源；不退回 Claude，不选最近会话，不新建会话兜底。
+- 标准规则与项目信任也只走这一进程的 `-c` 覆盖（fresh 与 `resume` 相同）：
+  `-c developer_instructions="<标准规则>"`（Codex TUI 没有 `--append-system-prompt`），
+  `-c projects={"<项目根>"={trust_level="trusted"}}`。后者由 #199 真实验收驱动：
+  git 项目首次启动会停在 "Trust this folder?"，hook 不触发，身份等待超时。
+  两者都不写 `config.toml`（验收前后 sha256 相同），信任只覆盖本 companion 的项目根。
 - 生产路径不使用 `codex app-server`、`exec` 或 `queue`；也不用 `herdr agent start`，
   因为 runner 自己记录的退出码是恢复判定的证据（契约 §6）。
 
