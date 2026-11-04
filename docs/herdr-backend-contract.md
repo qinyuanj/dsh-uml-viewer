@@ -64,7 +64,9 @@ checkpoint。**
   的 app-server `hooks/list` 被 ADR 0009 排除，也不复算 `trusted_hash`、不用
   `--dangerously-bypass-hook-trust`。所以 preflight 不检查信任；未信任时表现为身份等待
   超时，错误文本点名"likely an untrusted Codex hook"，并告诉用户自己运行 `codex` 审核并
-  信任 Herdr 的 SessionStart hook。
+  信任 Herdr 的 SessionStart hook。#200 在 macOS 实测：companion 自己的 Codex 在等待期间停在
+  "Hooks need review"；用户另起 `codex` 审核后信任未写入 `config.toml`，在 companion pane 的该
+  屏幕信任后写入，之后的 fresh 都在 9 s 内取得身份。
 - fresh 默认 Herdr；`--backend herdr` 兼容，tmux/psmux 明确拒绝。
   restart、wake、close 必须具有显式 `:backend :herdr` ownership，身份核实后
   才操作；legacy、无 backend、未知或不完整记录保留并拒绝接管。

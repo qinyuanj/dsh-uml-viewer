@@ -1,0 +1,4 @@
+"agent_session":{"agent":"codex","kind":"id","source":"herdr:codex","value":"01a1a691-28cc-7553-9b74-e49800e45829"}
+"agent_status":"idle"
+"agent_session":{"agent":"codex","kind":"id","source":"herdr:codex","value":"01a1a691-28cc-7553-9b74-e49800e45829"}
+"agent_status":"idle"

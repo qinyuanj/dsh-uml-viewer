@@ -1,0 +1,3 @@
+5e2ad4d8ddd484107b318a9a4ae65f5d5a4708251ac1282ed8b95135dcc518e9  /tmp/spec200/B 项目/.uml-viewer/companion.edn
+{:child {:pid 60259 :start "1793796254033322"} :phase :started :token "d37ce36d-18e8-418b-8ee0-253876e51179"}
+"agent_session":{"agent":"codex","kind":"id","source":"herdr:codex","value":"01a1a696-b89f-7f63-a3fb-6b0c8044cf6d"}

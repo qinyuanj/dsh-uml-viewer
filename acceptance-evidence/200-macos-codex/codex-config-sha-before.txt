@@ -1,0 +1,2 @@
+1f39acffe719a23d5d4a3f542ac6135ab861648464a598f596413ae5383798d1  /Users/billyq/.codex/config.toml
+ca012d8304efde62470fd09d1e26a66e05a439688c66a382063e0aecfa7f6313  /Users/billyq/.codex/hooks.json

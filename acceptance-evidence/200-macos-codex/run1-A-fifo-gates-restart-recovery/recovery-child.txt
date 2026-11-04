@@ -1,0 +1,2 @@
+  PID  PPID COMMAND
+61267 61266 /opt/homebrew/bin/codex resume --dangerously-bypass-approvals-and-sandbox --enable hooks --no-daemon -C /private/tmp/spec200/A 项目 -c developer_instructions="You are the UML-viewer companio

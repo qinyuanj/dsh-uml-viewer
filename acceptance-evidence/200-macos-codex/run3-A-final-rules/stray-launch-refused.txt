@@ -1,0 +1,6 @@
+$ UML_COMPANION_ROOT=<A root> ./uml   (in A)
+uml: uml: Refusing to run the viewer lifecycle inside the companion for "/private/tmp/spec200/A 项目": a companion never starts a viewer or companion, and restarts only its own project with ./uml --restart after :quit-for-restart
+exit=1
+$ UML_COMPANION_ROOT=<A root> ./uml --restart   (in B)
+uml: uml: Refusing to run the viewer lifecycle inside the companion for "/private/tmp/spec200/A 项目": a companion never starts a viewer or companion, and restarts only its own project with ./uml --restart after :quit-for-restart
+exit=1

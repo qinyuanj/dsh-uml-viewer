@@ -47,7 +47,9 @@ shares CLI routing, optional uml-quality.json overrides and standard tool
 scope/exclusions. If the entry is absent, install it
 with get-uml-viewer --install-only before refreshing; direct tool commands
 do not publish a result record.
-2. Run ./uml crap with declared scope: standard tools cover the whole
+2. Steps 2-4 are for a source change or a quality refresh only; a
+   policy-only change (:omit, a proposal) skips to step 5. Run
+   ./uml crap with declared scope: standard tools cover the whole
    business tree; an operation override may declare targets scope.
    Preserve unrelated class metrics under the selected tool contract.
 3. Run one ./uml mutate call on every changed source file
@@ -84,7 +86,9 @@ and right-click element ops:
  (differential). For
  :refresh-mutate-all pass --mutate-all on those files. For :omit, if
  :proposal-id is set add :id to that proposal's :omit; otherwise add it
- to policy :omit. Then regenerate the IR.
+ to policy :omit. Then regenerate the IR. :omit and a
+ proposal change only the policy: run no quality refresh and no
+ result gate; IR exit 0 permits :display.
 :context means the inspector selection is the discussion context:
 {:context :real} for the namespace tree, or {:context :proposal
  :proposal-id id :name "..."} for a named proposal. Treat that as
@@ -125,5 +129,22 @@ mod tests {
         assert_eq!("Do not commit or push unless asked.\n", RULES_TAIL);
         assert!(LAUNCH_PROMPT.starts_with("On launch: from this working directory,"));
         assert!(RECOVERY_PROMPT.starts_with("Recovery: do not scan sources or rewrite policy."));
+    }
+
+    // #200: Codex read "After every later source or policy change" as a
+    // result gate on :omit, so a failed refresh also stopped the next
+    // :omit display.
+    #[test]
+    fn a_policy_only_request_runs_no_result_gate() {
+        let rules = SHARED_RULES
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(rules.contains(
+            "2. Steps 2-4 are for a source change or a quality refresh only; a policy-only change (:omit, a proposal) skips to step 5."
+        ));
+        assert!(rules.contains(
+            ":omit and a proposal change only the policy: run no quality refresh and no result gate; IR exit 0 permits :display."
+        ));
     }
 }

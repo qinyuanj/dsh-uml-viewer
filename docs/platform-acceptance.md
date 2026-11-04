@@ -1,8 +1,8 @@
 # Platform acceptance — issue #5 / spec #1
 
 Herdr is the sole companion backend **on every supported platform** (ADR 0007).
-The delivery target is WSL2 + Ubuntu 24.04 + WSLg; native Windows is unsupported
-and macOS is not committed.
+The delivery targets are WSL2 + Ubuntu 24.04 + WSLg and macOS (ADR 0007,
+2026-10-27 addendum); native Windows is unsupported.
 
 Current status:
 
@@ -19,8 +19,18 @@ Current status:
   normal close and two-project isolation on 2026-11-04; the record and the two
   defects it fixed are in
   [acceptance-evidence/199-wsl-codex/](../acceptance-evidence/199-wsl-codex/README.md).
-- **macOS**: not committed (spec #106 scope, 2026-10-21). No current
-  acceptance exists; the JVM-era records below are historical only.
+- **macOS, Codex CLI companion** (spec #192): real Codex 0.166.0 with
+  Herdr 0.9.5 / protocol 22 and the `codex` integration v10 on macOS 27.0.1
+  arm64 passed fresh identity, mail FIFO, quality gating, viewer restart,
+  same-UUID recovery, normal close, two-project isolation, the wrong-occupant
+  refusal, the companion's own `./uml` refusal and the Terminal.app attach on 2026-11-04; the record and the defect
+  it fixed are in
+  [acceptance-evidence/200-macos-codex/](../acceptance-evidence/200-macos-codex/README.md).
+  It is separate from the WSL record and does not stand in for it. Homebrew
+  rustup leaves `~/.cargo/bin` off PATH; put it there so `./uml crap` finds the
+  `cargo-llvm-cov` crapper installs.
+- **macOS, Claude Code companion**: no current acceptance; the JVM-era records
+  below are historical only.
 - **Windows native**: historical only. The records below describe earlier
   backends and are not evidence for the current implementation.
 

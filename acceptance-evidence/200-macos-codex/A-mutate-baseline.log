@@ -1,0 +1,9 @@
+Reusing rust coverage from crapper's last run.
+Wrote /private/tmp/spec200/A 项目/.metrics/mutate/ledger/store/Store.edn
+Function Namespace             Killed  Survived  Uncovered  Sites   Score
+-------------------------------------------------------------------------
+entries  ledger::store::Store       0         0          0      0    n/a
+len      ledger::store::Store       0         0          0      0    n/a
+push     ledger::store::Store       0         0          0      0    n/a
+-------------------------------------------------------------------------
+Total                               0         0          0      0     n/a

@@ -1,0 +1,9 @@
+{:version 1 :doc "spec200 run0: untrusted hook timeout" :steps [
+         {:op :wait-frames :n 5}
+         {:op :dump-gui :evidence "gui-start.edn"}
+         {:op :wait-file :evidence "go-timeout"}
+         {:op :screenshot :evidence "after-timeout.png"}
+         {:op :dump-gui :evidence "gui-after-timeout.edn"}
+         {:op :dump-session :evidence "session-after-timeout.edn"}
+         {:op :write :evidence "sent-timeout" :text "sent"}
+         {:op :wait-file :evidence "go-never"}]}

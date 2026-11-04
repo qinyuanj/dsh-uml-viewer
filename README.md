@@ -215,8 +215,11 @@ Herdr's Codex hook must also be trusted in your own Codex config. No Stable
 read-only Codex interface reports hook trust (ADR 0009), so the preflight
 cannot check it: an untrusted hook shows up as a 45-second identity timeout
 that names it as the likely cause, after which this start's Herdr session is
-released. Run `codex` yourself, review its hooks and trust Herdr's
-SessionStart hook, then start again. The companion runs the Stable interactive
+released. Attach to the companion pane during that wait: an untrusted hook
+leaves Codex on its "Hooks need review" screen, where you review and trust
+Herdr's SessionStart hook (`herdr-agent-state.sh`); then start again. On macOS
+(#200) trusting it in a separate `codex` run did not persist, while trusting it
+on that screen did. The companion runs the Stable interactive
 TUI with `--dangerously-bypass-approvals-and-sandbox --enable hooks
 --no-daemon -C <project>`, the standing rules as `developer_instructions`,
 and a per-invocation trust of the project root
@@ -228,9 +231,15 @@ the same Codex process and UUID; recovery after a verified abnormal exit runs
 `codex resume <options> <saved uuid>`, never `--last` or a picker. Starting a
 new conversation in the companion pane (`/new`) breaks the companion: once the
 new conversation reports its own UUID, wakes are refused and mail stays
-queued until you close the viewer. WSL2 acceptance with real Codex 0.166.0 and
-Herdr 0.9.5 is in
-[acceptance-evidence/199-wsl-codex/](acceptance-evidence/199-wsl-codex/README.md).
+queued until you close the viewer. `:omit` and proposal mail change only the
+policy: they run no quality refresh, so a failed refresh before them does not
+stop their display. Acceptance with real Codex 0.166.0 and Herdr 0.9.5 is
+recorded per platform: WSL2 in
+[acceptance-evidence/199-wsl-codex/](acceptance-evidence/199-wsl-codex/README.md),
+macOS in
+[acceptance-evidence/200-macos-codex/](acceptance-evidence/200-macos-codex/README.md)
+(see [docs/platform-acceptance.md](docs/platform-acceptance.md) for the macOS
+PATH note).
 
 Every project gets
 [crapper](https://github.com/qinyuanj/crapper),

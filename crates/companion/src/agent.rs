@@ -397,7 +397,7 @@ mod tests {
         (text.len(), hash)
     }
 
-    const CLAUDE_RULES: (usize, u64) = (6435, 0xfbdf_b909_5f13_a487);
+    const CLAUDE_RULES: (usize, u64) = (6678, 0xc271_2cdb_3399_baf2);
     const LAUNCH: (usize, u64) = (182, 0x6944_8897_816f_41f1);
     const RECOVERY: (usize, u64) = (585, 0x88ed_aa98_bc8a_0f60);
 

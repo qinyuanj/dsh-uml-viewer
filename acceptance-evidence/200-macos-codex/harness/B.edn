@@ -1,0 +1,14 @@
+{:version 1 :doc "spec200 driver" :steps [
+         {:op :wait-frames :n 5}
+         {:op :wait-file :evidence "go-b1"}
+         {:op :screenshot :evidence "before-b1.png"}
+         {:op :click-class :id :calc}
+         {:op :wait-frames :n 2}
+         {:op :click-class :id :calc :button :secondary}
+         {:op :wait-frames :n 3}
+         {:op :gui-click :at "menu-refresh-crap"}
+         {:op :wait-frames :n 5}
+         {:op :dump-project :project ".uml-viewer/to-agent.edn" :evidence "to-agent-b1.edn"}
+         {:op :dump-gui :evidence "gui-b1.edn"}
+         {:op :write :evidence "sent-b1" :text "sent"}
+         {:op :wait-file :evidence "go-never"}]}

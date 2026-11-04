@@ -1,0 +1,2 @@
+:phase :normal
+:reason "Companion exited normally"

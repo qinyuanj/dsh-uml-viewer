@@ -1,0 +1,1 @@
+UML_COMPANION_ROOT=/private/tmp/spec200/A 项目

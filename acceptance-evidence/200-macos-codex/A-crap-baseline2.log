@@ -1,0 +1,8 @@
+Neither cargo-llvm-cov nor cargo-tarpaulin is installed. Installing cargo-llvm-cov.
++ (/Users/billyq) rustup component add llvm-tools-preview
+info: component llvm-tools is up to date
++ (/Users/billyq) cargo install cargo-llvm-cov --locked
+    Updating crates.io index
+     Ignored package `cargo-llvm-cov v0.9.1` is already installed, use --force to override
+Rust coverage will be N/A.
+Coverage failed: No usable coverage for rust. /private/tmp/spec200/A 项目/.metrics/crap.edn was not replaced.

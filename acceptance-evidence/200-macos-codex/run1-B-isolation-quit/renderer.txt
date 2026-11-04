@@ -1,0 +1,4 @@
+renderer: Apple M1 Max
+backend: Metal
+api: IntegratedGpu
+driver: 
