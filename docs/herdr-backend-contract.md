@@ -70,6 +70,13 @@ Herdr 的 pane ID 是 **session 局部** 的：两个命名 session 各自都有
  :command <原始命令向量>}
 ```
 
+- coding-agent 提供方（#193）：Claude 记录保持上面的形状，另带
+  `:recovery-command` 与 `:claude-session`，**不写** `:coding-agent`；缺少
+  `:coding-agent` 的记录只读解释为 Claude，不迁移、不改写。非 Claude 提供方
+  写 `:coding-agent :codex`，会话放在自己的 `:codex-session`（UUID），恢复
+  命令只由已记录的会话 id 生成。其他提供方值、或已提交但没有可验证会话的
+  Codex 记录一律拒绝并保留。提供方、会话字段与 fresh/recovery argv 的映射
+  只在 `crates/companion/src/agent.rs`。
 - 创建前写 provisional 记录；部分失败后保留，禁止自动再建。
 - 每次 `probe!`/`bind!`/`wake!`/`cleanup!` 之前核对：session socket 可达、
   snapshot 中存在该 workspace/pane、`pane process-info` 的 shell_pid 与
@@ -94,7 +101,7 @@ Herdr 的 pane ID 是 **session 局部** 的：两个命名 session 各自都有
 | `probe!` | `status server` + `api snapshot` | session 存在且 socket 可达、记录中的 pane 存在于 snapshot 才算存活；超时/含糊不得视为"已不存在"。 |
 | `identity!` | snapshot + `pane process-info --pane <id>` | 返回并核对上节全部字段；`terminal_id` 在 pane 存续期稳定。 |
 | `bind!` | 同上，纯核对，无副作用 | Viewer 新 JVM 重启后只重新绑定记录的 pane；缺失或身份变化则拒绝启动，不创建替代。 |
-| `wake!` | `agent prompt <pane> <text>` | 投递前核对 owned pane 的 Claude occupancy；Herdr 再次校验 agent 并提交字面文本及 Enter。wake 只证明投递（§5）；邮件消费由持久队列保证，不在 wake 内等待。 |
+| `wake!` | `agent prompt <pane> <text>` | 投递前核对 owned pane 的提供方（缺省 Claude）occupancy；Herdr 再次校验 agent 并提交字面文本及 Enter。wake 只证明投递（§5）；邮件消费由持久队列保证，不在 wake 内等待。 |
 | `recovery!` | Herdr 不提供，由项目自有 runner + 监督层实现 | 见 §6。开启/关闭恢复即注册/注销项目监督。 |
 | `cleanup!` | 先注销监督，再 `workspace close <w>`，最后 `session stop` + `session delete` | 顺序固定：先撤恢复再销毁。只清理记录拥有的资源。 |
 
@@ -138,7 +145,7 @@ wake 投递成功或 `pane wait-output`（socket `pane.wait_for_output`）匹配
 不能单独证明 Claude 消费输入：匹配可能来自旧快照或终端回显。
 已验证 `wait-output` 会立即搜索已有快照再轮询，超时 exit 1。
 
-wake 只证明投递，不证明消费：投递前核对 owned pane 的 Claude occupancy 与
+wake 只证明投递，不证明消费：投递前核对 owned pane 的提供方（缺省 Claude）occupancy 与
 本次唯一 token 尚未被确认，`agent prompt` exit 0 后再核对 pane 身份未变。
 Claude 何时 pop 邮件由它自己的回合决定（忙时先完成手头工作），companion
 不在有限窗口内等待队列推进；早期 5 秒窗口在每次真实 mail 上都误报

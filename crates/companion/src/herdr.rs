@@ -894,7 +894,7 @@ impl Herdr {
         Ok(seq)
     }
 
-    /// The owned Claude pane's agent status and state sequence.
+    /// The owned pane's agent status and state sequence.
     pub fn agent_state(&self, pane: &str) -> Result<(String, i64)> {
         let identity = self
             .identity
@@ -912,7 +912,10 @@ impl Herdr {
         }
     }
 
+    /// The agent occupying the owned pane, which must be the provider the
+    /// ownership names; no other agent is accepted in its place.
     fn owned_agent(&self, identity: &Value, session: &str, pane: &str) -> Result<Json> {
+        let provider = crate::agent::identity_of(identity)?.agent;
         let snapshot = self.snapshot(session)?;
         let terminal_id = record::get_name(identity, "terminal-id").unwrap_or_default();
         snapshot
@@ -923,11 +926,16 @@ impl Herdr {
                     agent.get("pane_id").and_then(Json::as_str) == Some(pane)
                         && agent.get("terminal_id").and_then(Json::as_str)
                             == Some(terminal_id.as_str())
-                        && agent.get("agent").and_then(Json::as_str) == Some("claude")
+                        && agent.get("agent").and_then(Json::as_str) == Some(provider.name())
                 })
             })
             .cloned()
-            .ok_or_else(|| Failure::new("No Claude agent occupies the owned Herdr pane"))
+            .ok_or_else(|| {
+                Failure::new(format!(
+                    "No {} agent occupies the owned Herdr pane",
+                    provider.label()
+                ))
+            })
     }
 
     /// Cleanup: cancel recovery first, then destroy only the recorded

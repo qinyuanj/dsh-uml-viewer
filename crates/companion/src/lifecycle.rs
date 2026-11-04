@@ -2,6 +2,7 @@
 //! `love/uml/adapters/companion_lifecycle.lua`). Prompt text, session naming
 //! and ownership checks are pure; all process work stays in adapters.
 
+use crate::agent::{CodingAgent, SessionIdentity};
 use crate::herdr::{
     Config, ControllerSpec, Herdr, MAX_SOCKET_BYTES, ProgressFn, RunnerLauncher, Selected,
 };
@@ -9,7 +10,6 @@ use crate::host::Host;
 use crate::ownership;
 use crate::posix;
 use crate::preflight::rules;
-use crate::prompt;
 use crate::record;
 use crate::recovery;
 use crate::vocab::{Failure, Result, RunOut};
@@ -77,6 +77,7 @@ pub fn load(root: &str, host: &Host) -> Result<Option<Value>> {
     }
     rules::recorded_backend(Some(&value))?;
     crate::herdr::rules::complete(&value)?;
+    crate::agent::identity_of(&value)?;
     let cwd = record::get_name(&value, "cwd").unwrap_or_default();
     if (host.canonical)(&cwd) != (host.canonical)(root) {
         return Err(Failure::new(
@@ -90,13 +91,6 @@ pub fn required(root: &str, host: &Host) -> Result<Value> {
     load(root, host)?.ok_or_else(|| {
         Failure::new("Companion ownership is missing, ambiguous or unreadable; retained")
     })
-}
-
-/// The companion executable: `CLAUDE_BIN` when set, otherwise the bare name.
-pub fn claude_executable(host: &Host) -> String {
-    (host.variable)("CLAUDE_BIN")
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "claude".to_owned())
 }
 
 pub(crate) fn current_exe() -> Result<String> {
@@ -136,67 +130,64 @@ fn config(selected: Selected, progress: Option<ProgressFn>) -> Result<Config> {
     ))
 }
 
+/// The provisional ownership a fresh start writes before any resource is
+/// created: the Herdr session it will own, the provider's fresh argv, and
+/// whatever its session identity already allows. `uuid` names the Herdr
+/// session; Claude also runs under it, while Codex's own id arrives later.
+fn provisional_record(
+    agent: CodingAgent,
+    executable: &str,
+    canonical: &str,
+    session: &str,
+    uuid: &str,
+) -> Value {
+    let identity = SessionIdentity {
+        agent,
+        session: (!agent.awaits_reported_session()).then(|| uuid.to_owned()),
+    };
+    let command = agent.fresh_command(executable, canonical, identity.session.as_deref());
+    let mut fields = vec![
+        ("backend", Value::keyword("herdr")),
+        ("owner-role", Value::keyword("companion")),
+        ("cwd", Value::String(canonical.to_owned())),
+        ("session", Value::String(session.to_owned())),
+        (
+            "command",
+            Value::Vector(command.into_iter().map(Value::String).collect()),
+        ),
+    ];
+    fields.extend(identity.ownership_fields(executable, canonical));
+    fields.push(("provisional", Value::Bool(true)));
+    edn::record::record(fields)
+}
+
 pub fn create(root: &str, host: &Host, options_in: CreateOptions) -> Result<(Value, Herdr)> {
+    let agent = options_in.agent;
+    if agent.awaits_reported_session() {
+        // Ready needs the session Herdr reports after launch (#195).
+        return Err(Failure::new(format!(
+            "{} companion cannot start yet: its reported session is not awaited",
+            agent.label()
+        )));
+    }
     if load(root, host)?.is_some() {
         return Err(Failure::new(
             "Companion ownership already recorded; use --restart or resolve it before fresh start",
         ));
     }
     let selected = select(root, &["--backend".to_owned(), "herdr".to_owned()])?;
-    let claude = options_in
-        .claude
+    let executable = options_in
+        .executable
         .clone()
-        .unwrap_or_else(|| claude_executable(host));
+        .unwrap_or_else(|| agent.executable(host));
     let uuid = options_in.uuid.clone().unwrap_or_else(|| (host.token)());
     let session = session_name(root, &uuid, &config_root(host))?;
-    let command = vec![
-        claude.clone(),
-        "--dangerously-skip-permissions".to_owned(),
-        "--session-id".to_owned(),
-        uuid.clone(),
-        "--append-system-prompt".to_owned(),
-        prompt::STANDING_RULES.to_owned(),
-        prompt::LAUNCH_PROMPT.to_owned(),
-    ];
-    let recovery_command = [
-        claude,
-        "--dangerously-skip-permissions".to_owned(),
-        "--resume".to_owned(),
-        uuid.clone(),
-        "--append-system-prompt".to_owned(),
-        prompt::STANDING_RULES.to_owned(),
-        prompt::RECOVERY_PROMPT.to_owned(),
-    ];
     let canonical = (host.canonical)(root);
-    let provisional = edn::record::record(vec![
-        ("backend", Value::keyword("herdr")),
-        ("owner-role", Value::keyword("companion")),
-        ("cwd", Value::String(canonical.clone())),
-        ("session", Value::String(session.clone())),
-        (
-            "command",
-            Value::Vector(
-                command
-                    .iter()
-                    .map(|arg| Value::String(arg.clone()))
-                    .collect(),
-            ),
-        ),
-        (
-            "recovery-command",
-            Value::Vector(
-                recovery_command
-                    .iter()
-                    .map(|arg| Value::String(arg.clone()))
-                    .collect(),
-            ),
-        ),
-        ("claude-session", Value::String(uuid)),
-        ("provisional", Value::Bool(true)),
-    ]);
+    let provisional = provisional_record(agent, &executable, &canonical, &session, &uuid);
+    let command = record::string_vec(edn::record::seq(edn::record::get(&provisional, "command")));
     ownership::write(host, root, &provisional)?;
     // The backend builds every later record on this identity, so the committed
-    // ownership keeps the --resume recovery command and the Claude session id.
+    // ownership keeps the recovery command and the provider's session id.
     let mut backend = Herdr::new(
         Some(provisional),
         host.clone(),
@@ -209,7 +200,9 @@ pub fn create(root: &str, host: &Host, options_in: CreateOptions) -> Result<(Val
 
 #[derive(Default)]
 pub struct CreateOptions {
-    pub claude: Option<String>,
+    pub agent: CodingAgent,
+    /// The provider executable; its `*_BIN` override or PATH name otherwise.
+    pub executable: Option<String>,
     pub uuid: Option<String>,
     /// Called at each create boundary. The worker publishes a progress event
     /// there and lets a cancellation land between boundaries, so it may
@@ -474,7 +467,6 @@ fn apple_script_text(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::rc::Rc;
 
     #[test]
     fn apple_script_text_escapes_quotes_and_backslashes_only() {
@@ -626,6 +618,8 @@ mod tests {
                 r#"{{:backend :herdr :owner-role :launcher :cwd "{root}" :session "s" :pane "%1"}}"#
             ),
             "[:invalid]".to_owned(),
+            complete_claude_record(&root).replacen('{', "{:coding-agent :pi ", 1),
+            complete_claude_record(&root).replacen('{', "{:coding-agent :codex ", 1),
         ];
         for text in cases {
             std::fs::write(directory.join(".uml-viewer/companion.edn"), &text).unwrap();
@@ -635,18 +629,147 @@ mod tests {
         let _ = std::fs::remove_dir_all(&directory);
     }
 
-    #[test]
-    fn claude_executable_prefers_claude_bin() {
-        let with = |value: Option<&'static str>| Host {
-            variable: Rc::new(move |name| {
-                assert_eq!("CLAUDE_BIN", name);
-                value.map(str::to_owned)
-            }),
-            ..Host::fake()
+    /// A committed Claude ownership as written before coding-agent providers.
+    fn complete_claude_record(root: &str) -> String {
+        format!(
+            r#"{{:backend :herdr :claude-session "u-1" :command ["claude" "--session-id" "u-1"] :cwd "{root}" :owner-role :companion :pane "%1" :recovery-command ["claude" "--resume" "u-1"] :server-pid 2 :server-start "s" :session "uml-viewer-a" :shell-pid 3 :owner-start "o" :socket "/x.sock" :terminal-id "t" :workspace "w"}}"#
+        )
+    }
+
+    fn keys(record: &Value) -> Vec<String> {
+        let Value::Map(entries) = record else {
+            panic!("not a map")
         };
-        assert_eq!("/opt/claude", claude_executable(&with(Some("/opt/claude"))));
-        assert_eq!("claude", claude_executable(&with(Some(""))));
-        assert_eq!("claude", claude_executable(&with(None)));
+        let mut keys: Vec<String> = entries
+            .iter()
+            .map(|(key, _)| edn::record::text(key).unwrap().to_owned())
+            .collect();
+        keys.sort();
+        keys
+    }
+
+    fn strings(record: &Value, key: &str) -> Vec<String> {
+        record::string_vec(edn::record::seq(edn::record::get(record, key)))
+    }
+
+    #[test]
+    fn a_fresh_claude_record_keeps_today_s_fields_and_names_no_provider() {
+        let record = provisional_record(
+            CodingAgent::Claude,
+            "/opt/claude",
+            "/p",
+            "uml-viewer-a",
+            "u-1",
+        );
+        assert_eq!(
+            [
+                "backend",
+                "claude-session",
+                "command",
+                "cwd",
+                "owner-role",
+                "provisional",
+                "recovery-command",
+                "session"
+            ],
+            keys(&record)[..]
+        );
+        assert_eq!(
+            Some("u-1".to_owned()),
+            record::get_name(&record, "claude-session")
+        );
+        assert_eq!(
+            [
+                "/opt/claude",
+                "--dangerously-skip-permissions",
+                "--session-id",
+                "u-1"
+            ],
+            strings(&record, "command")[..4]
+        );
+        assert_eq!(
+            [
+                "/opt/claude",
+                "--dangerously-skip-permissions",
+                "--resume",
+                "u-1"
+            ],
+            strings(&record, "recovery-command")[..4]
+        );
+    }
+
+    #[test]
+    fn a_fresh_codex_record_names_its_provider_and_waits_for_its_session() {
+        let record = provisional_record(
+            CodingAgent::Codex,
+            "/opt/codex",
+            "/p",
+            "uml-viewer-a",
+            "u-1",
+        );
+        assert_eq!(
+            [
+                "backend",
+                "coding-agent",
+                "command",
+                "cwd",
+                "owner-role",
+                "provisional",
+                "session"
+            ],
+            keys(&record)[..]
+        );
+        assert_eq!(
+            Some(&Value::keyword("codex")),
+            edn::record::get(&record, "coding-agent")
+        );
+        assert_eq!(
+            ["/opt/codex", "--dangerously-bypass-approvals-and-sandbox"],
+            strings(&record, "command")[..2]
+        );
+    }
+
+    #[test]
+    fn an_old_claude_ownership_loads_as_claude_without_being_rewritten() {
+        let directory =
+            std::env::temp_dir().join(format!("uml lifecycle claude {}", std::process::id()));
+        std::fs::create_dir_all(directory.join(".uml-viewer")).unwrap();
+        let root = directory.to_string_lossy().into_owned();
+        let text = complete_claude_record(&root);
+        std::fs::write(directory.join(".uml-viewer/companion.edn"), &text).unwrap();
+        let loaded = load(&root, &Host::posix()).unwrap().unwrap();
+        assert_eq!(
+            crate::agent::SessionIdentity {
+                agent: CodingAgent::Claude,
+                session: Some("u-1".to_owned())
+            },
+            crate::agent::identity_of(&loaded).unwrap()
+        );
+        assert_eq!(text, ownership::bytes(&root).unwrap(), "bytes are retained");
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn a_codex_fresh_start_is_refused_before_any_resource_is_touched() {
+        // Host::fake fails any capability it was not given, so reading
+        // ownership, selecting Herdr or writing would surface another error.
+        let error = create(
+            "/p",
+            &Host::fake(),
+            CreateOptions {
+                agent: CodingAgent::Codex,
+                ..CreateOptions::default()
+            },
+        )
+        .err()
+        .unwrap();
+        assert!(
+            error
+                .message
+                .starts_with("Codex CLI companion cannot start yet"),
+            "{}",
+            error.message
+        );
     }
 
     #[test]
