@@ -1,4 +1,5 @@
 """公共 POSIX 入口验收；使用真实 Rust 二进制和隔离源码，不启动 companion。"""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -192,8 +193,9 @@ class PosixEntries(unittest.TestCase):
         for tool in ('crapper', 'mutator', 'dryer'):
             tools[tool] = self.tool_fixture(self.root / f'{tool} source', tool)
         cargo, cargo_calls = self.cargo_stub()
+        face, font_env = self.font_fixture()
         env = dict(self.env, UML_VIEWER_TOOL_ROOT='', UML_VIEWER_REPO_URL=str(source),
-                   UML_VIEWER_REF='main', UML_CARGO_EXECUTABLE=str(cargo),
+                   UML_VIEWER_REF='main', UML_CARGO_EXECUTABLE=str(cargo), **font_env,
                    **{f'{tool.upper()}_REPO_URL': str(path) for tool, path in tools.items()},
                    **{f'{tool.upper()}_REF': 'main' for tool in tools})
         (self.root / '.gitignore').write_text('')
@@ -222,6 +224,8 @@ class PosixEntries(unittest.TestCase):
                             for line in cargo_calls.read_text().splitlines()))
         binary = self.root / '.uml-viewer/uml-viewer/target/release/uml-viewer'
         self.assertTrue(binary.is_file() and os.access(binary, os.X_OK))
+        self.assertEqual(face.read_bytes(),
+                         (self.root / '.uml-viewer/fonts/SarasaMonoSC-Regular.ttf').read_bytes())
         for tool in ('crapper', 'mutator', 'dryer'):
             directory = self.root / '.uml-viewer' / tool
             self.assertTrue((directory / '.git').exists(), tool)
@@ -237,6 +241,28 @@ class PosixEntries(unittest.TestCase):
         self.assertEqual(str(binary), installed['rust'])
         self.assertTrue(all(installed['repositories'][name]['commit'] for name in
                             ('uml-viewer', 'crapper', 'mutator', 'dryer')))
+
+    def font_fixture(self):
+        """A local font pin: the face it yields and the UML_VIEWER_FONT_* overrides.
+
+        A stand-in extractor keeps a test independent of 7z, and the file://
+        archive keeps it off the network.
+        """
+        face = self.root / 'face.ttf'
+        face.write_bytes(b'pinned sarasa face')
+        archive = self.root / 'fixture.7z'
+        archive.write_bytes(b'archive bytes')
+        extractor = self.root / 'extractor'
+        # Shell sees $1=-I $2=-c $3=script $4=archive $5=target $6=face.
+        extractor.write_text('#!/bin/sh\n'
+                             'mkdir -p "$5"\n'
+                             f'cp "{face}" "$5/SarasaMonoSC-Regular.ttf"\n'
+                             'echo SarasaMonoSC-Regular.ttf\n')
+        extractor.chmod(0o755)
+        return face, {'UML_VIEWER_FONT_URL': 'file://' + str(archive),
+                      'UML_VIEWER_FONT_ARCHIVE_SHA256': hashlib.sha256(archive.read_bytes()).hexdigest(),
+                      'UML_VIEWER_FONT_SHA256': hashlib.sha256(face.read_bytes()).hexdigest(),
+                      'UML_VIEWER_FONT_EXTRACTOR': str(extractor)}
 
     def tool_fixture(self, directory, name):
         """A minimal installable Python package, enough for a real venv."""
@@ -319,36 +345,18 @@ class PosixEntries(unittest.TestCase):
     def test_installer_provisions_the_pinned_font_and_refuses_a_mismatch(self):
         """The font pin is enforced by hash, not by trusting the download.
 
-        A stand-in extractor keeps the test independent of 7z: what is under
-        test is the pin (archive hash, face hash, destination, idempotence) and
-        the refusal, not py7zr itself.
+        What is under test is the pin (archive hash, face hash, destination,
+        idempotence) and the refusal, not py7zr itself.
         """
-        import hashlib
         import importlib.util
         specification = importlib.util.spec_from_file_location(
             'uml_posix', REPO / 'scripts/uml_posix.py')
         installer = importlib.util.module_from_spec(specification)
         specification.loader.exec_module(installer)
 
-        face = self.root / 'face.ttf'
-        face.write_bytes(b'pinned sarasa face')
-        face_hash = hashlib.sha256(face.read_bytes()).hexdigest()
-        archive = self.root / 'fixture.7z'
-        archive.write_bytes(b'archive bytes')
-        archive_hash = hashlib.sha256(archive.read_bytes()).hexdigest()
-        extractor = self.root / 'extractor'
-        # Shell sees $1=-I $2=-c $3=script $4=archive $5=target $6=face.
-        extractor.write_text('#!/bin/sh\n'
-                             'mkdir -p "$5"\n'
-                             f'cp "{face}" "$5/SarasaMonoSC-Regular.ttf"\n'
-                             'echo SarasaMonoSC-Regular.ttf\n')
-        extractor.chmod(0o755)
+        face, font_env = self.font_fixture()
         fonts = self.root / '.uml-viewer/fonts'
-        with unittest.mock.patch.dict(os.environ, {
-                'UML_VIEWER_FONT_URL': 'file://' + str(archive),
-                'UML_VIEWER_FONT_ARCHIVE_SHA256': archive_hash,
-                'UML_VIEWER_FONT_SHA256': face_hash,
-                'UML_VIEWER_FONT_EXTRACTOR': str(extractor)}):
+        with unittest.mock.patch.dict(os.environ, font_env):
             installer.font(fonts)
             self.assertEqual(face.read_bytes(), (fonts / 'SarasaMonoSC-Regular.ttf').read_bytes())
             written = (fonts / 'SarasaMonoSC-Regular.ttf').stat().st_mtime_ns
@@ -374,23 +382,9 @@ class PosixEntries(unittest.TestCase):
         The viewer's real-font test provisions Sarasa through it when a clone
         has none, instead of skipping.
         """
-        import hashlib
-        face = self.root / 'face.ttf'
-        face.write_bytes(b'pinned sarasa face')
-        archive = self.root / 'fixture.7z'
-        archive.write_bytes(b'archive bytes')
-        extractor = self.root / 'extractor'
-        extractor.write_text('#!/bin/sh\n'
-                             'mkdir -p "$5"\n'
-                             f'cp "{face}" "$5/SarasaMonoSC-Regular.ttf"\n'
-                             'echo SarasaMonoSC-Regular.ttf\n')
-        extractor.chmod(0o755)
+        face, font_env = self.font_fixture()
         fonts = self.root / 'fonts'
-        env = dict(os.environ,
-                   UML_VIEWER_FONT_URL='file://' + str(archive),
-                   UML_VIEWER_FONT_ARCHIVE_SHA256=hashlib.sha256(archive.read_bytes()).hexdigest(),
-                   UML_VIEWER_FONT_SHA256=hashlib.sha256(face.read_bytes()).hexdigest(),
-                   UML_VIEWER_FONT_EXTRACTOR=str(extractor))
+        env = dict(os.environ, **font_env)
         result = subprocess.run([sys.executable, '-I', str(REPO / 'scripts/uml_posix.py'),
                                  'font', str(fonts)], env=env, capture_output=True, text=True,
                                 timeout=60)
