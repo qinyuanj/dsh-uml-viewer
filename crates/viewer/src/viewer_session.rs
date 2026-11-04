@@ -1394,6 +1394,37 @@ mod tests {
     }
 
     #[test]
+    fn a_codex_normal_close_releases_the_companion_and_saves_no_snapshot() {
+        let dir = project("codex close");
+        std::fs::write(dir.join("diagram.edn"), SECOND).unwrap();
+        let calls = Rc::new(RefCell::new(Calls::default()));
+        let link = FakeLink(Rc::clone(&calls));
+        let mut session = ViewerSession::open(
+            Launch {
+                project_root: dir.to_path_buf(),
+                diagram: dir.join("diagram.edn"),
+                restart: false,
+                backend: true,
+                coding_agent: Some("codex".to_owned()),
+                snapshot: None,
+            },
+            move || Box::new(link),
+        )
+        .unwrap();
+        let start = Instant::now();
+        session.process(Event::NormalClose, at(start, 0));
+        assert_eq!(vec![Stop::ReleaseCompanion], calls.borrow().stops);
+        assert_eq!(
+            Some(0),
+            session
+                .process(Event::NormalCloseCheckpoint, at(start, 10))
+                .close
+        );
+        assert!(!dir.join(".uml-viewer/session.edn").exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn a_normal_close_exits_as_soon_as_the_helper_settled() {
         let dir = project("settled close");
         std::fs::write(dir.join("diagram.edn"), SECOND).unwrap();

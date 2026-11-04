@@ -341,6 +341,9 @@ Public-entry acceptance on POSIX (Python 3 + git + Rust toolchain):
 
 - `python3 -I scripts/test_posix_entries.py` — installer, IR, quality dispatch.
 - `python3 -I scripts/test_posix_restart_entries.py` — restart refusal rules.
+- `python3 -I scripts/test_posix_codex_companion.py` — Codex provider mail, quality
+  gate, isolation and normal close through the real worker, with stand-ins for
+  Herdr and Codex (no window, login or network).
 - `python3 -I scripts/test_posix_viewer.py` — real window, reload, frame capture.
 - `python3 -I scripts/test_posix_e2e.py` — launch, companion ready, FIFO, close.
 - `python3 -I scripts/test_posix_restart_e2e.py` and
