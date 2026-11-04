@@ -223,6 +223,14 @@ attached.`）。
   generation。提交 ack 不确定时不得重复提交；runner generation lock 阻止
   重复 child。恢复命令显式 `--resume <原始 Claude session id>`，提示只消费
   FIFO 并返回 display，不重新扫描或发明 proposal。
+- **Codex 恢复**：政策、退避、存活重置和停止规则相同，提交的只能是 ownership 里
+  `codex resume <options> <saved uuid> <recovery prompt>` 形式的恢复命令：`-C` 为
+  项目目录，不含 `--last`/`--all`。缺失、为空或非法时不碰 pane、不退回 `:command`，
+  本次恢复以 `:failed` 停止。提交后 journal 记 `:session-check`，child 启动后
+  controller 每拍核对 Herdr 的 `agent_session`：同一 UUID 清除标记；其他 UUID、
+  source 或 kind 立即 `:failed`；45 秒无报告也 `:failed`。停止后 controller 不杀
+  pane 里的进程，wake 的 occupant 核对同样拒绝它，邮件队列保留，等用户关闭 viewer
+  清理。viewer restart 只重新绑定（§7），从不走这条路径。
 - **关闭**：先写 durable cancel，经同 lock 与 controller 同步；controller
   必须确认取消且退出后才销毁 workspace/server。close 阶段在每次破坏性
   操作之前落盘，可核对并续接已关闭 workspace、已停止 server 与已删除 session；
