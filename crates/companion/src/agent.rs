@@ -115,6 +115,14 @@ impl CodingAgent {
         }
     }
 
+    /// The short name used in running status text.
+    pub fn noun(self) -> &'static str {
+        match self {
+            CodingAgent::Claude => "Claude",
+            CodingAgent::Codex => "Codex",
+        }
+    }
+
     /// The provider executable: its `*_BIN` override when set, otherwise the
     /// bare name resolved on PATH.
     pub fn executable(self, host: &Host) -> String {
