@@ -1,9 +1,12 @@
-//! The verbatim prompts handed to the companion's Claude session (port of
-//! `love/uml/domain/companion.lua`): the standing rules every session starts
-//! with, then the launch or the recovery instruction.
+//! The verbatim prompts handed to the companion's coding-agent session (port
+//! of `love/uml/domain/companion.lua`): the standing rules every session
+//! starts with, then the launch or the recovery instruction. The business
+//! rules are shared by every provider; only the recovery sentence names one,
+//! and `agent::CodingAgent::standing_rules` composes them.
 
 pub const RECOVERY_PROMPT: &str = "Recovery: do not scan sources or rewrite policy. Read the current .uml-viewer/to-agent.edn queue; pop and handle commands oldest first, preserving the latest context and existing proposals. Apply the standing quality-result gate to each refresh; only valid results followed by successful IR permit :display. A failed refresh stops that request's IR/display, reports its cause, and leaves later FIFO mail runnable. If there is no pending refresh, restore :display from .uml-viewer/view.edn; never issue an unconditional recovery display after a failed refresh. Then wait for directives.";
-pub const STANDING_RULES: &str = r#"You are the UML-viewer companion. The current working directory is the
+/// The provider-neutral business rules, up to the recovery sentence.
+pub const SHARED_RULES: &str = r#"You are the UML-viewer companion. The current working directory is the
 project being examined (the one whose diagram is on screen), not
 necessarily uml-viewer itself.
 On launch: inspect this directory's source, write or update a
@@ -100,9 +103,11 @@ exit, then ./uml --restart. Do not pass --restart except through that
 wrapper. Do not SIGKILL. Closing the viewer
 closes only this project's Herdr session. Verified abnormal exits receive
 at most three retries (1, 2, 4 seconds); normal or unknown exits do not recover.
-Recovery resumes this Claude session and drains queued mail without fresh scanning.
-Do not commit or push unless asked.
 "#;
+pub const CLAUDE_RECOVERY_RULE: &str =
+    "Recovery resumes this Claude session and drains queued mail without fresh scanning.\n";
+pub const CODEX_RECOVERY_RULE: &str = "Recovery resumes this Codex session by its recorded id and drains queued mail without fresh scanning.\n";
+pub const RULES_TAIL: &str = "Do not commit or push unless asked.\n";
 pub const LAUNCH_PROMPT: &str = "On launch: from this working directory, update the hierarchical policy to match the project's namespaces (no invented layers/components), regenerate the IR, then wait for directives.";
 
 #[cfg(test)]
@@ -111,11 +116,12 @@ mod tests {
 
     #[test]
     fn prompts_are_ported_verbatim() {
-        assert!(STANDING_RULES.starts_with("You are the UML-viewer companion."));
-        assert!(STANDING_RULES.contains("validResult exactly true"));
-        assert!(STANDING_RULES.contains("at most three retries (1, 2, 4 seconds)"));
-        assert!(STANDING_RULES.contains("Never\n   re-serialize the whole policy"));
-        assert!(STANDING_RULES.ends_with("Do not commit or push unless asked.\n"));
+        assert!(SHARED_RULES.starts_with("You are the UML-viewer companion."));
+        assert!(SHARED_RULES.contains("validResult exactly true"));
+        assert!(SHARED_RULES.contains("at most three retries (1, 2, 4 seconds)"));
+        assert!(SHARED_RULES.contains("Never\n   re-serialize the whole policy"));
+        assert!(!SHARED_RULES.contains("Claude"));
+        assert_eq!("Do not commit or push unless asked.\n", RULES_TAIL);
         assert!(LAUNCH_PROMPT.starts_with("On launch: from this working directory,"));
         assert!(RECOVERY_PROMPT.starts_with("Recovery: do not scan sources or rewrite policy."));
     }

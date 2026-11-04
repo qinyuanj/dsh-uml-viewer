@@ -27,6 +27,7 @@ struct FakeState {
     ignore_close: bool,
     empty_sessions: bool,
     no_agent: bool,
+    occupant: Option<String>,
     terminal: Option<String>,
     cwd: Option<String>,
     server_start: Option<String>,
@@ -135,7 +136,10 @@ fn fake_cli(calls: Calls, state: Shared) -> impl Fn(&[String], Option<i64>) -> R
                     Json::Array(vec![object(vec![
                         ("pane_id", Json::String("w1:p1".to_owned())),
                         ("terminal_id", Json::String("term_A".to_owned())),
-                        ("agent", Json::String("claude".to_owned())),
+                        (
+                            "agent",
+                            Json::String(state.occupant.clone().unwrap_or("claude".to_owned())),
+                        ),
                         (
                             "agent_status",
                             Json::String(state.agent_status.clone().unwrap_or("idle".to_owned())),
@@ -506,6 +510,62 @@ fn wake_requires_a_real_claude_occupant() {
         );
         assert_eq!(no_agent, result.is_err());
         assert_eq!(!no_agent, state.borrow().prompted);
+    }
+}
+
+/// The occupant must be the provider the ownership names; a project that
+/// names none is Claude, and no other agent stands in for it.
+#[test]
+fn wake_requires_the_occupant_of_the_recorded_provider() {
+    let codex = {
+        let mut record = owned();
+        edn::record::put(&mut record, "coding-agent", Value::keyword("codex"));
+        edn::record::put(
+            &mut record,
+            "codex-session",
+            Value::String("01a1a458-f60d-7561-aa06-d04df3bd14f7".to_owned()),
+        );
+        record
+    };
+    for (record, occupant, accepted) in [
+        (owned(), "claude", true),
+        (owned(), "codex", false),
+        (codex.clone(), "codex", true),
+        (codex, "claude", false),
+    ] {
+        let calls: Calls = Rc::new(RefCell::new(Vec::new()));
+        let state: Shared = Rc::new(RefCell::new(FakeState {
+            occupant: Some(occupant.to_owned()),
+            ..FakeState::default()
+        }));
+        let backend = Herdr::new(
+            Some(record),
+            fixture_host(
+                fake_cli(calls, state.clone()),
+                fake_owner(state.clone()),
+                &Files::new(),
+            ),
+            config(),
+        );
+        let result = backend.wake(
+            "w1:p1",
+            &["-l".to_owned(), "mail token-1".to_owned()],
+            "token-1",
+            &|_| false,
+        );
+        assert_eq!(accepted, result.is_ok(), "{occupant}: {result:?}");
+        assert_eq!(accepted, state.borrow().prompted, "{occupant}");
+        if !accepted {
+            let other = if occupant == "claude" {
+                "Codex CLI"
+            } else {
+                "Claude Code"
+            };
+            assert_eq!(
+                format!("No {other} agent occupies the owned Herdr pane"),
+                result.unwrap_err().message
+            );
+        }
     }
 }
 
