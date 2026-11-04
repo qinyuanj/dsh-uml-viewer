@@ -4,9 +4,11 @@ import json
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import unittest.mock
@@ -390,6 +392,70 @@ class PosixEntries(unittest.TestCase):
                                 timeout=60)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(face.read_bytes(), (fonts / 'SarasaMonoSC-Regular.ttf').read_bytes())
+
+    def stalling_server(self, reply):
+        """A local HTTP peer that sends `reply`, then holds the connection silently."""
+        listener = socket.create_server(('127.0.0.1', 0))
+        self.addCleanup(listener.close)
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def serve():
+            connection, _ = listener.accept()
+            with connection:
+                connection.recv(65536)
+                connection.sendall(reply)
+                release.wait()
+
+        threading.Thread(target=serve, daemon=True).start()
+        return f'127.0.0.1:{listener.getsockname()[1]}/stalled.7z'
+
+    def font_download_install(self):
+        """Run the public install up to the font download; `run(url)` returns its result."""
+        cargo, _ = self.cargo_stub()
+        tools = {tool: self.tool_fixture(self.root / f'{tool} source', tool)
+                 for tool in ('crapper', 'mutator', 'dryer')}
+        _, font_env = self.font_fixture()
+        temporary = self.root / 'install temp'
+        temporary.mkdir()
+        env = dict(self.env, UML_CARGO_EXECUTABLE=str(cargo), TMPDIR=str(temporary), **font_env,
+                   UML_VIEWER_FONT_TIMEOUT='1',
+                   **{f'{tool.upper()}_REPO_URL': str(path) for tool, path in tools.items()},
+                   **{f'{tool.upper()}_REF': 'main' for tool in tools})
+
+        def run(url):
+            return subprocess.run([str(REPO / 'scripts/get-uml-viewer'), '--install-only'],
+                                  cwd=self.root, env=dict(env, UML_VIEWER_FONT_URL=url),
+                                  capture_output=True, text=True, timeout=60)
+        return run, temporary
+
+    def test_install_names_the_url_and_timeout_when_the_font_download_stalls(self):
+        """A stalled server ends the install with a named cause, not a hang."""
+        run, temporary = self.font_download_install()
+        # The TLS case stalls in the handshake, which urllib reports wrapped in
+        # URLError; the other two surface a bare TimeoutError.
+        stalls = {'never answers': ('http', b''),
+                  'TLS handshake never answers': ('https', b''),
+                  'stops mid-body': ('http', b'HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\npartial')}
+        for label, (scheme, reply) in stalls.items():
+            with self.subTest(label):
+                url = f'{scheme}://{self.stalling_server(reply)}'
+                result = run(url)
+                self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+                self.assertIn(url, result.stderr)
+                self.assertIn('1 秒', result.stderr)
+                self.assertEqual([], list((self.root / '.uml-viewer/fonts').glob('*')))
+                self.assertEqual([], list(temporary.iterdir()))
+                self.assertFalse((self.root / '.uml-viewer/install.json').exists())
+
+    def test_install_does_not_call_a_refused_font_download_a_timeout(self):
+        run, _ = self.font_download_install()
+        with socket.create_server(('127.0.0.1', 0)) as closed:
+            url = f'http://127.0.0.1:{closed.getsockname()[1]}/refused.7z'
+        result = run(url)
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn('refused', result.stderr.lower())
+        self.assertNotIn('超时', result.stderr)
 
     def test_install_refuses_existing_ownership(self):
         state = self.root / '.uml-viewer'

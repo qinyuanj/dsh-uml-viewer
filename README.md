@@ -116,7 +116,8 @@ uses them.
 The installer also provisions Sarasa Mono SC Regular v1.0.42: it downloads the
 pinned TTF release, verifies the archive and face SHA256 (the pins from #82),
 and extracts only that face into `.uml-viewer/fonts/`; any failure exits
-non-zero. Upstream ships the release only as 7z, so extraction uses `py7zr` in
+non-zero. A download with no data for 60 seconds fails naming the URL and the
+timeout, and writes no font. Upstream ships the release only as 7z, so extraction uses `py7zr` in
 `.uml-viewer/installer/.venv` (created on first use) — no system 7z package is
 needed. The viewer's font lookup is an explicit path, then `UML_CJK_FONT`, then
 that provisioned Sarasa, then a system CJK font (Noto CJK on Ubuntu) with a one-time stderr warning naming `get-uml-viewer`.

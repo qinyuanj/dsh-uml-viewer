@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import urllib.error
 import urllib.request
 
 # The viewer's only UI font (#82). These are the same archive and face hashes
@@ -20,6 +21,9 @@ FONT_URL = ('https://github.com/be5invis/Sarasa-Gothic/releases/download/v1.0.42
 FONT_FACE = 'SarasaMonoSC-Regular.ttf'
 FONT_ARCHIVE_SHA256 = 'aa2150e99eb38c5f9d3a00fe58e3f90a9d89495c795a8ac80934d1c3e6c377ee'
 FONT_SHA256 = '82e09460f6f55010296f670b85e346ddeaf91b967724840d2bf5514137f68a83'
+# Seconds one socket wait (connect, response, each read) may stall. It is not a
+# total deadline, so a slow link that keeps delivering can still finish.
+FONT_TIMEOUT = 60
 # Upstream ships the TTF release only as 7z, and no 7z binary is assumed on the
 # host. py7zr lives in the installer's own environment so no tool venv is
 # polluted with an unrelated dependency.
@@ -281,18 +285,35 @@ def extractor(directory):
     return str(python)
 
 
+def download_font_archive(url, archive, timeout):
+    """Write url to archive; a stall becomes a refusal naming the URL and timeout.
+
+    Connection-phase timeouts arrive wrapped in URLError, later ones bare. Other
+    failures keep their own error.
+    """
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response, archive.open('wb') as output:
+            shutil.copyfileobj(response, output)
+    except (TimeoutError, urllib.error.URLError) as error:
+        if not isinstance(getattr(error, 'reason', error), TimeoutError):
+            raise
+        raise ValueError(f'下载 Sarasa 字体超时：{url} 超过 {timeout:g} 秒没有数据；'
+                         '未写入字体，请检查网络后重新运行 get-uml-viewer。') from error
+
+
 def font(directory):
     """Provision the pinned Sarasa face, verified by SHA256.
 
     Hashes come from #82 (the archive and the face), so a substituted download
     cannot reach the viewer. Upstream publishes the TTF release only as 7z, so
-    extraction happens in an interpreter that has py7zr. The three
-    UML_VIEWER_FONT_* variables override the pin for fixture tests, exactly as
-    the retired installer's -Pin parameter did.
+    extraction happens in an interpreter that has py7zr. The UML_VIEWER_FONT_*
+    variables override the pin and timeout for fixture tests, exactly as the
+    retired installer's -Pin parameter did.
     """
     url = os.environ.get('UML_VIEWER_FONT_URL', FONT_URL)
     archive_hash = os.environ.get('UML_VIEWER_FONT_ARCHIVE_SHA256', FONT_ARCHIVE_SHA256)
     face_hash = os.environ.get('UML_VIEWER_FONT_SHA256', FONT_SHA256)
+    timeout = float(os.environ.get('UML_VIEWER_FONT_TIMEOUT', FONT_TIMEOUT))
     target = directory / FONT_FACE
     if target.is_file() and digest(target) == face_hash:
         return
@@ -300,7 +321,7 @@ def font(directory):
     with tempfile.TemporaryDirectory(prefix='uml-sarasa-') as temporary:
         base = Path(temporary)
         archive = base / url.rsplit('/', 1)[-1]
-        urllib.request.urlretrieve(url, archive)
+        download_font_archive(url, archive, timeout)
         if digest(archive) != archive_hash:
             raise ValueError('Sarasa font archive SHA256 mismatch')
         extracted = run([python, '-I', '-c', EXTRACT, str(archive),
