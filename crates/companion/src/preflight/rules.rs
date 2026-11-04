@@ -2,8 +2,10 @@
 //! the backend a recorded ownership names, the `--backend` argument, and the
 //! validation that runs before any Herdr command or resource creation.
 
+use crate::agent::CodingAgent;
+use crate::herdr::select;
 use crate::record;
-use crate::vocab::{Failure, Result};
+use crate::vocab::{Failure, Result, RunOut};
 use edn::Value;
 
 pub const LEGACY_GUIDANCE: &str = "tmux/psmux companions are retired. Ownership and resources were retained; no takeover or cleanup was attempted. Finish the old viewer/session using the old release, verify that this project's legacy resources have exited, then archive .uml-viewer/companion.edn and start ./uml fresh with Herdr. Do not use --restart to migrate; retain session.edn and mailbox queues.";
@@ -55,6 +57,156 @@ pub fn selection_args(args: &[String]) -> Result<(Vec<String>, Option<String>)> 
         }
     }
     Ok((forwarded, selected))
+}
+
+/// The provider an explicit `--coding-agent` names. Only `claude` and
+/// `codex` are accepted, at most once; absence leaves the choice to the
+/// recorded ownership, or Claude for a fresh start.
+pub fn coding_agent_arg(args: &[String]) -> Result<Option<CodingAgent>> {
+    let refused = || {
+        Failure::new("Unknown or duplicate coding-agent provider; use --coding-agent claude|codex")
+    };
+    let mut selected = None;
+    let mut index = 0;
+    while index < args.len() {
+        if args[index] == "--coding-agent" {
+            let agent = match args.get(index + 1).map(String::as_str) {
+                Some("claude") => CodingAgent::Claude,
+                Some("codex") => CodingAgent::Codex,
+                _ => return Err(refused()),
+            };
+            if selected.replace(agent).is_some() {
+                return Err(refused());
+            }
+            index += 2;
+        } else {
+            index += 1;
+        }
+    }
+    Ok(selected)
+}
+
+/// The provider this launch runs: the recorded one, which an explicit choice
+/// may only confirm, or the explicit choice (Claude by default) when nothing
+/// is recorded. Switching requires a normal close and a fresh start, so a
+/// conflict is refused before anything is replaced or duplicated.
+pub fn provider(record: Option<&Value>, requested: Option<CodingAgent>) -> Result<CodingAgent> {
+    let recorded = match record {
+        Some(record) if record::is_map(record) && !record::is_empty_map(record) => {
+            Some(crate::agent::identity_of(record)?.agent)
+        }
+        _ => None,
+    };
+    match (recorded, requested) {
+        (Some(recorded), Some(requested)) if recorded != requested => Err(Failure::new(format!(
+            "Companion ownership records {}; --coding-agent {} conflicts with it. Nothing was replaced; close the companion normally, then start fresh with the other provider",
+            recorded.label(),
+            requested.name()
+        ))),
+        (recorded, requested) => Ok(recorded.or(requested).unwrap_or_default()),
+    }
+}
+
+pub const CODEX_GUIDANCE: &str = "Install and log in to Codex CLI yourself, or set CODEX_BIN to its executable; nothing is installed, logged in or configured automatically, and the launch does not fall back to Claude Code.";
+
+/// The oldest Codex CLI release with end-to-end evidence (candidate until
+/// the real acceptance run, #199).
+pub const CODEX_FLOOR: [u64; 3] = [0, 166, 0];
+/// Codex companions need Herdr's Codex occupant and `agent_session` report.
+pub const CODEX_HERDR_FLOOR: [u64; 3] = [0, 9, 5];
+
+fn release(floor: [u64; 3]) -> String {
+    floor.map(|part| part.to_string()).join(".")
+}
+
+/// `codex --version` must print `codex-cli X.Y.Z` at or above the floor.
+pub fn codex_version(executable: &str, out: &RunOut) -> Result<()> {
+    let line = out.out.trim();
+    let version = line
+        .strip_prefix("codex-cli ")
+        .filter(|_| out.exit == Some(0));
+    match version {
+        Some(version) if select::release_at_least(version, CODEX_FLOOR) => Ok(()),
+        Some(version) => Err(Failure::new(format!(
+            "Codex CLI {version} at {executable} is not a supported release (X.Y.Z >= {}). {CODEX_GUIDANCE}",
+            release(CODEX_FLOOR)
+        ))),
+        None => Err(Failure::new(format!(
+            "Codex CLI at {executable} did not report a version (`--version` exited {}: {:?}). {CODEX_GUIDANCE}",
+            exit_text(out),
+            first_line(out)
+        ))),
+    }
+}
+
+/// The selected Herdr must be at least 0.9.5 (its protocol 22 is already a
+/// selection requirement) and report its Codex integration as current.
+/// `herdr integration status` is text only: one `name: state (...)` line.
+pub fn codex_herdr(selected: &select::Selected, status: &RunOut) -> Result<()> {
+    if !select::release_at_least(&selected.release, CODEX_HERDR_FLOOR) {
+        return Err(Failure::new(format!(
+            "Codex CLI companions need Herdr {} or newer (protocol 22); the selected Herdr {} at {} is older. Claude Code projects keep the 0.9.3 floor. {}",
+            release(CODEX_HERDR_FLOOR),
+            selected.release,
+            selected.path,
+            select::HERDR_INSTALL
+        )));
+    }
+    let state = status
+        .out
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("codex: "))
+        .map(|rest| {
+            rest.split(" (")
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_owned()
+        });
+    match state.as_deref() {
+        Some("current") if status.exit == Some(0) => Ok(()),
+        Some(state) => Err(Failure::new(format!(
+            "Herdr Codex integration is {state}, not current; run `{} integration install codex` yourself. Codex hooks must also be enabled and trusted so Herdr receives the session.",
+            selected.path
+        ))),
+        None => Err(Failure::new(format!(
+            "Herdr at {} reported no Codex integration (`integration status` exited {}); run `{} integration install codex` yourself.",
+            selected.path,
+            exit_text(status),
+            selected.path
+        ))),
+    }
+}
+
+/// `codex login status` must succeed: an unusable login is reported, never
+/// repaired.
+pub fn codex_login(executable: &str, out: &RunOut) -> Result<()> {
+    if out.exit == Some(0) {
+        return Ok(());
+    }
+    Err(Failure::new(format!(
+        "Codex CLI at {executable} has no usable login (`login status` exited {}: {:?}). {CODEX_GUIDANCE}",
+        exit_text(out),
+        first_line(out)
+    )))
+}
+
+fn exit_text(out: &RunOut) -> String {
+    match (out.exit, out.timeout) {
+        (_, true) => "after a timeout".to_owned(),
+        (Some(code), _) => code.to_string(),
+        (None, _) => "without a status".to_owned(),
+    }
+}
+
+fn first_line(out: &RunOut) -> String {
+    [&out.out, &out.err]
+        .iter()
+        .flat_map(|text| text.lines())
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default()
+        .to_owned()
 }
 
 pub struct PreflightOptions<'a> {

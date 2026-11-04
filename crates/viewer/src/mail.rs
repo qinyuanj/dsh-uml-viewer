@@ -29,8 +29,8 @@ impl Companion {
     /// mail cursor before calling this, so a `:display` written during
     /// startup is consumed rather than skipped (the Lua `Mailbox.last_id`
     /// capture).
-    pub fn start(root: &Path, restart: bool) -> Companion {
-        match worker::start(&root.to_string_lossy(), restart) {
+    pub fn start(root: &Path, restart: bool, coding_agent: Option<&str>) -> Companion {
+        match worker::start(&root.to_string_lossy(), restart, coding_agent) {
             Ok(started) => Companion {
                 worker: Some(started),
                 status: Some("Companion: starting".into()),

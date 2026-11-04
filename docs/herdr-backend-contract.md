@@ -41,6 +41,20 @@ checkpoint。**
   与 https://herdr.dev；安装后仍必须核对版本。
   低于 0.9.3、缺失依赖或协议不为 22（包括更高协议）均失败，给出安装指引；
   不自动下载、升级或静默回退；无兼容候选时列出每个候选的路径与拒绝原因。
+- coding-agent 提供方（#194）：只有 viewer 生命周期入口（`./uml`、
+  `./uml --restart`）接受 `--coding-agent claude|codex`，缺省 claude；
+  `ir`、`scene`、`crap`、`mutate`、`dry` 拒绝该选项，非法值或重复选项拒绝。
+  fresh 的选择经 viewer 与 worker 请求（`:coding-agent`）写入 ownership；
+  restart 沿用 ownership 记录的提供方，显式选择与其冲突时在 preflight
+  拒绝，早于等待旧 viewer 退出，不替换、不复制 companion。Codex 另需：
+  `CODEX_BIN`（按字面路径执行，不经 shell；缺省为 PATH 上的 `codex`）存在且
+  `codex --version` 为 `codex-cli X.Y.Z` >= 0.166.0（候选门槛，以真实验收为准）、
+  `codex login status` 退出 0、selected Herdr >= 0.9.5（protocol 22），且
+  `<selected herdr> integration status` 的 `codex:` 行为 `current`（该命令只有
+  文本输出）。任一不满足都在创建 viewer、ownership 或 Herdr 资源前以真实
+  原因拒绝；不安装、不登录、不改全局 Codex 配置，也不退回 Claude。Claude
+  项目的 0.9.3 下限不变。Codex fresh 通过 preflight 后仍在 lifecycle 创建
+  任何资源前停止，真实启动与会话身份等待属于 #195。
 - fresh 默认 Herdr；`--backend herdr` 兼容，tmux/psmux 明确拒绝。
   restart、wake、close 必须具有显式 `:backend :herdr` ownership，身份核实后
   才操作；legacy、无 backend、未知或不完整记录保留并拒绝接管。

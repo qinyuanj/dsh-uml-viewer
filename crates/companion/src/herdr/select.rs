@@ -7,8 +7,15 @@ use crate::vocab::{Failure, Result, RunOut};
 
 pub const HERDR_GUIDANCE: &str = "Herdr 0.9.3 or newer (protocol 22) is required. Install a release from https://github.com/herdrdev/herdr/releases (https://herdr.dev). No automatic download, upgrade or fallback. WSL2 + WSLg and macOS are the delivered platforms; Windows native is unsupported (ADR 0007). On WSL, terminal attach opens Windows Terminal (manual acceptance pending, #114); on macOS it opens Terminal.app.";
 
+pub const HERDR_INSTALL: &str = "Install a release from https://github.com/herdrdev/herdr/releases (https://herdr.dev). No automatic download, upgrade or fallback.";
+
 /// Only dotted numeric X.Y.Z at or above 0.9.3 (ADR 0003).
 pub fn herdr_version_supported(version: &str) -> bool {
+    release_at_least(version, [0, 9, 3])
+}
+
+/// Whether `version` is a dotted numeric X.Y.Z at or above `floor`.
+pub fn release_at_least(version: &str, floor: [u64; 3]) -> bool {
     let parts: Vec<&str> = version.split('.').collect();
     if parts.len() != 3 {
         return false;
@@ -23,7 +30,6 @@ pub fn herdr_version_supported(version: &str) -> bool {
             Err(_) => return false,
         };
     }
-    let floor = [0, 9, 3];
     for index in 0..3 {
         if numbers[index] != floor[index] {
             return numbers[index] > floor[index];

@@ -47,7 +47,9 @@ pub fn run(args: &[OsString]) -> ExitCode {
         Ok(options) => app::run(options),
         Err(message) => {
             eprintln!("{message}");
-            eprintln!("usage: uml-viewer viewer [--backend herdr] [--restart] [diagram.edn]");
+            eprintln!(
+                "usage: uml-viewer viewer [--backend herdr] [--restart] [--coding-agent claude|codex] [diagram.edn]"
+            );
             ExitCode::from(2)
         }
     }

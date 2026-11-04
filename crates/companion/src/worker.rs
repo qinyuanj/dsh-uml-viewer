@@ -3,7 +3,8 @@
 //! generation-scoped files and never waits for subprocess stdout or cleanup.
 //!
 //! File protocol under `.uml-viewer/companion-worker-<token>.*`:
-//! - `.request.edn`  `{:token :root :restart :base :viewer {:pid :start}}`
+//! - `.request.edn`  `{:token :root :restart :base :viewer {:pid :start}}`,
+//!   plus `:coding-agent :claude|:codex` when the launch named a provider
 //! - `.command-<n>.edn` `{:token :operation :stop|:wake :extra ...}`
 //! - `.event-<n>.edn` `{:token :phase :message}`, with phases `starting`,
 //!   the progress stages, `ready`, `stopping`, `stopped` and `failed`.
@@ -13,6 +14,7 @@
 //! (terminal phase read, helper exited); a launch whose lock probe finds no
 //! live helper first removes every older generation's files (#169).
 
+use crate::agent::CodingAgent;
 use crate::herdr::rules::{WakeVerdict, wake_verdict};
 use crate::herdr::{Herdr, ProgressFn};
 use crate::host::Host;
@@ -140,13 +142,13 @@ fn reclaim_stale(host: &Host, root: &str) {
 }
 
 /// The viewer-side start: write the request, then spawn the helper natively.
-pub fn start(root: &str, restart: bool) -> Result<Worker> {
+pub fn start(root: &str, restart: bool, coding_agent: Option<&str>) -> Result<Worker> {
     let host = Host::posix();
     let token = (host.token)();
     let base = format!("{root}/.uml-viewer/companion-worker-{token}");
     let owner = identity(&host, posix::current_pid())
         .ok_or_else(|| Failure::new("viewer process identity is unavailable"))?;
-    let request = edn::record::record(vec![
+    let mut fields = vec![
         ("token", Value::String(token.clone())),
         ("root", Value::String(root.to_owned())),
         ("restart", Value::Bool(restart)),
@@ -158,7 +160,9 @@ pub fn start(root: &str, restart: bool) -> Result<Worker> {
                 ("start", Value::String(owner.start.clone())),
             ]),
         ),
-    ]);
+    ];
+    fields.extend(coding_agent.map(|name| ("coding-agent", Value::keyword(name))));
+    let request = edn::record::record(fields);
     reclaim_stale(&host, root);
     let request_path = format!("{base}.request.edn");
     write(&host, Path::new(&request_path), &request)?;
@@ -404,7 +408,8 @@ pub fn run(request_path: &str, attach: bool, host: &Host) -> Result<i32> {
         let session = session.clone();
         Rc::new(move |stage: &str| session.borrow_mut().progress(stage))
     };
-    let outcome = run_body(&session, &root, restart, attach, progress);
+    let outcome = requested_agent(&request)
+        .and_then(|agent| run_body(&session, &root, restart, agent, attach, progress));
     let (stop, keep) = {
         let session = session.borrow();
         (session.stop, session.keep)
@@ -449,6 +454,16 @@ pub fn run(request_path: &str, attach: bool, host: &Host) -> Result<i32> {
     Ok(0)
 }
 
+/// The provider the launch named, if any; the preflight already refused
+/// anything else, so an unknown value here is a protocol fault.
+fn requested_agent(request: &Value) -> Result<Option<CodingAgent>> {
+    match edn::record::get(request, "coding-agent") {
+        None => Ok(None),
+        Some(Value::Keyword(name)) => CodingAgent::parse(name).map(Some),
+        Some(_) => CodingAgent::parse("").map(Some),
+    }
+}
+
 /// The helper body. Startup stages arrive through the backend's progress
 /// callback, so each stage is published at the boundary it names and a
 /// cancellation can land between boundaries.
@@ -456,18 +471,20 @@ fn run_body(
     session: &Rc<RefCell<Session>>,
     root: &str,
     restart: bool,
+    agent: Option<CodingAgent>,
     attach: bool,
     progress: ProgressFn,
 ) -> Result<()> {
     let host = session.borrow().host.clone();
     session.borrow_mut().event("starting", None)?;
     let (record_value, backend): (Value, Herdr) = if restart {
-        lifecycle::restart(root, &host)?
+        lifecycle::restart(root, &host, agent)?
     } else {
         lifecycle::create(
             root,
             &host,
             lifecycle::CreateOptions {
+                agent: agent.unwrap_or_default(),
                 progress: Some(progress),
                 ..lifecycle::CreateOptions::default()
             },
@@ -1224,6 +1241,74 @@ mod tests {
         session.clone().borrow_mut().progress("runner").unwrap();
         assert!(!session.borrow().stop);
         assert_eq!(vec![4i64], session.borrow().pending);
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn the_request_carries_the_coding_agent_into_the_fresh_start() {
+        let directory = std::env::temp_dir().join(format!(
+            "uml worker provider {} {}",
+            std::process::id(),
+            crate::posix::monotonic_ms()
+        ));
+        std::fs::create_dir_all(directory.join(".uml-viewer")).unwrap();
+        let bin = directory.join("bin");
+        crate::preflight::fixtures::herdr(
+            &bin,
+            "0.9.5",
+            22,
+            crate::preflight::fixtures::CODEX_CURRENT,
+        );
+        let path = format!("{}:/definitely/empty", bin.display());
+        let mut host = Host::posix();
+        host.variable = Rc::new(move |name: &str| (name == "PATH").then(|| path.clone()));
+        let root = directory.to_string_lossy().into_owned();
+        for (generation, provider, expected) in [
+            (
+                "codex",
+                Some(Value::keyword("codex")),
+                "Codex CLI not found",
+            ),
+            (
+                "pi",
+                Some(Value::keyword("pi")),
+                "unknown coding-agent provider",
+            ),
+        ] {
+            let base = format!("{root}/.uml-viewer/companion-worker-{generation}");
+            let request_path = format!("{base}.request.edn");
+            let mut fields = vec![
+                ("token", Value::String(generation.to_owned())),
+                ("root", Value::String(root.clone())),
+                ("base", Value::String(base.clone())),
+                ("restart", Value::Bool(false)),
+                (
+                    "viewer",
+                    edn::record::record(vec![
+                        ("pid", Value::Integer(i64::from(posix::current_pid()))),
+                        ("start", Value::String("start".to_owned())),
+                    ]),
+                ),
+            ];
+            fields.extend(provider.map(|value| ("coding-agent", value)));
+            write(
+                &host,
+                Path::new(&request_path),
+                &edn::record::record(fields),
+            )
+            .unwrap();
+            assert_eq!(1, run(&request_path, false, &host).unwrap());
+            let failed = (1..=3)
+                .filter_map(|n| read(&host, Path::new(&format!("{base}.event-{n}.edn"))))
+                .find(|event| record::get_name(event, "phase").as_deref() == Some("failed"))
+                .expect("a failed event");
+            let message = record::get_name(&failed, "message").unwrap_or_default();
+            assert!(message.contains(expected), "{generation}: {message}");
+            assert!(
+                !crate::ownership::exists(&root),
+                "{generation}: no ownership"
+            );
+        }
         let _ = std::fs::remove_dir_all(&directory);
     }
 

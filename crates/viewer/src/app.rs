@@ -147,12 +147,13 @@ impl Setup {
             .unwrap_or_else(|| PathBuf::from("."));
         let project_root = std::fs::canonicalize(&root).unwrap_or(root);
         // The snapshot is read once: the launch keeps it for the restore.
-        let (launch, chrome) = Launch::resolve(
+        let (mut launch, chrome) = Launch::resolve(
             project_root.clone(),
             options.path.clone(),
             options.restart,
             options.backend,
         );
+        launch.coding_agent = options.coding_agent.clone();
         let evidence = env_nonempty("UML_VIEWER_EVIDENCE").map(|dir| {
             let dir = PathBuf::from(dir);
             let _ = std::fs::create_dir_all(&dir);
@@ -1728,6 +1729,7 @@ mod tests {
                 diagram: root.join("diagram.edn"),
                 restart: false,
                 backend: false,
+                coding_agent: None,
                 snapshot: None,
             },
             || Box::new(crate::mail::Companion::mail_only()),
