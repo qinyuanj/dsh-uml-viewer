@@ -197,10 +197,18 @@ Herdr 返回 `agent_prompt_stalled`，wake 失败。接受时返回的 `state_ch
 Codex 另要求该 occupant 的 `agent_session` 为 `{:agent "codex" :source
 "herdr:codex" :kind "id"}` 且 `value` 等于保存的 `:codex-session`；同一 pane 中后来
 出现的另一会话、或不再上报会话，均以 `No Codex CLI agent occupies the owned Herdr
-pane with its saved session` 拒绝，不投递。边界（#199 实测）：在 pane 里 `/new` 之后，
-新对话要到第一条 prompt 才触发 SessionStart，此前 Herdr 仍报告旧 UUID，所以紧接着的
-那一次 wake 会投递给新对话；它上报新 UUID 之后的 wake 才被拒绝，邮件保留。进程退出后
-Herdr 立即撤下该 pane 的 agent 条目（`agent_not_found`），旧 UUID 不会留到恢复核对。verdict 规则与提供方无关；状态文本按提供方
+pane with its saved session` 拒绝，不投递。进程退出后 Herdr 立即撤下该 pane 的 agent
+条目（`agent_not_found`），旧 UUID 不会留到恢复核对。
+
+已知限制（#199 实测，Codex 0.166.0 / Herdr 0.9.5）：用户在 companion pane 里 `/new`
+之后，新对话要到第一条 prompt 才触发 SessionStart，在此之前 Herdr 仍报告旧
+`agent_session`，所以紧接着的第一次 wake 会通过核对、投递给新对话。这封邮件按磁盘 FIFO
+契约由弹出它的对话消费：新对话带着同一进程的 `developer_instructions`（standing rules），
+照常弹出并处理队首邮件，邮件不会丢，也不会重复处理，但处理它的已不是 ownership 记录的
+会话。新对话上报新 UUID 之后，后续 wake 一律拒绝，邮件留在队列，直到用户关闭 viewer
+再 fresh 启动。prompt 之前其实有可观测信号：`/new` 确认后 Codex 进程就持有新 thread 的
+`<uuid>.lock`，而 rollout 与 SessionStart 尚未出现。刻意不用：它依赖 Codex 私有的
+文件布局，与 ADR 0009 只依赖 Stable TUI 与 Herdr integration 的选择相悖。verdict 规则与提供方无关；状态文本按提供方
 命名（`Companion wake lost: Codex went idle ...`、`Regen queued; Codex session not
 attached.`）。
 

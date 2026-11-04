@@ -86,6 +86,19 @@ SessionStart 时效：修复后的三次 fresh 都在 9 s 内上报（预算 45 
   走了关闭：journal `:cancelled`、Codex 退出、session 删除、邮件 5 留在队列，下一次 fresh 的 Codex
   在启动回合里主动处理了它。
 
+## 已知限制
+
+- **`/new` 后的第一次 wake 投给新对话**：用户在 companion pane 里 `/new` 后，新对话要到第一条
+  prompt 才触发 SessionStart，此前 Herdr 仍报告旧 `agent_session`，所以第一次 wake 通过
+  occupant 核对并投递。该邮件按磁盘 FIFO 契约由弹出它的对话消费：新对话带同一进程的
+  standing rules，照常弹出并处理（本次是邮件 12：crap → IR → `:display`），不丢、不重复，
+  只是处理者已不是 ownership 记录的会话。新 UUID 上报后，后续 wake（邮件 13）被拒，邮件留在
+  队列，直到关闭 viewer 再 fresh 启动。
+- prompt 之前存在可检测信号：隔离探针（临时 `CODEX_HOME`，未碰 `~/.codex`）显示 `/new` 确认后
+  Codex 已持有新 thread 的 `<uuid>.lock`，rollout 与 SessionStart 要到首个 prompt 才出现。
+  刻意不用：它依赖 Codex 私有文件布局，与 ADR 0009 只依赖 Stable TUI＋Herdr integration
+  的选择相悖。契约 §5 记录同一限制。
+
 ## 未覆盖
 
 - 人工右键、真实窗口关闭按钮与 Windows Terminal attach（`UML_COMPANION_NO_ATTACH=1`）。
