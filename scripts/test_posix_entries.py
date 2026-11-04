@@ -806,7 +806,8 @@ class PosixEntries(unittest.TestCase):
         self.assertEqual(['viewer', '--backend', 'herdr', '--coding-agent', 'codex', 'd.edn'],
                          launcher['argv'])
 
-    def provider_fixtures(self, herdr='0.9.5', protocol=22, integration='current', codex=None):
+    def provider_fixtures(self, herdr='0.9.5', protocol=22, integration='current', codex=None,
+                          hooks='true'):
         """A PATH without the host's herdr/codex, plus fixture executables."""
         bin_dir = self.root / 'fixture bin'
         bin_dir.mkdir(exist_ok=True)
@@ -818,16 +819,17 @@ class PosixEntries(unittest.TestCase):
             f"integration) echo 'codex: {integration} (v10) (/h/codex.sh)' ;;\nesac\n")
         herdr_path.chmod(0o755)
         if codex:
-            self.codex_fixture(bin_dir / 'codex', codex)
+            self.codex_fixture(bin_dir / 'codex', codex, hooks=hooks)
         host = [d for d in os.environ['PATH'].split(':')
                 if d and not (Path(d) / 'herdr').exists() and not (Path(d) / 'codex').exists()]
         return dict(self.env, PATH=':'.join([str(bin_dir), *host]))
 
-    def codex_fixture(self, path, version, login=0, record=None):
+    def codex_fixture(self, path, version, login=0, record=None, hooks='true'):
         path.parent.mkdir(parents=True, exist_ok=True)
         log = f'printf "%s\\n" "$0" "$@" >> {str(record)!r}\n' if record else ''
         path.write_text(f'#!/bin/sh\n{log}case "$1" in\n--version) echo \'codex-cli {version}\' ;;\n'
-                        f'login) echo "Not logged in"; exit {login} ;;\nesac\n')
+                        f'login) echo "Not logged in"; exit {login} ;;\n'
+                        f"--enable) echo 'hooks    stable    {hooks}' ;;\nesac\n")
         path.chmod(0o755)
         return path
 
@@ -853,6 +855,7 @@ class PosixEntries(unittest.TestCase):
             ({'codex': '0.166.0', 'herdr': '0.9.4'}, 'the selected Herdr 0.9.4'),
             ({'codex': '0.166.0', 'protocol': 21}, 'bundled schema is not protocol 22'),
             ({'codex': '0.166.0', 'integration': 'outdated'}, 'Codex integration is outdated'),
+            ({'codex': '0.166.0', 'hooks': 'false'}, 'Codex hooks stay disabled for the companion'),
         )
         for fixtures, expected in cases:
             with self.subTest(**{k: str(v) for k, v in fixtures.items()}):

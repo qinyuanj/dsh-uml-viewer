@@ -206,12 +206,16 @@ recorded provider, and an explicit conflicting choice is refused). The option
 belongs only to the lifecycle entries; `ir`, `scene`, `crap`, `mutate` and
 `dry` refuse it. Before creating anything the preflight requires `CODEX_BIN`
 (a literal path) or `codex` on PATH reporting `codex-cli` **>= 0.166.0**,
-`codex login status` exit 0, the selected Herdr **>= 0.9.5**, and
+`codex login status` exit 0, `codex --enable hooks features list` reporting
+`hooks` `true`, the selected Herdr **>= 0.9.5**, and
 `herdr integration status` reporting `codex: current`. Nothing is installed,
 logged in or configured for you, and a refusal never falls back to Claude.
-Herdr's Codex hook must be enabled and trusted in your own Codex config; an
-untrusted hook shows up as a 45-second identity timeout, after which this
-start's Herdr session is released. The companion runs the Stable interactive
+Herdr's Codex hook must also be trusted in your own Codex config. No Stable
+read-only Codex interface reports hook trust (ADR 0009), so the preflight
+cannot check it: an untrusted hook shows up as a 45-second identity timeout
+that names it as the likely cause, after which this start's Herdr session is
+released. Run `codex` yourself, review its hooks and trust Herdr's
+SessionStart hook, then start again. The companion runs the Stable interactive
 TUI with `--dangerously-bypass-approvals-and-sandbox --enable hooks
 --no-daemon -C <project>`, the standing rules as `developer_instructions`,
 and a per-invocation trust of the project root

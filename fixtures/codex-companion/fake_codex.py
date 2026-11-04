@@ -168,6 +168,9 @@ def main(argv):
     if argv[:2] == ['login', 'status']:
         print('Logged in')
         return 0
+    if argv == ['--enable', 'hooks', 'features', 'list']:
+        print('hooks    stable    true')
+        return 0
     session = str(uuid.uuid4())
     journal(event='start', pid=os.getpid(), session=session, argv=argv,
             thread_env=os.environ.get('CODEX_THREAD_ID'))

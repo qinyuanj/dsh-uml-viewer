@@ -153,7 +153,8 @@ class RestartEntries(unittest.TestCase):
         (bin_dir / 'herdr').chmod(0o755)
         if codex:
             (bin_dir / 'codex').write_text(
-                f"#!/bin/sh\ncase \"$1\" in\n--version) echo 'codex-cli {codex}' ;;\nesac\n")
+                f"#!/bin/sh\ncase \"$1\" in\n--version) echo 'codex-cli {codex}' ;;\n"
+                "--enable) echo 'hooks    stable    true' ;;\nesac\n")
             (bin_dir / 'codex').chmod(0o755)
         host = [d for d in os.environ['PATH'].split(':')
                 if d and not (Path(d) / 'herdr').exists() and not (Path(d) / 'codex').exists()]

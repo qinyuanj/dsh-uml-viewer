@@ -49,7 +49,8 @@ checkpoint。**
   拒绝，早于等待旧 viewer 退出，不替换、不复制 companion。Codex 另需：
   `CODEX_BIN`（按字面路径执行，不经 shell；缺省为 PATH 上的 `codex`）存在且
   `codex --version` 为 `codex-cli X.Y.Z` >= 0.166.0（#199 真实验收通过的版本）、
-  `codex login status` 退出 0、selected Herdr >= 0.9.5（protocol 22），且
+  `codex login status` 退出 0、`codex --enable hooks features list` 的 `hooks` 行为
+  `true`（companion 自己的调用不会被受管配置关掉 hook）、selected Herdr >= 0.9.5（protocol 22），且
   `<selected herdr> integration status` 的 `codex:` 行为 `current`（该命令只有
   文本输出）。任一不满足都在创建 viewer、ownership 或 Herdr 资源前以真实
   原因拒绝；不安装、不登录、不改全局 Codex 配置，也不退回 Claude。Claude
@@ -58,8 +59,12 @@ checkpoint。**
   两者都带 `-c projects={"<项目根>"={trust_level="trusted"}}`：只对本次调用信任
   项目根，Codex 不保存，`~/.codex/config.toml` 不变（#199 前后 sha256 相同）。没有它，
   git 项目首次启动停在 "Trust this folder?"（`agent_status: blocked`），SessionStart
-  不发生，45 s 身份等待超时。Herdr Codex hook 的信任仍是用户自己的持久状态，preflight
-  不检查；未信任时同样表现为身份等待超时。
+  不发生，45 s 身份等待超时。**已知限制**：Herdr Codex hook 的信任是用户自己的持久状态
+  （`config.toml` 中 Codex 私有的 `trusted_hash`），没有 Stable 只读接口暴露它；唯一能读到
+  的 app-server `hooks/list` 被 ADR 0009 排除，也不复算 `trusted_hash`、不用
+  `--dangerously-bypass-hook-trust`。所以 preflight 不检查信任；未信任时表现为身份等待
+  超时，错误文本点名"likely an untrusted Codex hook"，并告诉用户自己运行 `codex` 审核并
+  信任 Herdr 的 SessionStart hook。
 - fresh 默认 Herdr；`--backend herdr` 兼容，tmux/psmux 明确拒绝。
   restart、wake、close 必须具有显式 `:backend :herdr` ownership，身份核实后
   才操作；legacy、无 backend、未知或不完整记录保留并拒绝接管。

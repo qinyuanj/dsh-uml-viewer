@@ -263,6 +263,18 @@ impl CodingAgent {
         self == CodingAgent::Codex
     }
 
+    /// The likely cause when Herdr never reports the session. Codex hook
+    /// trust is not visible through a Stable read-only interface, so the
+    /// preflight cannot refuse an untrusted hook; the timeout names it.
+    pub fn unreported_session_cause(self) -> &'static str {
+        match self {
+            CodingAgent::Claude => "",
+            CodingAgent::Codex => {
+                ", likely an untrusted Codex hook: run codex yourself in a terminal, review the hooks it lists and trust Herdr's SessionStart hook (herdr-agent-state.sh), then start again"
+            }
+        }
+    }
+
     /// The shared business rules with this provider's recovery sentence.
     pub fn standing_rules(self) -> String {
         let recovery = match self {

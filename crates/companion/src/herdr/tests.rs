@@ -1581,6 +1581,13 @@ fn a_fresh_codex_whose_session_is_never_reported_times_out_and_releases_its_star
         "{}",
         error.message
     );
+    // Hook trust is not visible to the preflight, so the timeout names it.
+    assert!(
+        error.message.contains("likely an untrusted Codex hook")
+            && error.message.contains("trust Herdr's SessionStart hook"),
+        "{}",
+        error.message
+    );
     assert_released(&error, &state, &calls, &checkpoints, &recovered);
 }
 

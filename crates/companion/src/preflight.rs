@@ -86,8 +86,8 @@ pub const COMPANION_ROOT: &str = "UML_COMPANION_ROOT";
 
 /// Codex CLI requirements, each refused with its real cause: the executable
 /// (`CODEX_BIN` taken literally, else `codex` on PATH), its version floor,
-/// a usable login, and a selected Herdr whose release and Codex integration
-/// report the agent session. Nothing is installed, logged in or configured.
+/// a usable login, hooks enabled for the companion's invocation, and a
+/// selected Herdr whose release and Codex integration report the session. Nothing is installed, logged in or configured.
 pub(crate) fn codex_ready(selected: &Selected, env: &dyn Fn(&str) -> Option<String>) -> Result<()> {
     let executable = CodingAgent::Codex.executable(env)?;
     let run = |argv: &[&str]| {
@@ -97,7 +97,11 @@ pub(crate) fn codex_ready(selected: &Selected, env: &dyn Fn(&str) -> Option<Stri
     let version = run(&[&executable, "--version"]);
     rules::codex_version(&executable, &version)?;
     rules::codex_herdr(selected, &run(&[&selected.path, "integration", "status"]))?;
-    rules::codex_login(&executable, &run(&[&executable, "login", "status"]))
+    rules::codex_login(&executable, &run(&[&executable, "login", "status"]))?;
+    rules::codex_hooks(
+        &executable,
+        &run(&[&executable, "--enable", "hooks", "features", "list"]),
+    )
 }
 
 const CHECK_TIMEOUT_MS: i64 = 15_000;
@@ -185,12 +189,26 @@ pub(crate) mod fixtures {
 
     pub(crate) const CODEX_CURRENT: &str = "echo 'codex: current (v10) (/h/codex.sh)'";
 
-    /// A Codex CLI fixture: its `--version` line and `login status` exit.
+    pub(crate) const HOOKS_ENABLED: &str = "echo 'hooks    stable    true'";
+
+    /// A Codex CLI fixture: its `--version` line and `login status` exit,
+    /// with hooks enabled.
     pub(crate) fn codex(
         directory: &std::path::Path,
         name: &str,
         version: &str,
         login: u8,
+    ) -> String {
+        codex_hooks(directory, name, version, login, HOOKS_ENABLED)
+    }
+
+    /// [`codex`] whose `--enable hooks features list` runs `hooks`.
+    pub(crate) fn codex_hooks(
+        directory: &std::path::Path,
+        name: &str,
+        version: &str,
+        login: u8,
+        hooks: &str,
     ) -> String {
         script(
             directory,
@@ -198,6 +216,9 @@ pub(crate) mod fixtures {
             &format!(
                 "case \"$1\" in\n--version) echo '{version}' ;;\n\
                  login) [ \"$2\" = status ] || exit 2; echo 'Not logged in' >&2; exit {login} ;;\n\
+                 --enable) [ \"$2 $3 $4\" = 'hooks features list' ] || exit 2\n  \
+                 echo 'apps    stable    true'\n  {hooks}\n  \
+                 echo 'plugin_hooks    removed    false' ;;\n\
                  *) exit 9 ;;\nesac\n"
             ),
         )
@@ -424,6 +445,45 @@ mod tests {
             );
             assert!(!error.message.contains('\n'), "{name}: one line");
             assert!(!ownership::exists(&root), "{name}: no ownership");
+            let _ = std::fs::remove_dir_all(&root);
+        }
+    }
+
+    /// Herdr only learns the session through Codex's SessionStart hook, so
+    /// hooks the companion's own invocation would run disabled (a managed
+    /// requirement, say) are refused here, not as a 45 s identity timeout.
+    #[test]
+    fn codex_hooks_that_stay_disabled_for_the_companion_are_refused_before_any_resource() {
+        for (hooks, expected) in [
+            (
+                "echo 'hooks    stable    false'",
+                "Codex hooks stay disabled for the companion",
+            ),
+            (":", "did not report its hooks feature"),
+            ("exit 3", "did not report its hooks feature"),
+        ] {
+            let root = temp_root();
+            let bin = std::path::Path::new(&root).join("bin");
+            herdr_fixture(&bin, "0.9.5", 22, CODEX_CURRENT);
+            super::fixtures::codex_hooks(&bin, "codex", "codex-cli 0.166.0", 0, hooks);
+            let error = launch_in(
+                &root,
+                &args(&["--coding-agent", "codex"]),
+                &environment(&bin, None),
+            )
+            .unwrap_err();
+            assert!(
+                error.message.contains(expected),
+                "{hooks}: {}",
+                error.message
+            );
+            assert!(
+                error.message.contains("--enable hooks features list"),
+                "{}",
+                error.message
+            );
+            assert!(!error.message.contains('\n'), "one line");
+            assert!(!ownership::exists(&root), "no ownership");
             let _ = std::fs::remove_dir_all(&root);
         }
     }

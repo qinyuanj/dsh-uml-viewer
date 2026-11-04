@@ -886,9 +886,10 @@ impl Herdr {
                 outcome => Some(outcome),
             },
             &format!(
-                "Herdr reported no {} session within {} s; start refused",
+                "Herdr reported no {} session within {} s{}; start refused",
                 agent.diagnostic_name(),
-                IDENTITY_WAIT_MS / 1000
+                IDENTITY_WAIT_MS / 1000,
+                agent.unreported_session_cause()
             ),
         )??;
         let identity = crate::agent::SessionIdentity {

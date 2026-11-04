@@ -171,6 +171,31 @@ pub fn codex_herdr(selected: &select::Selected, status: &RunOut) -> Result<()> {
     }
 }
 
+/// `codex --enable hooks features list` must report `hooks ... true`: the
+/// companion runs with that flag, and Herdr learns its session only through
+/// Codex's SessionStart hook. Whether that hook is trusted is not visible
+/// through a Stable read-only interface, so it is not checked here.
+pub fn codex_hooks(executable: &str, out: &RunOut) -> Result<()> {
+    let state = out
+        .out
+        .lines()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>())
+        .find(|words| words.first() == Some(&"hooks"))
+        .and_then(|words| words.last().map(|state| state.to_string()))
+        .filter(|_| out.exit == Some(0));
+    match state.as_deref() {
+        Some("true") => Ok(()),
+        Some(state) => Err(Failure::new(format!(
+            "Codex hooks stay disabled for the companion (`{executable} --enable hooks features list` reports hooks {state}); Herdr learns the companion's session only through Codex's SessionStart hook. Allow the hooks feature in your own Codex config or requirements; nothing is configured automatically."
+        ))),
+        None => Err(Failure::new(format!(
+            "Codex CLI at {executable} did not report its hooks feature (`--enable hooks features list` exited {}: {:?}). {CODEX_GUIDANCE}",
+            exit_text(out),
+            first_line(out)
+        ))),
+    }
+}
+
 /// `codex login status` must succeed: an unusable login is reported, never
 /// repaired.
 pub fn codex_login(executable: &str, out: &RunOut) -> Result<()> {

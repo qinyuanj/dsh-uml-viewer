@@ -31,9 +31,13 @@ Codex 0.166.0 另有 `app-server` 子命令，可以经 JSON-RPC 直接创建和
 ## 代价
 
 - 身份要等 hook 上报，fresh 启动多一段有界等待（45 s，位于 worker 120 s 启动上限内）。
-- 正确性依赖 hook 链路：Herdr integration 必须是 `current`（preflight 检查），hook 必须被信任，
+- 正确性依赖 hook 链路：Herdr integration 必须是 `current`，本次调用的 hooks 功能必须开启
+  （preflight 用 `codex --enable hooks features list` 检查），hook 必须被信任，
   `python3` 在 pane 的 PATH 上，且环境里没有继承来的其他会话的 `CODEX_THREAD_ID`（server 启动时去掉）。
   任一环节断开，表现为身份超时，按上面的规则失败。
+- 已知限制：hook 信任没有 Stable 只读接口（Codex 把它存为私有的 `trusted_hash`，只有
+  app-server `hooks/list` 报告），本 ADR 不用 app-server，也不复算哈希或用
+  `--dangerously-bypass-hook-trust` 绕过。未信任的 hook 只能在身份超时时被点名为可能原因。
 
 ## Considered Options
 
