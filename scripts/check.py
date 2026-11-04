@@ -63,6 +63,14 @@ def restart_entries():
     return ('executed' if code == 0 else 'failed'), code, output
 
 
+def codex_companion():
+    python = interpreter('python3')
+    if not python:
+        return 'failed', 1, 'python3 is required'
+    code, output = run([python, '-I', str(REPO / 'scripts/test_posix_codex_companion.py')])
+    return ('executed' if code == 0 else 'failed'), code, output
+
+
 def native_driver(name, timeout):
     python = interpreter('python3')
     if not python:
@@ -85,6 +93,7 @@ def main():
         ('cargo build --release --locked + cargo test --workspace --locked', cargo_suite),
         ('entries (python -I scripts/test_posix_entries.py)', entries),
         ('restart (python -I scripts/test_posix_restart_entries.py)', restart_entries),
+        ('codex companion (python -I scripts/test_posix_codex_companion.py)', codex_companion),
     ]
     if arguments.native:
         sys.path.insert(0, str(REPO / 'scripts'))
