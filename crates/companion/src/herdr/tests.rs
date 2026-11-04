@@ -28,6 +28,9 @@ struct FakeState {
     empty_sessions: bool,
     no_agent: bool,
     occupant: Option<String>,
+    /// The `agent_session` Herdr reports for the occupant; absent until the
+    /// provider's integration reports it.
+    agent_session: Option<Json>,
     terminal: Option<String>,
     cwd: Option<String>,
     server_start: Option<String>,
@@ -147,6 +150,10 @@ fn fake_cli(calls: Calls, state: Shared) -> impl Fn(&[String], Option<i64>) -> R
                         (
                             "state_change_seq",
                             Json::Number(state.state_change_seq.unwrap_or(1.0)),
+                        ),
+                        (
+                            "agent_session",
+                            state.agent_session.clone().unwrap_or(Json::Null),
                         ),
                     ])])
                 };
@@ -1073,6 +1080,36 @@ fn create_starts_the_server_without_the_inherited_herdr_pane_context() {
     );
 }
 
+/// Launched from inside a Codex session, the companion inherits its
+/// `CODEX_THREAD_ID`; the Herdr Codex hook then suppresses the companion's
+/// own session report. The server, and so every pane, starts without it.
+#[test]
+fn create_starts_the_server_without_an_inherited_codex_thread() {
+    let state = create_state();
+    let calls: Calls = Rc::new(RefCell::new(Vec::new()));
+    let checkpoints: Checkpoints = Rc::new(RefCell::new(Vec::new()));
+    let recovered: Rc<RefCell<Option<Value>>> = Rc::new(RefCell::new(None));
+    let mut backend = create_backend(state, calls, &Files::new(), checkpoints, recovered);
+    backend.host.variables = Rc::new(|| strings(&["PATH", "CODEX_THREAD_ID", "CODEX_HOME"]));
+    let removed: Rc<RefCell<Option<Vec<String>>>> = Rc::new(RefCell::new(None));
+    let seen = removed.clone();
+    backend.hooks.spawn_server = Some(Rc::new(move |_, _, _, remove| {
+        *seen.borrow_mut() = Some(remove.to_vec());
+        Ok(Some(Owner {
+            pid: 41,
+            start: "server-start".to_owned(),
+            name: "herdr".to_owned(),
+        }))
+    }));
+    backend
+        .create("uml-viewer-A", ROOT, &[EXECUTABLE.to_owned()])
+        .unwrap();
+    assert_eq!(
+        Some(strings(&["CODEX_THREAD_ID"])),
+        removed.borrow().clone()
+    );
+}
+
 /// The recovery controller fixture: pid 77, started at `ctl`.
 fn controller_owner() -> Owner {
     Owner {
@@ -1180,6 +1217,172 @@ fn create_without_a_controller_launcher_never_spawns_recovery() {
             .get(format!("{ROOT}/.uml-viewer/recovery.edn"))
             .is_none()
     );
+}
+
+const CODEX_SESSION: &str = "01a1a458-f60d-7561-aa06-d04df3bd14f7";
+
+/// The `agent_session` the Herdr Codex integration reports.
+fn reported(agent: &str, source: &str, kind: &str, value: &str) -> Json {
+    object(vec![
+        ("agent", Json::String(agent.to_owned())),
+        ("source", Json::String(source.to_owned())),
+        ("kind", Json::String(kind.to_owned())),
+        ("value", Json::String(value.to_owned())),
+    ])
+}
+
+/// A create backend whose provisional ownership names Codex, with Herdr
+/// reporting `occupant` and `session` for the owned pane.
+fn codex_create(
+    occupant: &str,
+    session: Option<Json>,
+) -> (
+    Herdr,
+    Shared,
+    Calls,
+    Checkpoints,
+    Rc<RefCell<Option<Value>>>,
+) {
+    let state = create_state();
+    state.borrow_mut().occupant = Some(occupant.to_owned());
+    state.borrow_mut().agent_session = session;
+    let calls: Calls = Rc::new(RefCell::new(Vec::new()));
+    let checkpoints: Checkpoints = Rc::new(RefCell::new(Vec::new()));
+    let recovered: Rc<RefCell<Option<Value>>> = Rc::new(RefCell::new(None));
+    let mut backend = create_backend(
+        state.clone(),
+        calls.clone(),
+        &Files::new(),
+        checkpoints.clone(),
+        recovered.clone(),
+    );
+    backend.identity = Some(edn::record::record(vec![
+        ("coding-agent", Value::keyword("codex")),
+        ("provisional", Value::Bool(true)),
+    ]));
+    (backend, state, calls, checkpoints, recovered)
+}
+
+fn codex_fresh() -> Vec<String> {
+    crate::agent::CodingAgent::Codex.fresh_command(EXECUTABLE, ROOT, None)
+}
+
+/// Fresh Codex has no session id until Herdr reports it; ownership commits
+/// and recovery starts only with that id and its explicit resume.
+#[test]
+fn a_fresh_codex_commits_only_the_session_herdr_reports() {
+    let (mut backend, _, _, checkpoints, recovered) = codex_create(
+        "codex",
+        Some(reported("codex", "herdr:codex", "id", CODEX_SESSION)),
+    );
+    let owned = backend
+        .create("uml-viewer-A", ROOT, &codex_fresh())
+        .unwrap();
+    let resume = crate::agent::CodingAgent::Codex.recovery_command(EXECUTABLE, ROOT, CODEX_SESSION);
+    for record in [
+        &owned,
+        recovered.borrow().as_ref().expect("recovery started"),
+    ] {
+        assert_eq!(
+            Some(CODEX_SESSION.to_owned()),
+            record::get_name(record, "codex-session")
+        );
+        assert_eq!(None, edn::record::get(record, "claude-session"));
+        assert_eq!(
+            resume,
+            record::string_vec(edn::record::seq(edn::record::get(
+                record,
+                "recovery-command"
+            )))
+        );
+    }
+    // Every committed checkpoint already carries the reported identity.
+    for record in checkpoints.borrow().iter() {
+        if !edn::record::is_true(record, "provisional") {
+            assert!(record::get_name(record, "codex-session").is_some());
+        }
+    }
+}
+
+/// A refused start ran exactly one runner submission, started no recovery,
+/// and released this start's workspace and server before clearing ownership.
+fn assert_released(
+    error: &Failure,
+    state: &Shared,
+    calls: &Calls,
+    checkpoints: &Checkpoints,
+    recovered: &Rc<RefCell<Option<Value>>>,
+) {
+    assert!(
+        error
+            .message
+            .ends_with("this start's Herdr session was released"),
+        "{}",
+        error.message
+    );
+    let runs = ops(calls).iter().filter(|op| *op == "pane run").count();
+    assert_eq!(1, runs, "no fallback launch");
+    assert!(recovered.borrow().is_none(), "no recovery started");
+    assert!(state.borrow().closed && state.borrow().stopped);
+    assert_eq!(Some(&Value::Map(vec![])), checkpoints.borrow().last());
+    for record in checkpoints.borrow().iter() {
+        assert_eq!(None, edn::record::get(record, "claude-session"));
+        assert_eq!(None, edn::record::get(record, "codex-session"));
+    }
+}
+
+#[test]
+fn a_fresh_codex_refuses_a_foreign_or_malformed_session_and_releases_its_start() {
+    for (occupant, session, cause) in [
+        (
+            "claude",
+            reported("claude", "herdr:claude", "id", CODEX_SESSION),
+            "not this Codex CLI companion's",
+        ),
+        (
+            "codex",
+            reported("claude", "herdr:claude", "id", CODEX_SESSION),
+            "not this Codex CLI companion's",
+        ),
+        (
+            "codex",
+            reported("codex", "herdr:codex", "path", "/tmp/rollout.jsonl"),
+            "not this Codex CLI companion's",
+        ),
+        (
+            "codex",
+            reported("codex", "herdr:codex", "id", "latest"),
+            "not a UUID",
+        ),
+    ] {
+        let (mut backend, state, calls, checkpoints, recovered) =
+            codex_create(occupant, Some(session));
+        let error = backend
+            .create("uml-viewer-A", ROOT, &codex_fresh())
+            .unwrap_err();
+        assert!(error.message.contains(cause), "{}", error.message);
+        assert_released(&error, &state, &calls, &checkpoints, &recovered);
+    }
+}
+
+#[test]
+fn a_fresh_codex_whose_session_is_never_reported_times_out_and_releases_its_start() {
+    let (mut backend, state, calls, checkpoints, recovered) = codex_create("codex", None);
+    let now = Rc::new(std::cell::Cell::new(0));
+    let clock = now.clone();
+    backend.host.clock = Rc::new(move || clock.get());
+    backend.host.sleep = Rc::new(move |ms| now.set(now.get() + ms));
+    let error = backend
+        .create("uml-viewer-A", ROOT, &codex_fresh())
+        .unwrap_err();
+    assert!(
+        error
+            .message
+            .starts_with("Herdr reported no Codex CLI session within 45 s"),
+        "{}",
+        error.message
+    );
+    assert_released(&error, &state, &calls, &checkpoints, &recovered);
 }
 
 #[test]

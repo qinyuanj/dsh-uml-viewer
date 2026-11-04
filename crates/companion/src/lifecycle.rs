@@ -183,18 +183,15 @@ pub fn create(root: &str, host: &Host, options_in: CreateOptions) -> Result<(Val
         ));
     }
     let (selected, _) = launch_preflight(root, host, &[], agent)?;
-    if agent.awaits_reported_session() {
-        // The preflight passed, but ready needs the session Herdr reports
-        // after launch (#195); stop before any ownership or resource.
-        return Err(Failure::new(format!(
-            "{} companion cannot start yet: its reported session is not awaited",
-            agent.label()
-        )));
-    }
-    let executable = options_in
-        .executable
-        .clone()
-        .unwrap_or_else(|| agent.executable(host));
+    // Codex runs as the executable its preflight checked, so the fresh and
+    // recovery argv name that file rather than a later PATH lookup.
+    let executable = match (options_in.executable.clone(), agent) {
+        (Some(executable), _) => executable,
+        (None, CodingAgent::Codex) => {
+            crate::preflight::codex_executable(&|name| (host.variable)(name))?
+        }
+        (None, CodingAgent::Claude) => agent.executable(host),
+    };
     let uuid = options_in.uuid.clone().unwrap_or_else(|| (host.token)());
     let session = session_name(root, &uuid, &config_root(host))?;
     let canonical = (host.canonical)(root);
@@ -794,7 +791,7 @@ mod tests {
     }
 
     #[test]
-    fn a_codex_fresh_start_runs_its_preflight_and_then_stops_before_any_resource() {
+    fn a_codex_fresh_start_runs_its_preflight_and_then_launches_the_resolved_codex() {
         let options = || CreateOptions {
             agent: CodingAgent::Codex,
             ..CreateOptions::default()
@@ -808,18 +805,21 @@ mod tests {
         );
         assert!(!ownership::exists(&root));
         let _ = std::fs::remove_dir_all(&directory);
-        // A passing preflight still stops: the launch and the reported
-        // session wait land in #195, so no ownership or Herdr resource exists.
+        // A passing preflight records the provisional Codex ownership with
+        // the executable the preflight resolved on PATH, then reaches Herdr
+        // (the fixture Herdr answers no session inventory).
         let (directory, root, host) = codex_project("codex-cli 0.166.0");
         let error = create(&root, &host, options()).err().unwrap();
-        assert!(
-            error
-                .message
-                .starts_with("Codex CLI companion cannot start yet"),
-            "{}",
-            error.message
+        assert_eq!("Malformed Herdr JSON", error.message);
+        let recorded = edn::parse(&ownership::bytes(&root).unwrap()).unwrap();
+        assert_eq!(
+            Some(&Value::keyword("codex")),
+            edn::record::get(&recorded, "coding-agent")
         );
-        assert!(!ownership::exists(&root));
+        assert_eq!(
+            directory.join("bin/codex").to_string_lossy(),
+            strings(&recorded, "command")[0]
+        );
         let _ = std::fs::remove_dir_all(&directory);
     }
 

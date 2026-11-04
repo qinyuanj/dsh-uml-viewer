@@ -2,6 +2,8 @@
 //! checkpoints (port of `love/uml/domain/herdr.lua`). The adapter owns every
 //! external command.
 
+use crate::agent::CodingAgent;
+use crate::json::Json;
 use crate::record;
 use crate::text::shell_word;
 use crate::vocab::{Failure, Result};
@@ -231,12 +233,62 @@ pub fn foreground_allowed(info: Option<&crate::json::Json>, shell_pid: i64) -> R
 /// headless bootstrap turns `HERDR_STARTUP_CWD` into an extra startup
 /// workspace (contract §6), and the rest name a session this server is not.
 /// `HERDR_CONFIG_PATH` is the person's own config choice, so it stays.
+/// An inherited `CODEX_THREAD_ID` names the Codex session that launched
+/// `./uml`; the Herdr Codex hook would drop the companion's own report.
 pub fn inherited_pane_env(names: &[String]) -> Vec<String> {
     names
         .iter()
-        .filter(|name| name.starts_with("HERDR_") && *name != "HERDR_CONFIG_PATH")
+        .filter(|name| {
+            (name.starts_with("HERDR_") && *name != "HERDR_CONFIG_PATH")
+                || *name == "CODEX_THREAD_ID"
+        })
         .cloned()
         .collect()
+}
+
+/// The session id Herdr reports for `agent` occupying the owned pane and
+/// terminal: `None` while nothing is reported yet; a report from another
+/// provider or integration, or one that is not a UUID id, is refused.
+pub fn reported_session(
+    snapshot: &Json,
+    pane: &str,
+    terminal: &str,
+    agent: CodingAgent,
+) -> Result<Option<String>> {
+    let occupant = snapshot
+        .get("agents")
+        .and_then(Json::array_items)
+        .and_then(|agents| {
+            agents.iter().find(|entry| {
+                entry.get("pane_id").and_then(Json::as_str) == Some(pane)
+                    && entry.get("terminal_id").and_then(Json::as_str) == Some(terminal)
+            })
+        });
+    let Some(occupant) = occupant else {
+        return Ok(None);
+    };
+    let session = match occupant.get("agent_session") {
+        None | Some(Json::Null) => return Ok(None),
+        Some(session) => session,
+    };
+    let field = |name: &str| session.get(name).and_then(Json::as_str);
+    if occupant.get("agent").and_then(Json::as_str) != Some(agent.name())
+        || field("agent") != Some(agent.name())
+        || field("source") != Some(&format!("herdr:{}", agent.name()))
+        || field("kind") != Some("id")
+    {
+        return Err(Failure::new(format!(
+            "Herdr reported a session that is not this {} companion's; start refused",
+            agent.label()
+        )));
+    }
+    match field("value") {
+        Some(id) if crate::agent::is_uuid(id) => Ok(Some(id.to_owned())),
+        _ => Err(Failure::new(format!(
+            "Herdr reported a {} session id that is not a UUID; start refused",
+            agent.label()
+        ))),
+    }
 }
 
 /// Ownership changed when any field but the cleanup checkpoint differs.

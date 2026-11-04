@@ -53,8 +53,8 @@ checkpoint。**
   `<selected herdr> integration status` 的 `codex:` 行为 `current`（该命令只有
   文本输出）。任一不满足都在创建 viewer、ownership 或 Herdr 资源前以真实
   原因拒绝；不安装、不登录、不改全局 Codex 配置，也不退回 Claude。Claude
-  项目的 0.9.3 下限不变。Codex fresh 通过 preflight 后仍在 lifecycle 创建
-  任何资源前停止，真实启动与会话身份等待属于 #195。
+  项目的 0.9.3 下限不变。Codex fresh（#195）以 preflight 核实过的可执行文件
+  启动 Stable 交互式 TUI（ADR 0009），fresh 与 recovery argv 都写这一路径。
 - fresh 默认 Herdr；`--backend herdr` 兼容，tmux/psmux 明确拒绝。
   restart、wake、close 必须具有显式 `:backend :herdr` ownership，身份核实后
   才操作；legacy、无 backend、未知或不完整记录保留并拒绝接管。
@@ -91,6 +91,16 @@ Herdr 的 pane ID 是 **session 局部** 的：两个命名 session 各自都有
   命令只由已记录的会话 id 生成。其他提供方值、或已提交但没有可验证会话的
   Codex 记录一律拒绝并保留。提供方、会话字段与 fresh/recovery argv 的映射
   只在 `crates/companion/src/agent.rs`。
+- Codex 会话身份（#195）：runner 确认启动后，`Herdr::create` 在提交 ownership
+  前轮询 snapshot，至多 45 s，等待占据本 pane/terminal 的 agent 上报
+  `agent_session`。只接受 occupant `agent` 为 `codex`，且 `agent_session` 为
+  `{:agent "codex" :source "herdr:codex" :kind "id"}`、`value` 为 UUID；随后写入
+  `:codex-session` 与显式 `codex resume <uuid>` 恢复命令，再提交、启动恢复
+  controller，之后 worker 才发布 ready。超时、提供方或来源不符、非 id 或非
+  UUID 一律失败，不退回 Claude、不选最近会话、不新建会话；此时 recovery
+  controller 尚未启动，只释放本次新建的 workspace、server 与命名 session，
+  确认后清空 ownership（释放失败则保留并报告）。独占 server 启动时去掉继承的
+  `CODEX_THREAD_ID`，否则 Herdr Codex hook 会丢弃 companion 自己的上报。
 - 创建前写 provisional 记录；部分失败后保留，禁止自动再建。
 - 每次 `probe!`/`bind!`/`wake!`/`cleanup!` 之前核对：session socket 可达、
   snapshot 中存在该 workspace/pane、`pane process-info` 的 shell_pid 与
