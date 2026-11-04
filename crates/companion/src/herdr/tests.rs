@@ -605,6 +605,38 @@ fn codex_backend(session: Option<Json>) -> (Herdr, Shared) {
     (backend, state)
 }
 
+/// After a recovery relaunch only the saved UUID in the owned pane counts.
+#[test]
+fn only_the_saved_codex_session_is_accepted_after_a_relaunch() {
+    let check = |session: Option<Json>| {
+        let (backend, _) = codex_backend(session);
+        backend.resumed_session(&codex_owned())
+    };
+    let other = "01a1a458-f60d-7561-aa06-d04df3bd14f8";
+    let same = reported("codex", "herdr:codex", "id", CODEX_SESSION);
+    assert!(check(Some(same)).unwrap());
+    assert!(!check(None).unwrap());
+    for refused in [
+        reported("codex", "herdr:codex", "id", other),
+        reported("codex", "herdr:codex", "path", CODEX_SESSION),
+        reported("codex", "herdr:claude", "id", CODEX_SESSION),
+        reported("claude", "herdr:codex", "id", CODEX_SESSION),
+        reported("codex", "herdr:codex", "id", "not-a-uuid"),
+    ] {
+        assert!(check(Some(refused)).is_err());
+    }
+}
+
+#[test]
+fn a_relaunched_pane_without_a_codex_occupant_is_not_proven_yet() {
+    let (backend, state) = codex_backend(None);
+    state.borrow_mut().no_agent = true;
+    assert!(!backend.resumed_session(&codex_owned()).unwrap());
+    let (backend, state) = codex_backend(None);
+    state.borrow_mut().fail = Some(("api snapshot".to_owned(), "server gone".to_owned()));
+    assert!(!backend.resumed_session(&codex_owned()).unwrap());
+}
+
 /// The Codex occupant must still be the saved session: a later session in
 /// the same pane, or one Herdr no longer reports, is not this companion's.
 #[test]
@@ -1900,6 +1932,98 @@ mod relaunch {
         );
         backend.relaunch(&identity)?;
         Ok((calls, identity))
+    }
+
+    /// The fixture project's Codex ownership over the relaunch identity.
+    fn codex_identity(recovery: Option<Value>) -> Value {
+        let mut record = identity();
+        edn::record::put(&mut record, "coding-agent", Value::keyword("codex"));
+        edn::record::put(
+            &mut record,
+            "codex-session",
+            Value::String(CODEX_SESSION.to_owned()),
+        );
+        edn::record::remove(&mut record, "recovery-command");
+        if let Some(recovery) = recovery {
+            edn::record::put(&mut record, "recovery-command", recovery);
+        }
+        record
+    }
+
+    fn codex_resume() -> Vec<String> {
+        crate::agent::CodingAgent::Codex.recovery_command(
+            "/usr/local/bin/codex",
+            &record::get_name(&identity(), "cwd").unwrap(),
+            CODEX_SESSION,
+        )
+    }
+
+    /// Relaunch `identity` over the fake CLI: the calls, and the manifest the
+    /// submitted runner would read.
+    fn codex_relaunch(identity: &Value) -> (Result<()>, Calls, Files) {
+        let state: Shared = Rc::new(RefCell::new(FakeState::default()));
+        let calls: Calls = Rc::new(RefCell::new(Vec::new()));
+        let files = Files::new();
+        let mut host = fixture_host(
+            fake_cli(calls.clone(), state.clone()),
+            fake_owner(state),
+            &files,
+        );
+        host.openable = Rc::new(|path| path == Path::new("/usr/local/bin/codex"));
+        let mut backend = Herdr::new(
+            Some(identity.clone()),
+            host,
+            Config::controller_relaunch(
+                Some(selected()),
+                RunnerLauncher {
+                    argv: vec!["uml-viewer".to_owned(), "companion-runner".to_owned()],
+                },
+            ),
+        );
+        (backend.relaunch(identity), calls, files)
+    }
+
+    #[test]
+    fn a_codex_relaunch_submits_the_explicit_resume_in_the_fixed_project() {
+        let resume = codex_resume();
+        let identity = codex_identity(Some(Value::Vector(
+            resume.iter().cloned().map(Value::String).collect(),
+        )));
+        let (result, _, files) = codex_relaunch(&identity);
+        result.unwrap();
+        let state = record::get_name(&identity, "runner-state").unwrap();
+        let manifest =
+            edn::parse(&files.get(format!("{state}.launch.edn")).expect("manifest")).unwrap();
+        assert_eq!(
+            resume,
+            record::string_vec(edn::record::seq(edn::record::get(&manifest, "command")))
+        );
+        assert_eq!(
+            record::get_name(&identity, "cwd"),
+            record::get_name(&manifest, "cwd")
+        );
+        let id = resume.iter().position(|item| item == CODEX_SESSION);
+        assert_eq!(Some(resume.len() - 2), id);
+        assert!(
+            !resume
+                .iter()
+                .any(|item| item == "--last" || item == "--all")
+        );
+    }
+
+    #[test]
+    fn a_codex_relaunch_without_a_valid_recovery_command_leaves_the_pane_untouched() {
+        for recovery in [
+            None,
+            Some(Value::Nil),
+            Some(Value::Vector(vec![])),
+            Some(Value::String("codex resume --last".to_owned())),
+        ] {
+            let (result, calls, _) = codex_relaunch(&codex_identity(recovery));
+            let error = result.unwrap_err();
+            assert!(error.message.contains("Codex CLI"), "{}", error.message);
+            assert!(calls.borrow().is_empty(), "{:?}", calls.borrow());
+        }
     }
 
     #[test]
