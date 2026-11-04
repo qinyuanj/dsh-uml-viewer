@@ -913,6 +913,9 @@ impl Herdr {
         Ok(true)
     }
 
+    /// Rebind the owned pane. A provider whose session Herdr reports is
+    /// rebound only while that original session still occupies it; nothing
+    /// is launched or resumed in its place.
     pub fn bind(&self, session: &str, pane: &str) -> Result<String> {
         let identity = self
             .identity
@@ -920,12 +923,18 @@ impl Herdr {
             .ok_or_else(|| Failure::new("Incomplete Herdr ownership"))?
             .clone();
         self.observe(&identity, session, pane)?;
+        if crate::agent::identity_of(&identity)?
+            .agent
+            .awaits_reported_session()
+        {
+            self.owned_agent(&identity, session, pane)?;
+        }
         Ok(pane.to_owned())
     }
 
     /// Wake delivers literal text carrying this delivery's unique token and
-    /// returns once Claude is working on it, with the state sequence Herdr
-    /// reported then. Claude pops the mail on its own schedule; the durable
+    /// returns once the owned agent is working on it, with the state sequence
+    /// Herdr reported then. The agent pops the mail on its own schedule; the durable
     /// queue keeps it until then (contract §5).
     pub fn wake(
         &self,
@@ -983,12 +992,15 @@ impl Herdr {
     }
 
     /// The agent occupying the owned pane, which must be the provider the
-    /// ownership names; no other agent is accepted in its place.
+    /// ownership names; no other agent is accepted in its place. A provider
+    /// whose session Herdr reports must still report the saved one: another
+    /// session started later in the same pane is not this companion's.
     fn owned_agent(&self, identity: &Value, session: &str, pane: &str) -> Result<Json> {
-        let provider = crate::agent::identity_of(identity)?.agent;
+        let owned = crate::agent::identity_of(identity)?;
+        let provider = owned.agent;
         let snapshot = self.snapshot(session)?;
         let terminal_id = record::get_name(identity, "terminal-id").unwrap_or_default();
-        snapshot
+        let occupant = snapshot
             .get("agents")
             .and_then(Json::array_items)
             .and_then(|agents| {
@@ -1005,7 +1017,19 @@ impl Herdr {
                     "No {} agent occupies the owned Herdr pane",
                     provider.label()
                 ))
-            })
+            })?;
+        if provider.awaits_reported_session()
+            && !matches!(
+                rules::reported_session(&snapshot, pane, &terminal_id, provider),
+                Ok(Some(reported)) if Some(&reported) == owned.session.as_ref()
+            )
+        {
+            return self.fail(format!(
+                "No {} agent occupies the owned Herdr pane with its saved session",
+                provider.label()
+            ));
+        }
+        Ok(occupant)
     }
 
     /// Cleanup: cancel recovery first, then destroy only the recorded

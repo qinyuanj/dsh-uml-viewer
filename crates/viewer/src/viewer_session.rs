@@ -294,6 +294,8 @@ pub(crate) struct ViewerSession {
     mail_watch: mail_watch::Watch,
     /// A `--backend` launch: the identity waits for the helper's ready.
     backend: bool,
+    /// The launch's explicit coding-agent provider, if any.
+    coding_agent: Option<String>,
     /// The identity was recorded (at startup, or once the helper was ready).
     identity_recorded: bool,
     /// When the IR and metrics stamps were last polled; `None` is due.
@@ -324,6 +326,7 @@ impl ViewerSession {
             link_status: None,
             mail_watch: mail_watch::Watch::new(),
             backend: launch.backend,
+            coding_agent: launch.coding_agent.clone(),
             identity_recorded: false,
             last_poll: None,
             force_refresh: false,
@@ -580,7 +583,13 @@ impl ViewerSession {
                         if self.link.wake(id).is_ok() {
                             "Regen requested.".into()
                         } else {
-                            "Regen queued; Claude session not attached.".into()
+                            format!(
+                                "Regen queued; {} session not attached.",
+                                companion::worker::provider_noun(
+                                    &self.project_root.to_string_lossy(),
+                                    self.coding_agent.as_deref(),
+                                )
+                            )
                         }
                     }
                     Err(_) => "Regen failed.".into(),
@@ -1242,6 +1251,47 @@ mod tests {
         );
         assert_eq!(vec![1, 2], calls.borrow().woken);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The unattached status names the companion's provider: the recorded
+    /// ownership first, else the launch's explicit provider.
+    #[test]
+    fn an_unattached_regen_names_the_codex_provider() {
+        for recorded in [true, false] {
+            let dir = project("regen codex");
+            std::fs::write(dir.join("diagram.edn"), SECOND).unwrap();
+            if recorded {
+                std::fs::write(
+                    dir.join(".uml-viewer/companion.edn"),
+                    "{:coding-agent :codex :codex-session \"01a1a458-f60d-7561-aa06-d04df3bd14f7\"}",
+                )
+                .unwrap();
+            }
+            let calls = Rc::new(RefCell::new(Calls {
+                wake_fails: true,
+                ..Calls::default()
+            }));
+            let link = FakeLink(Rc::clone(&calls));
+            let mut session = ViewerSession::open(
+                Launch {
+                    project_root: dir.to_path_buf(),
+                    diagram: dir.join("diagram.edn"),
+                    restart: false,
+                    backend: false,
+                    coding_agent: (!recorded).then(|| "codex".to_owned()),
+                    snapshot: None,
+                },
+                move || Box::new(link),
+            )
+            .unwrap();
+            session.process(Event::Action(Action::Regen, dims()), at(Instant::now(), 0));
+            assert_eq!(
+                Some("Regen queued; Codex session not attached."),
+                session.status(),
+                "recorded {recorded}"
+            );
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
 
     fn chrome() -> Chrome {

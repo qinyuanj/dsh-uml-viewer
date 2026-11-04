@@ -524,25 +524,21 @@ fn wake_requires_a_real_claude_occupant() {
 /// names none is Claude, and no other agent stands in for it.
 #[test]
 fn wake_requires_the_occupant_of_the_recorded_provider() {
-    let codex = {
-        let mut record = owned();
-        edn::record::put(&mut record, "coding-agent", Value::keyword("codex"));
-        edn::record::put(
-            &mut record,
-            "codex-session",
-            Value::String("01a1a458-f60d-7561-aa06-d04df3bd14f7".to_owned()),
-        );
-        record
-    };
     for (record, occupant, accepted) in [
         (owned(), "claude", true),
         (owned(), "codex", false),
-        (codex.clone(), "codex", true),
-        (codex, "claude", false),
+        (codex_owned(), "codex", true),
+        (codex_owned(), "claude", false),
     ] {
         let calls: Calls = Rc::new(RefCell::new(Vec::new()));
         let state: Shared = Rc::new(RefCell::new(FakeState {
             occupant: Some(occupant.to_owned()),
+            agent_session: Some(reported(
+                occupant,
+                &format!("herdr:{occupant}"),
+                "id",
+                CODEX_SESSION,
+            )),
             ..FakeState::default()
         }));
         let backend = Herdr::new(
@@ -573,6 +569,163 @@ fn wake_requires_the_occupant_of_the_recorded_provider() {
                 result.unwrap_err().message
             );
         }
+    }
+}
+
+/// A committed Codex ownership over the fixture pane.
+fn codex_owned() -> Value {
+    let mut record = owned();
+    edn::record::put(&mut record, "coding-agent", Value::keyword("codex"));
+    edn::record::put(
+        &mut record,
+        "codex-session",
+        Value::String(CODEX_SESSION.to_owned()),
+    );
+    record
+}
+
+/// A Codex backend over the fake CLI with `session` as the occupant's
+/// reported `agent_session`.
+fn codex_backend(session: Option<Json>) -> (Herdr, Shared) {
+    let state: Shared = Rc::new(RefCell::new(FakeState {
+        occupant: Some("codex".to_owned()),
+        agent_session: session,
+        ..FakeState::default()
+    }));
+    let calls: Calls = Rc::new(RefCell::new(Vec::new()));
+    let backend = Herdr::new(
+        Some(codex_owned()),
+        fixture_host(
+            fake_cli(calls, state.clone()),
+            fake_owner(state.clone()),
+            &Files::new(),
+        ),
+        config(),
+    );
+    (backend, state)
+}
+
+/// The Codex occupant must still be the saved session: a later session in
+/// the same pane, or one Herdr no longer reports, is not this companion's.
+#[test]
+fn codex_wake_requires_the_saved_session_in_the_owned_pane() {
+    let other = "01a1a458-f60d-7561-aa06-d04df3bd14f8";
+    for (session, accepted) in [
+        (
+            Some(reported("codex", "herdr:codex", "id", CODEX_SESSION)),
+            true,
+        ),
+        (Some(reported("codex", "herdr:codex", "id", other)), false),
+        (None, false),
+        (
+            Some(reported("codex", "herdr:codex", "path", CODEX_SESSION)),
+            false,
+        ),
+        (
+            Some(reported("codex", "herdr:claude", "id", CODEX_SESSION)),
+            false,
+        ),
+        (
+            Some(reported("claude", "herdr:codex", "id", CODEX_SESSION)),
+            false,
+        ),
+    ] {
+        let (backend, state) = codex_backend(session.clone());
+        let result = backend.wake(
+            "w1:p1",
+            &["-l".to_owned(), "mail token-1".to_owned()],
+            "token-1",
+            &|_| false,
+        );
+        assert_eq!(accepted, result.is_ok(), "{session:?}: {result:?}");
+        assert_eq!(accepted, state.borrow().prompted, "{session:?}");
+        assert_eq!(
+            accepted,
+            backend.agent_state("w1:p1").is_ok(),
+            "{session:?}"
+        );
+        if !accepted {
+            assert_eq!(
+                "No Codex CLI agent occupies the owned Herdr pane with its saved session",
+                result.unwrap_err().message
+            );
+        }
+    }
+}
+
+/// Codex keeps the wake verdict contract: the accepted prompt's sequence is
+/// the baseline; a popped mail is consumed, a turn that ended past it with
+/// the mail queued is lost, and a working or blocked turn is still pending.
+#[test]
+fn codex_wake_verdicts_follow_the_owned_session_state() {
+    use rules::{WakeVerdict, wake_verdict};
+    for (status, seq, queued, verdict) in [
+        ("idle", 5.0, false, WakeVerdict::Consumed),
+        ("idle", 5.0, true, WakeVerdict::Lost),
+        ("done", 5.0, true, WakeVerdict::Lost),
+        ("idle", 4.0, true, WakeVerdict::Pending),
+        ("working", 5.0, true, WakeVerdict::Pending),
+        ("blocked", 6.0, true, WakeVerdict::Pending),
+    ] {
+        let (backend, state) =
+            codex_backend(Some(reported("codex", "herdr:codex", "id", CODEX_SESSION)));
+        let delivered = backend
+            .wake(
+                "w1:p1",
+                &["-l".to_owned(), "Mailbox mail-1".to_owned()],
+                "mail-1",
+                &|_| false,
+            )
+            .unwrap();
+        state.borrow_mut().agent_status = Some(status.to_owned());
+        state.borrow_mut().state_change_seq = Some(seq);
+        let (status_now, seq_now) = backend.agent_state("w1:p1").unwrap();
+        assert_eq!(
+            verdict,
+            wake_verdict(delivered, &status_now, seq_now, queued),
+            "{status} {seq} {queued}"
+        );
+    }
+}
+
+/// A viewer restart rebinds only the original Codex process: the saved
+/// session must still occupy the pane, and nothing is launched or resumed.
+#[test]
+fn codex_bind_requires_the_original_session_and_launches_nothing() {
+    let other = "01a1a458-f60d-7561-aa06-d04df3bd14f8";
+    for (occupant, value, accepted) in [
+        ("codex", CODEX_SESSION, true),
+        ("codex", other, false),
+        ("claude", CODEX_SESSION, false),
+    ] {
+        let calls: Calls = Rc::new(RefCell::new(Vec::new()));
+        let state: Shared = Rc::new(RefCell::new(FakeState {
+            occupant: Some(occupant.to_owned()),
+            agent_session: Some(reported(
+                occupant,
+                &format!("herdr:{occupant}"),
+                "id",
+                value,
+            )),
+            ..FakeState::default()
+        }));
+        let backend = Herdr::new(
+            Some(codex_owned()),
+            fixture_host(
+                fake_cli(calls.clone(), state.clone()),
+                fake_owner(state.clone()),
+                &Files::new(),
+            ),
+            config(),
+        );
+        let result = backend.bind("uml-viewer-A", "w1:p1");
+        assert_eq!(accepted, result.is_ok(), "{occupant} {value}: {result:?}");
+        let seen = ops(&calls);
+        assert!(
+            seen.iter()
+                .all(|op| !op.starts_with("agent ") && op != "pane run" && op != "pane send-keys"),
+            "{seen:?}"
+        );
     }
 }
 

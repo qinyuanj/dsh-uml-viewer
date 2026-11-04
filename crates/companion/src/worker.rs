@@ -141,6 +141,20 @@ fn reclaim_stale(host: &Host, root: &str) {
     posix::release(Some(lock));
 }
 
+/// The provider's short name for viewer status text: the recorded ownership
+/// first, then the launch's explicit provider, else Claude.
+pub fn provider_noun(root: &str, coding_agent: Option<&str>) -> &'static str {
+    crate::ownership::read(root)
+        .ok()
+        .flatten()
+        .filter(|record| *record != Value::Map(vec![]))
+        .and_then(|record| crate::agent::identity_of(&record).ok())
+        .map(|identity| identity.agent)
+        .or_else(|| coding_agent.and_then(|name| CodingAgent::parse(name).ok()))
+        .unwrap_or_default()
+        .noun()
+}
+
 /// The viewer-side start: write the request, then spawn the helper natively.
 pub fn start(root: &str, restart: bool, coding_agent: Option<&str>) -> Result<Worker> {
     let host = Host::posix();
@@ -523,6 +537,7 @@ fn run_body(
     session.borrow_mut().event("ready", ready)?;
     let mailbox = Mailbox::outbox(Path::new(root));
     let pane = record::get_name(&record_value, "pane").unwrap_or_default();
+    let provider = crate::agent::identity_of(&record_value)?.agent;
     let mut watched: Vec<(i64, i64)> = Vec::new();
     let mut watched_at = (host.clock)();
     loop {
@@ -534,13 +549,9 @@ fn run_body(
             match backend.agent_state(&pane) {
                 Ok((status, seq)) => {
                     for id in settle(&mut watched, &status, seq, &|id| !mailbox.acknowledged(id)) {
-                        session.borrow_mut().event(
-                            "ready",
-                            Some(format!(
-                                "Companion wake lost: Claude went idle with {} still queued",
-                                mail_token(id)
-                            )),
-                        )?;
+                        session
+                            .borrow_mut()
+                            .event("ready", Some(lost_wake(provider, id)))?;
                     }
                 }
                 Err(error) => {
@@ -590,6 +601,15 @@ fn run_body(
     Ok(())
 }
 
+/// The status for a delivered wake whose turn ended with its mail queued.
+fn lost_wake(agent: CodingAgent, id: i64) -> String {
+    format!(
+        "Companion wake lost: {} went idle with {} still queued",
+        agent.noun(),
+        mail_token(id)
+    )
+}
+
 /// Drop the delivered wakes whose mail left the queue or whose turn ended
 /// with it still queued, and return the ids of the latter (contract §5).
 fn settle(
@@ -637,6 +657,18 @@ mod tests {
         assert_eq!(vec![(3, 6)], watched);
         assert!(settle(&mut watched, "working", 7, &|_| true).is_empty());
         assert_eq!(vec![(3, 6)], watched);
+    }
+
+    #[test]
+    fn a_lost_wake_names_the_provider_that_went_idle() {
+        assert_eq!(
+            "Companion wake lost: Claude went idle with mail-2 still queued",
+            lost_wake(CodingAgent::Claude, 2)
+        );
+        assert_eq!(
+            "Companion wake lost: Codex went idle with mail-3 still queued",
+            lost_wake(CodingAgent::Codex, 3)
+        );
     }
 
     #[test]

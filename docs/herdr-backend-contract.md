@@ -124,7 +124,7 @@ Herdr 的 pane ID 是 **session 局部** 的：两个命名 session 各自都有
 | `create!` | `herdr --session <s> server`（隔离 server）+ `workspace create --cwd <root> --no-focus` | cwd 原样保留（含空格、`&`、中文已验证）。server 启动时去掉继承的 `HERDR_*`（见 §6）。pane 内命令经 **argv 桥接** 投递（见 §4）。 |
 | `probe!` | `status server` + `api snapshot` | session 存在且 socket 可达、记录中的 pane 存在于 snapshot 才算存活；超时/含糊不得视为"已不存在"。 |
 | `identity!` | snapshot + `pane process-info --pane <id>` | 返回并核对上节全部字段；`terminal_id` 在 pane 存续期稳定。 |
-| `bind!` | 同上，纯核对，无副作用 | Viewer 新 JVM 重启后只重新绑定记录的 pane；缺失或身份变化则拒绝启动，不创建替代。 |
+| `bind!` | 同上，纯核对，无副作用 | Viewer 新 JVM 重启后只重新绑定记录的 pane；缺失或身份变化则拒绝启动，不创建替代。Codex（#196）另要求 occupant 仍为 `codex` 且 `agent_session` 为保存的 `:codex-session`，不执行 `codex resume`。 |
 | `wake!` | `agent prompt <pane> <text>` | 投递前核对 owned pane 的提供方（缺省 Claude）occupancy；Herdr 再次校验 agent 并提交字面文本及 Enter。wake 只证明投递（§5）；邮件消费由持久队列保证，不在 wake 内等待。 |
 | `recovery!` | Herdr 不提供，由项目自有 runner + 监督层实现 | 见 §6。开启/关闭恢复即注册/注销项目监督。 |
 | `cleanup!` | 先注销监督，再 `workspace close <w>`，最后 `session stop` + `session delete` | 顺序固定：先撤恢复再销毁。只清理记录拥有的资源。 |
@@ -186,6 +186,15 @@ Herdr 返回 `agent_prompt_stalled`，wake 失败。接受时返回的 `state_ch
 且 seq 大于基线、邮件仍在队列，判定为 wake 丢失并报告
 `Companion wake lost`；其余（`working`、`blocked`、尚未越过基线）继续等待，
 不设超时。先读 agent 状态再读队列，回合内已 pop 的邮件不会误报。唤醒失败不丢邮件（队列保留由现有 mailbox 语义保证）。
+
+精确 occupant（#196）：wake、agent 状态读取与 Codex 的 `bind!` 只接受 ownership
+提供方的 occupant；缺省 `:coding-agent` 只接受 Claude，没有「任意 agent」fallback。
+Codex 另要求该 occupant 的 `agent_session` 为 `{:agent "codex" :source
+"herdr:codex" :kind "id"}` 且 `value` 等于保存的 `:codex-session`；同一 pane 中后来
+出现的另一会话、或不再上报会话，均以 `No Codex CLI agent occupies the owned Herdr
+pane with its saved session` 拒绝，不投递。verdict 规则与提供方无关；状态文本按提供方
+命名（`Companion wake lost: Codex went idle ...`、`Regen queued; Codex session not
+attached.`）。
 
 ## 6. 退出检测与恢复契约（项目自有）
 
@@ -283,6 +292,9 @@ startup workspace，隔离 session 因此多出一个空 shell workspace。所�
 - 新 JVM 用 §2 的持久化记录 `bind!` 原 pane（核对 socket/workspace/
   pane/shell_pid/owner-start），不创建新 companion。记录缺失或身份
   含糊 → 明确报错，不开 viewer、不建替代会话。
+- Codex（#196）：restart 只重新绑定仍在运行的原 Codex 进程，`bind!` 核对
+  occupant 与保存的 UUID（§5），不执行 `codex resume`、不开第二段对话；切换提供方
+  必须先正常关闭旧 companion 再 fresh start，不支持热切换。
 - Herdr server 独立于 Viewer JVM 存活（headless server 模型已验证），
   companion 跨 JVM 更换存活是设计预期；restart 绑定后调用 `recovery! true`
   核实既有 controller，不重置 generation/budget、不重建 ownership。
