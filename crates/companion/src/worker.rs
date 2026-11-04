@@ -442,9 +442,19 @@ pub fn run(request_path: &str, attach: bool, host: &Host) -> Result<i32> {
                     )?;
                 }
             } else {
-                session
-                    .borrow_mut()
-                    .event("failed", Some(format!("{error}; ownership retained")))?;
+                // A start that released what it created, or never recorded
+                // anything, retains nothing.
+                let recorded = match crate::ownership::read_in(host, &root) {
+                    Ok(None) => false,
+                    Ok(Some(value)) => !record::is_empty_map(&value),
+                    Err(_) => true,
+                };
+                let message = if recorded {
+                    format!("{error}; ownership retained")
+                } else {
+                    error.to_string()
+                };
+                session.borrow_mut().event("failed", Some(message))?;
             }
             posix::release(lock);
             return Ok(1);
@@ -1307,6 +1317,11 @@ mod tests {
             assert!(
                 !crate::ownership::exists(&root),
                 "{generation}: no ownership"
+            );
+            // Nothing was recorded, so nothing is claimed as retained.
+            assert!(
+                !message.ends_with("; ownership retained"),
+                "{generation}: {message}"
             );
         }
         let _ = std::fs::remove_dir_all(&directory);

@@ -74,7 +74,7 @@ fn unknown_provider() -> Failure {
 }
 
 /// RFC 4122 text form, any version: Codex reports UUIDv7 session ids.
-fn is_uuid(text: &str) -> bool {
+pub(crate) fn is_uuid(text: &str) -> bool {
     let groups: Vec<&str> = text.split('-').collect();
     groups.len() == 5
         && groups.iter().zip([8, 4, 4, 4, 12]).all(|(group, length)| {

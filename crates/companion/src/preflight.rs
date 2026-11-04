@@ -78,7 +78,7 @@ fn codex_ready(selected: &Selected, env: &dyn Fn(&str) -> Option<String>) -> Res
 
 const CHECK_TIMEOUT_MS: i64 = 15_000;
 
-fn codex_executable(env: &dyn Fn(&str) -> Option<String>) -> Result<String> {
+pub(crate) fn codex_executable(env: &dyn Fn(&str) -> Option<String>) -> Result<String> {
     let executable = |candidate: &str| {
         std::fs::metadata(candidate).is_ok_and(|metadata| {
             metadata.is_file()

@@ -29,6 +29,10 @@ const BOOTSTRAP_MS: i64 = 60000;
 const ACK_ATTEMPTS: u32 = 3;
 const ACK_WAIT_MS: i64 = 10000;
 
+/// How long a fresh start waits for Herdr to report a provider's session
+/// (Codex's SessionStart hook), within the worker's 120 s startup bound.
+const IDENTITY_WAIT_MS: i64 = 45000;
+
 pub use select::Selected;
 
 /// How the runner role is launched inside the pane: the argv the pane's shell
@@ -799,6 +803,12 @@ impl Herdr {
             return self.fail("Herdr runner failed during startup");
         }
         self.observe(&base, session, &pane_id)?;
+        let agent = crate::agent::identity_of(&base)?.agent;
+        if agent.awaits_reported_session()
+            && let Err(cause) = self.await_reported_session(&mut base, agent, &pane_id, &command[0])
+        {
+            return Err(self.release_fresh(&base, cause));
+        }
         let owned = rules::committed(&base);
         crate::ownership::write(&self.host, &canonical_cwd, &owned)?;
         self.progress("recovery")?;
@@ -830,6 +840,66 @@ impl Herdr {
         self.progress("committed")?;
         self.identity = Some(owned.clone());
         Ok(owned)
+    }
+
+    /// Wait for Herdr to report the session `agent` runs in the owned pane,
+    /// then record it with its explicit recovery command. Nothing else
+    /// stands in for it: no other provider, latest or new session.
+    fn await_reported_session(
+        &self,
+        base: &mut Value,
+        agent: crate::agent::CodingAgent,
+        pane: &str,
+        executable: &str,
+    ) -> Result<()> {
+        let session = record::get_name(base, "session").unwrap_or_default();
+        let terminal = record::get_name(base, "terminal-id").unwrap_or_default();
+        let cwd = record::get_name(base, "cwd").unwrap_or_default();
+        let reported = self.poll(
+            IDENTITY_WAIT_MS,
+            250,
+            &|| match self
+                .snapshot(&session)
+                .and_then(|snapshot| rules::reported_session(&snapshot, pane, &terminal, agent))
+            {
+                Ok(None) => None,
+                outcome => Some(outcome),
+            },
+            &format!(
+                "Herdr reported no {} session within {} s; start refused",
+                agent.label(),
+                IDENTITY_WAIT_MS / 1000
+            ),
+        )??;
+        let identity = crate::agent::SessionIdentity {
+            agent,
+            session: reported,
+        };
+        for (key, value) in identity.ownership_fields(executable, &cwd) {
+            edn::record::put(base, key, value);
+        }
+        crate::ownership::write(&self.host, &cwd, base)
+    }
+
+    /// A fresh start that cannot prove its session releases what it created:
+    /// its own Herdr session and ownership. No recovery controller runs yet,
+    /// so there is nothing to cancel first.
+    fn release_fresh(&mut self, base: &Value, cause: Failure) -> Failure {
+        let mut record = base.clone();
+        edn::record::remove(&mut record, "supervisor");
+        let session = record::get_name(&record, "session").unwrap_or_default();
+        let cwd = record::get_name(&record, "cwd").unwrap_or_default();
+        self.identity = Some(record.clone());
+        let released = crate::ownership::write(&self.host, &cwd, &record)
+            .and_then(|()| self.cleanup(&session))
+            .and_then(|()| crate::ownership::write(&self.host, &cwd, &Value::Map(vec![])));
+        Failure::new(match released {
+            Ok(()) => format!("{}; this start's Herdr session was released", cause.message),
+            Err(error) => format!(
+                "{}; releasing this start's Herdr session failed: {}",
+                cause.message, error.message
+            ),
+        })
     }
 
     pub fn probe(&self, session: &str) -> Result<bool> {
