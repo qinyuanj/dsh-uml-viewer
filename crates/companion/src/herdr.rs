@@ -524,9 +524,11 @@ impl Herdr {
     }
 
     /// Recovery relaunch: re-verify, reset the pane, submit the runner with
-    /// the `--resume` recovery command on the same pane.
+    /// the explicit recovery command on the same pane. A recovery command the
+    /// provider refuses stops here, before the pane is touched.
     pub fn relaunch(&mut self, record: &Value) -> Result<()> {
         let _ = self.selected()?;
+        let command = crate::agent::relaunch_command(record)?;
         let session = record::get_name(record, "session").unwrap_or_default();
         let pane = record::get_name(record, "pane").unwrap_or_default();
         self.observe(record, &session, &pane)?;
@@ -542,13 +544,29 @@ impl Herdr {
                     .unwrap_or(Value::Nil),
             )?
             .ok_or_else(|| Failure::new("Herdr process creation identity changed"))?;
-        // A `:recovery-command` vector wins, even an empty one.
-        let command = record::string_vec(match edn::record::get(record, "recovery-command") {
-            Some(Value::Vector(items)) => items,
-            _ => edn::record::seq(edn::record::get(record, "command")),
-        });
         let argv = self.runner_command(record, &command)?;
         self.pane_run(&session, &pane, &rules::pane_command(&argv, &shell.name)?)
+    }
+
+    /// Whether the pane reports the saved session after a recovery relaunch.
+    /// `false` while nothing is reported (or Herdr cannot say yet); a report
+    /// of anything else is refused, not waited on.
+    pub fn resumed_session(&self, record: &Value) -> Result<bool> {
+        let owned = crate::agent::identity_of(record)?;
+        let session = record::get_name(record, "session").unwrap_or_default();
+        let pane = record::get_name(record, "pane").unwrap_or_default();
+        let terminal = record::get_name(record, "terminal-id").unwrap_or_default();
+        let Ok(snapshot) = self.snapshot(&session) else {
+            return Ok(false);
+        };
+        match rules::reported_session(&snapshot, &pane, &terminal, owned.agent)? {
+            None => Ok(false),
+            Some(reported) if Some(&reported) == owned.session.as_ref() => Ok(true),
+            Some(_) => self.fail(format!(
+                "Herdr reported another {} session in the owned pane; its saved session did not resume",
+                owned.agent.label()
+            )),
+        }
     }
 
     fn cancel_recovery(&self, record: &Value) -> Result<()> {
