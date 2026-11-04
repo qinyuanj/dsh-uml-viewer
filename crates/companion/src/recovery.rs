@@ -194,6 +194,9 @@ pub struct Step<'a> {
     pub now: i64,
     pub host: &'a Host,
     pub launch: &'a dyn Fn(&Value) -> Result<()>,
+    /// Whether Herdr reports the saved session in the pane yet; an error
+    /// means it reports another one.
+    pub verify: &'a dyn Fn(&Value) -> Result<bool>,
 }
 
 /// One controller step (Lua `M.step`): journal before the external side
@@ -226,10 +229,16 @@ pub fn step(step: &Step) -> Result<Value> {
     })?;
     let state_path = PathBuf::from(rules::state_file(identity));
     if !decision.launch {
-        if decision.changed {
-            write_state(&state_path, &decision.state, host)?;
+        let checked = if rules::session_unproven(&decision.state) {
+            let check = (step.verify)(identity);
+            rules::session_checked(identity, &decision.state, check, step.now)
+        } else {
+            decision.state.clone()
+        };
+        if decision.changed || checked != decision.state {
+            write_state(&state_path, &checked, host)?;
         }
-        return Ok(decision.state);
+        return Ok(checked);
     }
     write_state(&state_path, &decision.state, host)?;
     let mut submission = identity.clone();
@@ -389,6 +398,7 @@ pub fn controller_loop(
     identity: &Value,
     host: &Host,
     launch: &dyn Fn(&Value) -> Result<()>,
+    verify: &dyn Fn(&Value) -> Result<bool>,
 ) -> Result<String> {
     let lock = posix::try_acquire(Path::new(&rules::lock_file(identity)))?;
     if lock.is_none() {
@@ -408,6 +418,7 @@ pub fn controller_loop(
                 now: (host.clock)(),
                 host,
                 launch,
+                verify,
             })
         });
         let state = match stepped {
@@ -504,6 +515,11 @@ mod tests {
         ])
     }
 
+    /// A provider whose session id it chooses up front has nothing to re-verify.
+    fn no_session_check(_: &Value) -> Result<bool> {
+        panic!("only a provider with a reported session is re-verified")
+    }
+
     #[test]
     fn step_journals_a_backoff_then_submits_exactly_once_at_the_deadline() {
         let memory = Memory::new();
@@ -522,6 +538,7 @@ mod tests {
             now: 1000,
             host: &host,
             launch: &launch,
+            verify: &no_session_check,
         })
         .unwrap();
         assert_eq!("backoff", record::get_name(&first, "phase").unwrap());
@@ -532,6 +549,7 @@ mod tests {
             now: 1999,
             host: &host,
             launch: &launch,
+            verify: &no_session_check,
         })
         .unwrap();
         assert!(launches.borrow().is_empty());
@@ -541,6 +559,7 @@ mod tests {
             now: 2000,
             host: &host,
             launch: &launch,
+            verify: &no_session_check,
         })
         .unwrap();
         assert_eq!(1, launches.borrow().len());
@@ -575,6 +594,7 @@ mod tests {
             now: 0,
             host: &host,
             launch: &launch,
+            verify: &no_session_check,
         })
         .unwrap();
         let first = *writes.borrow();
@@ -583,6 +603,7 @@ mod tests {
             now: 50,
             host: &host,
             launch: &launch,
+            verify: &no_session_check,
         })
         .unwrap();
         assert_eq!(first, *writes.borrow());
@@ -606,6 +627,7 @@ mod tests {
             now: 0,
             host: &host,
             launch: &failing,
+            verify: &no_session_check,
         })
         .unwrap();
         let result = step(&Step {
@@ -613,6 +635,7 @@ mod tests {
             now: 1000,
             host: &host,
             launch: &failing,
+            verify: &no_session_check,
         })
         .unwrap();
         assert_eq!("failed", record::get_name(&result, "phase").unwrap());
@@ -627,6 +650,7 @@ mod tests {
             now: 999999,
             host: &host,
             launch: &noop,
+            verify: &no_session_check,
         })
         .unwrap();
         assert_eq!(1, *attempts.borrow());
@@ -806,5 +830,286 @@ mod tests {
         assert_eq!("Runner generation already executing", error.message);
         posix::release(Some(held));
         let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    /// A Codex companion's controller over the in-memory journal: a scripted
+    /// runner, child liveness and Herdr's session report.
+    struct Codex {
+        memory: Memory,
+        host: Host,
+        identity: Value,
+        alive: Rc<RefCell<bool>>,
+        launches: RefCell<Vec<Value>>,
+        report: RefCell<std::result::Result<bool, String>>,
+        checks: RefCell<i64>,
+    }
+
+    const QUEUE: &str = "/r/.uml-viewer/to-agent.edn";
+    const MAIL: &str = "{:next-id 3 :queue [{:id 1} {:id 2}]}";
+
+    impl Codex {
+        fn new() -> Codex {
+            let memory = Memory::new();
+            let alive = Rc::new(RefCell::new(false));
+            let liveness = alive.clone();
+            let host = Host {
+                owner: Rc::new(move |pid: i64| {
+                    (pid == 20 && *liveness.borrow()).then(|| Owner {
+                        pid: 20,
+                        start: "child".to_owned(),
+                        name: "codex".to_owned(),
+                    })
+                }),
+                ..memory.host()
+            };
+            let mut identity = identity("/r");
+            edn::record::put(&mut identity, "coding-agent", Value::keyword("codex"));
+            edn::record::put(
+                &mut identity,
+                "codex-session",
+                Value::String("01a1a458-f60d-7561-aa06-d04df3bd14f7".to_owned()),
+            );
+            register(&identity, &controller(), &host).unwrap();
+            memory.files.put(QUEUE, MAIL);
+            Codex {
+                memory,
+                host,
+                identity,
+                alive,
+                launches: RefCell::new(Vec::new()),
+                report: RefCell::new(Ok(false)),
+                checks: RefCell::new(0),
+            }
+        }
+
+        fn at(&self, now: i64) -> Value {
+            let launch = |submission: &Value| {
+                self.launches.borrow_mut().push(submission.clone());
+                Ok(())
+            };
+            let verify = |_: &Value| {
+                *self.checks.borrow_mut() += 1;
+                self.report.borrow().clone().map_err(Failure::new)
+            };
+            step(&Step {
+                identity: &self.identity,
+                now,
+                host: &self.host,
+                launch: &launch,
+                verify: &verify,
+            })
+            .unwrap()
+        }
+
+        fn runner(&self, generation: i64) -> String {
+            if generation == 0 {
+                "/r/.uml-viewer/runner.edn".to_owned()
+            } else {
+                format!("/r/.uml-viewer/uml-viewer-A-runner-{generation}.edn")
+            }
+        }
+
+        fn token(generation: i64) -> &'static str {
+            if generation == 0 {
+                "initial"
+            } else {
+                "mem-token"
+            }
+        }
+
+        fn exits(&self, generation: i64, code: i64) {
+            *self.alive.borrow_mut() = false;
+            self.memory.insert(
+                &self.runner(generation),
+                &exited(Self::token(generation), code),
+            );
+        }
+
+        fn starts(&self, generation: i64) {
+            *self.alive.borrow_mut() = true;
+            let mut started = exited(Self::token(generation), 0);
+            edn::record::put(&mut started, "phase", Value::keyword("started"));
+            edn::record::remove(&mut started, "exit");
+            self.memory.insert(&self.runner(generation), &started);
+        }
+
+        /// The first abnormal exit relaunched at its 1 s deadline.
+        fn relaunched(&self) -> Value {
+            self.exits(0, 37);
+            self.at(0);
+            self.at(1000)
+        }
+
+        fn queue_is_preserved(&self) {
+            assert_eq!(Some(MAIL.to_owned()), self.memory.files.get(QUEUE));
+        }
+    }
+
+    fn phase_of(state: &Value) -> String {
+        record::get_name(state, "phase").unwrap()
+    }
+
+    #[test]
+    fn a_relaunched_codex_session_is_supervised_only_after_the_same_uuid_returns() {
+        let codex = Codex::new();
+        let submitted = codex.relaunched();
+        assert_eq!("running", phase_of(&submitted));
+        assert_eq!(1, codex.launches.borrow().len());
+        // No child yet: nothing can have reported, so Herdr is not asked.
+        codex.at(1100);
+        assert_eq!(0, *codex.checks.borrow());
+        codex.starts(1);
+        assert!(edn::record::flag(&codex.at(1200), "session-check"));
+        assert_eq!(1, *codex.checks.borrow());
+        *codex.report.borrow_mut() = Ok(true);
+        let proven = codex.at(1300);
+        assert_eq!("running", phase_of(&proven));
+        assert!(!edn::record::flag(&proven, "session-check"));
+        let settled = *codex.checks.borrow();
+        codex.at(1400);
+        assert_eq!(settled, *codex.checks.borrow());
+        assert_eq!(1, codex.launches.borrow().len());
+        codex.queue_is_preserved();
+    }
+
+    #[test]
+    fn a_different_session_after_relaunch_stops_recovery_for_good() {
+        let codex = Codex::new();
+        codex.relaunched();
+        codex.starts(1);
+        *codex.report.borrow_mut() = Err("Herdr reported another session".to_owned());
+        let refused = codex.at(1200);
+        assert_eq!("failed", phase_of(&refused));
+        assert_eq!(
+            Some("Recovery session check refused: Herdr reported another session".to_owned()),
+            record::get_name(&refused, "reason")
+        );
+        codex.exits(1, 37);
+        assert_eq!("failed", phase_of(&codex.at(99_999)));
+        assert_eq!(1, codex.launches.borrow().len());
+        codex.queue_is_preserved();
+    }
+
+    #[test]
+    fn a_session_never_reported_after_relaunch_stops_recovery_at_the_deadline() {
+        let codex = Codex::new();
+        codex.relaunched();
+        codex.starts(1);
+        assert_eq!("running", phase_of(&codex.at(45_999)));
+        let late = codex.at(46_000);
+        assert_eq!("failed", phase_of(&late));
+        assert_eq!(
+            Some("Herdr reported no Codex CLI session within 45 s of recovery".to_owned()),
+            record::get_name(&late, "reason")
+        );
+        assert_eq!(1, codex.launches.borrow().len());
+        codex.queue_is_preserved();
+    }
+
+    #[test]
+    fn codex_retries_stay_bounded_at_one_two_four_seconds_with_every_session_rechecked() {
+        let codex = Codex::new();
+        *codex.report.borrow_mut() = Ok(true);
+        let mut generation = 0;
+        for (at, deadline) in [(0, 1000), (1100, 3100), (3200, 7200)] {
+            codex.exits(generation, 37);
+            assert_eq!(Some(deadline), record::get_i64(&codex.at(at), "deadline"));
+            assert_eq!("backoff", phase_of(&codex.at(deadline - 1)));
+            generation += 1;
+            let submitted = codex.at(deadline);
+            assert_eq!(Some(generation), record::get_i64(&submitted, "attempts"));
+            assert!(edn::record::flag(&submitted, "session-check"));
+        }
+        codex.exits(generation, 37);
+        let exhausted = codex.at(7300);
+        assert_eq!(
+            Some("Recovery exhausted after three retries".to_owned()),
+            record::get_name(&exhausted, "reason")
+        );
+        assert_eq!(3, codex.launches.borrow().len());
+        codex.queue_is_preserved();
+    }
+
+    #[test]
+    fn a_codex_child_exiting_before_its_session_returns_spends_the_budget_normally() {
+        let codex = Codex::new();
+        codex.relaunched();
+        codex.starts(1);
+        codex.at(1200);
+        codex.exits(1, 37);
+        let backoff = codex.at(1300);
+        assert_eq!("backoff", phase_of(&backoff));
+        assert_eq!(Some(3300), record::get_i64(&backoff, "deadline"));
+    }
+
+    #[test]
+    fn sixty_seconds_of_codex_survival_resets_the_budget() {
+        let codex = Codex::new();
+        *codex.report.borrow_mut() = Ok(true);
+        codex.relaunched();
+        codex.starts(1);
+        assert_eq!(Some(1), record::get_i64(&codex.at(1100), "attempts"));
+        assert_eq!(Some(1), record::get_i64(&codex.at(61_099), "attempts"));
+        assert_eq!(Some(0), record::get_i64(&codex.at(61_100), "attempts"));
+    }
+
+    #[test]
+    fn normal_and_unknown_codex_exits_are_never_recovered() {
+        let codex = Codex::new();
+        codex.exits(0, 0);
+        assert_eq!("normal", phase_of(&codex.at(0)));
+        let codex = Codex::new();
+        codex.memory.insert(
+            "/r/.uml-viewer/runner.edn",
+            &edn::record::record(vec![
+                ("token", Value::String("initial".to_owned())),
+                ("phase", Value::keyword("exited")),
+            ]),
+        );
+        assert_eq!("failed", phase_of(&codex.at(0)));
+        let codex = Codex::new();
+        codex.exits(0, 37);
+        codex
+            .memory
+            .insert("/r/.uml-viewer/runner.edn", &exited("other-generation", 37));
+        assert_eq!("failed", phase_of(&codex.at(0)));
+        assert!(codex.launches.borrow().is_empty());
+        codex.queue_is_preserved();
+    }
+
+    #[test]
+    fn closing_during_a_codex_backoff_cancels_the_due_retry() {
+        let codex = Codex::new();
+        codex.exits(0, 37);
+        assert_eq!("backoff", phase_of(&codex.at(0)));
+        codex.memory.insert(
+            "/r/.uml-viewer/recovery-control.edn",
+            &edn::record::record(vec![("cancel", Value::String("controller".to_owned()))]),
+        );
+        assert_eq!("cancelled", phase_of(&codex.at(1000)));
+        assert!(codex.launches.borrow().is_empty());
+        codex.queue_is_preserved();
+    }
+
+    #[test]
+    fn a_claude_relaunch_journals_and_checks_no_session() {
+        let memory = Memory::new();
+        let host = memory.host();
+        let identity = identity("/r");
+        register(&identity, &controller(), &host).unwrap();
+        memory.insert("/r/.uml-viewer/runner.edn", &exited("initial", 37));
+        let launch = |_: &Value| Ok(());
+        let go = |now: i64| {
+            step(&Step {
+                identity: &identity,
+                now,
+                host: &host,
+                launch: &launch,
+                verify: &no_session_check,
+            })
+            .unwrap()
+        };
+        go(0);
+        assert_eq!(None, edn::record::get(&go(1000), "session-check"));
     }
 }

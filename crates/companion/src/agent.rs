@@ -69,6 +69,56 @@ pub fn identity_of(record: &Value) -> Result<SessionIdentity> {
     Ok(SessionIdentity { agent, session })
 }
 
+/// The argv a recovery relaunch may run. Claude keeps its recorded rule: a
+/// `:recovery-command` vector wins, even an empty one. Codex only ever runs
+/// its explicit resume of the saved session in the project; anything else
+/// fails closed and never falls back on the fresh `:command`.
+pub fn relaunch_command(record: &Value) -> Result<Vec<String>> {
+    let owned = identity_of(record)?;
+    let recorded = edn::record::get(record, "recovery-command");
+    if !owned.agent.awaits_reported_session() {
+        return Ok(crate::record::string_vec(match recorded {
+            Some(Value::Vector(items)) => items,
+            _ => edn::record::seq(edn::record::get(record, "command")),
+        }));
+    }
+    let root = crate::record::get_name(record, "cwd");
+    match recorded {
+        Some(Value::Vector(items))
+            if explicit_resume(items, owned.session.as_deref(), root.as_deref()) =>
+        {
+            Ok(crate::record::string_vec(items))
+        }
+        _ => Err(Failure::new(format!(
+            "{} ownership has no valid recovery command for its saved session; recovery refused",
+            owned.agent.label()
+        ))),
+    }
+}
+
+/// `[exe resume <options> <session> <prompt>]`, with the project as `-C` and
+/// neither of the selectors that would let Codex pick a session itself.
+fn explicit_resume(items: &[Value], session: Option<&str>, root: Option<&str>) -> bool {
+    let argv = crate::record::string_vec(items);
+    let (Some(session), Some(root)) = (session, root) else {
+        return false;
+    };
+    let [executable, resume, options @ .., id, prompt] = &argv[..] else {
+        return false;
+    };
+    argv.len() == items.len()
+        && !executable.is_empty()
+        && resume == "resume"
+        && id == session
+        && !prompt.is_empty()
+        && options
+            .windows(2)
+            .any(|pair| pair[0] == "-C" && pair[1] == root)
+        && !options
+            .iter()
+            .any(|option| option == "--last" || option == "--all")
+}
+
 fn unknown_provider() -> Failure {
     Failure::new("Companion ownership names an unknown coding-agent provider; retained")
 }
@@ -432,6 +482,82 @@ mod tests {
         assert_eq!(Value::String("resume".to_owned()), resume[1]);
         assert_eq!(Value::String(UUID.to_owned()), resume[10]);
         assert!(!resume.contains(&Value::String("--last".to_owned())));
+    }
+
+    fn codex_record(recovery: &str) -> Value {
+        edn::parse(&format!(
+            r#"{{:coding-agent :codex :codex-session "{UUID}" :cwd "/p q"
+                :command ["/opt/codex" "fresh"] {recovery}}}"#
+        ))
+        .unwrap()
+    }
+
+    fn edn_vector(argv: &[String]) -> String {
+        edn::encode(&Value::Vector(
+            argv.iter().cloned().map(Value::String).collect(),
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_codex_relaunch_runs_only_the_explicit_resume_of_its_saved_session() {
+        let resume = CodingAgent::Codex.recovery_command("/opt/codex", "/p q", UUID);
+        let record = codex_record(&format!(":recovery-command {}", edn_vector(&resume)));
+        assert_eq!(resume, relaunch_command(&record).unwrap());
+    }
+
+    #[test]
+    fn a_codex_relaunch_refuses_any_other_recovery_command_and_never_runs_fresh() {
+        let good = CodingAgent::Codex.recovery_command("/opt/codex", "/p q", UUID);
+        let edited = |edit: &dyn Fn(&mut Vec<String>)| {
+            let mut argv = good.clone();
+            edit(&mut argv);
+            format!(":recovery-command {}", edn_vector(&argv))
+        };
+        let other = "01a1a458-f60d-7561-aa06-d04df3bd14f8";
+        for recovery in [
+            String::new(),
+            ":recovery-command nil".to_owned(),
+            ":recovery-command []".to_owned(),
+            ":recovery-command \"/opt/codex resume\"".to_owned(),
+            ":recovery-command [\"/opt/codex\" 1]".to_owned(),
+            edited(&|argv| argv[0].clear()),
+            edited(&|argv| argv[1] = "fork".to_owned()),
+            edited(&|argv| argv[10] = other.to_owned()),
+            edited(&|argv| argv[10] = "--last".to_owned()),
+            edited(&|argv| argv.insert(2, "--last".to_owned())),
+            edited(&|argv| argv.insert(2, "--all".to_owned())),
+            edited(&|argv| argv[7] = "/elsewhere".to_owned()),
+            edited(&|argv| {
+                argv.remove(7);
+                argv.remove(6);
+            }),
+            edited(&|argv| argv[11].clear()),
+            // A picker: `codex resume` with the id dropped.
+            edited(&|argv| {
+                argv.remove(10);
+            }),
+        ] {
+            let error = relaunch_command(&codex_record(&recovery))
+                .expect_err(&format!("accepted {recovery}"));
+            assert!(error.message.contains("Codex CLI"), "{}", error.message);
+        }
+    }
+
+    #[test]
+    fn a_claude_relaunch_keeps_its_recorded_command_rule() {
+        let relaunch = |text: &str| relaunch_command(&edn::parse(text).unwrap()).unwrap();
+        assert_eq!(
+            ["claude", "--resume", "u-1"],
+            relaunch(
+                r#"{:command ["claude" "fresh"] :recovery-command ["claude" "--resume" "u-1"]}"#
+            )[..]
+        );
+        assert_eq!(
+            ["claude", "fresh"],
+            relaunch(r#"{:command ["claude" "fresh"]}"#)[..]
+        );
+        assert!(relaunch(r#"{:command ["claude" "fresh"] :recovery-command []}"#).is_empty());
     }
 
     #[test]

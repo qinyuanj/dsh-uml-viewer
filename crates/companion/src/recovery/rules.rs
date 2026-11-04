@@ -9,6 +9,7 @@ use edn::Value;
 pub const BACKOFF_MS: [i64; 3] = [1000, 2000, 4000];
 pub const RESET_MS: i64 = 60000;
 pub const GONE_GRACE_MS: i64 = 2000;
+pub const SESSION_WAIT_MS: i64 = 45000;
 
 /// The immutable supervisor reference the viewer persists (Lua
 /// `R.reference`): a present `:supervisor` on the identity wins, otherwise
@@ -255,6 +256,12 @@ pub fn decide(ctx: &Context) -> Result<Decision> {
         edn::record::remove(&mut pending, "deadline");
         edn::record::remove(&mut pending, "uptime-since");
         edn::record::remove(&mut pending, "child");
+        if crate::agent::identity_of(ctx.identity)?
+            .agent
+            .awaits_reported_session()
+        {
+            edn::record::put(&mut pending, "session-check", Value::Bool(true));
+        }
         return Ok(Decision {
             state: pending,
             changed: true,
@@ -395,6 +402,43 @@ pub fn decide(ctx: &Context) -> Result<Decision> {
             changed: true,
             launch: false,
         }),
+    }
+}
+
+/// A relaunched session whose id Herdr reports stays unproven until the
+/// report names the saved session. Only a started child can have reported.
+pub fn session_unproven(state: &Value) -> bool {
+    phase(state) == "running"
+        && edn::record::flag(state, "session-check")
+        && edn::record::get(state, "child").is_some()
+}
+
+/// Apply one report check: proven clears the mark, another session stops
+/// recovery at once, and silence stops it at the deadline.
+pub fn session_checked(identity: &Value, state: &Value, check: Result<bool>, now: i64) -> Value {
+    match check {
+        Ok(true) => {
+            let mut result = state.clone();
+            edn::record::remove(&mut result, "session-check");
+            result
+        }
+        Ok(false) if now - get_i64(state, "submitted-at").unwrap_or(now) < SESSION_WAIT_MS => {
+            state.clone()
+        }
+        Ok(false) => stopped(
+            state,
+            &format!(
+                "Herdr reported no {} session within {} s of recovery",
+                crate::agent::identity_of(identity)
+                    .map(|owned| owned.agent.label())
+                    .unwrap_or("coding-agent"),
+                SESSION_WAIT_MS / 1000
+            ),
+        ),
+        Err(error) => stopped(
+            state,
+            &format!("Recovery session check refused: {}", error.message),
+        ),
     }
 }
 

@@ -56,7 +56,7 @@ pub fn controller(args: &[OsString]) -> ExitCode {
         let host = Host::posix();
         let root = record::get_name(&identity, "cwd").unwrap_or_default();
         let selected = std::cell::RefCell::new(None);
-        let launch = |submission: &edn::Value| -> Result<()> {
+        let backend = |submission: &edn::Value| -> Result<Herdr> {
             if selected.borrow().is_none() {
                 *selected.borrow_mut() = Some(crate::preflight::select(
                     &root,
@@ -68,10 +68,11 @@ pub fn controller(args: &[OsString]) -> ExitCode {
                 selected.borrow().clone(),
                 crate::lifecycle::runner_launcher()?,
             );
-            let mut backend = Herdr::new(Some(submission.clone()), host.clone(), config);
-            backend.relaunch(submission)
+            Ok(Herdr::new(Some(submission.clone()), host.clone(), config))
         };
-        crate::recovery::controller_loop(&identity, &host, &launch)
+        let launch = |submission: &edn::Value| backend(submission)?.relaunch(submission);
+        let verify = |record: &edn::Value| backend(record)?.resumed_session(record);
+        crate::recovery::controller_loop(&identity, &host, &launch, &verify)
     })();
     match outcome {
         Ok(_) => ExitCode::SUCCESS,
