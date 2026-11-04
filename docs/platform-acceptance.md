@@ -13,6 +13,12 @@ Current status:
   runtime and the Lua 5.4 + cluacov analysis prerequisites in the historical
   record below are no longer used. The #144 cutover evidence is in
   [acceptance-evidence/144-rust-default-cutover/](../acceptance-evidence/144-rust-default-cutover/README.md).
+- **WSL/Linux, Codex CLI companion** (spec #192): real Codex 0.166.0 with
+  Herdr 0.9.5 / protocol 22 and the `codex` integration v10 passed fresh
+  identity, mail FIFO, quality gating, viewer restart, same-UUID recovery,
+  normal close and two-project isolation on 2026-11-04; the record and the two
+  defects it fixed are in
+  [acceptance-evidence/199-wsl-codex/](../acceptance-evidence/199-wsl-codex/README.md).
 - **macOS**: not committed (spec #106 scope, 2026-10-21). No current
   acceptance exists; the JVM-era records below are historical only.
 - **Windows native**: historical only. The records below describe earlier

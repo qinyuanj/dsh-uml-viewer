@@ -1,0 +1,1 @@
+{"id":"cli:pane:read","error":{"code":"server_not_running","message":"no herdr server is running at /home/lzx/.config/herdr/sessions/uml-viewer-A----7cddfd63-02266bb8/herdr.sock; run `herdr session attach uml-viewer-A----7cddfd63-02266bb8` to start or attach it"}}

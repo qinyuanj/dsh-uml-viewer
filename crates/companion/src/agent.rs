@@ -264,7 +264,9 @@ impl CodingAgent {
 
     /// Unattended edits and commands are granted by this process's own
     /// arguments; hooks (Herdr's session report) and no shared daemon do not
-    /// rest on the person's global Codex config.
+    /// rest on the person's global Codex config. Trusting the project root
+    /// is an override for this invocation only: Codex saves nothing, and an
+    /// untrusted git project would otherwise wait on its folder-trust screen.
     fn codex_options(self, root: &str) -> Vec<String> {
         vec![
             "--dangerously-bypass-approvals-and-sandbox".to_owned(),
@@ -277,6 +279,11 @@ impl CodingAgent {
             format!(
                 "developer_instructions={}",
                 toml_basic_string(&self.standing_rules())
+            ),
+            "-c".to_owned(),
+            format!(
+                "projects={{{}={{trust_level=\"trusted\"}}}}",
+                toml_basic_string(root)
             ),
         ]
     }
@@ -412,7 +419,7 @@ mod tests {
         ];
         assert_eq!("/opt/codex", fresh[0]);
         assert_eq!(options, fresh[1..8]);
-        assert_eq!(10, fresh.len());
+        assert_eq!(12, fresh.len());
         let instructions = &fresh[8];
         assert!(
             instructions.starts_with(
@@ -421,15 +428,38 @@ mod tests {
         );
         assert!(instructions.ends_with("asked.\\n\""));
         assert!(!instructions.contains('\n'));
-        assert_eq!(LAUNCH, fingerprint(&fresh[9]));
+        assert_eq!(
+            ["-c", r#"projects={"/p q"={trust_level="trusted"}}"#],
+            fresh[9..11]
+        );
+        assert_eq!(LAUNCH, fingerprint(&fresh[11]));
 
         let recovery = CodingAgent::Codex.recovery_command("/opt/codex", "/p q", UUID);
         assert_eq!(["/opt/codex", "resume"], recovery[..2]);
         assert_eq!(options, recovery[2..9]);
-        assert_eq!(fresh[8], recovery[9]);
-        assert_eq!(UUID, recovery[10]);
-        assert_eq!(RECOVERY, fingerprint(&recovery[11]));
-        assert_eq!(12, recovery.len());
+        assert_eq!(fresh[8..11], recovery[9..12]);
+        assert_eq!(UUID, recovery[12]);
+        assert_eq!(RECOVERY, fingerprint(&recovery[13]));
+        assert_eq!(14, recovery.len());
+    }
+
+    /// A first start in a git project otherwise stops on Codex's "Trust this
+    /// folder?" screen and never reports its session (#199). The trust is
+    /// this invocation's override for the project root only; nothing is saved.
+    #[test]
+    fn codex_trusts_only_the_project_root_for_its_own_invocation() {
+        let trust = r#"projects={"/p \"q\".r"={trust_level="trusted"}}"#;
+        let trusted = |argv: &[String]| argv.windows(2).any(|pair| pair == ["-c", trust]);
+        assert!(trusted(&CodingAgent::Codex.fresh_command(
+            "/opt/codex",
+            "/p \"q\".r",
+            None
+        )));
+        assert!(trusted(&CodingAgent::Codex.recovery_command(
+            "/opt/codex",
+            "/p \"q\".r",
+            UUID
+        )));
     }
 
     #[test]
@@ -480,7 +510,7 @@ mod tests {
             panic!("recovery command is a vector")
         };
         assert_eq!(Value::String("resume".to_owned()), resume[1]);
-        assert_eq!(Value::String(UUID.to_owned()), resume[10]);
+        assert_eq!(Value::String(UUID.to_owned()), resume[resume.len() - 2]);
         assert!(!resume.contains(&Value::String("--last".to_owned())));
     }
 
@@ -523,8 +553,8 @@ mod tests {
             ":recovery-command [\"/opt/codex\" 1]".to_owned(),
             edited(&|argv| argv[0].clear()),
             edited(&|argv| argv[1] = "fork".to_owned()),
-            edited(&|argv| argv[10] = other.to_owned()),
-            edited(&|argv| argv[10] = "--last".to_owned()),
+            edited(&|argv| argv[12] = other.to_owned()),
+            edited(&|argv| argv[12] = "--last".to_owned()),
             edited(&|argv| argv.insert(2, "--last".to_owned())),
             edited(&|argv| argv.insert(2, "--all".to_owned())),
             edited(&|argv| argv[7] = "/elsewhere".to_owned()),
@@ -532,10 +562,10 @@ mod tests {
                 argv.remove(7);
                 argv.remove(6);
             }),
-            edited(&|argv| argv[11].clear()),
+            edited(&|argv| argv[13].clear()),
             // A picker: `codex resume` with the id dropped.
             edited(&|argv| {
-                argv.remove(10);
+                argv.remove(12);
             }),
         ] {
             let error = relaunch_command(&codex_record(&recovery))

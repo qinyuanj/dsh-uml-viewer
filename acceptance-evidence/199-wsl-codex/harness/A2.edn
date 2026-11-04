@@ -1,0 +1,43 @@
+{:version 1 :doc "spec199 A after restart" :steps [
+         {:op :wait-frames :n 5}
+         {:op :wait-file :evidence "go-4"}
+         {:op :screenshot :evidence "before-4.png"}
+         {:op :click-class :id :calc}
+         {:op :wait-frames :n 2}
+         {:op :click-class :id :calc :button :secondary}
+         {:op :wait-frames :n 3}
+         {:op :gui-click :at "menu-refresh-crap"}
+         {:op :wait-frames :n 5}
+         {:op :dump-project :project ".uml-viewer/to-agent.edn" :evidence "to-agent-4.edn"}
+         {:op :write :evidence "sent-4" :text "sent"}
+         {:op :wait-file :evidence "go-5"}
+         {:op :screenshot :evidence "before-5.png"}
+         {:op :click-class :id :calc}
+         {:op :wait-frames :n 2}
+         {:op :click-class :id :calc :button :secondary}
+         {:op :wait-frames :n 3}
+         {:op :gui-click :at "menu-refresh-crap"}
+         {:op :wait-frames :n 5}
+         {:op :dump-project :project ".uml-viewer/to-agent.edn" :evidence "to-agent-5.edn"}
+         {:op :write :evidence "sent-5" :text "sent"}
+         {:op :wait-file :evidence "go-6"}
+         {:op :screenshot :evidence "before-6.png"}
+         {:op :click-class :id :calc}
+         {:op :wait-frames :n 2}
+         {:op :click-class :id :calc :button :secondary}
+         {:op :wait-frames :n 3}
+         {:op :gui-click :at "menu-refresh-crap"}
+         {:op :wait-frames :n 5}
+         {:op :dump-project :project ".uml-viewer/to-agent.edn" :evidence "to-agent-6.edn"}
+         {:op :write :evidence "sent-6" :text "sent"}
+         {:op :wait-file :evidence "go-7"}
+         {:op :screenshot :evidence "before-7.png"}
+         {:op :click-class :id :calc}
+         {:op :wait-frames :n 2}
+         {:op :click-class :id :calc :button :secondary}
+         {:op :wait-frames :n 3}
+         {:op :gui-click :at "menu-refresh-crap"}
+         {:op :wait-frames :n 5}
+         {:op :dump-project :project ".uml-viewer/to-agent.edn" :evidence "to-agent-7.edn"}
+         {:op :write :evidence "sent-7" :text "sent"}
+         {:op :wait-file :evidence "go-never"}]}

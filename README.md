@@ -197,6 +197,33 @@ is refused; fresh-start the viewer instead.
 The runner execs it directly so its recorded identity is the agent's own
 process, and argv is passed literally, never through a shell.
 
+The companion can be Codex CLI instead of Claude Code:
+`./uml --coding-agent codex` (fresh start; `./uml --restart` reuses the
+recorded provider, and an explicit conflicting choice is refused). The option
+belongs only to the lifecycle entries; `ir`, `scene`, `crap`, `mutate` and
+`dry` refuse it. Before creating anything the preflight requires `CODEX_BIN`
+(a literal path) or `codex` on PATH reporting `codex-cli` **>= 0.166.0**,
+`codex login status` exit 0, the selected Herdr **>= 0.9.5**, and
+`herdr integration status` reporting `codex: current`. Nothing is installed,
+logged in or configured for you, and a refusal never falls back to Claude.
+Herdr's Codex hook must be enabled and trusted in your own Codex config; an
+untrusted hook shows up as a 45-second identity timeout, after which this
+start's Herdr session is released. The companion runs the Stable interactive
+TUI with `--dangerously-bypass-approvals-and-sandbox --enable hooks
+--no-daemon -C <project>`, the standing rules as `developer_instructions`,
+and a per-invocation trust of the project root
+(`-c projects={"<root>"={trust_level="trusted"}}`), so a git project's
+"Trust this folder?" screen does not stop an unattended start; Codex saves
+none of these and `~/.codex/config.toml` is not modified. Ownership records
+`:coding-agent :codex` and the session UUID Herdr reports. Restart rebinds
+the same Codex process and UUID; recovery after a verified abnormal exit runs
+`codex resume <options> <saved uuid>`, never `--last` or a picker. Starting a
+new conversation in the companion pane (`/new`) breaks the companion: once the
+new conversation reports its own UUID, wakes are refused and mail stays
+queued until you close the viewer. WSL2 acceptance with real Codex 0.166.0 and
+Herdr 0.9.5 is in
+[acceptance-evidence/199-wsl-codex/](acceptance-evidence/199-wsl-codex/README.md).
+
 Every project gets
 [crapper](https://github.com/qinyuanj/crapper),
 [mutator](https://github.com/qinyuanj/mutator) and

@@ -2054,8 +2054,19 @@ mod relaunch {
         for mode in [
             "[?1049l", "[?2004l", "[<u", "[?1000l", "[?1002l", "[?1003l", "[?1006l",
         ] {
-            assert!(script.contains(mode), "reset must clear {mode}");
+            assert!(
+                script.contains(&format!("\\033{mode}")),
+                "reset must clear {mode}"
+            );
         }
+        // `pane run` types its text into the shell. A raw ESC there is a key
+        // the line editor swallows, so the modes a SIGTERM'd Codex left on
+        // (kitty keyboard flags) stayed set and the ctrl+c that follows
+        // arrived as CSI-u junk in front of the runner command (#199).
+        assert!(
+            script.chars().all(|c| c == ' ' || c.is_ascii_graphic()),
+            "{script:?}"
+        );
         let text = state.borrow().run_text.clone().expect("runner submitted");
         assert!(text.contains("'companion-runner'"), "{text}");
     }

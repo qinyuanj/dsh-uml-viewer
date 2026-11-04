@@ -109,8 +109,8 @@ pub fn provider(record: Option<&Value>, requested: Option<CodingAgent>) -> Resul
 
 pub const CODEX_GUIDANCE: &str = "Install and log in to Codex CLI yourself, or set CODEX_BIN to its executable; nothing is installed, logged in or configured automatically, and the launch does not fall back to Claude Code.";
 
-/// The oldest Codex CLI release with end-to-end evidence (candidate until
-/// the real acceptance run, #199).
+/// The oldest Codex CLI release with end-to-end evidence: the real WSL2
+/// acceptance (#199) passed with 0.166.0.
 pub const CODEX_FLOOR: [u64; 3] = [0, 166, 0];
 /// Codex companions need Herdr's Codex occupant and `agent_session` report.
 pub const CODEX_HERDR_FLOOR: [u64; 3] = [0, 9, 5];

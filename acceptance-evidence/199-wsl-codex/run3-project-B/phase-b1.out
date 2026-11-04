@@ -1,0 +1,4 @@
+sent-b1 after 1s: {:next-id 2 :queue [{:id 1 :op :refresh-crap :target {:id :calc :kind :component :ns "ledger.calc"}}]}
+settled after 45s
+to-agent: {:next-id 2 :queue []}
+to-viewer: {:next-id 3 :queue []}

@@ -1,0 +1,2 @@
+    PID                  STARTED COMMAND
+ 927732 Wed Nov  4 15:17:35 2026 /home/lzx/.nvm/versions/node/v24.22.1/lib/node_modules/@openai/codex/node_modules/@open

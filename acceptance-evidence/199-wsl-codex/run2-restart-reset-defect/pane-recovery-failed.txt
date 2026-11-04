@@ -1,0 +1,40 @@
+
+• Mail 8 (:refresh-crap on ledger.calc) worked, and the updated diagram is queued for the viewer.
+
+  • CRAP run: uml-quality.json has been deleted, so the standard crapper ran over the whole tree, without target paths.
+    It exited 0, and all 3 tests passed.
+
+  • Scores: all five functions have 100% coverage, and the highest CRAP score is 2.0 (Calc::add and util::clamp). The
+    results are in .metrics/crap.edn.
+
+  • Result record: the newly published record checks out on every field (version 1, operation crap, this project's
+    root, exit code 0 equal to the real exit, validResult true).
+
+  • Diagram: ./uml ir exited 0, and I added {:id 8 :op :display :path "examples/ledger.edn"} to to-viewer.edn.
+
+  Mail 5 and 6, the mutate refreshes on ledger.calc, failed only because of the broken uml-quality.json. Now that it's
+  gone, re-sending one of them from the viewer should work. I'm not re-running them unprompted.
+
+  The leftover Herdr session from my earlier mistake, uml-viewer-spec199-run1-4067b924-8bb912ac, still needs you to
+  close it.
+
+  Worked for 26s • 15:25
+
+
+› %
+
+󰕈 lzx …/A 项目   master !?   v1.99.1   15:27   143  󱎫 9m48s
+                                                                      ❯ printf %s '?1003l?1002l?1006l?1000l?1049l?2004l
+printf %s '?1003l?1002l?1006l?1000l?1049l?2004l<u<u<u?25h'
+?1003l?1002l?1006l?1000l?1049l?2004l<u<u<u?25h%
+
+󰕈 lzx …/A 项目   master !?   v1.99.1   15:27 
+  9;5u'/home/lzx/dev/github/uml-viewer/.claude/worktrees/spec192-199/target/release/uml-viewer' 'companion-runner' '/tm
+p/spec199-run1/A 项目/.uml-viewer/uml-viewer-A----7cddfd63-0372ba5e-runner-1.edn.launch.edn'
+cd: no such entry in dir stack
+                              zsh: no such file or directory: 5u/home/lzx/dev/github/uml-viewer/.claude/worktrees/spec1
+92-199/target/release/uml-viewer
+                                %
+
+󰕈 lzx …/A 项目   master !?   v1.99.1   15:27   127
+                                                             ❯

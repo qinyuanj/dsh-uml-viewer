@@ -496,15 +496,17 @@ impl Herdr {
     /// Reset what a previous agent left enabled. Mouse tracking modes go
     /// first: a pane still reporting SGR mouse events delivers them to the
     /// replacement agent as keystrokes. On POSIX the sequence is written to
-    /// the pane's own terminal by running printf inside that pane.
+    /// the pane's own terminal by running printf inside that pane. `pane run`
+    /// types the text, so ESC is spelled `\033` for printf to expand: a typed
+    /// ESC byte is a key to the line editor and never reaches the terminal.
     pub fn terminal_reset(&self, record: &Value) -> Result<()> {
-        const RESET_SEQUENCE: &str = "\u{1b}[?1003l\u{1b}[?1002l\u{1b}[?1006l\u{1b}[?1000l\u{1b}[?1049l\u{1b}[?2004l\u{1b}[<u\u{1b}[<u\u{1b}[<u\u{1b}[?25h";
+        const RESET_FORMAT: &str = r"\033[?1003l\033[?1002l\033[?1006l\033[?1000l\033[?1049l\033[?2004l\033[<u\033[<u\033[<u\033[?25h";
         let session = record::get_name(record, "session").unwrap_or_default();
         let pane = record::get_name(record, "pane").unwrap_or_default();
         self.pane_run(
             &session,
             &pane,
-            &format!("printf %s {}", shell_word(RESET_SEQUENCE)),
+            &format!("printf {}", shell_word(RESET_FORMAT)),
         )?;
         (self.host.sleep)(250);
         self.checked(

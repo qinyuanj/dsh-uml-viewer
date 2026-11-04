@@ -48,13 +48,18 @@ checkpoint。**
   restart 沿用 ownership 记录的提供方，显式选择与其冲突时在 preflight
   拒绝，早于等待旧 viewer 退出，不替换、不复制 companion。Codex 另需：
   `CODEX_BIN`（按字面路径执行，不经 shell；缺省为 PATH 上的 `codex`）存在且
-  `codex --version` 为 `codex-cli X.Y.Z` >= 0.166.0（候选门槛，以真实验收为准）、
+  `codex --version` 为 `codex-cli X.Y.Z` >= 0.166.0（#199 真实验收通过的版本）、
   `codex login status` 退出 0、selected Herdr >= 0.9.5（protocol 22），且
   `<selected herdr> integration status` 的 `codex:` 行为 `current`（该命令只有
   文本输出）。任一不满足都在创建 viewer、ownership 或 Herdr 资源前以真实
   原因拒绝；不安装、不登录、不改全局 Codex 配置，也不退回 Claude。Claude
   项目的 0.9.3 下限不变。Codex fresh（#195）以 preflight 核实过的可执行文件
   启动 Stable 交互式 TUI（ADR 0009），fresh 与 recovery argv 都写这一路径。
+  两者都带 `-c projects={"<项目根>"={trust_level="trusted"}}`：只对本次调用信任
+  项目根，Codex 不保存，`~/.codex/config.toml` 不变（#199 前后 sha256 相同）。没有它，
+  git 项目首次启动停在 "Trust this folder?"（`agent_status: blocked`），SessionStart
+  不发生，45 s 身份等待超时。Herdr Codex hook 的信任仍是用户自己的持久状态，preflight
+  不检查；未信任时同样表现为身份等待超时。
 - fresh 默认 Herdr；`--backend herdr` 兼容，tmux/psmux 明确拒绝。
   restart、wake、close 必须具有显式 `:backend :herdr` ownership，身份核实后
   才操作；legacy、无 backend、未知或不完整记录保留并拒绝接管。
@@ -192,7 +197,10 @@ Herdr 返回 `agent_prompt_stalled`，wake 失败。接受时返回的 `state_ch
 Codex 另要求该 occupant 的 `agent_session` 为 `{:agent "codex" :source
 "herdr:codex" :kind "id"}` 且 `value` 等于保存的 `:codex-session`；同一 pane 中后来
 出现的另一会话、或不再上报会话，均以 `No Codex CLI agent occupies the owned Herdr
-pane with its saved session` 拒绝，不投递。verdict 规则与提供方无关；状态文本按提供方
+pane with its saved session` 拒绝，不投递。边界（#199 实测）：在 pane 里 `/new` 之后，
+新对话要到第一条 prompt 才触发 SessionStart，此前 Herdr 仍报告旧 UUID，所以紧接着的
+那一次 wake 会投递给新对话；它上报新 UUID 之后的 wake 才被拒绝，邮件保留。进程退出后
+Herdr 立即撤下该 pane 的 agent 条目（`agent_not_found`），旧 UUID 不会留到恢复核对。verdict 规则与提供方无关；状态文本按提供方
 命名（`Companion wake lost: Codex went idle ...`、`Regen queued; Codex session not
 attached.`）。
 
@@ -223,6 +231,12 @@ attached.`）。
   generation。提交 ack 不确定时不得重复提交；runner generation lock 阻止
   重复 child。恢复命令显式 `--resume <原始 Claude session id>`，提示只消费
   FIFO 并返回 display，不重新扫描或发明 proposal。
+- **终端复位**：提交 runner 前先在 pane 内 `pane run` 一条 `printf`，关闭鼠标上报、
+  备用屏、bracketed paste、弹出 kitty 键盘标志并显示光标，再发 `ctrl+c` 清空输入行。
+  `pane run` 是把文本键入 shell，所以 ESC 必须写成 printf 自己展开的 `\033`：原始
+  ESC 字节被行编辑器当按键吞掉，模式不复位。#199 实测 SIGTERM 的 Codex 留下 kitty
+  键盘标志，随后的 `ctrl+c` 以 CSI-u 送达，runner 命令前多出 `9;5u`，zsh exit 127，
+  恢复以 `Runner acknowledgement missing` 失败。
 - **Codex 恢复**：政策、退避、存活重置和停止规则相同，提交的只能是 ownership 里
   `codex resume <options> <saved uuid> <recovery prompt>` 形式的恢复命令：`-C` 为
   项目目录，不含 `--last`/`--all`。缺失、为空或非法时不碰 pane、不退回 `:command`，

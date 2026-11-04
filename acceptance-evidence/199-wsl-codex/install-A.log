@@ -1,0 +1,94 @@
+From https://github.com/qinyuanj/crapper
+ * branch            main       -> FETCH_HEAD
+From https://github.com/qinyuanj/mutator
+ * branch            main       -> FETCH_HEAD
+From https://github.com/qinyuanj/dryer
+ * branch            main       -> FETCH_HEAD
+Obtaining file:///tmp/spec199-run1/A%20%E9%A1%B9%E7%9B%AE/.uml-viewer/crapper
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Collecting tree-sitter>=0.25 (from crapper==0.1.0)
+  Using cached tree_sitter-0.26.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (10 kB)
+Collecting tree-sitter-language-pack>=0.7 (from crapper==0.1.0)
+  Downloading tree_sitter_language_pack-1.23.1-cp310-abi3-manylinux_2_34_x86_64.whl.metadata (864 bytes)
+Using cached tree_sitter-0.26.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (667 kB)
+Downloading tree_sitter_language_pack-1.23.1-cp310-abi3-manylinux_2_34_x86_64.whl (2.5 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.5/2.5 MB 2.2 MB/s eta 0:00:00
+Building wheels for collected packages: crapper
+  Building editable for crapper (pyproject.toml): started
+  Building editable for crapper (pyproject.toml): finished with status 'done'
+  Created wheel for crapper: filename=crapper-0.1.0-0.editable-py3-none-any.whl size=9402 sha256=81c55e993d23263cdacf112c5a8328041ce47bb46c31cfe1a22823cbbdcf1273
+  Stored in directory: /tmp/pip-ephem-wheel-cache-_z4md01l/wheels/e1/ed/ab/763f1c9f40414e21b25e0136351ee5d859fc92c1bbfff8a0ef
+Successfully built crapper
+Installing collected packages: tree-sitter, tree-sitter-language-pack, crapper
+Successfully installed crapper-0.1.0 tree-sitter-0.26.0 tree-sitter-language-pack-1.23.1
+No broken requirements found.
+Obtaining file:///tmp/spec199-run1/A%20%E9%A1%B9%E7%9B%AE/.uml-viewer/mutator
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Obtaining file:///tmp/spec199-run1/A%20%E9%A1%B9%E7%9B%AE/.uml-viewer/crapper
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Collecting tree-sitter>=0.24 (from mutator==0.1.0)
+  Using cached tree_sitter-0.26.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (10 kB)
+Collecting tree-sitter-language-pack>=0.7 (from mutator==0.1.0)
+  Using cached tree_sitter_language_pack-1.23.1-cp310-abi3-manylinux_2_34_x86_64.whl.metadata (864 bytes)
+Using cached tree_sitter-0.26.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (667 kB)
+Using cached tree_sitter_language_pack-1.23.1-cp310-abi3-manylinux_2_34_x86_64.whl (2.5 MB)
+Building wheels for collected packages: mutator, crapper
+  Building editable for mutator (pyproject.toml): started
+  Building editable for mutator (pyproject.toml): finished with status 'done'
+  Created wheel for mutator: filename=mutator-0.1.0-0.editable-py3-none-any.whl size=10517 sha256=0c41e77a2eb6f96c773c566867ed5c7aacb49317d5e65ba3b4df7ce1dea83127
+  Stored in directory: /tmp/pip-ephem-wheel-cache-ar5g3kgm/wheels/83/84/0d/b337eef709724a2b7940dff53daefb9d307526b2432972f135
+  Building editable for crapper (pyproject.toml): started
+  Building editable for crapper (pyproject.toml): finished with status 'done'
+  Created wheel for crapper: filename=crapper-0.1.0-0.editable-py3-none-any.whl size=9402 sha256=954587b91c09a3564295b5f01b0814acf373f91ff4d3520d9b386309942a39c5
+  Stored in directory: /tmp/pip-ephem-wheel-cache-ar5g3kgm/wheels/e1/ed/ab/763f1c9f40414e21b25e0136351ee5d859fc92c1bbfff8a0ef
+Successfully built mutator crapper
+Installing collected packages: tree-sitter, tree-sitter-language-pack, mutator, crapper
+Successfully installed crapper-0.1.0 mutator-0.1.0 tree-sitter-0.26.0 tree-sitter-language-pack-1.23.1
+No broken requirements found.
+Obtaining file:///tmp/spec199-run1/A%20%E9%A1%B9%E7%9B%AE/.uml-viewer/dryer
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Collecting tree-sitter>=0.24 (from dryer==0.1.0)
+  Using cached tree_sitter-0.26.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (10 kB)
+Collecting tree-sitter-language-pack>=0.7 (from dryer==0.1.0)
+  Using cached tree_sitter_language_pack-1.23.1-cp310-abi3-manylinux_2_34_x86_64.whl.metadata (864 bytes)
+Using cached tree_sitter-0.26.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (667 kB)
+Using cached tree_sitter_language_pack-1.23.1-cp310-abi3-manylinux_2_34_x86_64.whl (2.5 MB)
+Building wheels for collected packages: dryer
+  Building editable for dryer (pyproject.toml): started
+  Building editable for dryer (pyproject.toml): finished with status 'done'
+  Created wheel for dryer: filename=dryer-0.1.0-0.editable-py3-none-any.whl size=5082 sha256=0014d844ff75d1b6147b11202181d62875b01b833ba00e78f7ac0d04de213318
+  Stored in directory: /tmp/pip-ephem-wheel-cache-6905a0g9/wheels/1e/65/4c/0ef9bedb111a1e248a3b3ff9f959a0f6697dfe40a64affe488
+Successfully built dryer
+Installing collected packages: tree-sitter, tree-sitter-language-pack, dryer
+Successfully installed dryer-0.1.0 tree-sitter-0.26.0 tree-sitter-language-pack-1.23.1
+No broken requirements found.
+    Finished `release` profile [optimized] target(s) in 0.15s
+已安装 ./uml；使用 ./uml ir 生成 EDN。
