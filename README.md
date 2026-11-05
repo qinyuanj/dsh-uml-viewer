@@ -263,6 +263,15 @@ absent) and mutator uses `cargo test`. No Lua, Busted or LuaCov setup is needed
 for Rust analysis. See
 [mutator's setup and limitations](https://github.com/qinyuanj/mutator/tree/main).
 
+mutator runs every mutant in an overlayfs view inside a private user namespace
+(its ADR 0006), so a test's writes never reach the project. That needs Linux:
+the WSL2 kernel allows unprivileged user namespaces; where AppArmor restricts
+them (native Ubuntu 23.10 and later), mutator exits 1 with the `sysctl` that allows them. On macOS
+`./uml mutate` and right-click mutation exit 1 until mutator gains macOS
+isolation ([mutator#26](https://github.com/qinyuanj/mutator/issues/26)); the
+classes keep their missing-data red, and `./uml crap` and `./uml dry` are
+unaffected.
+
 Analysis always runs from the examined project, forwards individual arguments,
 and preserves the tool's exit status. Standard crapper/mutator/dryer invocation
 is the primary quality route; a repository command override is an optional
