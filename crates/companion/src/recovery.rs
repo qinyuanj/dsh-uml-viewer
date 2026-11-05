@@ -819,15 +819,19 @@ mod tests {
         let directory = tempfile();
         let root = directory.to_string_lossy().into_owned();
         let runner_state = format!("{root}/.uml-viewer/runner.edn");
+        let marker = format!("{root}/marker");
+        // The marker path is absolute: a child left in the wrong directory
+        // must fail this test, not write into whatever tree runs it.
         let identity = edn::parse(&format!(
             r#"{{:cwd "{root}" :runner-token "gen" :runner-state "{runner_state}"
-                :command ["/bin/sh" "-c" "sleep 0.1; printf %s \"$UML_COMPANION_ROOT\" > marker"]}}"#
+                :command ["/bin/sh" "-c" "sleep 0.1; printf '%s\n%s' \"$UML_COMPANION_ROOT\" \"$(pwd -P)\" > \"$0\"" "{marker}"]}}"#
         ))
         .unwrap();
         assert_eq!(Some(0), run_child(&identity, &Host::posix()).unwrap());
+        let real = directory.canonicalize().unwrap();
         assert_eq!(
-            root,
-            std::fs::read_to_string(directory.join("marker")).unwrap()
+            format!("{root}\n{}", real.display()),
+            std::fs::read_to_string(&marker).unwrap()
         );
         let _ = std::fs::remove_dir_all(&directory);
     }

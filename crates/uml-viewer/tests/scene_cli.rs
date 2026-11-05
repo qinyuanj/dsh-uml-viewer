@@ -4,18 +4,14 @@
 
 use edn::{Value, parse};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
 fn run(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
-        .arg("scene")
-        .args(args)
-        .output()
-        .unwrap()
+    super::binary(std::iter::once("scene").chain(args.iter().copied()))
 }
 
 fn num(v: Option<&Value>) -> f64 {

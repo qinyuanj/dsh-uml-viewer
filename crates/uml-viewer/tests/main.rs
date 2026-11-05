@@ -5,8 +5,38 @@
 mod dispatch;
 mod scene_cli;
 
+use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
+use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Run the binary the way every test here does. A dispatch fault can route
+/// any arguments to the viewer, which writes project state into its working
+/// directory and opens a window; a private scratch directory and no display
+/// keep such a run out of the tree under test and let it fail fast.
+pub fn binary<I, S>(args: I) -> Output
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    static SERIAL: AtomicU64 = AtomicU64::new(0);
+    let scratch = std::env::temp_dir().join(format!(
+        "uml-viewer-bin-{}-{}",
+        std::process::id(),
+        SERIAL.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(&scratch).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
+        .args(args)
+        .current_dir(&scratch)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .output()
+        .unwrap();
+    let _ = fs::remove_dir_all(&scratch);
+    output
+}
 
 /// With `autotests = false` Cargo no longer finds test files on its own;
 /// a file not declared as a module of its crate's `main.rs` would never run.

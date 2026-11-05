@@ -2,13 +2,10 @@
 //! is a subcommand; roles not yet ported exit 69 (EX_UNAVAILABLE) naming the
 //! role, unknown `--` options are refused with usage (exit 2).
 
-use std::process::{Command, Output};
+use std::process::Output;
 
 fn run(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
-        .args(args)
-        .output()
-        .unwrap()
+    super::binary(args)
 }
 
 fn stderr(output: &Output) -> String {
@@ -82,12 +79,12 @@ fn ir_refuses_an_ir_document_as_the_policy_with_a_usage_hint() {
         "{:title \"UML\" :prefix \"app\" :policy-file \"policy.edn\" :classes [] :edges []}",
     )
     .unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
-        .args(["ir", "--root"])
-        .arg(&dir)
-        .arg("diagram.edn")
-        .output()
-        .unwrap();
+    let output = super::binary([
+        "ir".as_ref(),
+        "--root".as_ref(),
+        dir.as_os_str(),
+        "diagram.edn".as_ref(),
+    ]);
     assert_eq!(Some(1), output.status.code());
     let err = stderr(&output);
     assert!(err.contains("generated IR document"), "{err}");
