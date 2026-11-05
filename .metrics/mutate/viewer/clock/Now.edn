@@ -1,0 +1,1 @@
+{:version 1 :tested-at "2026-11-04T22:37:33+08:00" :source "crates/viewer/src/clock.rs" :namespace "viewer::clock::Now" :outcomes {} :forms [{:id "defn/read" :kind "defn" :file "crates/viewer/src/clock.rs" :line 17 :end-line 22 :hash "e4036e5b0c68a79486d06a69873b8472b587614320a63d67a42cbb8a60b894cb" :killed 0 :survived 0 :uncovered 0 :sites 0}]}
