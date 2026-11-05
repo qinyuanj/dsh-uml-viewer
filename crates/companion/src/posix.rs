@@ -960,9 +960,9 @@ mod tests {
     #[test]
     fn run_removes_only_the_named_variables_from_the_child_environment() {
         let _guard = fork_guard();
-        let home = std::env::var("HOME").unwrap();
+        let home = std::env::var("HOME").unwrap_or_else(|_| "unset".to_owned());
         let present = run(
-            &args(&["/bin/sh", "-c", "printf %s \"$HOME\""]),
+            &args(&["/bin/sh", "-c", "printf %s \"${HOME:-unset}\""]),
             Some(5000),
             &[],
         );
@@ -1056,7 +1056,7 @@ mod tests {
 
     #[test]
     fn canonical_resolves_the_real_path() {
-        let directory = std::env::temp_dir().join("uml canonical 项目");
+        let directory = temp_path("canonical 项目");
         std::fs::create_dir_all(&directory).unwrap();
         let resolved = canonical(directory.to_str().unwrap()).unwrap();
         assert!(resolved.starts_with('/'));
