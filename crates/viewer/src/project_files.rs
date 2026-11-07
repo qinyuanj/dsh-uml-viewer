@@ -2,9 +2,27 @@
 //! the scene [`Boundary`]. The mail queues are written through
 //! [`companion::mailbox::Mailbox`], the one owner of the queue contract.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use scene::document::Boundary;
+
+/// `std::fs::canonicalize`, or `path` itself when it does not resolve. On
+/// Windows the verbatim prefix is stripped (`\\?\C:\x` → `C:\x`,
+/// `\\?\UNC\s\sh` → `\\s\sh`), the form the companion records too: a
+/// verbatim path takes no `/` joins, and mail paths are joined with `/`.
+pub fn canonical(path: &Path) -> PathBuf {
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if cfg!(windows) {
+        let text = resolved.to_string_lossy();
+        if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{unc}"));
+        }
+        if let Some(local) = text.strip_prefix(r"\\?\") {
+            return PathBuf::from(local);
+        }
+    }
+    resolved
+}
 
 /// Write `text` next to `path` and rename it into place.
 pub fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {

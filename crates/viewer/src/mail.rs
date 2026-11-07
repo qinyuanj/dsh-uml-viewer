@@ -138,9 +138,9 @@ impl MailBoundary for DisplayBoundary {
     }
 
     fn canonical(&self, path: &str) -> String {
-        std::fs::canonicalize(path)
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| path.to_owned())
+        crate::project_files::canonical(Path::new(path))
+            .to_string_lossy()
+            .into_owned()
     }
 
     fn load(&self, path: &str) -> Option<ViewState> {
@@ -214,6 +214,21 @@ mod tests {
             Some(directory.to_string_lossy().into_owned()),
             loaded.project_root
         );
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn a_display_path_loads_under_the_launch_canonical_project_root() {
+        // The shell canonicalizes the project root once; on Windows a
+        // verbatim `\\?\C:\…` root would not accept the `/` join.
+        let directory = scratch("uml mail canonical");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("second.edn"), "{:title \"Second\"}").unwrap();
+        let root = crate::project_files::canonical(&directory);
+        assert!(!root.to_string_lossy().starts_with(r"\\?\"), "{root:?}");
+        let boundary = DisplayBoundary::new(&root);
+        let loaded = boundary.load(&boundary.resolve("second.edn", None));
+        assert!(loaded.is_some(), "second.edn under {root:?}");
         let _ = std::fs::remove_dir_all(directory);
     }
 

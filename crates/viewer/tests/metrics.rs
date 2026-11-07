@@ -17,7 +17,7 @@ fn root_walks_up_to_the_metrics_directory() {
     let diagram = dir.join("nested/deep/diagram.edn");
     std::fs::write(&diagram, "{}").unwrap();
     assert_eq!(
-        std::fs::canonicalize(&dir).unwrap(),
+        viewer::project_files::canonical(&dir),
         viewer::metrics::root(&diagram)
     );
     let _ = std::fs::remove_dir_all(&dir);
