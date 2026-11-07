@@ -74,6 +74,21 @@ pub fn mode_for(x11_available: bool, force_undecorated: bool) -> WindowMode {
     }
 }
 
+/// The decision for a declared host `os` (`std::env::consts::OS`): Windows
+/// and macOS always get the system title bar (ADR 0010 story 10); only Linux
+/// probes X11, so `x11_available` runs only there.
+pub fn window_mode(
+    os: &str,
+    x11_available: impl FnOnce() -> bool,
+    force_undecorated: bool,
+) -> WindowMode {
+    match os {
+        "windows" | "macos" if !force_undecorated => WindowMode::NativeDecorated,
+        "windows" | "macos" => WindowMode::WaylandUndecorated,
+        _ => mode_for(x11_available(), force_undecorated),
+    }
+}
+
 /// Side of a window control button, in points.
 const CONTROL_W: f32 = 28.0;
 const CONTROL_H: f32 = DRAG_STRIP - RESIZE_GRIP - 2.0;
@@ -145,7 +160,7 @@ impl Setup {
         let root = env_nonempty("UML_VIEWER_PROJECT_ROOT")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let project_root = std::fs::canonicalize(&root).unwrap_or(root);
+        let project_root = crate::project_files::canonical(&root);
         // The snapshot is read once: the launch keeps it for the restore.
         let (mut launch, chrome) = Launch::resolve(
             project_root.clone(),
@@ -177,13 +192,22 @@ impl Setup {
     }
 }
 
+/// The renderer environment a host `os` (`std::env::consts::OS`) defaults
+/// to; a user value always wins. WSLg: d3d12 through Mesa and the GL wgpu
+/// backend (also set by the launcher; this keeps direct launches on the
+/// GPU). Windows: wgpu's D3D12 backend, which wgpu would otherwise rank
+/// below Vulkan. macOS keeps wgpu's native Metal backend.
+pub fn render_defaults(os: &str) -> &'static [(&'static str, &'static str)] {
+    match os {
+        "linux" => &[("GALLIUM_DRIVER", "d3d12"), ("WGPU_BACKEND", "gl")],
+        "windows" => &[("WGPU_BACKEND", "dx12")],
+        _ => &[],
+    }
+}
+
 /// eframe entry point.
 pub fn run(options: Options) -> ExitCode {
-    // WSLg: d3d12 through Mesa and the GL wgpu backend; never override a user
-    // value. Also set by the launcher; this keeps direct launches on the GPU.
-    // macOS keeps wgpu's native Metal backend.
-    #[cfg(target_os = "linux")]
-    for (key, value) in [("GALLIUM_DRIVER", "d3d12"), ("WGPU_BACKEND", "gl")] {
+    for &(key, value) in render_defaults(std::env::consts::OS) {
         if std::env::var_os(key).is_none() {
             // SAFETY: called before any thread is spawned (eframe starts the
             // event loop after this point).
@@ -199,11 +223,7 @@ pub fn run(options: Options) -> ExitCode {
         }
     };
     let force_undecorated = env_nonempty("UML_VIEWER_TEST_UNDECORATED").is_some();
-    let mode = if cfg!(target_os = "macos") && !force_undecorated {
-        WindowMode::NativeDecorated
-    } else {
-        mode_for(x11_available(), force_undecorated)
-    };
+    let mode = window_mode(std::env::consts::OS, x11_available, force_undecorated);
     let exit = Arc::new(AtomicU8::new(0));
     // A simulated scale also scales the window, so the canvas stays
     // 1500x920 points (Lua `display.window_size`: view units × ui).
@@ -303,6 +323,12 @@ struct Viewer {
     gui_inflight: bool,
     /// The change-only mailbox waker thread.
     waker: Option<mail_watch::Waker>,
+    /// A window close request (`WM_CLOSE`: the title bar's close button, or
+    /// another process posting it) takes the normal close: the window stays
+    /// until the companion is released. This is Windows' polite termination,
+    /// where SIGTERM does not exist; elsewhere eframe closes at once and
+    /// `on_exit` asks the helper to stop (unchanged).
+    close_request_is_normal_close: bool,
 }
 
 impl Drop for Viewer {
@@ -439,6 +465,7 @@ impl Viewer {
             gui_pointer: egui::Pos2::ZERO,
             gui_inflight: false,
             waker: None,
+            close_request_is_normal_close: cfg!(windows),
         };
         app.publish();
         // Mail must be noticed even when nothing else asks for a frame; the
@@ -1335,6 +1362,16 @@ impl eframe::App for Viewer {
         if signal::terminated() && !self.quit {
             self.begin_normal_close(ctx);
         }
+        if self.close_request_is_normal_close
+            && !self.quit
+            && ctx.input(|i| i.viewport().close_requested())
+        {
+            self.begin_normal_close(ctx);
+            if !self.quit {
+                // The checkpoint below sends the close once it settled.
+                ctx.send_viewport_cmd(ViewportCommand::CancelClose);
+            }
+        }
         let effects = self
             .session
             .process(Event::NormalCloseCheckpoint, Now::read());
@@ -1774,6 +1811,7 @@ mod tests {
             gui_pointer: egui::Pos2::ZERO,
             gui_inflight: false,
             waker: None,
+            close_request_is_normal_close: false,
         }
     }
 
@@ -1848,6 +1886,97 @@ mod tests {
             "a normal close saves no snapshot"
         );
         assert!(hidden_pass(&mut app).is_empty(), "the close is sent once");
+    }
+
+    /// A pass whose input carries a window close request (`WM_CLOSE`, the
+    /// title bar's close button), as eframe delivers it.
+    fn close_request_pass(app: &mut Viewer) -> Vec<ViewportCommand> {
+        let ctx = app.ctx.clone();
+        let mut frame = eframe::Frame::_new_kittest();
+        let mut input = egui::RawInput::default();
+        input
+            .viewports
+            .entry(egui::ViewportId::ROOT)
+            .or_default()
+            .events
+            .push(egui::ViewportEvent::Close);
+        let mut output = ctx.run_logic(&input, |ctx| eframe::App::logic(app, ctx, &mut frame));
+        output
+            .viewport_commands
+            .remove(&egui::ViewportId::ROOT)
+            .unwrap_or_default()
+    }
+
+    /// A helper that settles only when told to; it records its stops.
+    struct HeldLink(std::rc::Rc<std::cell::RefCell<(bool, Vec<crate::viewer_session::Stop>)>>);
+
+    impl crate::viewer_session::CompanionLink for HeldLink {
+        fn launch_status(&self) -> Option<String> {
+            None
+        }
+        fn poll(&mut self) -> crate::viewer_session::LinkPoll {
+            Default::default()
+        }
+        fn stop(&mut self, stop: crate::viewer_session::Stop) -> Result<(), String> {
+            self.0.borrow_mut().1.push(stop);
+            Ok(())
+        }
+        fn wake(&mut self, _id: i64) -> Result<(), String> {
+            Ok(())
+        }
+        fn settled(&self) -> bool {
+            self.0.borrow().0
+        }
+    }
+
+    #[test]
+    fn a_windows_close_request_waits_for_the_normal_close() {
+        let mut app = viewer();
+        let link = std::rc::Rc::new(std::cell::RefCell::new((false, Vec::new())));
+        let held = link.clone();
+        app.session = ViewerSession::open(
+            Launch {
+                project_root: app.project_root.clone(),
+                diagram: app.project_root.join("diagram.edn"),
+                restart: false,
+                backend: false,
+                agent: None,
+                snapshot: None,
+            },
+            move || Box::new(HeldLink(held)),
+        )
+        .unwrap();
+        app.close_request_is_normal_close = true;
+        assert_eq!(
+            vec![ViewportCommand::CancelClose],
+            close_request_pass(&mut app),
+            "the window stays while the companion is released"
+        );
+        assert!(!app.quit);
+        assert_eq!(
+            vec![crate::viewer_session::Stop::ReleaseCompanion],
+            link.borrow().1,
+            "the normal close releases the companion"
+        );
+        link.borrow_mut().0 = true;
+        assert_eq!(vec![ViewportCommand::Close], hidden_pass(&mut app));
+        assert_eq!(0, app.exit.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_close_request_without_a_helper_to_wait_for_closes_at_once() {
+        let mut app = viewer();
+        app.close_request_is_normal_close = true;
+        assert_eq!(vec![ViewportCommand::Close], close_request_pass(&mut app));
+        assert!(app.quit);
+    }
+
+    #[test]
+    fn elsewhere_the_window_manager_close_is_left_to_eframe() {
+        let mut app = viewer();
+        app.close_request_is_normal_close = false;
+        assert!(close_request_pass(&mut app).is_empty());
+        assert!(!app.quit);
     }
 
     #[test]
