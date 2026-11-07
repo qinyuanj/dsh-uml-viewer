@@ -133,6 +133,86 @@ fn a_dummy_class_is_a_component_target_for_any_lua_truthy_flag() {
     }
 }
 
+const WRITER: &str = "UML_VIEWER_MAILBOX_WRITER_ROOT";
+const REPLACEMENTS: i64 = 400;
+
+/// `{:next-id n :queue [{:id 1 …} … {:id n-1 …}]}`.
+fn queue_of(next: i64) -> Value {
+    let items = (1..next)
+        .map(|id| {
+            edn::record::record(vec![
+                ("id", Value::Integer(id)),
+                ("op", Value::keyword("context")),
+                ("context", Value::keyword("real")),
+            ])
+        })
+        .collect();
+    edn::record::record(vec![
+        ("next-id", Value::Integer(next)),
+        ("queue", Value::Vector(items)),
+    ])
+}
+
+/// The writer half: another process (the companion's role) atomically
+/// replaces the viewer's inbox with ever longer queues.
+#[test]
+fn concurrent_inbox_writer_child() {
+    let Some(root) = std::env::var_os(WRITER) else {
+        return;
+    };
+    let inbox = Mailbox::inbox(std::path::Path::new(&root));
+    for next in 2..=REPLACEMENTS {
+        inbox
+            .write(&queue_of(next))
+            .expect("an atomic replace failed");
+    }
+}
+
+#[test]
+fn the_viewer_reads_whole_queues_while_another_process_replaces_its_inbox() {
+    let dir = project();
+    let inbox = Mailbox::inbox(&dir);
+    inbox.write(&queue_of(1)).unwrap();
+    let mut writer = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "mailbox::concurrent_inbox_writer_child",
+            "--test-threads",
+            "1",
+        ])
+        .env(WRITER, &dir)
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut reads = 0;
+    let mut last = 1;
+    let status = loop {
+        let done = writer.try_wait().unwrap();
+        // The viewer's read: the whole file, then the EDN queue.
+        let text = std::fs::read_to_string(inbox.path())
+            .unwrap_or_else(|error| panic!("read {reads} failed during a replace: {error}"));
+        let boxed =
+            edn::parse(&text).unwrap_or_else(|error| panic!("torn queue {text:?}: {error:?}"));
+        let next = edn::record::get(&boxed, "next-id")
+            .and_then(edn::record::num)
+            .unwrap() as i64;
+        assert_eq!(queue_of(next), boxed, "a whole queue");
+        assert!(next >= last, "the inbox went back from {last} to {next}");
+        last = next;
+        reads += 1;
+        if let Some(status) = done {
+            break status;
+        }
+    };
+    assert!(status.success(), "the writer's atomic replace failed");
+    assert_eq!(
+        REPLACEMENTS, last,
+        "the last replace is what the viewer reads"
+    );
+    assert!(reads > 10, "the reads overlapped the writes ({reads})");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[test]
 fn menu_mail_names_the_operation_and_the_target() {
     let state = state();

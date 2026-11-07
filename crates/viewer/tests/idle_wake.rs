@@ -30,6 +30,25 @@ fn a_changed_diagram_requests_one_repaint() {
 }
 
 #[test]
+fn an_equal_length_edit_of_the_diagram_requests_a_repaint() {
+    // The stamp is the mtime (100 ns FILETIME ticks on Windows, ns on Linux)
+    // plus the size, so a same-size edit is seen by its mtime alone.
+    let dir = project("same-size");
+    let diagram = dir.join("diagram.edn");
+    std::fs::write(&diagram, "{:title \"A\"}").unwrap();
+    let mut wake = Wake::new(&diagram, &dir);
+    for _ in 0..100 {
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        std::fs::write(&diagram, "{:title \"B\"}").unwrap();
+        if wake.poll() {
+            assert!(!wake.poll(), "one repaint per change");
+            return;
+        }
+    }
+    panic!("an equal-length edit never changed the diagram stamp");
+}
+
+#[test]
 fn new_metrics_and_mail_request_a_repaint() {
     let dir = project("metrics");
     let mut wake = Wake::new(&dir.join("diagram.edn"), &dir);
