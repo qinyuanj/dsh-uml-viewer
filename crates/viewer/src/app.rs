@@ -1362,6 +1362,12 @@ impl eframe::App for Viewer {
         if signal::terminated() && !self.quit {
             self.begin_normal_close(ctx);
         }
+        // Settle a pending close before acknowledging another close event;
+        // CancelClose and Close in one pass leave the native window open.
+        let effects = self
+            .session
+            .process(Event::NormalCloseCheckpoint, Now::read());
+        self.carry_out(effects, ctx);
         if self.close_request_is_normal_close
             && !self.quit
             && ctx.input(|i| i.viewport().close_requested())
@@ -1372,10 +1378,6 @@ impl eframe::App for Viewer {
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
             }
         }
-        let effects = self
-            .session
-            .process(Event::NormalCloseCheckpoint, Now::read());
-        self.carry_out(effects, ctx);
         if let Some(seconds) = self.test_seconds
             && self.started.elapsed().as_secs_f64() >= seconds
         {
@@ -1959,7 +1961,10 @@ mod tests {
             "the normal close releases the companion"
         );
         link.borrow_mut().0 = true;
-        assert_eq!(vec![ViewportCommand::Close], hidden_pass(&mut app));
+        // eframe can still deliver the window close event while the helper
+        // settles. Never queue CancelClose and Close in that same pass: the
+        // cancellation wins and the window needs a second WM_CLOSE.
+        assert_eq!(vec![ViewportCommand::Close], close_request_pass(&mut app));
         assert_eq!(0, app.exit.load(Ordering::SeqCst));
     }
 
