@@ -1,11 +1,16 @@
-"""POSIX 质量分发：声明 scope、串行执行和原子结果记录。"""
+"""质量分发：声明 scope、串行执行和原子结果记录。"""
 import json
 from pathlib import Path
 import re
 import subprocess
 import sys
 
-from uml_posix import atomic_write
+from uml_posix import VENV_PYTHON, WINDOWS, atomic_write, native_exit
+
+# Entries that re-parse their arguments or need another interpreter. A
+# configured quality command must be a native executable: on POSIX that also
+# rules out `.exe`; on Windows `.exe` is the native entry.
+SCRIPT_WRAPPERS = ('.ps1', '.bat', '.cmd') if WINDOWS else ('.ps1', '.exe', '.bat', '.cmd')
 
 TOOLS = {'crap': ('crapper', [0, 2]), 'mutate': ('mutator', [0, 3]), 'dry': ('dryer', [0])}
 VALUES = {'--coverage-command', '--threshold', '--test-command', '--busted-task', '--timeout-factor', '--mutation-warning', '--max-workers', '--lines', '--min-lines', '--min-nodes', '--format'}
@@ -20,7 +25,7 @@ def read_config(root):
     path = root / 'uml-quality.json'
     if not path.exists():
         return {}
-    config = json.loads(path.read_text())
+    config = json.loads(path.read_text(encoding='utf-8'))
     if not isinstance(config, dict) or type(config.get('version')) is not int or config['version'] != 1 or not {'standardTools', 'operations'} & config.keys() or 'aliasResultExitCodes' in config:
         raise ValueError('uml-quality.json 需要 version 1 和 standardTools 或 operations；Clojure alias 已移除。')
     if 'standardTools' in config:
@@ -176,7 +181,7 @@ def takes_scope(python, tool, root):
 def standard_command(root, operation, standard, roots, forward):
     """标准工具的 argv 和 crapScope；声明的 scope 交给工具自己的 -s/--exclude。"""
     tool = TOOLS[operation][0]
-    python = root / '.uml-viewer' / tool / '.venv/bin/python'
+    python = root / '.uml-viewer' / tool / '.venv' / VENV_PYTHON
     if not python.is_file():
         raise ValueError(f'缺少 {python}；请重新运行 get-uml-viewer。')
     argv = [str(python), '-m', tool]
@@ -200,8 +205,9 @@ def dispatch(root, operation, forward):
     override = config.get('operations', {}).get(operation)
     if override:
         argv = override['argv'] + (forward if override['forwardArgs'] == 'append' else [])
-        if argv[0].lower().endswith(('.ps1', '.exe', '.bat', '.cmd')):
-            raise ValueError('POSIX 质量命令需要原生可执行入口')
+        if argv[0].lower().endswith(SCRIPT_WRAPPERS):
+            raise ValueError('Windows 质量命令需要原生 .exe 入口，拒绝 .ps1/.bat/.cmd' if WINDOWS
+                             else 'POSIX 质量命令需要原生可执行入口')
         commands = [argv]
         codes = override['validResultExitCodes']
         scope_name = override.get('scope') if operation == 'crap' else None
@@ -214,7 +220,7 @@ def dispatch(root, operation, forward):
     code = 0
     for argv in commands:
         actual = subprocess.call(argv, cwd=root)
-        actual = actual if actual >= 0 else 128 - actual
+        actual = native_exit(actual) if actual >= 0 else 128 - actual
         valid = valid and actual in codes
         if actual or not code:
             code = actual

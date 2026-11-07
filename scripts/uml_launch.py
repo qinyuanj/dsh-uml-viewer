@@ -1,7 +1,8 @@
-"""POSIX viewer 生命周期入口：preflight、fresh 启动与安全 restart。
+"""viewer 生命周期入口：preflight、fresh 启动与安全 restart。
 
-进程身份来自 /proc（PID + starttime），比较按精确文本；不猜测、不接管未知
-ownership。restart 只等待记录中那个旧进程真实退出，绝不 SIGKILL。
+进程身份来自内核（Linux /proc starttime，macOS proc_pidinfo，Windows
+GetProcessTimes），比较按精确文本；不猜测、不接管未知 ownership。restart 只等待
+记录中那个旧进程真实退出，绝不 SIGKILL。
 """
 import json
 import os
@@ -19,7 +20,7 @@ IDENTITY = 'viewer-process-identity.json'
 
 def read_record(path):
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return None
 
@@ -83,8 +84,37 @@ def preflight(prefix, root, viewer_args):
 
 # WSLg GPU path (ADR 0008): without these the Rust viewer falls back to
 # llvmpipe. The launcher sets defaults only; user values win. macOS keeps
-# wgpu's native Metal backend.
-RENDER_DEFAULTS = {} if platform.system() == 'Darwin' else {'GALLIUM_DRIVER': 'd3d12', 'WGPU_BACKEND': 'gl'}
+# wgpu's native Metal backend and Windows its native DX12 backend (ADR 0010).
+RENDER_DEFAULTS = {} if platform.system() in ('Darwin', 'Windows') else {'GALLIUM_DRIVER': 'd3d12', 'WGPU_BACKEND': 'gl'}
+
+
+def detached():
+    """Popen options that keep the viewer alive after its caller is gone.
+
+    POSIX: its own session. Windows ignores `start_new_session`: the viewer
+    gets its own process group and a hidden console of its own (closing the
+    caller's window does not end it, and a console-control close can still
+    reach it), and breaks away from a job the caller runs in, such as the
+    companion's bounded run. A job that forbids breakaway refuses the flag;
+    see `spawn`.
+    """
+    if os.name != 'nt':
+        return {'start_new_session': True}
+    return {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+            | subprocess.CREATE_BREAKAWAY_FROM_JOB}
+
+
+def spawn(argv, **options):
+    options.update(detached())
+    try:
+        return subprocess.Popen(argv, **options)
+    except PermissionError:
+        if os.name != 'nt':
+            raise
+        # ERROR_ACCESS_DENIED: the caller's job forbids breakaway; the viewer
+        # then stays in it, as the companion's detached spawn does.
+        options['creationflags'] &= ~subprocess.CREATE_BREAKAWAY_FROM_JOB
+        return subprocess.Popen(argv, **options)
 
 
 def viewer_env(environ):
@@ -133,9 +163,8 @@ def launch(root, tool_root, viewer_args, restart=False):
     log_path = state / 'viewer.log'
     log = open(log_path, 'ab')
     try:
-        child = subprocess.Popen([*prefix, 'viewer', *command],
-                                 cwd=root, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                                 start_new_session=True, env=env)
+        child = spawn([*prefix, 'viewer', *command],
+                      cwd=root, stdin=subprocess.DEVNULL, stdout=log, stderr=log, env=env)
     finally:
         log.close()
     observed = proc_identity(child.pid)

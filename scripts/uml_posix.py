@@ -1,4 +1,9 @@
-"""POSIX 公共入口；安装与子进程始终使用字面 argv。"""
+"""公共入口（POSIX 与原生 Windows）；安装与子进程始终使用字面 argv。
+
+宿主差异只在本模块按平台选定一次（ADR 0010）：Windows 的二进制带 `.exe`，
+venv 解释器在 `Scripts\\python.exe`，开发安装链接是目录 junction，进程身份是
+`GetProcessTimes` 创建时刻。
+"""
 import ctypes
 import hashlib
 import json
@@ -7,12 +12,24 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import tomllib
 import urllib.error
 import urllib.request
+
+WINDOWS = os.name == 'nt'
+# The oldest delivered Windows build: Windows 10 22H2 (crates/platform).
+MINIMUM_WINDOWS_BUILD = 19045
+# What `cargo build --release` produces and the entry dispatch runs.
+BINARY = 'target/release/' + ('uml-viewer.exe' if WINDOWS else 'uml-viewer')
+# A venv's interpreter, relative to the venv directory.
+VENV_PYTHON = 'Scripts/python.exe' if WINDOWS else 'bin/python'
+# The thin project entry this host installs, and the marker that says a
+# project file of that name is ours to replace.
+ENTRY = ('uml.cmd', b'Thin Windows entry') if WINDOWS else ('uml', b'Thin Unix entry')
 
 # The viewer's only UI font (#82). These are the same archive and face hashes
 # the retired PowerShell installer pinned; only the extraction path changed.
@@ -35,20 +52,108 @@ def run(argv, **kwargs):
     return subprocess.run([str(x) for x in argv], **kwargs)
 
 
+def platform_refusal(system, machine, release, build):
+    """The delivered-platform decision over a declared host (ADR 0007, 0010).
+
+    None when delivered, else the one-line reason. A pure function, so every
+    platform's answer is testable on any host; `host()` reads the machine.
+    The Windows text is the Rust `platform::decide` refusal.
+    """
+    if system == 'Darwin':
+        return None
+    if system == 'Windows':
+        if machine != 'AMD64':
+            return f'Windows on {machine} is not supported: uml-viewer is delivered on x64 (AMD64) Windows.'
+        if build < MINIMUM_WINDOWS_BUILD:
+            return (f'Windows build {build} is not supported: the minimum is '
+                    f'Windows 10 22H2 (build {MINIMUM_WINDOWS_BUILD})')
+        return None
+    if system != 'Linux' or machine != 'x86_64':
+        return ('仅支持 WSL2 x86_64、macOS 与 Windows 10 22H2（build 19045）及以上（ADR 0007、0010），'
+                '请在 Ubuntu 24.04 WSL2、macOS 或原生 Windows 中运行。')
+    if 'microsoft' not in release.lower():
+        return 'Linux 执行路径仅交付 WSL2，请在 Ubuntu 24.04 WSL2 中运行。'
+    return None
+
+
 def host():
-    if platform.system() == 'Darwin':
-        return
-    if platform.system() != 'Linux' or platform.machine() != 'x86_64':
-        raise ValueError('仅支持 WSL2 x86_64 与 macOS（ADR 0007），请在 Ubuntu 24.04 WSL2 或 macOS 中运行。')
-    if 'microsoft' not in platform.release().lower():
-        raise ValueError('Linux 执行路径仅交付 WSL2，请在 Ubuntu 24.04 WSL2 中运行。')
+    build = sys.getwindowsversion().build if WINDOWS else 0
+    refusal = platform_refusal(platform.system(), platform.machine(), platform.release(), build)
+    if refusal:
+        raise ValueError(refusal)
+
+
+def is_link(path):
+    """A symlink, or on Windows any reparse point (a directory junction).
+
+    `Path.is_symlink()` is false for a junction, and `os.path.isjunction`
+    needs Python 3.12; the 3.11 floor reads the attribute instead.
+    """
+    path = Path(path)
+    if path.is_symlink():
+        return True
+    if not WINDOWS:
+        return False
+    try:
+        attributes = os.lstat(path).st_file_attributes
+    except OSError:
+        return False
+    return bool(attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def link_directory(link, target):
+    """A development install's link: a symlink, or on Windows a junction.
+
+    Windows symlinks need Developer Mode or elevation; a junction needs
+    neither and `Path.resolve()` follows it like a symlink.
+    """
+    if WINDOWS:
+        import _winapi
+        _winapi.CreateJunction(str(Path(target).resolve()), str(link))
+    else:
+        Path(link).symlink_to(target, target_is_directory=True)
+
+
+def runnable(path):
+    """An existing file this host can execute (on Windows: it exists)."""
+    path = Path(path)
+    return path.is_file() and (WINDOWS or os.access(path, os.X_OK))
+
+
+# NTSTATUS exits a Windows process reports where POSIX would report a signal,
+# mapped to the 128+signal value a POSIX shell gives (SIGINT, SIGILL, SIGFPE,
+# SIGSEGV, SIGABRT).
+NTSTATUS_SIGNALS = {
+    0xC000013A: 2,   # STATUS_CONTROL_C_EXIT (Ctrl+C / Ctrl+Break)
+    0xC000001D: 4,   # STATUS_ILLEGAL_INSTRUCTION
+    0xC0000094: 8,   # STATUS_INTEGER_DIVIDE_BY_ZERO
+    0xC0000005: 11,  # STATUS_ACCESS_VIOLATION
+    0xC00000FD: 11,  # STATUS_STACK_OVERFLOW
+    0xC0000409: 6,   # STATUS_STACK_BUFFER_OVERRUN (fail-fast, Rust abort)
+}
+
+
+def native_exit(code):
+    """A child's exit as an entry exit status (0–255 on Windows).
+
+    Windows exit codes are 32-bit, so an NTSTATUS such as 0xC0000005 arrives
+    as a large positive number: a known one becomes 128+signal, any other
+    out-of-range code 255, and the raw value is named on stderr. POSIX codes
+    pass through unchanged.
+    """
+    if code > 255:
+        mapped = 128 + NTSTATUS_SIGNALS[code] if code in NTSTATUS_SIGNALS else 255
+        print(f'uml: 子进程以 NTSTATUS 0x{code:08X} 结束，按退出码 {mapped} 报告。', file=sys.stderr)
+        return mapped
+    return code
 
 
 def git_command():
     """The installer fetches every tool repository with a literal `git`."""
     executable = shutil.which('git')
     if not executable:
-        raise ValueError('需要 git（安装器用它获取工具仓库）：sudo apt install git。')
+        hint = 'winget install Git.Git' if WINDOWS else 'sudo apt install git'
+        raise ValueError(f'需要 git（安装器用它获取工具仓库）：{hint}。')
     return executable
 
 
@@ -102,8 +207,8 @@ def rust_build(cargo, tool_root):
     """Build the single uml-viewer binary the entry dispatch expects (#143)."""
     check_rust_toolchain(cargo, tool_root)
     run([cargo, 'build', '--release', '--locked'], cwd=tool_root)
-    binary = Path(tool_root) / 'target/release/uml-viewer'
-    if not (binary.is_file() and os.access(binary, os.X_OK)):
+    binary = Path(tool_root) / BINARY
+    if not runnable(binary):
         raise ValueError(f'cargo build 未产出可执行文件 {binary}')
     return binary
 
@@ -121,8 +226,8 @@ def x11_library_present():
 def x11_warnings(present=None):
     """X11 libs are optional: #139 chose the Wayland-undecorated window on the
     delivery host, so an absent libxkbcommon-x11 is a hint, never a refusal.
-    macOS windows through AppKit and needs neither."""
-    if present is None and platform.system() == 'Darwin':
+    macOS and Windows window natively and need neither."""
+    if present is None and platform.system() in ('Darwin', 'Windows'):
         return []
     if present is None:
         present = x11_library_present()
@@ -168,8 +273,8 @@ def stale(binary, tool_root):
 
 def rust_command(tool_root):
     configured = os.environ.get('UML_VIEWER_RUST_EXECUTABLE')
-    executable = Path(configured) if configured else Path(tool_root) / 'target/release/uml-viewer'
-    if not (executable.is_file() and os.access(executable, os.X_OK)):
+    executable = Path(configured) if configured else Path(tool_root) / BINARY
+    if not runnable(executable):
         raise ValueError(f'缺少 Rust 二进制 {executable}；请运行 get-uml-viewer 构建（或在 {tool_root} '
                          '运行 cargo build --release --locked），或设置 UML_VIEWER_RUST_EXECUTABLE。')
     # A development tool root changes under the session: rebuild a binary its
@@ -184,12 +289,28 @@ def runtime_argv(tool_root):
     return [rust_command(tool_root)]
 
 
+def native_names(name):
+    """The file names a PATH lookup of `name` may match on this host.
+
+    Windows tries PATHEXT in order but keeps only native executables
+    (`.exe`, `.com`): a `.cmd`/`.bat`/`.ps1` wrapper re-parses its arguments
+    and is refused as a tool entry, as the companion refuses it.
+    """
+    if not WINDOWS:
+        return [name]
+    extensions = os.environ.get('PATHEXT', '.COM;.EXE').split(';')
+    return [name + ext.lower() for ext in extensions if ext.lower() in ('.exe', '.com')]
+
+
 def select_herdr():
     candidates = []
     reasons = []
     for directory in os.get_exec_path():
-        path = Path(directory or '.') / 'herdr'
-        if not path.is_file() or not os.access(path, os.X_OK):
+        for name in native_names('herdr'):
+            path = Path(directory or '.') / name
+            if runnable(path):
+                break
+        else:
             continue
         try:
             version = run([path, '--version'], capture_output=True, text=True, timeout=10).stdout.strip()
@@ -216,7 +337,9 @@ def atomic_write(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(prefix=path.name + '.', dir=path.parent)
     try:
-        with os.fdopen(fd, 'w') as stream:
+        # LF and UTF-8 on every host: the Rust side reads these records, and
+        # Windows text mode would write CRLF in the ANSI code page.
+        with os.fdopen(fd, 'w', encoding='utf-8', newline='\n') as stream:
             stream.write(data)
         os.replace(name, path)
     finally:
@@ -233,7 +356,7 @@ def ensure_ignore_block(root):
     intact block to the end would make the two trade places on every run.
     Only a missing or altered block is removed and re-appended."""
     ignore = root / '.gitignore'
-    text = ignore.read_text() if ignore.exists() else ''
+    text = ignore.read_text(encoding='utf-8') if ignore.exists() else ''
     if re.search(r'(?m)^' + re.escape(IGNORE_BLOCK), text):
         return
     text = re.sub(r'(?ms)^# BEGIN UML-VIEWER\n.*?^# END UML-VIEWER\n?', '', text)
@@ -277,7 +400,7 @@ def extractor(directory):
     if override:
         return override
     environment = directory.parent / 'installer'
-    python = environment / '.venv/bin/python'
+    python = environment / '.venv' / VENV_PYTHON
     if not python.is_file():
         run([sys.executable, '-I', '-m', 'venv', environment / '.venv'])
         run([str(python), '-I', '-m', 'pip', 'install', '--disable-pip-version-check',
@@ -349,13 +472,13 @@ def remove_legacy_runtime(state):
     unmarked directories stay, and rmtree never follows a link out of the
     tree. Removed paths and the manual leftovers are reported on stderr.
     """
-    if state.is_symlink() or not state.is_dir():
+    if is_link(state) or not state.is_dir():
         return
     removed = []
     for path in sorted(state.glob('cimgui-love-*')):
-        if path.is_symlink() or not path.is_dir():
+        if is_link(path) or not path.is_dir():
             continue
-        if not any((path / mark).is_file() and not (path / mark).is_symlink()
+        if not any((path / mark).is_file() and not is_link(path / mark)
                    for mark in CIMGUI_MARKS):
             continue
         shutil.rmtree(path)
@@ -391,9 +514,9 @@ def fetch(directory, tool):
     url = os.environ.get(('UML_VIEWER' if tool == 'uml-viewer' else tool.upper()) + '_REPO_URL',
                          f'https://github.com/qinyuanj/{tool}.git')
     ref = os.environ.get(('UML_VIEWER' if tool == 'uml-viewer' else tool.upper()) + '_REF', 'main')
-    if directory.is_symlink():
-        # A link is a development checkout; fetching through it detaches that
-        # repository's HEAD.
+    if is_link(directory):
+        # A link (or junction) is a development checkout; fetching through it
+        # detaches that repository's HEAD.
         raise ValueError(f'拒绝通过链接更新开发副本：{directory}；'
                          '开发安装请设置 UML_VIEWER_TOOL_ROOT 指向链接目标。')
     if directory.exists():
@@ -433,8 +556,43 @@ def darwin_start(pid):
     return str(info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
 
 
+def windows_start(pid):
+    """Windows 创建身份：`GetProcessTimes` 创建时刻 FILETIME 的十进制文本。
+
+    与 Rust `companion::posix::identity`、`viewer::identity::starttime` 同一文本。
+    句柄已 signalled（进程已退出，哪怕仍有句柄打开）或打不开时返回 None。
+    """
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
+    kernel32.GetProcessTimes.argtypes = (wintypes.HANDLE, *(ctypes.POINTER(wintypes.FILETIME),) * 4)
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    query_limited, synchronize, signalled = 0x1000, 0x00100000, 0
+    if not 0 < pid <= 0xFFFFFFFF:
+        return None
+    handle = kernel32.OpenProcess(query_limited | synchronize, False, pid)
+    if not handle:
+        return None
+    try:
+        if kernel32.WaitForSingleObject(handle, 0) == signalled:
+            return None
+        times = [wintypes.FILETIME() for _ in range(4)]
+        if not kernel32.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+            return None
+        return str((times[0].dwHighDateTime << 32) | times[0].dwLowDateTime)
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def proc_identity(pid):
     """读取 PID 的创建身份；进程不存在返回 None。"""
+    if WINDOWS:
+        start = windows_start(pid)
+        return None if start is None else {'pid': pid, 'start': start}
     if platform.system() == 'Darwin':
         start = darwin_start(pid)
         return None if start is None else {'pid': pid, 'start': start}
@@ -458,7 +616,7 @@ def live(record):
     exited viewer behind; those are history. Held ownership, an unknown
     phase and an unreadable identity count as live.
     """
-    text = record.read_text().strip()
+    text = record.read_text(encoding='utf-8', errors='replace').strip()
     if text in ('', '{}', 'nil'):
         return False
     if record.name == 'recovery.edn':
@@ -500,11 +658,11 @@ def install(args):
         if not (source / 'Cargo.toml').is_file() or not (source / 'scripts/uml_posix.py').is_file():
             raise ValueError('UML_VIEWER_TOOL_ROOT 必须指向完整开发仓库')
         destination = state / 'uml-viewer'
-        if destination.exists() or destination.is_symlink():
-            if not destination.is_symlink() or destination.resolve() != source:
+        if destination.exists() or is_link(destination):
+            if not is_link(destination) or destination.resolve() != source:
                 raise ValueError('开发源码与现有安装副本不同，拒绝替换。')
         else:
-            destination.symlink_to(source, target_is_directory=True)
+            link_directory(destination, source)
         versions['uml-viewer'] = {'source': str(source), 'development': True,
             'commit': run(['git', '-C', source, 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip(),
             'dirty': bool(local_changes(source))}
@@ -518,7 +676,7 @@ def install(args):
     font(state / 'fonts')
     for tool in ('crapper', 'mutator', 'dryer'):
         directory = state / tool
-        python = directory / '.venv/bin/python'
+        python = directory / '.venv' / VENV_PYTHON
         if not python.exists():
             run([sys.executable, '-I', '-m', 'venv', directory / '.venv'])
         packages = ['-e', str(directory)]
@@ -533,18 +691,22 @@ def install(args):
     for warning in x11_warnings():
         print(f'提示：{warning}', file=sys.stderr)
     ensure_ignore_block(root)
-    entry = root / 'uml'
-    if entry.exists() and entry.read_bytes() != (state / 'uml-viewer/scripts/uml').read_bytes():
-        if b'Thin Unix entry' not in entry.read_bytes():
-            raise ValueError('已有自定义 ./uml，拒绝覆盖；请先改名保存。')
-    shutil.copy2(state / 'uml-viewer/scripts/uml', entry)
-    entry.chmod(0o755)
+    name, marker = ENTRY
+    entry = root / name
+    shipped = state / 'uml-viewer/scripts' / name
+    if entry.exists() and entry.read_bytes() != shipped.read_bytes():
+        if marker not in entry.read_bytes():
+            raise ValueError(f'已有自定义 {name}，拒绝覆盖；请先改名保存。')
+    shutil.copy2(shipped, entry)
+    if not WINDOWS:
+        entry.chmod(0o755)
     # After every refusal check, so a refused install deletes nothing; it
     # runs on every install and needs no record, so a rerun still cleans.
     remove_legacy_runtime(state)
     atomic_write(state / 'install.json', json.dumps({'version': 1, 'projectRoot': str(root),
                  'rust': str(binary), 'herdr': str(herdr), 'repositories': versions}, ensure_ascii=False, indent=2) + '\n')
-    print('已安装 ./uml；使用 ./uml ir 生成 EDN。')
+    shown = name if WINDOWS else './uml'
+    print(f'已安装 {shown}；使用 {shown} ir 生成 EDN。')
     return 0 if args else command(root, [])
 
 
@@ -597,9 +759,9 @@ def command(root, args):
             if not policy.is_file():
                 raise ValueError('没有 policy；请创建 policy.edn 或 examples/*.policy.edn。')
             args = ['ir', str(policy.relative_to(root)), *args[1:]]
-        return subprocess.call([*runtime_argv(tool_root), *args], cwd=root)
+        return native_exit(subprocess.call([*runtime_argv(tool_root), *args], cwd=root))
     if args and args[0] == 'scene':
-        return subprocess.call([*runtime_argv(tool_root), *args], cwd=root)
+        return native_exit(subprocess.call([*runtime_argv(tool_root), *args], cwd=root))
     if args and args[0] in ('crap', 'mutate', 'dry'):
         # 质量分发实现与安装器共用入口，独立模块保留协议边界。
         from uml_quality import dispatch
@@ -609,7 +771,19 @@ def command(root, args):
     return launch(root, tool_root, args, restart='--restart' in args)
 
 
+def utf8_streams():
+    """Windows: diagnostics in UTF-8 whatever the ANSI code page.
+
+    A piped stream otherwise uses the code page, which cannot encode the
+    Chinese messages on a Western system; a console is UTF-8 already.
+    """
+    if WINDOWS:
+        for stream in (sys.stdout, sys.stderr):
+            stream.reconfigure(encoding='utf-8', errors='backslashreplace')
+
+
 def main():
+    utf8_streams()
     try:
         if sys.version_info < (3, 11):
             raise ValueError('需要 Python 3.11+')
@@ -621,7 +795,7 @@ def main():
         return command(Path(sys.argv[2]), sys.argv[3:])
     except subprocess.CalledProcessError as error:
         print(f'uml: 命令失败（退出 {error.returncode}）：{error.cmd[0]}', file=sys.stderr)
-        return error.returncode if error.returncode > 0 else 128 - error.returncode
+        return native_exit(error.returncode) if error.returncode > 0 else 128 - error.returncode
     except (ValueError, OSError, subprocess.TimeoutExpired) as error:
         print(f'uml: {error}', file=sys.stderr)
         return 1
