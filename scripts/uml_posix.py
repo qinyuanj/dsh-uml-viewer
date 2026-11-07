@@ -313,12 +313,12 @@ def select_herdr():
         else:
             continue
         try:
-            version = run([path, '--version'], capture_output=True, text=True, timeout=10).stdout.strip()
+            version = run([path, '--version'], capture_output=True, text=True, encoding='utf-8', timeout=10).stdout.strip()
             match = re.fullmatch(r'herdr (\d+)\.(\d+)\.(\d+)', version)
             if not match or tuple(map(int, match.groups())) < (0, 9, 3):
                 raise ValueError('需要纯数字版本 >= 0.9.3')
             schema = json.loads(run([path, 'api', 'schema', '--json'], capture_output=True,
-                                    text=True, timeout=10).stdout)
+                                    text=True, encoding='utf-8', timeout=10).stdout)
             if schema.get('protocol') != 22:
                 raise ValueError('需要 protocol 22')
             candidates.append((tuple(map(int, match.groups())), path.resolve()))

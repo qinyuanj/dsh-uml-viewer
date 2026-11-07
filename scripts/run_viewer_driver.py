@@ -28,6 +28,8 @@ import time
 
 REPO = Path(__file__).resolve().parents[1]
 WINDOWS = sys.platform == 'win32'
+sys.path.insert(0, str(REPO / 'scripts'))
+from uml_windows import close_window, viewer_windows  # noqa: E402
 
 
 def edn_string(text):
@@ -469,36 +471,12 @@ if WINDOWS:
     import ctypes
     from ctypes import wintypes
 
-    _user32 = ctypes.WinDLL('user32', use_last_error=True)
     _kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
     _shcore = ctypes.WinDLL('shcore', use_last_error=True)
-    _ENUM = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    _user32.EnumWindows.argtypes = [_ENUM, wintypes.LPARAM]
-    _user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
-    _user32.IsWindowVisible.argtypes = [wintypes.HWND]
-    _user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
     _kernel32.OpenProcess.restype = wintypes.HANDLE
     _kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     _shcore.GetProcessDpiAwareness.argtypes = [wintypes.HANDLE, ctypes.POINTER(ctypes.c_int)]
-
-
-def viewer_windows(pid):
-    """The visible top-level windows of process `pid` (Windows)."""
-    found = []
-
-    def visit(hwnd, _):
-        owner = wintypes.DWORD()
-        _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
-        if owner.value == pid and _user32.IsWindowVisible(hwnd):
-            found.append(hwnd)
-        return True
-
-    _user32.EnumWindows(_ENUM(visit), 0)
-    return found
-
-
-WM_CLOSE = 0x0010
 
 
 def terminate_politely(process):
@@ -508,9 +486,7 @@ def terminate_politely(process):
     if not WINDOWS:
         process.send_signal(signal.SIGTERM)
         return
-    windows = wait_for(lambda: viewer_windows(process.pid), 30, message='the viewer window')
-    for hwnd in windows:
-        _user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+    wait_for(lambda: close_window(process.pid), 30, message='the viewer window')
 
 
 # PROCESS_DPI_AWARENESS: what winit asked for (per-monitor v2 reports 2).

@@ -74,7 +74,7 @@ def verify_previous(state, root, restart):
 def preflight(prefix, root, viewer_args):
     """只读 Herdr 选择；失败时不启动 viewer。prefix 来自 runtime_argv。"""
     result = subprocess.run([*prefix, 'companion-preflight', str(root), *viewer_args],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding='utf-8')
     if result.returncode != 0:
         raise ValueError((result.stderr or 'companion preflight failed without diagnostic.').strip())
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]

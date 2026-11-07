@@ -220,6 +220,60 @@ class WindowsEntries(unittest.TestCase):
         self.assertFalse(flags & subprocess.DETACHED_PROCESS)
         self.assertEqual({}, RENDER_DEFAULTS)
 
+    def test_preflight_decodes_utf8_under_a_declared_legacy_locale(self):
+        from uml_launch import preflight
+        diagnostic = 'selected Herdr: C:\\Users\\\u4e01\\Herdr 空格\\herdr.exe'
+        script = self.root / 'preflight.py'
+        script.write_text('import sys\n'
+                          f'sys.stderr.buffer.write({diagnostic.encode("utf-8")!r})\n'
+                          'sys.stdout.buffer.write(b"herdr\\n")\n'
+                          'raise SystemExit(int(sys.argv[-1]))\n', encoding='utf-8')
+        # Declare the decoding locale independently of the machine's code page.
+        with mock.patch('locale.getencoding', return_value='cp1252'):
+            preflight([sys.executable, str(script)], self.root, ['0'])
+            with self.assertRaisesRegex(ValueError, '丁') as refused:
+                preflight([sys.executable, str(script)], self.root, ['1'])
+        self.assertEqual(diagnostic, str(refused.exception))
+
+    def test_herdr_schema_decodes_utf8_under_a_declared_legacy_locale(self):
+        directory = self.root / 'herdr'
+        native_program(directory / 'herdr',
+                       'import sys\n'
+                       'sys.stdout.buffer.write(b"herdr 0.9.5" if "--version" in sys.argv '
+                       'else \'{"protocol":22,"description":"丁"}\'.encode("utf-8"))\n')
+        with mock.patch.dict(os.environ, {'PATH': str(directory)}), \
+                mock.patch('locale.getencoding', return_value='cp1252'):
+            self.assertEqual((directory / 'herdr.exe').resolve(), uml_posix.select_herdr())
+
+    def test_native_close_targets_only_the_titled_viewer_root(self):
+        import ctypes
+        from ctypes import wintypes
+        import run_viewer_driver
+        import test_windows_e2e
+        user = ctypes.WinDLL('user32', use_last_error=True)
+        user.CreateWindowExW.restype = wintypes.HWND
+        user.CreateWindowExW.argtypes = [wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR,
+                                        wintypes.DWORD, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                        ctypes.c_int, wintypes.HWND, wintypes.HMENU,
+                                        wintypes.HINSTANCE, wintypes.LPVOID]
+        user.DestroyWindow.argtypes = [wintypes.HWND]
+        user.PeekMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND,
+                                     wintypes.UINT, wintypes.UINT, wintypes.UINT]
+        windows = []
+        for title in ('UML viewer — close regression', '', 'Winit Thread Event Target', 'Other app'):
+            hwnd = user.CreateWindowExW(0, 'STATIC', title, 0x10000000,
+                                        0, 0, 100, 100, None, None, None, None)
+            self.assertTrue(hwnd, ctypes.get_last_error())
+            windows.append(hwnd)
+            self.addCleanup(user.DestroyWindow, hwnd)
+        for close in (lambda: run_viewer_driver.terminate_politely(mock.Mock(pid=os.getpid())),
+                      lambda: test_windows_e2e.close_window(os.getpid())):
+            close()
+            for index, hwnd in enumerate(windows):
+                message = wintypes.MSG()
+                posted = bool(user.PeekMessageW(ctypes.byref(message), hwnd, 0x0010, 0x0010, 1))
+                self.assertEqual(index == 0, posted, f'WM_CLOSE window index {index}')
+
     # --- process identity -------------------------------------------------
 
     def test_identity_is_the_decimal_creation_filetime(self):

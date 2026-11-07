@@ -10,8 +10,6 @@ it adds deterministic companion mail through real crap/dry/mutate and IR.
 That option writes fixture sources in the named scratch project.
 """
 import argparse
-import ctypes
-from ctypes import wintypes
 import json
 import os
 from pathlib import Path
@@ -26,6 +24,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'scripts'))
 from test_posix_entries import native_program  # noqa: E402
 from uml_posix import proc_identity  # noqa: E402
+from uml_windows import close_window  # noqa: E402
 from compare_ir import parse, canonical  # noqa: E402
 
 
@@ -83,34 +82,6 @@ def phase(text):
 def alive(pid, start=None):
     identity = proc_identity(pid) if pid else None
     return identity is not None and (start is None or identity['start'] == start)
-
-
-def close_window(pid):
-    user = ctypes.WinDLL('user32', use_last_error=True)
-    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    user.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
-    user.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
-    user.IsWindowVisible.argtypes = [wintypes.HWND]
-    user.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
-    windows = []
-
-    @callback_type
-    def each(hwnd, _):
-        owner = wintypes.DWORD()
-        user.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
-        title = ctypes.create_unicode_buffer(512)
-        user.GetWindowTextW(hwnd, title, len(title))
-        # Winit's Thread Event Target is also reported visible by Win32.
-        # Closing that message window breaks repaint/event delivery; only
-        # the application's titled top-level window is a user close.
-        if owner.value == pid and user.IsWindowVisible(hwnd) and title.value.startswith('UML viewer'):
-            windows.append(hwnd)
-        return True
-
-    user.EnumWindows(each, 0)
-    for hwnd in windows:
-        assert user.PostMessageW(hwnd, 0x0010, 0, 0), 'PostMessageW WM_CLOSE'
-    return bool(windows)
 
 
 def run(argv, env, cwd=None, timeout=30):
