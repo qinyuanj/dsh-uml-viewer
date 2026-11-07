@@ -122,7 +122,7 @@ fn select_agent(
             root,
             requested,
             restart,
-            platform: posix::platform_support(),
+            platform: platform::support(),
             canonical: &canonical,
         },
     )?;
@@ -690,14 +690,25 @@ mod tests {
     }
 
     #[test]
-    fn the_platform_decision_is_the_delivered_wsl_linux_target() {
-        // On the delivered host this is Ok; elsewhere the refusal reason is
-        // the ADR 0007 text. Either way it must not be empty.
-        if let Err(reason) = posix::platform_support() {
-            assert!(
-                reason.contains("supported platform")
-                    || reason.contains("Unsupported companion platform")
-            );
+    fn preflight_refuses_a_declared_platform_below_windows_10_22h2_and_accepts_the_rest() {
+        let check = |os: &str, build: u32| {
+            rules::preflight_checks(
+                None,
+                &rules::PreflightOptions {
+                    root: "/project",
+                    requested: None,
+                    restart: false,
+                    platform: platform::decide(&platform::Platform { os, build }),
+                    canonical: &(|path| path.to_owned()),
+                },
+            )
+        };
+        assert_eq!(
+            "Windows build 19044 is not supported: the minimum is Windows 10 22H2 (build 19045); ownership and queues are retained.",
+            check("windows", 19044).unwrap_err().message
+        );
+        for (os, build) in [("windows", 19045), ("linux", 0), ("macos", 0)] {
+            assert_eq!("herdr", check(os, build).unwrap(), "{os} {build}");
         }
     }
 

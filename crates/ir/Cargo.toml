@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 edn = { path = "../edn" }
+platform = { path = "../platform" }
 
 [lints.rust]
 # cargo llvm-cov sets cfg(coverage) for the quality refresh.

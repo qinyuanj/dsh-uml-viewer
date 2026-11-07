@@ -1,6 +1,7 @@
 //! POSIX boundary (port of `love/uml/adapters/posix_process.lua`,
 //! `posix_lock.lua`, `posix_path.lua`, `atomic_file.lua`,
-//! `clock.lua`, `platform.lua`). argv is passed literally to `posix_spawn`:
+//! `clock.lua`). The delivered-platform decision lives in the `platform`
+//! crate. argv is passed literally to `posix_spawn`:
 //! no shell is ever involved. Every spawn passes an explicit environment
 //! built from `/proc/self/environ` — `envp = NULL` under glibc is not
 //! "inherit", it is an empty environment (ADR 0007). Creation identity is the
@@ -796,24 +797,6 @@ pub mod atomic {
     }
 }
 
-// --- Delivered platform decision (ADR 0007) --------------------------------
-
-/// The single delivered-platform decision. The Lua adapter asked LOVE's
-/// `getOS()`; the Rust equivalent is the compile-time target OS. Linux
-/// (WSL2) and macOS are delivered.
-pub fn platform_support() -> std::result::Result<(), String> {
-    if cfg!(any(target_os = "linux", target_os = "macos")) {
-        Ok(())
-    } else if cfg!(target_os = "windows") {
-        Err("Windows native is not a supported platform (ADR 0007). Use WSL2 + WSLg".to_owned())
-    } else {
-        Err(format!(
-            "Unsupported companion platform: {}. Run the viewer and Herdr natively",
-            std::env::consts::OS
-        ))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1063,13 +1046,6 @@ mod tests {
         assert!(!resolved.contains("/./"));
         let _ = std::fs::remove_dir(&directory);
         assert!(canonical("/definitely/missing-uml-path").is_err());
-    }
-
-    #[test]
-    fn the_delivered_platform_is_wsl_linux() {
-        // The Rust port runs the delivered-platform decision as a compile-time
-        // target check; on the development host it must report supported.
-        assert!(platform_support().is_ok());
     }
 
     use crate::json::Json;
