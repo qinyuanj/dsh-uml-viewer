@@ -23,10 +23,10 @@ pub fn system_fonts(os: &str) -> &'static [&'static str] {
 /// as in the Ubuntu Noto collections (0 JP, 1 KR, 2 SC, 3 TC, 4 HK), except
 /// the Windows YaHei and SimSun collections, which start with SC.
 pub fn face_index(path: &Path) -> u32 {
-    let name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default();
+    // The last component under either separator: a declared Windows path
+    // names its file the same on every host.
+    let text = path.to_string_lossy().to_ascii_lowercase();
+    let name = text.rsplit(['/', '\\']).next().unwrap_or_default();
     let windows_sc = name.starts_with("msyh") || name.starts_with("simsun");
     if name.ends_with(".ttc") && !windows_sc {
         2
