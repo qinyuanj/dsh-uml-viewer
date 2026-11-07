@@ -408,20 +408,45 @@ def extractor(directory):
     return str(python)
 
 
+def stalled(url, timeout):
+    return ValueError(f'下载 Sarasa 字体超时：{url} 超过 {timeout:g} 秒没有数据；'
+                      '未写入字体，请检查网络后重新运行 get-uml-viewer。')
+
+
+def curl_download(curl, url, archive, timeout):
+    """Windows http(s) download through curl.exe (Windows 10 1803+).
+
+    Python's urllib stalls on GitHub release downloads on Windows hosts where
+    curl.exe completes. The stall rule is the same: no connection (TLS
+    included) within `timeout`, or less than one byte per second for
+    `timeout` seconds, is curl exit 28.
+    """
+    seconds = str(max(1, round(timeout)))
+    result = subprocess.run([curl, '-fsSL', '--connect-timeout', seconds, '--speed-limit', '1',
+                             '--speed-time', seconds, '-o', str(archive), url],
+                            capture_output=True, text=True, encoding='utf-8', errors='replace')
+    if result.returncode == 28:
+        raise stalled(url, timeout)
+    if result.returncode:
+        raise ValueError(f'下载 Sarasa 字体失败：{url}：{result.stderr.strip()}')
+
+
 def download_font_archive(url, archive, timeout):
     """Write url to archive; a stall becomes a refusal naming the URL and timeout.
 
     Connection-phase timeouts arrive wrapped in URLError, later ones bare. Other
     failures keep their own error.
     """
+    curl = shutil.which('curl.exe') if WINDOWS and url.startswith(('http://', 'https://')) else None
+    if curl:
+        return curl_download(curl, url, archive, timeout)
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response, archive.open('wb') as output:
             shutil.copyfileobj(response, output)
     except (TimeoutError, urllib.error.URLError) as error:
         if not isinstance(getattr(error, 'reason', error), TimeoutError):
             raise
-        raise ValueError(f'下载 Sarasa 字体超时：{url} 超过 {timeout:g} 秒没有数据；'
-                         '未写入字体，请检查网络后重新运行 get-uml-viewer。') from error
+        raise stalled(url, timeout) from error
 
 
 def font(directory):

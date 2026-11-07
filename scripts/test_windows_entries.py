@@ -136,6 +136,28 @@ class WindowsEntries(unittest.TestCase):
         self.assertEqual(1, result.returncode)
         self.assertEqual([], list(temporary.iterdir()))
 
+    def test_the_font_downloads_over_http_with_curl_and_reads_files_directly(self):
+        # urllib stalls on GitHub release downloads on Windows hosts where
+        # curl.exe completes, so http(s) goes through curl.
+        record = self.root / 'curl-argv.json'
+        curl = native_program(self.root / 'fake curl/curl', (
+            'import json, sys\n'
+            f'open({str(record)!r}, "w", encoding="utf-8").write(json.dumps(sys.argv[1:]))\n'
+            'open(sys.argv[sys.argv.index("-o") + 1], "wb").write(b"archive")\n'))
+        archive = self.root / 'archive.7z'
+        url = 'https://example.invalid/Sarasa.7z'
+        with mock.patch.object(uml_posix.shutil, 'which', return_value=str(curl)):
+            uml_posix.download_font_archive(url, archive, 60)
+        self.assertEqual(['-fsSL', '--connect-timeout', '60', '--speed-limit', '1', '--speed-time', '60',
+                          '-o', str(archive), url], json.loads(record.read_text('utf-8')))
+        self.assertEqual(b'archive', archive.read_bytes())
+        # A file:// pin (offline provisioning) never needs curl.
+        source = self.root / 'local.7z'
+        source.write_bytes(b'local')
+        with mock.patch.object(uml_posix.shutil, 'which', side_effect=AssertionError('curl')):
+            uml_posix.download_font_archive(source.as_uri(), archive, 60)
+        self.assertEqual(b'local', archive.read_bytes())
+
     # --- declared platform ------------------------------------------------
 
     def test_an_old_windows_build_is_refused_before_anything_is_created(self):
