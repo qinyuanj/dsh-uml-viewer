@@ -26,13 +26,17 @@ fn every_view_draws_its_canvas_text_at_the_canvas_size() {
     } else {
         Path::new(env!("CARGO_TARGET_TMPDIR")).join("uml-viewer/fonts")
     };
-    let step = std::process::Command::new("python3")
+    // The entries' Python: `UML_PYTHON_EXECUTABLE`, else `python3`; Windows
+    // has no `python3` on PATH, its interpreter is `python`.
+    let python = std::env::var_os("UML_PYTHON_EXECUTABLE")
+        .unwrap_or_else(|| (if cfg!(windows) { "python" } else { "python3" }).into());
+    let step = std::process::Command::new(&python)
         .arg("-I")
         .arg(root.join("scripts/uml_posix.py"))
         .arg("font")
         .arg(&fonts_dir)
         .output()
-        .expect("python3 runs the installer's font step");
+        .expect("Python runs the installer's font step");
     assert!(
         step.status.success(),
         "provisioning Sarasa failed: {}",

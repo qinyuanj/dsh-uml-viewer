@@ -5,10 +5,35 @@
 use std::path::{Path, PathBuf};
 
 pub const SARASA: &str = "SarasaMonoSC-Regular.ttf";
-pub const SYSTEM_FONTS: [&str; 2] = [
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-    "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
-];
+
+/// The system CJK fallback faces of a host `os` (`std::env::consts::OS`):
+/// Ubuntu's Noto CJK, or the Simplified Chinese faces every Windows 10/11
+/// ships (Microsoft YaHei, then SimSun).
+pub fn system_fonts(os: &str) -> &'static [&'static str] {
+    match os {
+        "windows" => &[r"C:\Windows\Fonts\msyh.ttc", r"C:\Windows\Fonts\simsun.ttc"],
+        _ => &[
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+        ],
+    }
+}
+
+/// The Simplified Chinese face in a font file: in a `.ttc` collection face 2,
+/// as in the Ubuntu Noto collections (0 JP, 1 KR, 2 SC, 3 TC, 4 HK), except
+/// the Windows YaHei and SimSun collections, which start with SC.
+pub fn face_index(path: &Path) -> u32 {
+    // The last component under either separator: a declared Windows path
+    // names its file the same on every host.
+    let text = path.to_string_lossy().to_ascii_lowercase();
+    let name = text.rsplit(['/', '\\']).next().unwrap_or_default();
+    let windows_sc = name.starts_with("msyh") || name.starts_with("simsun");
+    if name.ends_with(".ttc") && !windows_sc {
+        2
+    } else {
+        0
+    }
+}
 
 /// Resolve the font with an injected environment value and candidate list.
 pub fn resolve_with(
@@ -43,7 +68,7 @@ pub fn resolve_with(
 
 pub fn resolve(root: &Path) -> Option<(PathBuf, &'static str)> {
     let env = std::env::var("UML_CJK_FONT").ok();
-    resolve_with(env.as_deref(), root, &SYSTEM_FONTS)
+    resolve_with(env.as_deref(), root, system_fonts(std::env::consts::OS))
 }
 
 /// Install the resolved font into egui. Glyphs rasterise into the atlas on
@@ -54,11 +79,7 @@ pub fn install(ctx: &egui::Context, root: &Path) -> Option<(PathBuf, &'static st
     let (path, source) = resolve(root)?;
     let bytes = std::fs::read(&path).ok()?;
     let mut font = egui::FontData::from_owned(bytes);
-    // .ttc collections: face 2 is Simplified Chinese in the Ubuntu Noto
-    // collections (0 JP, 1 KR, 2 SC, 3 TC, 4 HK).
-    if path.extension().is_some_and(|e| e == "ttc") {
-        font.index = 2;
-    }
+    font.index = face_index(&path);
     ctx.set_fonts(definitions(font));
     Some((path, source))
 }

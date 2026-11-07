@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use crate::watch;
 
 fn canonical(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    crate::project_files::canonical(path)
 }
 
 /// The directory holding `.metrics`, walking up from the diagram path;
@@ -33,7 +33,9 @@ pub fn root(path: &Path) -> PathBuf {
     }
 }
 
-fn collect(base: &Path, rel: &Path, files: &mut Vec<Snapshot>) {
+/// `rel` is the `/`-separated snapshot path below `base` on every host: it is
+/// EDN-visible (the snapshot name and the reload stamp).
+fn collect(base: &Path, rel: &str, files: &mut Vec<Snapshot>) {
     let dir = base.join(rel);
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return;
@@ -41,19 +43,16 @@ fn collect(base: &Path, rel: &Path, files: &mut Vec<Snapshot>) {
     let mut entries: Vec<_> = entries.flatten().collect();
     entries.sort_by_key(|e| e.file_name());
     for entry in entries {
-        let next = rel.join(entry.file_name());
+        let name = entry.file_name();
+        let next = format!("{rel}/{}", name.to_string_lossy());
         let path = entry.path();
         if path.is_dir() {
             collect(base, &next, files);
-        } else if entry.file_name().to_string_lossy().ends_with(".edn")
+        } else if name.to_string_lossy().ends_with(".edn")
             && let Ok(text) = std::fs::read_to_string(&path)
         {
             let mtime = watch::mtime(&path).unwrap_or_default();
-            files.push(Snapshot::new(
-                &next.to_string_lossy(),
-                &text,
-                Value::String(mtime),
-            ));
+            files.push(Snapshot::new(&next, &text, Value::String(mtime)));
         }
     }
 }
@@ -73,7 +72,7 @@ pub fn snapshot(base: &Path) -> (Vec<Snapshot>, Value) {
             Value::String(mtime),
         ));
     }
-    collect(base, Path::new(".metrics/mutate"), &mut files);
+    collect(base, ".metrics/mutate", &mut files);
     files.sort_by(|a, b| a.path.cmp(&b.path));
     let stamp: Vec<Value> = files
         .iter()

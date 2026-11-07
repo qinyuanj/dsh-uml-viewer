@@ -1,12 +1,59 @@
 //! Window decoration choice and the undecorated window's own controls: with
 //! no window-manager title bar, the drag strip carries minimise and close.
 
-use viewer::app::{DRAG_STRIP, RESIZE_GRIP, WindowMode, mode_for, window_controls};
+use viewer::app::{DRAG_STRIP, RESIZE_GRIP, WindowMode, mode_for, window_controls, window_mode};
 
 #[test]
 fn x11_is_decorated_and_its_absence_falls_back_to_undecorated_wayland() {
     assert_eq!(WindowMode::X11Decorated, mode_for(true, false));
     assert_eq!(WindowMode::WaylandUndecorated, mode_for(false, false));
+}
+
+#[test]
+fn windows_and_macos_use_the_system_title_bar() {
+    // Declared hosts: no X11 probe applies off Linux.
+    assert_eq!(
+        WindowMode::NativeDecorated,
+        window_mode("windows", || false, false)
+    );
+    assert_eq!(
+        WindowMode::NativeDecorated,
+        window_mode("macos", || false, false)
+    );
+    assert_eq!(
+        WindowMode::X11Decorated,
+        window_mode("linux", || true, false)
+    );
+    assert_eq!(
+        WindowMode::WaylandUndecorated,
+        window_mode("linux", || false, false)
+    );
+}
+
+#[test]
+fn each_host_renders_on_its_own_gpu_path() {
+    // wgpu prefers Vulkan on Windows when a Vulkan driver is installed;
+    // the viewer's Windows backend is D3D12 (ADR 0010).
+    assert_eq!(
+        &[("WGPU_BACKEND", "dx12")][..],
+        viewer::app::render_defaults("windows")
+    );
+    assert_eq!(
+        &[("GALLIUM_DRIVER", "d3d12"), ("WGPU_BACKEND", "gl")][..],
+        viewer::app::render_defaults("linux")
+    );
+    assert!(viewer::app::render_defaults("macos").is_empty(), "Metal");
+}
+
+#[test]
+fn the_test_seam_forces_the_undecorated_window_on_every_host() {
+    for os in ["windows", "macos", "linux"] {
+        assert_eq!(
+            WindowMode::WaylandUndecorated,
+            window_mode(os, || true, true),
+            "{os}"
+        );
+    }
 }
 
 #[test]

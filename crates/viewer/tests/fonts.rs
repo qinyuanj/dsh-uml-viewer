@@ -35,6 +35,32 @@ fn the_provisioned_sarasa_beats_the_system_fallback() {
 }
 
 #[test]
+fn each_host_falls_back_to_its_own_simplified_chinese_system_face() {
+    use viewer::fonts::{face_index, system_fonts};
+    assert_eq!(
+        &[
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+        ][..],
+        system_fonts("linux")
+    );
+    assert_eq!(
+        Some(&r"C:\Windows\Fonts\msyh.ttc"),
+        system_fonts("windows").first(),
+        "Microsoft YaHei ships with every Windows 10/11"
+    );
+    // The Noto collection keeps SC at face 2; YaHei's collection has it first.
+    assert_eq!(
+        2,
+        face_index(Path::new(
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+        ))
+    );
+    assert_eq!(0, face_index(Path::new(r"C:\Windows\Fonts\msyh.ttc")));
+    assert_eq!(0, face_index(Path::new("/x/SarasaMonoSC-Regular.ttf")));
+}
+
+#[test]
 fn egui_italics_shear_real_glyph_vertices_and_preserve_baselines() {
     let ctx = egui::Context::default();
     // Fonts are installed on the first pass, as in the running window.

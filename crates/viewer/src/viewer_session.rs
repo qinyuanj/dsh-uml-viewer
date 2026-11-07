@@ -151,7 +151,7 @@ fn default_diagram(root: &Path) -> PathBuf {
 }
 
 fn canonical(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    project_files::canonical(path)
 }
 
 /// Something the shell hands the session.
@@ -1543,13 +1543,14 @@ mod tests {
         std::fs::write(
             dir.join(".uml-viewer/session.edn"),
             format!(
-                "{{:window-w 1100 :window-h 700 :inspector-width 340 :path \"{}\" :mail-seen 1 :focus [] :cam-x 33 :cam-y 21 :zoom 1.7 :selected {{:kind :class :id :d0-target}} :detail-id :d0-target :discussion-context {{:context :proposal :proposal-id :plan}}}}",
-                diagram.display()
+                "{{:window-w 1100 :window-h 700 :inspector-width 340 :path {} :mail-seen 1 :focus [] :cam-x 33 :cam-y 21 :zoom 1.7 :selected {{:kind :class :id :d0-target}} :detail-id :d0-target :discussion-context {{:context :proposal :proposal-id :plan}}}}",
+                // An EDN string: a Windows path's backslashes are escaped.
+                edn::encode(&Value::String(diagram.display().to_string())).unwrap()
             ),
         )
         .unwrap();
         let (launch, chrome) = Launch::resolve(dir.clone(), None, true, false);
-        assert_eq!(std::fs::canonicalize(&diagram).unwrap(), launch.diagram);
+        assert_eq!(project_files::canonical(&diagram), launch.diagram);
         assert_eq!(
             Chrome {
                 window_w: Some(1100.0),
