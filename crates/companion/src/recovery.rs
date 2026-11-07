@@ -791,16 +791,27 @@ mod tests {
         directory
     }
 
+    fn runner_fixture(root: &str, state: &str, command: &[String]) -> Value {
+        edn::record::record(vec![
+            ("cwd", Value::String(root.to_owned())),
+            ("runner-state", Value::String(state.to_owned())),
+            ("runner-token", Value::String("gen".to_owned())),
+            (
+                "command",
+                Value::Vector(command.iter().cloned().map(Value::String).collect()),
+            ),
+        ])
+    }
+
     #[test]
     fn run_child_records_started_and_the_actual_exit() {
         let directory = tempfile();
         let root = directory.to_string_lossy().into_owned();
         let runner_state = format!("{root}/.uml-viewer/runner.edn");
-        let identity = edn::parse(&format!(
-            r#"{{:cwd "{root}" :command ["/bin/sh" "-c" "sleep 0.1; exit 7"]
-                :runner-token "gen" :runner-state "{runner_state}"}}"#
-        ))
-        .unwrap();
+        let executable = crate::preflight::fixtures::Fake::new()
+            .sleeping(100, 7)
+            .write(&directory, "child");
+        let identity = runner_fixture(&root, &runner_state, &[executable]);
         let exit = run_child(&identity, &Host::native()).unwrap();
         assert_eq!(Some(7), exit);
         let text = std::fs::read_to_string(&runner_state).unwrap();
@@ -822,15 +833,14 @@ mod tests {
         let marker = format!("{root}/marker");
         // The marker path is absolute: a child left in the wrong directory
         // must fail this test, not write into whatever tree runs it.
-        let identity = edn::parse(&format!(
-            r#"{{:cwd "{root}" :runner-token "gen" :runner-state "{runner_state}"
-                :command ["/bin/sh" "-c" "sleep 0.1; printf '%s\n%s' \"$UML_COMPANION_ROOT\" \"$(pwd -P)\" > \"$0\"" "{marker}"]}}"#
-        ))
-        .unwrap();
+        let executable = crate::preflight::fixtures::Fake::new()
+            .reporting(100, "UML_COMPANION_ROOT")
+            .write(&directory, "child");
+        let identity = runner_fixture(&root, &runner_state, &[executable, marker.clone()]);
         assert_eq!(Some(0), run_child(&identity, &Host::native()).unwrap());
-        let real = directory.canonicalize().unwrap();
+        let real = crate::posix::canonical(&root).unwrap();
         assert_eq!(
-            format!("{root}\n{}", real.display()),
+            format!("{root}\n{real}"),
             std::fs::read_to_string(&marker).unwrap()
         );
         let _ = std::fs::remove_dir_all(&directory);
@@ -844,11 +854,8 @@ mod tests {
         let held = posix::try_acquire(Path::new(&format!("{runner_state}.lock")))
             .unwrap()
             .expect("lock");
-        let identity = edn::parse(&format!(
-            r#"{{:cwd "{root}" :command ["/bin/true"] :runner-token "gen"
-                :runner-state "{runner_state}"}}"#
-        ))
-        .unwrap();
+        let executable = crate::preflight::fixtures::Fake::new().write(&directory, "child");
+        let identity = runner_fixture(&root, &runner_state, &[executable]);
         let error = run_child(&identity, &Host::native()).unwrap_err();
         assert_eq!("Runner generation already executing", error.message);
         posix::release(Some(held));

@@ -16,9 +16,8 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'scripts'))
 from uml_posix import proc_identity  # noqa: E402
-from test_posix_entries import (ENTRY, RUST_HERDR_PATH, codex_fixture,  # noqa: E402
-                                fixture_path_without, herdr_fixture, pending_on_windows,
-                                sleeper_argv)
+from test_posix_entries import (ENTRY, codex_fixture, fixture_path_without,  # noqa: E402
+                                herdr_fixture, sleeper_argv)
 
 
 def start_identity(pid):
@@ -171,7 +170,6 @@ class RestartEntries(unittest.TestCase):
                 self.assertEqual(text, (self.state / 'companion.edn').read_text())
                 self.assertEqual(before, (self.state / 'viewer-process.json').read_bytes())
 
-    @pending_on_windows(RUST_HERDR_PATH)
     def test_restart_reuses_the_recorded_codex_provider_and_its_preflight(self):
         # No option: the recorded Codex provider decides, so its Herdr floor
         # refuses a 0.9.4 that a Claude project would accept.

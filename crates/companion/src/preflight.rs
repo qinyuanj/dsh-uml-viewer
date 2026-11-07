@@ -17,7 +17,7 @@ fn candidates(path: &str) -> Vec<String> {
             canonical: candidate.to_owned(),
         })
     };
-    select::herdr_candidates(path, &probe)
+    select::herdr_candidates(&select::Search::native(), path, &probe)
 }
 
 fn run_herdr(argv: &[String], timeout_ms: Option<i64>) -> RunOut {
@@ -163,82 +163,19 @@ pub fn run(args: &[std::ffi::OsString]) -> std::process::ExitCode {
 pub(crate) mod rules;
 
 #[cfg(test)]
-pub(crate) mod fixtures {
-    /// An executable `/bin/sh` script. A child process writes it: a write
-    /// descriptor in this process would leak into a child forked by a
-    /// concurrent test, and exec of a file open for writing fails ETXTBSY.
-    pub(crate) fn script(directory: &std::path::Path, name: &str, body: &str) -> String {
-        std::fs::create_dir_all(directory).unwrap();
-        let path = directory.join(name);
-        let status = std::process::Command::new("/bin/sh")
-            .args([
-                "-c",
-                "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"",
-                "sh",
-            ])
-            .arg(format!("#!/bin/sh\n{body}"))
-            .arg(&path)
-            .status()
-            .unwrap();
-        assert!(status.success(), "fixture script {}", path.display());
-        path.to_string_lossy().into_owned()
-    }
-
-    /// A Herdr fixture: its release, bundled protocol and integration lines.
-    pub(crate) fn herdr(directory: &std::path::Path, release: &str, protocol: u32, codex: &str) {
-        script(
-            directory,
-            "herdr",
-            &format!(
-                "case \"$1\" in\n--version) echo 'herdr {release}' ;;\n\
-                 api) echo '{{\"$schema\":\"fixture\",\"protocol\":{protocol},\"schema_version\":1}}' ;;\n\
-                 integration) [ \"$2\" = status ] || exit 2\n  echo 'claude: current (v11) (/h/claude.sh)'\n  {codex}\n  ;;\nesac\n"
-            ),
-        );
-    }
-
-    pub(crate) const CODEX_CURRENT: &str = "echo 'codex: current (v10) (/h/codex.sh)'";
-
-    pub(crate) const HOOKS_ENABLED: &str = "echo 'hooks    stable    true'";
-
-    /// A Codex CLI fixture: its `--version` line and `login status` exit,
-    /// with hooks enabled.
-    pub(crate) fn codex(
-        directory: &std::path::Path,
-        name: &str,
-        version: &str,
-        login: u8,
-    ) -> String {
-        codex_hooks(directory, name, version, login, HOOKS_ENABLED)
-    }
-
-    /// [`codex`] whose `--enable hooks features list` runs `hooks`.
-    pub(crate) fn codex_hooks(
-        directory: &std::path::Path,
-        name: &str,
-        version: &str,
-        login: u8,
-        hooks: &str,
-    ) -> String {
-        script(
-            directory,
-            name,
-            &format!(
-                "case \"$1\" in\n--version) echo '{version}' ;;\n\
-                 login) [ \"$2\" = status ] || exit 2; echo 'Not logged in' >&2; exit {login} ;;\n\
-                 --enable) [ \"$2 $3 $4\" = 'hooks features list' ] || exit 2\n  \
-                 echo 'apps    stable    true'\n  {hooks}\n  \
-                 echo 'plugin_hooks    removed    false' ;;\n\
-                 *) exit 9 ;;\nesac\n"
-            ),
-        )
-    }
-}
+pub(crate) mod fixtures;
 
 #[cfg(test)]
 mod tests {
-    use super::fixtures::{CODEX_CURRENT, codex as codex_fixture, herdr as herdr_fixture};
+    use super::fixtures::{
+        CODEX_CURRENT, Fake, Hooks, codex as codex_fixture, herdr as herdr_fixture, path_with,
+    };
     use super::*;
+
+    /// `text` as an EDN string literal (a Windows root carries backslashes).
+    fn edn_text(text: &str) -> String {
+        edn::encode(&edn::Value::String(text.to_owned())).unwrap()
+    }
 
     fn temp_root() -> String {
         static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -264,21 +201,23 @@ mod tests {
         let root = temp_root();
         // PATH points at a fixture directory with a compatible herdr.
         let bin = std::path::Path::new(&root).join("bin");
-        fixtures::script(
-            &bin,
-            "herdr",
-            "if [ \"$1\" = --version ]; then echo 'herdr 0.9.4'; exit 0; fi\n\
-             echo '{\"$schema\":\"fixture\",\"protocol\":22,\"schema_version\":1}'\n",
-        );
-        let path = format!("{}:/definitely/empty", bin.display());
+        let herdr = Fake::new()
+            .on(&["--version"], &["herdr 0.9.4"], &[], 0)
+            .on(
+                &[],
+                &["{\"$schema\":\"fixture\",\"protocol\":22,\"schema_version\":1}"],
+                &[],
+                0,
+            )
+            .write(&bin, "herdr");
         let selected = select_on_path(
             &root,
             &["--backend".into(), "herdr".into(), "d.edn".into()],
             false,
-            &path,
+            &path_with(&bin),
         )
         .unwrap();
-        assert!(selected.path.ends_with("/bin/herdr"));
+        assert_eq!(herdr, selected.path);
         assert_eq!("0.9.4", selected.release);
         assert!(!ownership::exists(&root));
         let _ = std::fs::remove_dir_all(&root);
@@ -319,7 +258,7 @@ mod tests {
         bin: &std::path::Path,
         codex_bin: Option<String>,
     ) -> impl Fn(&str) -> Option<String> {
-        let path = format!("{}:/definitely/empty", bin.display());
+        let path = path_with(bin);
         move |name| match name {
             "PATH" => Some(path.clone()),
             "CODEX_BIN" => codex_bin.clone(),
@@ -332,7 +271,7 @@ mod tests {
         let root = temp_root();
         let bin = std::path::Path::new(&root).join("bin");
         herdr_fixture(&bin, "0.9.5", 22, CODEX_CURRENT);
-        codex_fixture(&bin, "codex", "codex-cli 0.166.0", 0);
+        let codex = codex_fixture(&bin, "codex", "codex-cli 0.166.0", 0);
         let (selected, agent) = launch_in(
             &root,
             &args(&["--coding-agent", "codex"]),
@@ -343,13 +282,8 @@ mod tests {
             ("0.9.5", CodingAgent::Codex),
             (selected.release.as_str(), agent)
         );
-        herdr_fixture(
-            &bin,
-            "0.9.3",
-            22,
-            "echo 'codex: outdated (v9) (/h/codex.sh)'",
-        );
-        std::fs::remove_file(bin.join("codex")).unwrap();
+        herdr_fixture(&bin, "0.9.3", 22, "codex: outdated (v9) (/h/codex.sh)");
+        std::fs::remove_file(codex).unwrap();
         for values in [vec![], vec!["--coding-agent", "claude"]] {
             let (selected, agent) =
                 launch_in(&root, &args(&values), &environment(&bin, None)).unwrap();
@@ -366,7 +300,7 @@ mod tests {
     type Case = (
         &'static str,
         (&'static str, u32, &'static str),
-        Option<(&'static str, u8)>,
+        Option<(&'static str, i32)>,
         &'static str,
     );
 
@@ -384,7 +318,7 @@ mod tests {
                 "old",
                 current,
                 Some(("codex-cli 0.165.9", 0)),
-                "Codex CLI 0.165.9 at /",
+                "Codex CLI 0.165.9 at ",
             ),
             (
                 "prerelease",
@@ -418,13 +352,13 @@ mod tests {
             ),
             (
                 "outdated",
-                ("0.9.5", 22, "echo 'codex: outdated (v9) (/h/codex.sh)'"),
+                ("0.9.5", 22, "codex: outdated (v9) (/h/codex.sh)"),
                 Some(("codex-cli 0.166.0", 0)),
                 "Herdr Codex integration is outdated, not current",
             ),
             (
                 "absent",
-                ("0.9.5", 22, ":"),
+                ("0.9.5", 22, ""),
                 Some(("codex-cli 0.166.0", 0)),
                 "reported no Codex integration",
             ),
@@ -460,11 +394,11 @@ mod tests {
     fn codex_hooks_that_stay_disabled_for_the_companion_are_refused_before_any_resource() {
         for (hooks, expected) in [
             (
-                "echo 'hooks    stable    false'",
+                Hooks::Line("hooks    stable    false"),
                 "Codex hooks stay disabled for the companion",
             ),
-            (":", "did not report its hooks feature"),
-            ("exit 3", "did not report its hooks feature"),
+            (Hooks::Silent, "did not report its hooks feature"),
+            (Hooks::Exit(3), "did not report its hooks feature"),
         ] {
             let root = temp_root();
             let bin = std::path::Path::new(&root).join("bin");
@@ -478,7 +412,7 @@ mod tests {
             .unwrap_err();
             assert!(
                 error.message.contains(expected),
-                "{hooks}: {}",
+                "{hooks:?}: {}",
                 error.message
             );
             assert!(
@@ -500,7 +434,13 @@ mod tests {
         // A current codex on PATH must not stand in for the named one.
         codex_fixture(&bin, "codex", "codex-cli 0.166.0", 0);
         let odd = std::path::Path::new(&root).join("目录 $(x) ;'");
-        let named = codex_fixture(&odd, "co dex*", "codex-cli 0.100.0", 0);
+        // `*` cannot appear in a Windows file name.
+        let name = if cfg!(windows) {
+            "co dex$(y)"
+        } else {
+            "co dex*"
+        };
+        let named = codex_fixture(&odd, name, "codex-cli 0.100.0", 0);
         let error = launch_in(
             &root,
             &args(&["--coding-agent", "codex"]),
@@ -524,7 +464,9 @@ mod tests {
         assert!(
             error
                 .message
-                .contains(&format!("CODEX_BIN {missing:?} is not an executable"))
+                .contains(&format!("CODEX_BIN {missing:?} is not a")),
+            "{}",
+            error.message
         );
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -541,7 +483,7 @@ mod tests {
         let bin = std::path::Path::new(&root).join("bin");
         herdr_fixture(&bin, "0.9.5", 22, CODEX_CURRENT);
         let inside = |marker: &str| {
-            let path = format!("{}:/definitely/empty", bin.display());
+            let path = path_with(&bin);
             let marker = marker.to_owned();
             move |name: &str| match name {
                 "PATH" => Some(path.clone()),
@@ -600,9 +542,10 @@ mod tests {
 
     fn complete_record(root: &str, provider: &str) -> String {
         format!(
-            r#"{{:backend :herdr :owner-role :companion :cwd "{root}" :session "uml-viewer-A"
+            r#"{{:backend :herdr :owner-role :companion :cwd {} :session "uml-viewer-A"
                 :pane "w1:p1" :socket "/s/herdr.sock" :workspace "w1" :terminal-id "term_A"
-                :shell-pid 42 :owner-start "ss" :server-pid 41 :server-start "rs" {provider}}}"#
+                :shell-pid 42 :owner-start "ss" :server-pid 41 :server-start "rs" {provider}}}"#,
+            edn_text(root)
         )
     }
 
@@ -638,16 +581,16 @@ mod tests {
     #[test]
     fn legacy_unmarked_unknown_and_incomplete_ownership_is_refused_before_selection() {
         let patterns = [
-            r#"{:backend :tmux :cwd "%s" :session "saved" :pane "%1"}"#,
-            r#"{:cwd "%s" :session "saved" :pane "%1"}"#,
-            r#"{:backend :unknown :cwd "%s" :session "saved" :pane "%1"}"#,
-            r#"{:backend :herdr :owner-role :companion :cwd "%s" :session "saved" :pane "%1"}"#,
-            r#"{:backend :herdr :owner-role :launcher :cwd "%s" :session "saved" :pane "%1"}"#,
-            r#"{:backend :herdr :owner-role :companion :cwd "%s" :session "saved" :pane "%1" :provisional true}"#,
+            r#"{:backend :tmux :cwd %s :session "saved" :pane "%1"}"#,
+            r#"{:cwd %s :session "saved" :pane "%1"}"#,
+            r#"{:backend :unknown :cwd %s :session "saved" :pane "%1"}"#,
+            r#"{:backend :herdr :owner-role :companion :cwd %s :session "saved" :pane "%1"}"#,
+            r#"{:backend :herdr :owner-role :launcher :cwd %s :session "saved" :pane "%1"}"#,
+            r#"{:backend :herdr :owner-role :companion :cwd %s :session "saved" :pane "%1" :provisional true}"#,
         ];
         for pattern in patterns {
             let root = temp_root();
-            write_record(&root, &pattern.replace("%s", &root));
+            write_record(&root, &pattern.replace("%s", &edn_text(&root)));
             let before = ownership::bytes(&root);
             let error = select(&root, &[], false).unwrap_err();
             assert!(!error.message.is_empty());
@@ -673,9 +616,10 @@ mod tests {
     fn every_incompatible_path_candidate_is_reported() {
         let root = temp_root();
         let bin = std::path::Path::new(&root).join("a");
-        fixtures::script(&bin, "herdr", "echo 'herdr 0.9.2'\n");
-        let path = format!("{}:/definitely/empty", bin.display());
-        let error = select_on_path(&root, &[], false, &path).unwrap_err();
+        Fake::new()
+            .on(&[], &["herdr 0.9.2"], &[], 0)
+            .write(&bin, "herdr");
+        let error = select_on_path(&root, &[], false, &path_with(&bin)).unwrap_err();
         assert!(
             error.message.contains("Candidates on PATH"),
             "{}",

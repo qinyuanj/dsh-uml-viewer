@@ -1300,7 +1300,7 @@ mod tests {
             22,
             crate::preflight::fixtures::CODEX_CURRENT,
         );
-        let path = format!("{}:/definitely/empty", bin.display());
+        let path = crate::preflight::fixtures::path_with(&bin);
         let mut host = Host::native();
         host.variable = Rc::new(move |name: &str| (name == "PATH").then(|| path.clone()));
         for (generation, provider, expected) in [

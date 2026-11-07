@@ -3,9 +3,10 @@
 //! choice of the selected Herdr. The adapter supplies PATH, canonical paths
 //! and command execution; nothing here touches a process or a file.
 
+pub use crate::search::Search;
 use crate::vocab::{Failure, Result, RunOut};
 
-pub const HERDR_GUIDANCE: &str = "Herdr 0.9.3 or newer (protocol 22) is required. Install a release from https://github.com/herdrdev/herdr/releases (https://herdr.dev). No automatic download, upgrade or fallback. WSL2 + WSLg and macOS are the delivered platforms; Windows native is unsupported (ADR 0007). On WSL, terminal attach opens Windows Terminal (manual acceptance pending, #114); on macOS it opens Terminal.app.";
+pub const HERDR_GUIDANCE: &str = "Herdr 0.9.3 or newer (protocol 22) is required. Install a release from https://github.com/herdrdev/herdr/releases (https://herdr.dev). No automatic download, upgrade or fallback. WSL2 + WSLg, macOS and native Windows 10 22H2 (build 19045) or later are the delivered platforms (ADR 0007, ADR 0010); on Windows only a native herdr.exe on PATH counts. On WSL and native Windows, terminal attach opens Windows Terminal; on macOS it opens Terminal.app.";
 
 pub const HERDR_INSTALL: &str = "Install a release from https://github.com/herdrdev/herdr/releases (https://herdr.dev). No automatic download, upgrade or fallback.";
 
@@ -43,21 +44,22 @@ pub struct Probe {
     pub canonical: String,
 }
 
-/// Distinct herdr executables in POSIX PATH order, deduplicated by canonical
-/// path. Quoted or empty PATH entries are ignored.
-pub fn herdr_candidates(path: &str, probe: &dyn Fn(&str) -> Option<Probe>) -> Vec<String> {
+/// Distinct herdr executables in PATH order, deduplicated by canonical path.
+/// Quoted or empty PATH entries are ignored. Per directory the first file the
+/// platform's search names (`herdr`; `herdr.com`/`herdr.exe` on Windows)
+/// that probes as present is the candidate.
+pub fn herdr_candidates(
+    search: &Search,
+    path: &str,
+    probe: &dyn Fn(&str) -> Option<Probe>,
+) -> Vec<String> {
     let mut result = Vec::new();
     let mut seen = Vec::new();
-    for part in path.split(':') {
-        let part = part.replace('"', "");
-        if part.is_empty() {
+    for files in search.candidates(path, "herdr") {
+        let Some(observed) = files.iter().find_map(|file| probe(file)) else {
             continue;
-        }
-        let candidate = format!("{}/herdr", part.trim_end_matches('/'));
-        if let Some(observed) = probe(&candidate)
-            && observed.executable
-            && !seen.contains(&observed.canonical)
-        {
+        };
+        if observed.executable && !seen.contains(&observed.canonical) {
             seen.push(observed.canonical.clone());
             result.push(observed.canonical);
         }
@@ -270,11 +272,38 @@ mod tests {
                 None
             }
         };
+        let posix = Search::posix();
         assert_eq!(
             vec!["/b/herdr".to_owned(), "/a/herdr".to_owned()],
-            herdr_candidates("/b:/none::/a:/b", &probe)
+            herdr_candidates(&posix, "/b:/none::/a:/b", &probe)
         );
-        assert!(herdr_candidates("/a:/b", &(|_| None)).is_empty());
+        assert!(herdr_candidates(&posix, "/a:/b", &(|_| None)).is_empty());
+    }
+
+    /// A declared Windows PATH: `;` lists, `herdr.exe` found by PATHEXT, a
+    /// `herdr.cmd` wrapper never probed.
+    #[test]
+    fn windows_candidates_take_the_native_pathext_name_per_directory() {
+        let probed = std::cell::RefCell::new(Vec::new());
+        let probe = |path: &str| {
+            probed.borrow_mut().push(path.to_owned());
+            (path == "C:\\b\\herdr.exe" || path == "D:\\a b\\herdr.com").then(|| Probe {
+                executable: true,
+                canonical: path.to_owned(),
+            })
+        };
+        assert_eq!(
+            vec![
+                "C:\\b\\herdr.exe".to_owned(),
+                "D:\\a b\\herdr.com".to_owned()
+            ],
+            herdr_candidates(
+                &Search::windows(".COM;.EXE;.BAT;.CMD"),
+                "C:\\b\\;C:\\none;;D:\\a b;C:\\b",
+                &probe
+            )
+        );
+        assert!(probed.borrow().iter().all(|path| !path.ends_with(".cmd")));
     }
 
     fn installed<'a>(

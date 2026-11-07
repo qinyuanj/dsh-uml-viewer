@@ -19,9 +19,15 @@ pub fn session_valid(session: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
-/// Quote the literal argv for the pane's own shell. Only POSIX shells are
-/// supported; anything else refuses before the command is sent.
-pub fn pane_command(command: &[String], shell_name: &str) -> Result<String> {
+/// The pane shells a command can be typed into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PaneShell {
+    Posix,
+    /// Windows PowerShell 5.1 (Herdr's pane shell on Windows) or pwsh.
+    PowerShell,
+}
+
+fn pane_shell(shell_name: &str) -> Result<PaneShell> {
     let name = shell_name
         .rsplit(['/', '\\'])
         .next()
@@ -29,14 +35,93 @@ pub fn pane_command(command: &[String], shell_name: &str) -> Result<String> {
         .to_lowercase();
     let name = name.strip_prefix('-').unwrap_or(&name);
     match name {
-        "sh" | "bash" | "zsh" | "dash" => Ok(command
+        "sh" | "bash" | "zsh" | "dash" => Ok(PaneShell::Posix),
+        "powershell.exe" | "pwsh.exe" | "powershell" | "pwsh" => Ok(PaneShell::PowerShell),
+        _ => Err(Failure::new(
+            "Unsupported Herdr pane shell; command was not sent",
+        )),
+    }
+}
+
+/// Quote the literal argv for the pane's own shell: POSIX shells, or
+/// PowerShell (the call operator with single-quoted words). Any other shell
+/// refuses before the command is sent.
+pub fn pane_command(command: &[String], shell_name: &str) -> Result<String> {
+    match pane_shell(shell_name)? {
+        PaneShell::Posix => Ok(command
             .iter()
             .map(|word| shell_word(word))
             .collect::<Vec<_>>()
             .join(" ")),
-        _ => Err(Failure::new(
-            "Unsupported Herdr pane shell; command was not sent",
-        )),
+        PaneShell::PowerShell => {
+            let words = command
+                .iter()
+                .map(|word| powershell_word(word))
+                .collect::<Result<Vec<_>>>()?;
+            Ok(format!("& {}", words.join(" ")))
+        }
+    }
+}
+
+/// One literal PowerShell word: single quotes, with every quote character
+/// PowerShell treats as one (`'` and U+2018..U+201B) doubled. Windows
+/// PowerShell 5.1 rebuilds a native command line without escaping, so a word
+/// it cannot pass through intact is refused instead: an empty word, an
+/// embedded `"`, a control character, or whitespace with a trailing `\`.
+fn powershell_word(word: &str) -> Result<String> {
+    let unsafe_word = word.is_empty()
+        || word.contains('"')
+        || word.chars().any(char::is_control)
+        || (word.contains(char::is_whitespace) && word.ends_with('\\'));
+    if unsafe_word {
+        return Err(Failure::new(format!(
+            "Herdr PowerShell pane cannot pass the argument {word:?} intact; command was not sent"
+        )));
+    }
+    let mut out = String::from("'");
+    for c in word.chars() {
+        if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}') {
+            out.push(c);
+        }
+        out.push(c);
+    }
+    out.push('\'');
+    Ok(out)
+}
+
+/// The terminal modes a previous agent may have left on: mouse tracking
+/// first, then the alternate screen, bracketed paste, kitty keyboard flags
+/// and the hidden cursor. Each entry follows an ESC.
+const RESET_SEQUENCES: [&str; 10] = [
+    "[?1003l", "[?1002l", "[?1006l", "[?1000l", "[?1049l", "[?2004l", "[<u", "[<u", "[<u", "[?25h",
+];
+
+/// The command typed into the pane's shell that writes the reset to the
+/// pane's own terminal. A typed ESC byte is a key to the line editor and never
+/// reaches the terminal, so the shell spells it: `\033` for printf on POSIX,
+/// `[char]27` in PowerShell (which has no printf).
+pub fn reset_command(shell_name: &str) -> Result<String> {
+    Ok(match pane_shell(shell_name)? {
+        PaneShell::Posix => format!(
+            "printf {}",
+            shell_word(&RESET_SEQUENCES.map(|s| format!("\\033{s}")).concat())
+        ),
+        PaneShell::PowerShell => format!(
+            "[Console]::Write(('{}' -f [char]27))",
+            RESET_SEQUENCES.map(|s| format!("{{0}}{s}")).concat()
+        ),
+    })
+}
+
+/// A directory as Herdr reports it, without the trailing separator Windows
+/// Herdr adds in `workspace create` and `pane process-info` (not in `api
+/// snapshot`).
+fn directory_text(path: &str) -> &str {
+    let trimmed = path.trim_end_matches(['/', '\\']);
+    if trimmed.is_empty() || trimmed.ends_with(':') {
+        path
+    } else {
+        trimmed
     }
 }
 
@@ -145,7 +230,9 @@ pub fn observe(
     let canonical_ok = snapshot_pane
         .and_then(|pane| pane.get("cwd"))
         .and_then(crate::json::Json::as_str)
-        .is_some_and(|observed| canonical(&cwd) == canonical(observed));
+        .is_some_and(|observed| {
+            directory_text(&canonical(&cwd)) == directory_text(&canonical(observed))
+        });
     if !info_ok || !canonical_ok {
         return Err(Failure::new("Herdr pane identity changed"));
     }
@@ -431,6 +518,85 @@ mod tests {
             );
         }
         assert!(pane_command(&["echo".into(), "hi".into()], "fish").is_err());
+        assert!(pane_command(&["echo".into(), "hi".into()], "cmd.exe").is_err());
+    }
+
+    /// Herdr's Windows pane shell is Windows PowerShell 5.1. These forms were
+    /// typed into a real pane (Herdr 0.9.5) and reached a child argv intact:
+    /// spaces, CJK, `'`, `%COMSPEC%` and `$HOME` stay literal.
+    #[test]
+    fn a_powershell_pane_gets_the_call_operator_and_literal_single_quoted_words() {
+        let argv: Vec<String> = [
+            "C:\\Program Files\\uml\\uml-viewer.exe",
+            "companion-runner",
+            "C:\\p 中文 it's\\.uml-viewer/x.edn",
+            "%COMSPEC% $HOME `t ‘q’",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        let expected = "& 'C:\\Program Files\\uml\\uml-viewer.exe' 'companion-runner' \
+             'C:\\p 中文 it''s\\.uml-viewer/x.edn' '%COMSPEC% $HOME `t ‘‘q’’'";
+        for shell in [
+            "powershell.exe",
+            "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "PWSH.EXE",
+        ] {
+            assert_eq!(expected, pane_command(&argv, shell).unwrap(), "{shell}");
+        }
+    }
+
+    /// PowerShell 5.1 drops an empty argument and splits one with `"`, so
+    /// such argv is refused before anything is typed.
+    #[test]
+    fn a_powershell_pane_refuses_words_it_cannot_pass_intact() {
+        for word in ["", "x\"y", "a\nb", "C:\\a b\\"] {
+            let error =
+                pane_command(&["C:\\x.exe".into(), word.into()], "powershell.exe").unwrap_err();
+            assert!(error.message.contains("command was not sent"), "{word:?}");
+        }
+        assert!(pane_command(&["C:\\x.exe".into(), "C:\\ab\\".into()], "powershell.exe").is_ok());
+    }
+
+    #[test]
+    fn the_reset_is_spelled_for_the_pane_shell() {
+        assert_eq!(
+            r"printf '\033[?1003l\033[?1002l\033[?1006l\033[?1000l\033[?1049l\033[?2004l\033[<u\033[<u\033[<u\033[?25h'",
+            reset_command("-bash").unwrap()
+        );
+        assert_eq!(
+            "[Console]::Write(('{0}[?1003l{0}[?1002l{0}[?1006l{0}[?1000l{0}[?1049l{0}[?2004l{0}[<u{0}[<u{0}[<u{0}[?25h' -f [char]27))",
+            reset_command("powershell.exe").unwrap()
+        );
+        assert!(reset_command("fish").is_err());
+    }
+
+    /// Windows Herdr reports a pane cwd with a trailing `\` in process-info
+    /// and without it in the snapshot; both name the recorded directory.
+    #[test]
+    fn observe_accepts_the_pane_cwd_with_or_without_a_trailing_separator() {
+        let mut owned = owned();
+        edn::record::put(&mut owned, "cwd", Value::String("C:\\p q".to_owned()));
+        let with_cwd = |cwd: &str| {
+            let mut changed = snapshot();
+            if let Json::Object(map) = &mut changed
+                && let Some(Json::Array(panes)) = map.get_mut("panes")
+                && let Json::Object(pane) = &mut panes[0]
+            {
+                pane.insert("cwd".to_owned(), Json::String(cwd.to_owned()));
+            }
+            observe(
+                &owned,
+                &status(),
+                &changed,
+                Some(&process_info()),
+                &(|p| p.to_owned()),
+            )
+        };
+        assert!(with_cwd("C:\\p q").is_ok());
+        assert!(with_cwd("C:\\p q\\").is_ok());
+        assert!(with_cwd("C:\\p").is_err());
+        assert_eq!("C:\\", directory_text("C:\\"));
+        assert_eq!("/", directory_text("/"));
     }
 
     #[test]

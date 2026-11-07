@@ -130,29 +130,28 @@ fn executable_file(candidate: &str) -> bool {
     })
 }
 
-/// Windows has no execute bit: a file is executable when its extension is
-/// one of `PATHEXT` (compared case-insensitively).
+/// Windows has no execute bit: a file is executable when its extension is a
+/// native one (`.exe`, `.com`) listed in `PATHEXT`. A `.cmd`/`.ps1` wrapper,
+/// such as npm's `codex.cmd`, re-parses its arguments and is refused.
 #[cfg(windows)]
 fn executable_file(candidate: &str) -> bool {
-    let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_owned());
+    let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE".to_owned());
     executable_with(candidate, &pathext)
 }
 
 #[cfg(windows)]
 fn executable_with(candidate: &str, pathext: &str) -> bool {
-    let path = std::path::Path::new(candidate);
-    let Some(extension) = path
-        .extension()
-        .map(|extension| extension.to_string_lossy())
-    else {
-        return false;
-    };
-    path.is_file()
-        && pathext.split(';').any(|listed| {
-            listed
-                .strip_prefix('.')
-                .is_some_and(|listed| listed.eq_ignore_ascii_case(&extension))
-        })
+    crate::search::Search::windows(pathext).native_executable(candidate)
+        && std::path::Path::new(candidate).is_file()
+}
+
+/// Why a named executable is not runnable, for the refusal.
+fn not_executable_hint() -> &'static str {
+    if cfg!(windows) {
+        "is not an executable file (a native .exe or .com is required; a .cmd or .ps1 wrapper such as npm's codex.cmd re-parses its arguments, so set CODEX_BIN to the codex.exe it runs)"
+    } else {
+        "is not an executable file"
+    }
 }
 
 /// RFC 4122 text form, any version: Codex reports UUIDv7 session ids.
@@ -235,28 +234,34 @@ impl CodingAgent {
         if self == CodingAgent::Claude {
             return Ok(named.unwrap_or_else(|| name.to_owned()));
         }
+        let search = crate::search::Search::native_in(env);
         if let Some(named) = &named
-            && named.contains('/')
+            && search.is_path(named)
         {
             return if executable_file(named) {
                 Ok(named.clone())
             } else {
                 Err(Failure::new(format!(
-                    "Codex CLI not found: {variable} {named:?} is not an executable file. {}",
+                    "Codex CLI not found: {variable} {named:?} {}. {}",
+                    not_executable_hint(),
                     crate::preflight::rules::CODEX_GUIDANCE
                 )))
             };
         }
         let name = named.as_deref().unwrap_or(name);
-        env("PATH")
-            .unwrap_or_default()
-            .split(':')
-            .filter(|directory| !directory.is_empty())
-            .map(|directory| format!("{}/{name}", directory.trim_end_matches('/')))
+        search
+            .candidates(&env("PATH").unwrap_or_default(), name)
+            .into_iter()
+            .flatten()
             .find(|candidate| executable_file(candidate))
             .ok_or_else(|| {
+                let wrapper = if cfg!(windows) {
+                    " (only a native .exe or .com counts; npm's codex.cmd wrapper does not, so set CODEX_BIN to the codex.exe it runs)"
+                } else {
+                    ""
+                };
                 Failure::new(format!(
-                    "Codex CLI not found: {name:?} is not on PATH. {}",
+                    "Codex CLI not found: {name:?} is not on PATH{wrapper}. {}",
                     crate::preflight::rules::CODEX_GUIDANCE
                 ))
             })
@@ -612,8 +617,8 @@ mod tests {
         assert_eq!("claude", claude(None));
         let directory =
             std::env::temp_dir().join(format!("uml agent executable {}", std::process::id()));
-        let codex = crate::preflight::fixtures::script(&directory, "codex", "exit 0\n");
-        let path = format!("{}:/definitely/empty", directory.display());
+        let codex = crate::preflight::fixtures::Fake::new().write(&directory, "codex");
+        let path = crate::preflight::fixtures::path_with(&directory);
         let env = |bin: Option<&str>| {
             let (path, bin) = (path.clone(), bin.map(str::to_owned));
             move |name: &str| match name {

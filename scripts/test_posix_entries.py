@@ -107,22 +107,6 @@ def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
 '''
 
 
-def pending_on_windows(reason):
-    """Expected to fail on native Windows until `reason` is fixed.
-
-    Not a skip: the test still runs, and an unexpected pass fails the suite,
-    so the marker comes off in the change that fixes it.
-    """
-    del reason  # documentation at the call site
-    return unittest.expectedFailure if WINDOWS else (lambda test: test)
-
-
-# The Rust companion still splits PATH on ':' and looks for a bare `herdr`
-# (crates/companion/src/herdr/select.rs:51), so its preflight finds no
-# fixture Herdr on Windows. UV-5 of qinyuanj/uml-viewer#201 owns that.
-RUST_HERDR_PATH = 'companion Herdr PATH lookup on Windows (UV-5)'
-
-
 def herdr_fixture(bin_dir, version='0.9.5', protocol=22, integration='current'):
     """A fixture `herdr` answering --version, api schema and integration status."""
     schema = json.dumps({'$schema': 'f', 'protocol': protocol, 'schema_version': 1},
@@ -1062,7 +1046,6 @@ class PosixEntries(unittest.TestCase):
                                         capture_output=True, text=True, timeout=600)
                 self.assert_refused_before_resources(result, '--coding-agent claude|codex')
 
-    @pending_on_windows(RUST_HERDR_PATH)
     def test_codex_preflight_refuses_each_real_cause_before_a_viewer(self):
         cases = (
             ({}, 'Codex CLI not found'),
@@ -1080,7 +1063,6 @@ class PosixEntries(unittest.TestCase):
                                         timeout=600)
                 self.assert_refused_before_resources(result, expected)
 
-    @pending_on_windows(RUST_HERDR_PATH)
     def test_codex_bin_reaches_the_preflight_as_a_literal_argv_and_overrides_path(self):
         # A current codex on PATH must not stand in for the CODEX_BIN one,
         # whose path keeps its spaces, Unicode and shell metacharacters.
@@ -1099,7 +1081,6 @@ class PosixEntries(unittest.TestCase):
                                 cwd=self.root, env=env, capture_output=True, text=True, timeout=600)
         self.assert_refused_before_resources(result, 'is not an executable file')
 
-    @pending_on_windows(RUST_HERDR_PATH)
     def test_a_claude_project_keeps_the_herdr_093_floor(self):
         # The preflight role answers `herdr` for the default and the explicit
         # Claude choice on Herdr 0.9.3 even when no Codex is installed.

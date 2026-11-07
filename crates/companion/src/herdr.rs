@@ -6,18 +6,70 @@ use crate::host::{Detached, Host};
 use crate::json::Json;
 use crate::record;
 use crate::recovery;
-use crate::text::shell_word;
 use crate::vocab::{Failure, Owner, Result, RunOut};
 use edn::Value;
 use std::path::Path;
 use std::rc::Rc;
 
-/// Herdr derives its API socket from XDG_CONFIG_HOME + session name. Measured
-/// against Herdr 0.9.5: the server starts at 101 bytes but workspace creation
-/// fails from 102 bytes, and that failure surfaces as an opaque closed-channel
-/// error. The generated name therefore shrinks to whatever the config root
-/// leaves, instead of assuming a fixed project-name budget.
-pub const MAX_SOCKET_BYTES: usize = 101;
+/// Where Herdr puts a named session's API socket on one platform, and how
+/// long that path may be: `<config root>/herdr/sessions/<name>/herdr.sock`,
+/// the config root being `XDG_CONFIG_HOME`, else `$HOME/.config` (POSIX) or
+/// `%APPDATA%` (Windows, where the socket is an AF_UNIX socket file too).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SocketLayout {
+    Posix,
+    Windows,
+}
+
+impl SocketLayout {
+    pub const NATIVE: SocketLayout = if cfg!(windows) {
+        SocketLayout::Windows
+    } else {
+        SocketLayout::Posix
+    };
+
+    /// Measured against Herdr 0.9.5. POSIX: the server starts at 101 bytes
+    /// but workspace creation fails from 102. Windows (build 26220): 243
+    /// works, 244 fails at workspace creation and from 251 the server never
+    /// starts. Either failure surfaces as an opaque closed-channel error.
+    pub const fn max_bytes(self) -> usize {
+        match self {
+            SocketLayout::Posix => 101,
+            SocketLayout::Windows => 243,
+        }
+    }
+
+    pub fn separators(self) -> &'static [char] {
+        match self {
+            SocketLayout::Posix => &['/'],
+            SocketLayout::Windows => &['\\', '/'],
+        }
+    }
+
+    /// The config root Herdr reads, without a trailing separator.
+    pub fn config_root(self, variable: &dyn Fn(&str) -> Option<String>) -> String {
+        let fallback = || match self {
+            SocketLayout::Posix => format!("{}/.config", variable("HOME").unwrap_or_default()),
+            SocketLayout::Windows => variable("APPDATA").unwrap_or_default(),
+        };
+        variable("XDG_CONFIG_HOME")
+            .filter(|root| !root.is_empty())
+            .unwrap_or_else(fallback)
+            .trim_end_matches(self.separators())
+            .to_owned()
+    }
+
+    /// The session's socket path under `config_root`.
+    pub fn socket(self, config_root: &str, session: &str) -> String {
+        let s = self.separators()[0];
+        format!("{config_root}{s}herdr{s}sessions{s}{session}{s}herdr.sock")
+    }
+}
+
+/// This platform's socket budget. The generated session name shrinks to
+/// whatever the config root leaves, instead of assuming a fixed
+/// project-name budget.
+pub const MAX_SOCKET_BYTES: usize = SocketLayout::NATIVE.max_bytes();
 
 /// The first `workspace create` waits out the server bootstrap; WSL PATH
 /// entries under /mnt/c stretch it past the ordinary command bound (contract
@@ -232,7 +284,7 @@ impl Herdr {
         let value = self.cli(session, &["status", "server", "--json"])?;
         let socket = value.get("socket").and_then(Json::as_str);
         let valid = value.get("session").and_then(Json::as_str) == Some(session)
-            && socket.is_some_and(|socket| socket.starts_with('/'))
+            && socket.is_some_and(|socket| Path::new(socket).has_root())
             && matches!(value.get("running"), Some(Json::Bool(_)));
         if !valid {
             return self.fail("Ambiguous Herdr endpoint");
@@ -415,19 +467,26 @@ impl Herdr {
         if first.is_empty() {
             return self.fail("Herdr command must be a nonempty argv vector");
         }
+        let search = &self.host.search;
         let mut resolved = first.clone();
-        if !first.contains('/') {
+        if !search.is_path(&first) {
             let path = (self.host.variable)("PATH").unwrap_or_default();
-            for directory in path.split(':') {
-                let candidate = format!("{directory}/{first}");
-                if (self.host.openable)(Path::new(&candidate)) {
-                    resolved = candidate;
-                    break;
-                }
+            if let Some(found) = search
+                .candidates(&path, &first)
+                .into_iter()
+                .flatten()
+                .find(|candidate| (self.host.openable)(Path::new(candidate)))
+            {
+                resolved = found;
             }
         }
         if !(self.host.openable)(Path::new(&resolved)) {
             return self.fail(format!("Companion executable not found on PATH: {first}"));
+        }
+        if !search.native_executable(&resolved) {
+            return self.fail(format!(
+                "Companion executable must be a native .exe or .com, not a script wrapper: {resolved}"
+            ));
         }
         Ok(resolved)
     }
@@ -495,19 +554,14 @@ impl Herdr {
 
     /// Reset what a previous agent left enabled. Mouse tracking modes go
     /// first: a pane still reporting SGR mouse events delivers them to the
-    /// replacement agent as keystrokes. On POSIX the sequence is written to
-    /// the pane's own terminal by running printf inside that pane. `pane run`
-    /// types the text, so ESC is spelled `\033` for printf to expand: a typed
-    /// ESC byte is a key to the line editor and never reaches the terminal.
-    pub fn terminal_reset(&self, record: &Value) -> Result<()> {
-        const RESET_FORMAT: &str = r"\033[?1003l\033[?1002l\033[?1006l\033[?1000l\033[?1049l\033[?2004l\033[<u\033[<u\033[<u\033[?25h";
+    /// replacement agent as keystrokes. The sequence is written to the
+    /// pane's own terminal by a command typed into the pane's shell
+    /// ([`rules::reset_command`]: printf on POSIX, `[Console]::Write` in
+    /// Windows PowerShell), then `ctrl+c` clears the line.
+    pub fn terminal_reset(&self, record: &Value, shell_name: &str) -> Result<()> {
         let session = record::get_name(record, "session").unwrap_or_default();
         let pane = record::get_name(record, "pane").unwrap_or_default();
-        self.pane_run(
-            &session,
-            &pane,
-            &format!("printf {}", shell_word(RESET_FORMAT)),
-        )?;
+        self.pane_run(&session, &pane, &rules::reset_command(shell_name)?)?;
         (self.host.sleep)(250);
         self.checked(
             &[
@@ -538,7 +592,6 @@ impl Herdr {
         let process_info = info.get("result").and_then(|r| r.get("process_info"));
         let shell_pid = record::get_i64(record, "shell-pid").unwrap_or(0);
         rules::foreground_allowed(process_info, shell_pid)?;
-        self.terminal_reset(record)?;
         let shell = self
             .process_owner(
                 &edn::record::get(record, "shell-pid")
@@ -546,6 +599,7 @@ impl Herdr {
                     .unwrap_or(Value::Nil),
             )?
             .ok_or_else(|| Failure::new("Herdr process creation identity changed"))?;
+        self.terminal_reset(record, &shell.name)?;
         let argv = self.runner_command(record, &command)?;
         self.pane_run(&session, &pane, &rules::pane_command(&argv, &shell.name)?)
     }
@@ -578,19 +632,13 @@ impl Herdr {
         recovery::cancel(record, &self.host)
     }
 
-    /// Herdr derives its API socket from XDG_CONFIG_HOME and the session
-    /// name. Measured against 0.9.5: a 101-byte path works and 102 fails, and
-    /// the failure surfaces only later as a closed-channel error on workspace
-    /// create, so refuse up front with the actual cause.
+    /// Herdr derives its API socket from the config root and the session
+    /// name ([`SocketLayout`]). A path over the measured budget fails only
+    /// later, as a closed-channel error on workspace create, so refuse up
+    /// front with the actual cause.
     pub fn socket_check(&self, session: &str) -> Result<()> {
-        let variable = &self.host.variable;
-        let root = variable("XDG_CONFIG_HOME")
-            .filter(|root| !root.is_empty())
-            .unwrap_or_else(|| format!("{}/.config", variable("HOME").unwrap_or_default()));
-        let path = format!(
-            "{}/herdr/sessions/{session}/herdr.sock",
-            root.trim_end_matches('/')
-        );
+        let layout = SocketLayout::NATIVE;
+        let path = layout.socket(&layout.config_root(&*self.host.variable), session);
         let limit = self.config.max_socket_bytes;
         if path.len() > limit {
             return self.fail(format!(

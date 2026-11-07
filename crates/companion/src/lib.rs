@@ -21,6 +21,7 @@ pub(crate) mod prompt;
 pub mod record;
 pub(crate) mod recovery;
 pub(crate) mod role;
+pub(crate) mod search;
 pub(crate) mod text;
 pub(crate) mod vocab;
 pub mod worker;

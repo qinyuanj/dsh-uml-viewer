@@ -4,7 +4,7 @@
 
 use crate::agent::{CodingAgent, SessionIdentity};
 use crate::herdr::{
-    Config, ControllerSpec, Herdr, MAX_SOCKET_BYTES, ProgressFn, RunnerLauncher, Selected,
+    Config, ControllerSpec, Herdr, ProgressFn, RunnerLauncher, Selected, SocketLayout,
 };
 use crate::host::Host;
 use crate::ownership;
@@ -18,22 +18,27 @@ use edn::Value;
 pub const MAX_NAME_BYTES: usize = 64;
 
 pub fn config_root(host: &Host) -> String {
-    config_root_in(&*host.variable)
-}
-
-fn config_root_in(var: &dyn Fn(&str) -> Option<String>) -> String {
-    let root = var("XDG_CONFIG_HOME")
-        .filter(|root| !root.is_empty())
-        .unwrap_or_else(|| format!("{}/.config", var("HOME").unwrap_or_default()));
-    root.trim_end_matches('/').to_owned()
+    SocketLayout::NATIVE.config_root(&*host.variable)
 }
 
 /// `uml-viewer-<project>-<hash8>-<uuid8>`: the project name is the only part
 /// that may shrink, so the socket path stays inside the measured limit.
 pub fn session_name(root: &str, uuid: &str, config_root: &str) -> Result<String> {
+    session_name_in(SocketLayout::NATIVE, root, uuid, config_root)
+}
+
+/// [`session_name`] for a declared platform's socket layout.
+pub fn session_name_in(
+    layout: SocketLayout,
+    root: &str,
+    uuid: &str,
+    config_root: &str,
+) -> Result<String> {
+    let separators = layout.separators();
+    let max_socket = layout.max_bytes();
     let base: String = root
-        .trim_end_matches('/')
-        .rsplit('/')
+        .trim_end_matches(separators)
+        .rsplit(separators)
         .next()
         .filter(|name| !name.is_empty())
         .unwrap_or("project")
@@ -51,15 +56,14 @@ pub fn session_name(root: &str, uuid: &str, config_root: &str) -> Result<String>
     });
     let uuid_digits: String = uuid.replace('-', "").chars().take(8).collect();
     let fixed = format!("uml-viewer-%s-{hash:08x}-{uuid_digits}");
-    let socket_prefix = format!("{config_root}/herdr/sessions/");
-    let room =
-        (MAX_SOCKET_BYTES.saturating_sub(socket_prefix.len())).saturating_sub("/herdr.sock".len());
-    let room = room.min(MAX_NAME_BYTES);
+    // The socket path around the session name, measured with an empty name.
+    let frame = layout.socket(config_root, "").len();
+    let room = max_socket.saturating_sub(frame).min(MAX_NAME_BYTES);
     let fixed_length = fixed.len() - 2; // "%s" is a two-byte placeholder
     if room <= fixed_length {
         return Err(Failure::new(format!(
-            "Herdr session name cannot fit: {socket_prefix}{}/herdr.sock exceeds the {MAX_SOCKET_BYTES}-byte Unix socket path; set a shorter XDG_CONFIG_HOME",
-            fixed.replace("%s", "<project>")
+            "Herdr session name cannot fit: {} exceeds the {max_socket}-byte Unix socket path; set a shorter XDG_CONFIG_HOME",
+            layout.socket(config_root, &fixed.replace("%s", "<project>"))
         )));
     }
     let name_budget = room - fixed_length;
@@ -255,6 +259,7 @@ pub struct Opened {
     pub attach: String,
 }
 
+#[cfg(not(windows))]
 fn on_path(name: &str) -> Option<String> {
     std::env::var("PATH").ok().and_then(|path| {
         path.split(':')
@@ -263,16 +268,30 @@ fn on_path(name: &str) -> Option<String> {
     })
 }
 
+/// `wt.exe` is an app execution alias under `WindowsApps`: a reparse point
+/// that CreateProcess runs but that cannot be opened for reading, so its
+/// presence is the probe.
+#[cfg(windows)]
+fn on_path(name: &str) -> Option<String> {
+    let search = crate::search::Search::native();
+    search
+        .candidates(&std::env::var("PATH").unwrap_or_default(), name)
+        .into_iter()
+        .flatten()
+        .find(|candidate| std::fs::symlink_metadata(candidate).is_ok())
+}
+
 const HIDDEN_SIDEBAR: [(&str, &str); 2] = [
     ("sidebar_start_collapsed", "true"),
     ("sidebar_collapsed_mode", "\"hidden\""),
 ];
 
 /// The person's Herdr config: `HERDR_CONFIG_PATH`, else under the config root.
-fn user_config_path(var: &dyn Fn(&str) -> Option<String>) -> String {
+fn user_config_path(layout: SocketLayout, var: &dyn Fn(&str) -> Option<String>) -> String {
+    let s = layout.separators()[0];
     var("HERDR_CONFIG_PATH")
         .filter(|path| !path.is_empty())
-        .unwrap_or_else(|| format!("{}/herdr/config.toml", config_root_in(var)))
+        .unwrap_or_else(|| format!("{}{s}herdr{s}config.toml", layout.config_root(var)))
 }
 
 fn table_name(header: &str) -> String {
@@ -338,12 +357,33 @@ fn hidden_sidebar(base: &str) -> String {
 /// sidebar hidden. A config Herdr rejects falls back to theirs unchanged.
 fn attach_config(root: &str, herdr: &str) -> Option<String> {
     let var = |name: &str| std::env::var(name).ok();
-    let base = std::fs::read_to_string(user_config_path(&var)).unwrap_or_default();
-    let path = format!(
+    let base =
+        std::fs::read_to_string(user_config_path(SocketLayout::NATIVE, &var)).unwrap_or_default();
+    let path = attach_config_path(root);
+    std::fs::write(&path, hidden_sidebar(&base)).ok()?;
+    config_accepted(herdr, &path).then_some(path)
+}
+
+#[cfg(not(windows))]
+fn attach_config_path(root: &str) -> String {
+    format!(
         "{}/.uml-viewer/herdr-attach.toml",
         root.trim_end_matches('/')
-    );
-    std::fs::write(&path, hidden_sidebar(&base)).ok()?;
+    )
+}
+
+#[cfg(windows)]
+fn attach_config_path(root: &str) -> String {
+    std::path::Path::new(root)
+        .join(".uml-viewer")
+        .join("herdr-attach.toml")
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Whether `herdr config check` accepts `path` as its config.
+#[cfg(not(windows))]
+fn config_accepted(herdr: &str, path: &str) -> bool {
     let argv: Vec<std::ffi::OsString> = [
         "/usr/bin/env",
         &format!("HERDR_CONFIG_PATH={path}"),
@@ -355,7 +395,103 @@ fn attach_config(root: &str, herdr: &str) -> Option<String> {
     .map(std::ffi::OsString::from)
     .collect();
     let check = posix::run(&argv, Some(10000), &[]);
-    (check.exit == Some(0) && !check.timeout).then_some(path)
+    check.exit == Some(0) && !check.timeout
+}
+
+/// Windows has no `env`: the variable is set on the child itself, without a
+/// console window, and a check that outlives 10 s counts as a refusal.
+#[cfg(windows)]
+fn config_accepted(herdr: &str, path: &str) -> bool {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let Ok(mut child) = std::process::Command::new(herdr)
+        .args(["config", "check"])
+        .env("HERDR_CONFIG_PATH", path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+    else {
+        return false;
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
+}
+
+/// The cmd.exe line a native Windows Terminal tab runs, and whether it can
+/// be opened. Windows Terminal starts a tab from its own environment, not
+/// the caller's, so the config root and the attach config travel as `set`
+/// assignments. cmd expands `%` even inside quotes, a `"` ends the quoting
+/// and Windows Terminal splits its command line at `;`: an attach config
+/// with one of those is left out (the tab reads the person's own config), and
+/// a config root or Herdr path with one cannot be carried, so the window is
+/// not opened and the line is only reported.
+fn windows_attach(
+    config_root: Option<&str>,
+    attach_config: Option<&str>,
+    herdr: &str,
+    session: &str,
+) -> (String, bool) {
+    let carried =
+        |text: &str| !text.contains(['%', '"', ';']) && !text.chars().any(char::is_control);
+    let mut line = String::new();
+    let mut openable = carried(herdr) && carried(session);
+    if let Some(root) = config_root.filter(|root| !root.is_empty()) {
+        openable &= carried(root);
+        line.push_str(&format!("set \"XDG_CONFIG_HOME={root}\"&& "));
+    }
+    if let Some(path) = attach_config.filter(|path| carried(path)) {
+        line.push_str(&format!("set \"HERDR_CONFIG_PATH={path}\"&& "));
+    }
+    line.push_str(&format!("\"{herdr}\" session attach {session}"));
+    (line, openable)
+}
+
+/// The argv that opens a new Windows Terminal window running `line`.
+/// Windows Terminal quotes a command-line word that holds a space when it
+/// rebuilds the tab's command line, and `/s` makes cmd strip exactly those
+/// outer quotes, so `line` reaches cmd unchanged.
+fn windows_terminal_argv(terminal: &str, session: &str, line: &str) -> Vec<String> {
+    [
+        terminal, "-w", "new", "new-tab", "--title", session, "cmd.exe", "/d", "/s", "/c", line,
+    ]
+    .map(str::to_owned)
+    .to_vec()
+}
+
+fn open_windows_terminal(session: &str, herdr: &str, config: Option<&str>) -> Opened {
+    let config_root = std::env::var("XDG_CONFIG_HOME").ok();
+    let (line, openable) = windows_attach(config_root.as_deref(), config, herdr, session);
+    let terminal = if openable { on_path("wt.exe") } else { None };
+    let Some(terminal) = terminal else {
+        return Opened {
+            terminal: "none".to_owned(),
+            attach: line,
+        };
+    };
+    let argv: Vec<std::ffi::OsString> = windows_terminal_argv(&terminal, session, &line)
+        .iter()
+        .map(std::ffi::OsString::from)
+        .collect();
+    let result: RunOut = posix::run(&argv, Some(10000), &[]);
+    let started = result.exit == Some(0) && !result.timeout;
+    Opened {
+        terminal: if started { "windows-terminal" } else { "none" }.to_owned(),
+        attach: line,
+    }
 }
 
 /// The `/usr/bin/env` prefix that carries the config root and the attach
@@ -386,6 +522,9 @@ fn attach_env(config_root: Option<String>, attach_config: Option<&str>) -> Vec<S
 /// command a person can run (ADR 0007).
 pub fn open_window(root: &str, session: &str, herdr: &str) -> Opened {
     let config = attach_config(root, herdr);
+    if cfg!(windows) {
+        return open_windows_terminal(session, herdr, config.as_deref());
+    }
     let attach = format!(
         "{}{} session attach {}",
         config
@@ -544,24 +683,123 @@ mod tests {
                     .map(|(_, value)| (*value).to_owned())
             }
         };
+        let posix = SocketLayout::Posix;
         let all = env(&[
             ("HERDR_CONFIG_PATH", "/c/herdr.toml"),
             ("XDG_CONFIG_HOME", "/x/"),
             ("HOME", "/h"),
         ]);
-        assert_eq!("/c/herdr.toml", user_config_path(&all));
+        assert_eq!("/c/herdr.toml", user_config_path(posix, &all));
         let xdg = env(&[
             ("HERDR_CONFIG_PATH", ""),
             ("XDG_CONFIG_HOME", "/x/"),
             ("HOME", "/h"),
         ]);
-        assert_eq!("/x/herdr/config.toml", user_config_path(&xdg));
+        assert_eq!("/x/herdr/config.toml", user_config_path(posix, &xdg));
         let home = env(&[("HOME", "/h")]);
-        assert_eq!("/h/.config/herdr/config.toml", user_config_path(&home));
+        assert_eq!(
+            "/h/.config/herdr/config.toml",
+            user_config_path(posix, &home)
+        );
+        // Windows: %APPDATA% stands in for $HOME/.config (probed on 0.9.5).
+        let windows = SocketLayout::Windows;
+        let appdata = env(&[
+            ("APPDATA", "C:\\Users\\p\\AppData\\Roaming"),
+            ("HOME", "/h"),
+        ]);
+        assert_eq!(
+            "C:\\Users\\p\\AppData\\Roaming\\herdr\\config.toml",
+            user_config_path(windows, &appdata)
+        );
+        let xdg = env(&[("XDG_CONFIG_HOME", "D:\\x\\"), ("APPDATA", "C:\\a")]);
+        assert_eq!("D:\\x\\herdr\\config.toml", user_config_path(windows, &xdg));
     }
 
     /// A typical `$HOME/.config` root; no test reads the process environment.
     const HOME_CONFIG: &str = "/home/person/.config";
+
+    fn session_name(root: &str, uuid: &str, config_root: &str) -> Result<String> {
+        session_name_in(SocketLayout::Posix, root, uuid, config_root)
+    }
+
+    const MAX_SOCKET_BYTES: usize = SocketLayout::Posix.max_bytes();
+
+    /// The Windows socket is `<root>\herdr\sessions\<name>\herdr.sock`, with
+    /// 243 bytes measured to work and 244 to fail on Herdr 0.9.5.
+    #[test]
+    fn a_windows_session_name_fits_the_windows_socket_budget() {
+        let layout = SocketLayout::Windows;
+        let root = "C:\\Users\\p\\AppData\\Roaming";
+        let name = session_name_in(layout, "C:\\work\\my proj\\", "abcdef12-rest", root).unwrap();
+        assert!(name.starts_with("uml-viewer-my-proj-"), "{name}");
+        assert!(crate::herdr::rules::session_valid(&name), "{name}");
+        let tight = format!("C:\\{}", "x".repeat(170));
+        let name = session_name_in(layout, "C:\\work\\project", "abcdef12-rest", &tight).unwrap();
+        let socket = layout.socket(&tight, &name);
+        assert!(socket.len() <= 243, "{socket} ({} bytes)", socket.len());
+        assert_eq!(
+            format!("{tight}\\herdr\\sessions\\{name}\\herdr.sock"),
+            socket
+        );
+        let error = session_name_in(
+            layout,
+            "C:\\p",
+            "abcdef12-rest",
+            &format!("C:\\{}", "x".repeat(220)),
+        )
+        .unwrap_err();
+        assert!(error.message.contains("243-byte"), "{}", error.message);
+    }
+
+    #[test]
+    fn a_windows_terminal_tab_carries_the_config_root_and_attach_config_as_set_lines() {
+        let herdr = "C:\\Program Files\\herdr\\herdr.exe";
+        assert_eq!(
+            (
+                "\"C:\\Program Files\\herdr\\herdr.exe\" session attach uml-viewer-a".to_owned(),
+                true
+            ),
+            windows_attach(None, None, herdr, "uml-viewer-a")
+        );
+        assert_eq!(
+            (
+                "set \"XDG_CONFIG_HOME=C:\\x y&z\"&& set \"HERDR_CONFIG_PATH=C:\\p\\a.toml\"&& \"C:\\Program Files\\herdr\\herdr.exe\" session attach uml-viewer-a".to_owned(),
+                true
+            ),
+            windows_attach(
+                Some("C:\\x y&z"),
+                Some("C:\\p\\a.toml"),
+                herdr,
+                "uml-viewer-a"
+            )
+        );
+        // An attach config cmd or Windows Terminal would re-parse is left out.
+        for config in ["C:\\p;q\\a.toml", "C:\\%p%\\a.toml"] {
+            assert_eq!(
+                windows_attach(None, None, herdr, "uml-viewer-a"),
+                windows_attach(None, Some(config), herdr, "uml-viewer-a")
+            );
+        }
+        // A config root or Herdr path that cannot be carried is only reported.
+        assert!(!windows_attach(Some("C:\\a;b"), None, herdr, "uml-viewer-a").1);
+        assert!(!windows_attach(None, None, "C:\\%x%\\herdr.exe", "uml-viewer-a").1);
+        assert_eq!(
+            [
+                "wt.exe",
+                "-w",
+                "new",
+                "new-tab",
+                "--title",
+                "uml-viewer-a",
+                "cmd.exe",
+                "/d",
+                "/s",
+                "/c",
+                "line"
+            ],
+            windows_terminal_argv("wt.exe", "uml-viewer-a", "line")[..]
+        );
+    }
 
     #[test]
     fn names_a_fresh_session_uniquely_per_launch_within_the_grammar() {
@@ -644,6 +882,7 @@ mod tests {
 
     /// A committed Claude ownership as written before coding-agent providers.
     fn complete_claude_record(root: &str) -> String {
+        let root = root.replace('\\', "\\\\").replace('"', "\\\"");
         format!(
             r#"{{:backend :herdr :claude-session "u-1" :command ["claude" "--session-id" "u-1"] :cwd "{root}" :owner-role :companion :pane "%1" :recovery-command ["claude" "--resume" "u-1"] :server-pid 2 :server-start "s" :session "uml-viewer-a" :shell-pid 3 :owner-start "o" :socket "/x.sock" :terminal-id "t" :workspace "w"}}"#
         )
@@ -780,7 +1019,7 @@ mod tests {
             crate::preflight::fixtures::CODEX_CURRENT,
         );
         crate::preflight::fixtures::codex(&bin, "codex", codex, 0);
-        let path = format!("{}:/definitely/empty", bin.display());
+        let path = crate::preflight::fixtures::path_with(&bin);
         let mut host = Host::native();
         host.variable = std::rc::Rc::new(move |name: &str| (name == "PATH").then(|| path.clone()));
         let root = directory.to_string_lossy().into_owned();
@@ -814,7 +1053,10 @@ mod tests {
             edn::record::get(&recorded, "coding-agent")
         );
         assert_eq!(
-            directory.join("bin/codex").to_string_lossy(),
+            directory
+                .join("bin")
+                .join(if cfg!(windows) { "codex.exe" } else { "codex" })
+                .to_string_lossy(),
             strings(&recorded, "command")[0]
         );
         let _ = std::fs::remove_dir_all(&directory);

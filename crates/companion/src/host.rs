@@ -9,6 +9,7 @@
 //! hands its own host to every recovery call.
 
 use crate::posix;
+use crate::search::Search;
 use crate::vocab::{Failure, Owner, Result, RunOut};
 use std::path::Path;
 use std::rc::Rc;
@@ -70,6 +71,9 @@ pub struct Host {
     pub list: ListFn,
     pub openable: OpenableFn,
     pub token: TokenFn,
+    /// How a bare command name is looked up on PATH (`;` and `.exe` on
+    /// Windows). Data, not a capability: it touches nothing.
+    pub search: Search,
 }
 
 fn read(path: &Path) -> Result<Option<String>> {
@@ -142,6 +146,7 @@ impl Host {
             }),
             openable: Rc::new(|path| std::fs::File::open(path).is_ok()),
             token: Rc::new(new_token),
+            search: Search::native(),
         }
     }
 }
@@ -197,6 +202,9 @@ impl Host {
             list: Rc::new(|_| undeclared("list")),
             openable: Rc::new(|_| undeclared("openable")),
             token: Rc::new(|| undeclared("token")),
+            // The fake fixtures are POSIX-shaped on every host; a test that
+            // means Windows declares `Search::windows`.
+            search: Search::posix(),
         }
     }
 }
