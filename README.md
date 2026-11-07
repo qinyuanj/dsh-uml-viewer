@@ -37,8 +37,10 @@ A Rust app (egui/eframe) that lays out and draws UML from an EDN IR. A
 displays it, routes the arrows, colors CRAP, and lets you click. One Rust
 binary runs the viewer, IR generation, the four scanners, and the companion's
 headless roles. The JVM/Clojure implementation was removed in the JVM cutover
-and the Lua/LOVE implementation in the #144 cutover (ADR 0008). The supported platforms are **WSL2 + Ubuntu 24.04 + WSLg** and
-**macOS** (Metal, Terminal.app attach); native Windows is unsupported (ADR 0007).
+and the Lua/LOVE implementation in the #144 cutover (ADR 0008). The supported platforms are **WSL2 + Ubuntu 24.04 + WSLg**,
+**macOS** (Metal, Terminal.app attach) and **native Windows 11 / Windows 10 22H2
+(build 19045) or later** on x64 (DX12, Windows Terminal attach; ADR 0010, see
+[Native Windows](#native-windows)).
 
 The IR is **topology**: the namespace tree, classes, and edges. **Metrics**
 (CC, coverage, CRAP, killed/survived/uncovered) come from `.metrics/`
@@ -180,9 +182,10 @@ ownership stops recovery and retains mail with a diagnostic. Closing the
 diagram revokes recovery and waits for the controller to exit before removing
 only this project's Herdr resources. Recovery needs an executable that can be
 `exec`ed directly (`claude`, or `node` plus the official `cli.js`); script
-wrappers cannot prove the child identity. Windows native is no longer a
-delivery platform ([ADR 0007](docs/adr/0007-posix-platforms-drop-windows-native.md));
-its earlier Herdr records stay historical in
+wrappers cannot prove the child identity. Native Windows is a delivery
+platform again ([ADR 0010](docs/adr/0010-native-windows-delivery-platform.md),
+superseding that part of [ADR 0007](docs/adr/0007-posix-platforms-drop-windows-native.md));
+the earlier Windows Herdr records stay historical in
 [the #30 baseline](docs/windows-herdr-30-baseline.md). Historical backend
 evidence remains in [platform acceptance](docs/platform-acceptance.md).
 A standalone downloaded installer script fetches its entry point from
@@ -500,6 +503,79 @@ method in the WSL session; it is not provided by the Windows IME.
 
 Existing legacy resources and queues are retained; follow the migration
 instructions before starting fresh.
+
+### Native Windows
+
+Windows 11 and Windows 10 22H2 (build 19045) or later on x64 are delivered
+natively (ADR 0010); an older build is refused before anything is created, with
+`Windows build N is not supported: the minimum is Windows 10 22H2 (build 19045)`.
+Prerequisites, all user-installed:
+
+- the Rust **MSVC** toolchain pinned by `rust-toolchain.toml`
+  (`rustup toolchain install 1.99.1-x86_64-pc-windows-msvc`, with the Visual
+  Studio Build Tools "Desktop development with C++" workload for the linker);
+- `git` (Git for Windows);
+- Python 3.11+ from python.org (the `py` launcher) or another native CPython;
+- Herdr >= 0.9.3 (protocol 22), the native `herdr.exe` on `PATH`;
+- Windows Terminal (`wt.exe`) for the companion attach window.
+
+The entries are `uml.cmd` and `get-uml-viewer.cmd`. They do the same job as the
+sh entries and call the same Python implementation; there is no PowerShell
+entry. Both look for Python as `UML_PYTHON_EXECUTABLE`, then `py -3`, then
+`python`. From cmd or PowerShell, in the project:
+
+```bat
+cd C:\path\to\the-project
+curl.exe -fsSLO https://raw.githubusercontent.com/qinyuanj/uml-viewer/main/scripts/get-uml-viewer.cmd
+get-uml-viewer.cmd --install-only
+uml.cmd ir
+uml.cmd crap
+uml.cmd mutate "src\file with spaces.rs"
+```
+
+`get-uml-viewer.cmd` beside a checkout's `uml_posix.py` runs it directly. A
+standalone copy downloads `uml_posix.py` with `curl.exe` (shipped since Windows
+10 1803) from `UML_VIEWER_INSTALLER_URL`, default the `UML_VIEWER_REF` (`main`)
+raw file. The installer then works as on POSIX: it builds
+`.uml-viewer\uml-viewer\target\release\uml-viewer.exe` with
+`cargo build --release --locked`, provisions Sarasa (hash-checked), creates the
+three tool venvs (`.uml-viewer\<tool>\.venv\Scripts\python.exe`) and copies
+`uml.cmd` into the project. A `uml.cmd` without the `Thin Windows entry` marker
+is not overwritten. A development install (`UML_VIEWER_TOOL_ROOT`) links
+`.uml-viewer\uml-viewer` as a **directory junction**, which needs neither
+Developer Mode nor elevation. The installer never fetches through it. IR,
+`.metrics/` snapshots and the IR bytes are identical to Linux (`/` separators,
+LF, no drive letter).
+
+The viewer renders through native DX12 with the system title bar. The launcher
+starts it in its own process group with a hidden console and outside the
+caller's job, so closing the terminal does not end it. A quality command
+configured in `uml-quality.json` must be a native `.exe`; `.cmd`, `.bat` and
+`.ps1` are refused. A child that dies with an NTSTATUS is reported as
+128 + the matching POSIX signal (`0xC000013A` → 130, `0xC0000005` → 139,
+`0xC0000409` → 134); any other code above 255 is reported as 255. The raw
+NTSTATUS is named on stderr.
+
+Optional: put projects on a **Dev Drive** (ReFS). mutator then block-clones its
+per-worker copies instead of copying them in full; results are the same, only
+faster.
+
+Known limits:
+
+- `uml.cmd` forwards `%*` through cmd, which re-parses it. Spaces, Unicode,
+  `;`, `$` and `'` reach Python intact; an argument containing `^ & | < > %` or
+  `"` does not. Rename such a file, or run the Python entry directly:
+  `py -3 -I -B .uml-viewer\uml-viewer\scripts\uml_posix.py command . <args>`.
+- There are no bench readings on Windows (`bench` reports no CPU or load).
+- mutator's isolation on Windows is weaker than on Linux: each worker gets a
+  project copy, a Job Object and redirected `HOME`/`USERPROFILE`/`TEMP`/`APPDATA`,
+  but nothing stops a test from writing outside its copy (ADR 0010).
+
+The public-entry suites run natively:
+`py -3 -I scripts\test_posix_entries.py`,
+`py -3 -I scripts\test_posix_restart_entries.py` and
+`py -3 -I scripts\test_windows_entries.py` (`.cmd`, junction and `.exe`
+behaviour). `py -3 -I scripts\check.py` runs all of them.
 
 ## Navigation
 
