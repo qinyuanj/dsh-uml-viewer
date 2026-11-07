@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """One guardrail command: the checks that are safe to run at any time.
 
-This is the only guardrail command; the earlier `check.ps1` was retired with
-Windows native support (ADR 0007). The cargo check builds the release binary
+This is the only guardrail command on every host, native Windows included
+(ADR 0010; the earlier `check.ps1` stays retired). Python suites run with the
+interpreter that runs this file. The cargo check builds the release binary
 used by the entry test files (which skip without it), then runs the workspace
 tests. Stops at the first failure so the printed
 label names the actual cause. The quality gate (`./uml crap` / `./uml mutate`) is
@@ -13,8 +14,10 @@ project, so it cannot be a default check. Real-window drivers need the explicit
 Usage:
     python3 -I scripts/check.py            # pure checks only
     python3 -I scripts/check.py --native   # plus every real-window driver
+    py -3 -I scripts\\check.py              # native Windows (no python3 there)
 """
 import argparse
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -47,35 +50,15 @@ def cargo_suite():
     return ('executed' if code == 0 else 'failed'), code, output
 
 
-def entries():
-    python = interpreter('python3')
-    if not python:
-        return 'failed', 1, 'python3 is required by the installer and this suite'
-    code, output = run([python, '-I', str(REPO / 'scripts/test_posix_entries.py')])
-    return ('executed' if code == 0 else 'failed'), code, output
-
-
-def restart_entries():
-    python = interpreter('python3')
-    if not python:
-        return 'failed', 1, 'python3 is required'
-    code, output = run([python, '-I', str(REPO / 'scripts/test_posix_restart_entries.py')])
-    return ('executed' if code == 0 else 'failed'), code, output
-
-
-def codex_companion():
-    python = interpreter('python3')
-    if not python:
-        return 'failed', 1, 'python3 is required'
-    code, output = run([python, '-I', str(REPO / 'scripts/test_posix_codex_companion.py')])
+def python_suite(name):
+    """A Python suite under this interpreter (Windows has no `python3`)."""
+    code, output = run([sys.executable, '-I', str(REPO / 'scripts' / name)])
     return ('executed' if code == 0 else 'failed'), code, output
 
 
 def native_driver(name, timeout):
-    python = interpreter('python3')
-    if not python:
-        return 'skipped', 0, 'python3 not on PATH'
-    code, output = run([python, '-I', str(REPO / 'scripts/run_viewer_driver.py'), name], timeout=timeout)
+    code, output = run([sys.executable, '-I', str(REPO / 'scripts/run_viewer_driver.py'), name],
+                       timeout=timeout)
     if code == 0 and output.strip().startswith('SKIP'):
         # A driver whose precondition is absent (e.g. a font the installer has
         # not provisioned) verified nothing; it must not read as a pass.
@@ -89,12 +72,14 @@ def main():
     parser.add_argument('--native-timeout', type=int, default=300)
     arguments = parser.parse_args()
 
-    checks = [
-        ('cargo build --release --locked + cargo test --workspace --locked', cargo_suite),
-        ('entries (python -I scripts/test_posix_entries.py)', entries),
-        ('restart (python -I scripts/test_posix_restart_entries.py)', restart_entries),
-        ('codex companion (python -I scripts/test_posix_codex_companion.py)', codex_companion),
-    ]
+    suites = ['test_posix_entries.py', 'test_posix_restart_entries.py',
+              'test_posix_codex_companion.py']
+    if os.name == 'nt':
+        # `uml.cmd`, junction dev installs and `.exe` naming.
+        suites.insert(1, 'test_windows_entries.py')
+    checks = [('cargo build --release --locked + cargo test --workspace --locked', cargo_suite)]
+    checks += [(f'{name} (python -I scripts/{name})', lambda name=name: python_suite(name))
+               for name in suites]
     if arguments.native:
         sys.path.insert(0, str(REPO / 'scripts'))
         from run_viewer_driver import DRIVERS
