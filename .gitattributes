@@ -1,0 +1,3 @@
+# cmd parses labels and `goto` by byte offset; an LF checkout of a .cmd
+# misreads them. Keep the Windows entries CRLF on every host.
+*.cmd text eol=crlf
