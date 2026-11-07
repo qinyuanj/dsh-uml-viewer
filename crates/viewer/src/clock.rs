@@ -32,11 +32,19 @@ pub fn now() -> i64 {
 
 /// The default proposal name: `%Y-%m-%d %H:%M:%S` in local time.
 pub fn proposal_name(epoch: i64) -> String {
-    // SAFETY: `tm` is plain data that `localtime_r` fills; the reentrant
-    // variant shares no static buffer between threads.
+    // SAFETY: `tm` is plain data that `localtime_r`/`localtime_s` fills;
+    // the reentrant variants share no static buffer between threads.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     let time: libc::time_t = epoch;
-    unsafe { libc::localtime_r(&time, &mut tm) };
+    #[cfg(unix)]
+    unsafe {
+        libc::localtime_r(&time, &mut tm)
+    };
+    // MSVC's reentrant form takes its arguments the other way round.
+    #[cfg(windows)]
+    unsafe {
+        libc::localtime_s(&mut tm, &time)
+    };
     format!(
         "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
         tm.tm_year + 1900,

@@ -43,10 +43,71 @@ pub fn starttime(pid: u32) -> Option<String> {
     Some((info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec).to_string())
 }
 
+/// Windows: the `GetProcessTimes` creation FILETIME (100 ns ticks since
+/// 1601) as decimal text, the same text the companion and
+/// `uml_posix.proc_identity` record. An exited process has none.
+#[cfg(windows)]
+pub fn starttime(pid: u32) -> Option<String> {
+    type Handle = *mut std::ffi::c_void;
+    #[repr(C)]
+    #[derive(Default)]
+    struct FileTime {
+        low: u32,
+        high: u32,
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> Handle;
+        fn CloseHandle(handle: Handle) -> i32;
+        fn WaitForSingleObject(handle: Handle, milliseconds: u32) -> u32;
+        fn GetProcessTimes(
+            process: Handle,
+            creation: *mut FileTime,
+            exit: *mut FileTime,
+            kernel: *mut FileTime,
+            user: *mut FileTime,
+        ) -> i32;
+    }
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    // SAFETY: OpenProcess has no memory preconditions; NULL is failure.
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid) };
+    if process.is_null() {
+        return None;
+    }
+    let mut times: [FileTime; 4] = Default::default();
+    let [creation, exit, kernel, user] = &mut times;
+    // SAFETY: process is a valid handle with query and synchronize access;
+    // the FILETIME out pointers are valid. The handle is closed once.
+    let started = unsafe {
+        let running = WaitForSingleObject(process, 0) != 0;
+        let read = running && GetProcessTimes(process, creation, exit, kernel, user) != 0;
+        CloseHandle(process);
+        read
+    };
+    started.then(|| ((u64::from(creation.high) << 32) | u64::from(creation.low)).to_string())
+}
+
 /// `{"pid":1234,"started":"5381724","runtime":"rust","cwd":"/abs/root"}` —
-/// fixed key order, no spaces, no trailing newline.
+/// fixed key order, no spaces, no trailing newline. `cwd` is a JSON string,
+/// so a Windows `C:\dir` arrives as `C:\\dir`.
 pub fn encode(pid: u32, started: &str, cwd: &str) -> String {
+    let cwd = json_text(cwd);
     format!("{{\"pid\":{pid},\"started\":\"{started}\",\"runtime\":\"rust\",\"cwd\":\"{cwd}\"}}")
+}
+
+/// The body of a JSON string literal holding `text`.
+fn json_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if u32::from(c) < 0x20 => out.push_str(&format!("\\u{:04x}", u32::from(c))),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 fn write_atomic(target: &Path, text: &str) -> io::Result<()> {
@@ -68,4 +129,40 @@ pub fn record(root: &Path) -> io::Result<PathBuf> {
     let target = root.join(".uml-viewer").join(FILE_NAME);
     write_atomic(&target, &encode(pid, &started, &cwd))?;
     Ok(target)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_cwd_is_encoded_as_a_json_string() {
+        assert_eq!(
+            r#"{"pid":7,"started":"1","runtime":"rust","cwd":"C:\\Users\\a \"b\"\u0009c"}"#,
+            encode(7, "1", "C:\\Users\\a \"b\"\tc")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_starttime_is_decimal_filetime_and_none_after_exit() {
+        let own = starttime(std::process::id()).unwrap();
+        let start: u64 = own.parse().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        // 100 ns ticks since 1601-01-01; this process started within the day.
+        let filetime_now = (now + 1 + 11_644_473_600) * 10_000_000;
+        assert!(start <= filetime_now && filetime_now - start < 864_000_000_000);
+        assert_eq!(Some(own), starttime(std::process::id()));
+        let mut child = std::process::Command::new("cmd.exe")
+            .args(["/d", "/c", "exit 0"])
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        // `child` still holds its handle, so the pid is not reused yet.
+        assert_eq!(None, starttime(pid));
+    }
 }
