@@ -209,8 +209,12 @@ viewer 对 CRAP、mutation 与重复检测请求的通用分发：按项目配�
 承载 companion 对话与工具执行的编程 agent 产品，如 Claude Code 或 Codex CLI；它不同于负责进程启动与恢复的 Herdr。
 _Avoid_: companion backend（指这一层时）
 
+**交付平台**:
+承诺可运行并经实机验收的宿主：WSL2 + Ubuntu 24.04 + WSLg、macOS、原生 Windows 11 与 Windows 10 22H2 及以上。不在其中的宿主在启动前被拒绝并说明原因。
+_Avoid_: 支持平台, 目标系统
+
 **Herdr**:
-交付平台（WSL2/WSLg 与 macOS）上唯一的 companion 启动后端。不支持 Windows 原生运行。
+每个交付平台上唯一的 companion 启动后端。
 
 **selected Herdr**:
 一次启动选定的 Herdr；同一次启动内所有 Herdr 调用都用它。

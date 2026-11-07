@@ -1,6 +1,6 @@
 # 0007 停止 Windows 原生支持：WSL 作为唯一交付平台
 
-**Status**: accepted
+**Status**: accepted；"停止 Windows 原生支持"部分被 [ADR 0010](0010-native-windows-delivery-platform.md) 取代
 
 增补（2026-10-27，维护者决定）：macOS（Apple Silicon 与 Intel）恢复为交付平台，与
 WSL2 + Ubuntu 24.04 + WSLg 并列；下文「macOS 当前不承诺」一句由本段取代，其余条款不变。
