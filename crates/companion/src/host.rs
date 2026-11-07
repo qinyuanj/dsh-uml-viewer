@@ -1,8 +1,9 @@
 //! The companion host: every process, clock, file and environment capability
 //! the companion roles use, wrapped exactly once. Two constructors only:
-//! [`Host::posix`], the production adapter over the ADR 0007 POSIX boundary,
-//! and (in tests) `Host::fake`, whose every capability fails loudly with its
-//! name until a test declares it. A fake never falls back to real POSIX.
+//! [`Host::native`], the production adapter over this target's OS boundary
+//! (POSIX on Linux and macOS, Windows on Windows; ADR 0007, ADR 0010), and (in
+//! tests) `Host::fake`, whose every capability fails loudly with its name
+//! until a test declares it. A fake never falls back to the real OS.
 //!
 //! Each role entry assembles one host and passes it down; the Herdr backend
 //! hands its own host to every recovery call.
@@ -100,8 +101,8 @@ fn spawn_detached(request: &Detached) -> Result<Option<Owner>> {
 }
 
 impl Host {
-    /// The production adapter: the real POSIX boundary of ADR 0007.
-    pub fn posix() -> Host {
+    /// The production adapter: the real OS boundary of this target.
+    pub fn native() -> Host {
         Host {
             clock: Rc::new(posix::monotonic_ms),
             sleep: Rc::new(posix::sleep),

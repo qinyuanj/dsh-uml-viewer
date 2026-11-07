@@ -23,7 +23,7 @@ pub fn runner(args: &[OsString]) -> ExitCode {
     let manifest = text(args, 0);
     let outcome = (|| -> Result<i32> {
         let identity = read_manifest(&manifest)?;
-        let exit = crate::recovery::run_child(&identity, &Host::posix())?;
+        let exit = crate::recovery::run_child(&identity, &Host::native())?;
         Ok(exit.unwrap_or(1))
     })();
     match outcome {
@@ -53,7 +53,7 @@ pub fn controller(args: &[OsString]) -> ExitCode {
     let manifest = text(args, 0);
     let outcome = (|| -> Result<String> {
         let identity = read_manifest(&manifest)?;
-        let host = Host::posix();
+        let host = Host::native();
         let root = record::get_name(&identity, "cwd").unwrap_or_default();
         let selected = std::cell::RefCell::new(None);
         let backend = |submission: &edn::Value| -> Result<Herdr> {
@@ -86,7 +86,7 @@ pub fn controller(args: &[OsString]) -> ExitCode {
 /// `companion-worker <request.edn>`: one isolated helper per project.
 pub fn worker(args: &[OsString]) -> ExitCode {
     let request = text(args, 0);
-    let host = Host::posix();
+    let host = Host::native();
     let attach = (host.variable)("UML_COMPANION_NO_ATTACH").as_deref() != Some("1");
     match crate::worker::run(&request, attach, &host) {
         Ok(code) => ExitCode::from(u8::try_from(code.clamp(0, 255)).unwrap_or(1)),
@@ -111,7 +111,7 @@ pub fn smoke(args: &[OsString]) -> ExitCode {
         if root.is_empty() || fake.is_empty() {
             return Err(Failure::new("usage: companion-smoke <root> <fake-cmd>"));
         }
-        let host = Host::posix();
+        let host = Host::native();
         println!("SMOKE STEP paths");
         let selected =
             crate::preflight::select(&root, &["--backend".to_owned(), "herdr".to_owned()], false)?;

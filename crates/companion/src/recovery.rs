@@ -801,7 +801,7 @@ mod tests {
                 :runner-token "gen" :runner-state "{runner_state}"}}"#
         ))
         .unwrap();
-        let exit = run_child(&identity, &Host::posix()).unwrap();
+        let exit = run_child(&identity, &Host::native()).unwrap();
         assert_eq!(Some(7), exit);
         let text = std::fs::read_to_string(&runner_state).unwrap();
         let state = edn::parse(&text).unwrap();
@@ -827,7 +827,7 @@ mod tests {
                 :command ["/bin/sh" "-c" "sleep 0.1; printf '%s\n%s' \"$UML_COMPANION_ROOT\" \"$(pwd -P)\" > \"$0\"" "{marker}"]}}"#
         ))
         .unwrap();
-        assert_eq!(Some(0), run_child(&identity, &Host::posix()).unwrap());
+        assert_eq!(Some(0), run_child(&identity, &Host::native()).unwrap());
         let real = directory.canonicalize().unwrap();
         assert_eq!(
             format!("{root}\n{}", real.display()),
@@ -849,7 +849,7 @@ mod tests {
                 :runner-state "{runner_state}"}}"#
         ))
         .unwrap();
-        let error = run_child(&identity, &Host::posix()).unwrap_err();
+        let error = run_child(&identity, &Host::native()).unwrap_err();
         assert_eq!("Runner generation already executing", error.message);
         posix::release(Some(held));
         let _ = std::fs::remove_dir_all(&directory);

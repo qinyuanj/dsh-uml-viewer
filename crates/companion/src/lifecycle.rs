@@ -622,7 +622,7 @@ mod tests {
         ));
         std::fs::create_dir_all(directory.join(".uml-viewer")).unwrap();
         let root = directory.to_string_lossy().into_owned();
-        let host = Host::posix();
+        let host = Host::native();
         assert!(load(&root, &host).unwrap().is_none());
         let cases = [
             format!(r#"{{:backend :unknown :cwd "{root}" :session "s" :pane "%1"}}"#),
@@ -750,7 +750,7 @@ mod tests {
         let root = directory.to_string_lossy().into_owned();
         let text = complete_claude_record(&root);
         std::fs::write(directory.join(".uml-viewer/companion.edn"), &text).unwrap();
-        let loaded = load(&root, &Host::posix()).unwrap().unwrap();
+        let loaded = load(&root, &Host::native()).unwrap().unwrap();
         assert_eq!(
             crate::agent::SessionIdentity {
                 agent: CodingAgent::Claude,
@@ -781,7 +781,7 @@ mod tests {
         );
         crate::preflight::fixtures::codex(&bin, "codex", codex, 0);
         let path = format!("{}:/definitely/empty", bin.display());
-        let mut host = Host::posix();
+        let mut host = Host::native();
         host.variable = std::rc::Rc::new(move |name: &str| (name == "PATH").then(|| path.clone()));
         let root = directory.to_string_lossy().into_owned();
         (directory, root, host)

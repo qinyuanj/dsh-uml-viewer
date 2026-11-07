@@ -157,7 +157,7 @@ pub fn agent_status_name(root: &str, agent: Option<CodingAgent>) -> &'static str
 
 /// The viewer-side start: write the request, then spawn the helper natively.
 pub fn start(root: &str, restart: bool, agent: Option<CodingAgent>) -> Result<Worker> {
-    let host = Host::posix();
+    let host = Host::native();
     let token = (host.token)();
     let base = format!("{root}/.uml-viewer/companion-worker-{token}");
     let owner = identity(&host, posix::current_pid())
@@ -997,7 +997,7 @@ mod tests {
     }
 
     fn listing(state: &Path) -> Vec<String> {
-        let mut names = (Host::posix().list)(state);
+        let mut names = (Host::native().list)(state);
         names.sort();
         names
     }
@@ -1008,7 +1008,7 @@ mod tests {
         let state = directory.join(".uml-viewer");
         let mut kept: Vec<String> = stale_files(&state).into_iter().map(str::to_owned).collect();
         kept.sort();
-        reclaim_stale(&Host::posix(), &directory.to_string_lossy());
+        reclaim_stale(&Host::native(), &directory.to_string_lossy());
         assert_eq!(kept, listing(&state));
         // The probe released the lock, so the new helper can take it.
         let lock = posix::acquire_within(&state.join("companion-worker.lock"), 5000);
@@ -1026,7 +1026,7 @@ mod tests {
         let held = posix::try_acquire(&state.join("companion-worker.lock"))
             .unwrap()
             .expect("lock");
-        reclaim_stale(&Host::posix(), &directory.to_string_lossy());
+        reclaim_stale(&Host::native(), &directory.to_string_lossy());
         assert_eq!(before, listing(&state));
         posix::release(Some(held));
         let _ = std::fs::remove_dir_all(&directory);
@@ -1036,7 +1036,7 @@ mod tests {
     fn reclaim_without_a_state_directory_is_a_no_op() {
         let directory = state_dir("reclaim none");
         std::fs::remove_dir_all(&directory).unwrap();
-        reclaim_stale(&Host::posix(), &directory.to_string_lossy());
+        reclaim_stale(&Host::native(), &directory.to_string_lossy());
         assert!(!directory.exists());
     }
 
@@ -1174,7 +1174,7 @@ mod tests {
         ));
         std::fs::create_dir_all(&directory).unwrap();
         let path = directory.join("event-1.edn");
-        let host = Host::posix();
+        let host = Host::native();
         write(&host, &path, &event("generation", "ready")).unwrap();
         assert!(!directory.join("event-1.edn.tmp").exists());
         assert_eq!(
@@ -1188,7 +1188,7 @@ mod tests {
     fn session_in(directory: &Path) -> Rc<RefCell<Session>> {
         let base = format!("{}/journal", directory.display());
         Rc::new(RefCell::new(Session {
-            host: Host::posix(),
+            host: Host::native(),
             base,
             token: "generation".to_owned(),
             sequence: 0,
@@ -1197,7 +1197,7 @@ mod tests {
             keep: false,
             pending: Vec::new(),
             viewer_pid: posix::current_pid(),
-            viewer_start: identity(&Host::posix(), posix::current_pid())
+            viewer_start: identity(&Host::native(), posix::current_pid())
                 .expect("viewer identity")
                 .start,
         }))
@@ -1213,7 +1213,7 @@ mod tests {
                     .strip_suffix(".edn")?
                     .parse()
                     .ok()?;
-                let value = read(&Host::posix(), &directory.join(&name))?;
+                let value = read(&Host::native(), &directory.join(&name))?;
                 Some((index, record::get_name(&value, "phase")?))
             })
             .collect();
@@ -1234,7 +1234,7 @@ mod tests {
         // The command arrives while the workspace boundary is still being
         // created; it must land before the next stage runs.
         write(
-            &Host::posix(),
+            &Host::native(),
             &directory.join("journal.command-1.edn"),
             &edn::record::record(vec![
                 ("token", Value::String("generation".to_owned())),
@@ -1268,7 +1268,7 @@ mod tests {
         std::fs::create_dir_all(&directory).unwrap();
         let session = session_in(&directory);
         write(
-            &Host::posix(),
+            &Host::native(),
             &directory.join("journal.command-1.edn"),
             &edn::record::record(vec![
                 ("token", Value::String("generation".to_owned())),
@@ -1301,7 +1301,7 @@ mod tests {
             crate::preflight::fixtures::CODEX_CURRENT,
         );
         let path = format!("{}:/definitely/empty", bin.display());
-        let mut host = Host::posix();
+        let mut host = Host::native();
         host.variable = Rc::new(move |name: &str| (name == "PATH").then(|| path.clone()));
         for (generation, provider, expected) in [
             (
@@ -1373,7 +1373,7 @@ mod tests {
         let root = directory.to_string_lossy().into_owned();
         let request_path = format!("{root}/.uml-viewer/companion-worker-gen.request.edn");
         write(
-            &Host::posix(),
+            &Host::native(),
             Path::new(&request_path),
             &edn::record::record(vec![
                 ("token", Value::String("gen".to_owned())),
@@ -1398,10 +1398,10 @@ mod tests {
         )))
         .unwrap()
         .expect("lock");
-        let code = run(&request_path, false, &Host::posix()).unwrap();
+        let code = run(&request_path, false, &Host::native()).unwrap();
         assert_eq!(1, code);
         let event_path = format!("{root}/.uml-viewer/companion-worker-gen.event-1.edn");
-        let event = read(&Host::posix(), Path::new(&event_path)).unwrap();
+        let event = read(&Host::native(), Path::new(&event_path)).unwrap();
         assert_eq!(Some("failed".to_owned()), record::get_name(&event, "phase"));
         assert!(
             record::get_name(&event, "message")

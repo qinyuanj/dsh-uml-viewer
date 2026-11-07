@@ -12,6 +12,9 @@ pub(crate) mod json;
 pub(crate) mod lifecycle;
 pub mod mailbox;
 pub(crate) mod ownership;
+/// The OS boundary: `posix.rs` on Linux and macOS, `windows.rs` on
+/// Windows (ADR 0010). Both expose the same free functions.
+#[cfg_attr(windows, path = "windows.rs")]
 pub(crate) mod posix;
 pub(crate) mod preflight;
 pub(crate) mod prompt;

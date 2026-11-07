@@ -60,7 +60,7 @@ mod tests {
             std::process::id(),
             crate::posix::monotonic_ms()
         ));
-        let host = Host::posix();
+        let host = Host::native();
         let root = directory.to_string_lossy().into_owned();
         assert_eq!(None, read(&root).unwrap());
         let record = edn::parse(r#"{:backend :herdr :session "uml-viewer-A"}"#).unwrap();

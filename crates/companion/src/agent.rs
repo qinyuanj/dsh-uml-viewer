@@ -122,11 +122,37 @@ pub(crate) fn unknown_provider() -> Failure {
     Failure::new("Companion ownership names an unknown coding-agent provider; retained")
 }
 
+#[cfg(unix)]
 fn executable_file(candidate: &str) -> bool {
     std::fs::metadata(candidate).is_ok_and(|metadata| {
         metadata.is_file()
             && std::os::unix::fs::PermissionsExt::mode(&metadata.permissions()) & 0o111 != 0
     })
+}
+
+/// Windows has no execute bit: a file is executable when its extension is
+/// one of `PATHEXT` (compared case-insensitively).
+#[cfg(windows)]
+fn executable_file(candidate: &str) -> bool {
+    let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_owned());
+    executable_with(candidate, &pathext)
+}
+
+#[cfg(windows)]
+fn executable_with(candidate: &str, pathext: &str) -> bool {
+    let path = std::path::Path::new(candidate);
+    let Some(extension) = path
+        .extension()
+        .map(|extension| extension.to_string_lossy())
+    else {
+        return false;
+    };
+    path.is_file()
+        && pathext.split(';').any(|listed| {
+            listed
+                .strip_prefix('.')
+                .is_some_and(|listed| listed.eq_ignore_ascii_case(&extension))
+        })
 }
 
 /// RFC 4122 text form, any version: Codex reports UUIDv7 session ids.
@@ -387,6 +413,28 @@ fn toml_basic_string(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_executable_is_a_file_with_a_pathext_extension() {
+        let directory = std::env::temp_dir().join(format!("uml-agent-exe-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let file = |name: &str| {
+            let path = directory.join(name);
+            std::fs::write(&path, "").unwrap();
+            path.to_string_lossy().into_owned()
+        };
+        let (exe, cmd, plain) = (file("codex.EXE"), file("codex.cmd"), file("codex"));
+        let pathext = ".COM;.exe";
+        let verdicts = [
+            executable_with(&exe, pathext),
+            executable_with(&cmd, pathext),
+            executable_with(&plain, pathext),
+            executable_with(&directory.to_string_lossy(), ".COM;.EXE;."),
+        ];
+        let _ = std::fs::remove_dir_all(&directory);
+        assert_eq!([true, false, false, false], verdicts);
+    }
 
     /// FNV-1a over the bytes: a stable fingerprint of the prompt text the
     /// Claude argv carried before the provider model existed.
