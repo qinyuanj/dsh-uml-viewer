@@ -398,37 +398,13 @@ fn config_accepted(herdr: &str, path: &str) -> bool {
     check.exit == Some(0) && !check.timeout
 }
 
-/// Windows has no `env`: the variable is set on the child itself, without a
-/// console window, and a check that outlives 10 s counts as a refusal.
+/// Windows has no `env`: carry the override on the contained child. The
+/// platform boundary owns the deadline and cleanup of the whole process tree.
 #[cfg(windows)]
 fn config_accepted(herdr: &str, path: &str) -> bool {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let Ok(mut child) = std::process::Command::new(herdr)
-        .args(["config", "check"])
-        .env("HERDR_CONFIG_PATH", path)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn()
-    else {
-        return false;
-    };
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
-            Ok(None) if std::time::Instant::now() < deadline => {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
-            }
-        }
-    }
+    let argv = [herdr, "config", "check"].map(std::ffi::OsString::from);
+    let check = posix::run_with_env(&argv, Some(10000), &[], &[("HERDR_CONFIG_PATH", path)]);
+    check.exit == Some(0) && !check.timeout
 }
 
 /// The cmd.exe line a native Windows Terminal tab runs, and whether it can
@@ -472,9 +448,21 @@ fn windows_terminal_argv(terminal: &str, session: &str, line: &str) -> Vec<Strin
     .to_vec()
 }
 
+fn windows_attach_environment(
+    var: &dyn Fn(&str) -> Option<String>,
+    config: Option<&str>,
+    herdr: &str,
+    session: &str,
+) -> (String, bool) {
+    // Terminal tabs inherit Terminal's environment, which can have a stale
+    // XDG value or a different APPDATA. Carry the server's resolved root.
+    let config_root = SocketLayout::Windows.config_root(var);
+    windows_attach(Some(&config_root), config, herdr, session)
+}
+
 fn open_windows_terminal(session: &str, herdr: &str, config: Option<&str>) -> Opened {
-    let config_root = std::env::var("XDG_CONFIG_HOME").ok();
-    let (line, openable) = windows_attach(config_root.as_deref(), config, herdr, session);
+    let (line, openable) =
+        windows_attach_environment(&|name| std::env::var(name).ok(), config, herdr, session);
     let terminal = if openable { on_path("wt.exe") } else { None };
     let Some(terminal) = terminal else {
         return Opened {
@@ -620,6 +608,85 @@ fn apple_script_text(text: &str) -> String {
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
+    #[test]
+    fn a_config_check_timeout_reaps_its_grandchild_and_keeps_a_bystander() {
+        let directory =
+            std::env::temp_dir().join(format!("uml config check 空格 {}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let source = directory.join("check.rs");
+        let executable = directory.join("herdr.exe");
+        std::fs::write(
+            &source,
+            r#"
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args == ["grandchild"] {
+        std::thread::sleep(std::time::Duration::from_secs(30));
+        return;
+    }
+    assert_eq!(args, ["config", "check"]);
+    let path = std::env::var("HERDR_CONFIG_PATH").unwrap();
+    let mode = std::fs::read_to_string(&path).unwrap();
+    if mode == "accept" { return; }
+    if mode == "refuse" { std::process::exit(2); }
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .arg("grandchild").spawn().unwrap();
+    std::fs::write(format!("{path}.pid"), child.id().to_string()).unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(30));
+}
+"#,
+        )
+        .unwrap();
+        let built = std::process::Command::new("rustc")
+            .args(["--crate-name", "config_check_fixture", "-o"])
+            .arg(&executable)
+            .arg(&source)
+            .status()
+            .unwrap();
+        assert!(built.success());
+        let config = directory.join("attach 丁 & config.toml");
+        let herdr = executable.to_str().unwrap();
+        let path = config.to_str().unwrap();
+        for (mode, accepted) in [("accept", true), ("refuse", false)] {
+            std::fs::write(&config, mode).unwrap();
+            assert_eq!(accepted, config_accepted(herdr, path));
+        }
+        let mut bystander = std::process::Command::new(&executable)
+            .arg("grandchild")
+            .spawn()
+            .unwrap();
+        std::fs::write(&config, "hang").unwrap();
+        let started = std::time::Instant::now();
+        let accepted = config_accepted(herdr, path);
+        let elapsed = started.elapsed();
+        let pid: i32 = std::fs::read_to_string(format!("{path}.pid"))
+            .unwrap()
+            .parse()
+            .unwrap();
+        let deadline = posix::monotonic_ms() + 2000;
+        while posix::identity(pid).unwrap().is_some() && posix::monotonic_ms() < deadline {
+            posix::sleep(20);
+        }
+        let survived = posix::identity(pid).unwrap().is_some();
+        let bystander_alive = bystander.try_wait().unwrap().is_none();
+        bystander.kill().unwrap();
+        bystander.wait().unwrap();
+        if survived {
+            // Clean up only the fixture child on the red run.
+            let _ = std::process::Command::new("taskkill.exe")
+                .args(["/F", "/PID", &pid.to_string()])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+        }
+        let _ = std::fs::remove_dir_all(&directory);
+        assert!(!accepted);
+        assert!(elapsed < std::time::Duration::from_secs(15), "{elapsed:?}");
+        assert!(bystander_alive, "bystander was touched");
+        assert!(!survived, "config-check grandchild survived its deadline");
+    }
+
     #[test]
     fn apple_script_text_escapes_quotes_and_backslashes_only() {
         assert_eq!(
@@ -749,6 +816,36 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.message.contains("243-byte"), "{}", error.message);
+    }
+
+    #[test]
+    fn a_windows_tab_overrides_stale_terminal_roots_with_the_callers_resolved_root() {
+        for xdg in [None, Some(""), Some("D:\\caller xdg")] {
+            let var = |name: &str| match name {
+                "XDG_CONFIG_HOME" => xdg.map(str::to_owned),
+                "APPDATA" => Some("C:\\custom roaming".to_owned()),
+                _ => None,
+            };
+            let (line, openable) = windows_attach_environment(&var, None, "C:\\herdr.exe", "s");
+            let root = if xdg == Some("D:\\caller xdg") {
+                "D:\\caller xdg"
+            } else {
+                "C:\\custom roaming"
+            };
+            assert_eq!(
+                format!("set \"XDG_CONFIG_HOME={root}\"&& \"C:\\herdr.exe\" session attach s"),
+                line
+            );
+            assert!(openable);
+            // Even a Terminal carrying XDG_CONFIG_HOME=D:\\stale will execute
+            // the caller's assignment before Herdr resolves the session socket.
+            assert!(
+                windows_terminal_argv("wt.exe", "s", &line)
+                    .last()
+                    .unwrap()
+                    .starts_with("set \"XDG_CONFIG_HOME=")
+            );
+        }
     }
 
     #[test]

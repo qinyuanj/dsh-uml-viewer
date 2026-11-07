@@ -298,6 +298,17 @@ fn failed_run(err: String) -> RunOut {
 /// A timeout asks the child's process group to stop (CTRL_BREAK), waits the
 /// grace period, then terminates this call's job and nothing else.
 pub fn run(argv: &[OsString], timeout_ms: Option<i64>, env_remove: &[&str]) -> RunOut {
+    run_with_env(argv, timeout_ms, env_remove, &[])
+}
+
+/// The same contained run, with explicit child-only environment overrides.
+/// Names are replaced case-insensitively by `with_environment`.
+pub fn run_with_env(
+    argv: &[OsString],
+    timeout_ms: Option<i64>,
+    env_remove: &[&str],
+    env_set: &[(&str, &str)],
+) -> RunOut {
     let timeout_ms = timeout_ms.unwrap_or(RUN_TIMEOUT_MS);
     let Some((program, args)) = argv.split_first() else {
         return failed_run("run requires a nonempty argv".to_owned());
@@ -327,7 +338,7 @@ pub fn run(argv: &[OsString], timeout_ms: Option<i64>, env_remove: &[&str]) -> R
         .stdout(out_file)
         .stderr(err_file)
         .creation_flags(flags);
-    with_environment(&mut command, env_remove, &[]);
+    with_environment(&mut command, env_remove, env_set);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
