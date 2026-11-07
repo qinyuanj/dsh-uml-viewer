@@ -1,11 +1,11 @@
 # Herdr SessionBackend 契约 — spec #13 / issue #14 产出
 
-本文档记录 Herdr 的能力证据和生命周期契约。**平台以 ADR 0007 为准：交付目标为
-WSL2 + Ubuntu 24.04 + WSLg 与 macOS；Windows 原生不受支持。**
+本文档记录 Herdr 的能力证据和生命周期契约。**平台以 ADR 0007 / ADR 0010 为准：交付目标为
+WSL2 + Ubuntu 24.04 + WSLg、macOS 与原生 Windows 10 22H2（build 19045）及以上。**
 文中 Java/JVM 与旧 Windows/macOS 验收记录是历史证据，不代表当前实现。当前实现是
 `crates/companion` 的 Rust runner/controller（#144 删除了 LOVE/Lua 实现），进程创建、
-等待、身份与 OS 单例 lock 由 POSIX adapter 提供（平台能力表见 ADR 0007；Windows 专用实现
-在 spec #106 退役），ownership、预算、FIFO 与质量门控契约保持不变。当前身份文件与重启规则
+等待、身份与 OS 单例 lock 由编译目标一次选定的 POSIX / Windows adapter 提供；
+ownership、预算、FIFO 与质量门控契约保持不变。当前身份文件与重启规则
 见 §9.1。#23 退役后 Herdr 是唯一 companion 后端；`--backend herdr` 保留为兼容选项。
 
 WSL 原生证据：Herdr 0.9.5 / protocol 22 下的完整生命周期（preflight、隔离 server、
@@ -21,6 +21,34 @@ workspace/pane、runner、恢复注册、验证清理）与公共入口端到端
   protocol 22，Darwin 27.0.0 arm64，acceptance-evidence/acceptance-log.md）
 - 历史 checkpoint：Windows #14（2026-10-10，0.9.3）与 macOS #14（同日同版本）
 
+### 原生 Windows Rust 验收（#201 / UV-5，2026-11-07）
+
+Windows 11 build 26220、Herdr 0.9.5 / protocol 22、Windows PowerShell 5.1 panes、
+Windows Terminal。`scripts/test_windows_e2e.py` 经 `uml.cmd` 验证 fresh ready、
+FILETIME ownership、FIFO、`:quit-for-restart` + `--restart` 的路径/context/view/cursor
+恢复、1/2/4 秒最多三次异常恢复、正常退出不恢复、退避中 WM_CLOSE 取消、另一项目与用户
+session inventory 不变，以及每次正常关闭后 ownership 清空、session 删除、child 消失。
+WM_CLOSE 只投递给带 viewer 标题的顶层窗口；Win32 把 winit 的空标题
+“Winit Thread Event Target” 也报告为 visible，向它发 close 会破坏事件投递。
+
+`--quality-project <已安装的空白 scratch 目录>` 增加一个确定性 fixture companion：
+消费真实 to-agent FIFO，依次通过已安装的 `uml.cmd crap`、`dry`、`mutate src/a.py`，
+核对新 version-1 结果和实际退出码后才 IR/display。三个真实工具都在本机离线安装并退出 0，
+mutator#27 已合入。该 fixture 验证 native runner/公共 dispatch/result gate/IR/viewer
+接缝；不把它当作真实模型遵循提示或 TUI wake 的证据。安装使用 UV-4 离线配方：本地
+仓库、Sarasa file URL、PIP_NO_INDEX 与预备 wheelhouse。普通用户不需要这组测试变量。
+
+额外实测：生产 `open_window` 打开该 isolated session 的 Windows Terminal 新窗口，
+`status client` 返回同一 session，关闭后 tab 清理；独立 env probe 验证含空格和 `&` 的
+XDG root 正确传入 tab。缺失/低版本/错 protocol 的拒绝通过公共入口 fixtures 验证。
+Rust workspace：Windows 809 tests、WSL 794 tests（均 0 failed/ignored）；Windows 公共
+entry 77、Windows 专用 entry 18、restart entry 8。WSL 三个 POSIX e2e 脚本也通过。
+
+测试宿主特例：本机工作区继承 Low Mandatory Level，生成的 exe 会以 Low integrity
+启动子进程，导致 Herdr AF_UNIX 初始化报 1314。真实窗口验收前将测试 binary 的完整性
+标签恢复 Medium（`icacls target\\release\\uml-viewer.exe /setintegritylevel M`）。这只修正
+该宿主的测试输出标签；产品没有为它绕过权限或改动用户配置。
+
 ## 1. 版本预检契约
 
 **接受 Herdr >= 0.9.3 且 socket protocol 22；当前实现有端到端证据的版本是
@@ -31,7 +59,8 @@ checkpoint。**
 - wrapper 与 JVM 共用只读预检，创建 detached Viewer、终端或 companion 前执行
   `herdr --version`（必须为纯数字 `herdr X.Y.Z` 且 >= 0.9.3；预发布或带后缀
   版本拒绝）及 `herdr api schema --json`
-  （bundled schema 的顶层 `protocol` 必须为 22），且平台为 WSL/Linux。
+  （bundled schema 的顶层 `protocol` 必须为 22），且平台通过 ADR 0010 门槛。
+  Windows PATH 用 `;` 分隔，按 PATHEXT 顺序只找 `.com` / `.exe`；POSIX 用 `:` 找原名。
   PATH 上每个 `herdr` 都逐一核对，选出 selected Herdr（兼容者中版本最高，
   同版本取 PATH 靠前者），本次启动的所有 Herdr 调用都用其绝对路径
   （见 [ADR 0004](adr/0004-herdr-executable-selection.md)）。
@@ -70,7 +99,7 @@ checkpoint。**
 - fresh 默认 Herdr；`--backend herdr` 兼容，tmux/psmux 明确拒绝。
   restart、wake、close 必须具有显式 `:backend :herdr` ownership，身份核实后
   才操作；legacy、无 backend、未知或不完整记录保留并拒绝接管。
-  WSL/Linux 可启动；Windows 原生在创建资源前拒绝（ADR 0007），
+  WSL/Linux、macOS 与通过 build 19045 门槛的原生 Windows 可启动（ADR 0010），
   旧 tmux 路径已退役。
   Herdr 创建项目独占的命名 server；预检本身仍不创建任何资源。
 
@@ -119,11 +148,19 @@ Herdr 的 pane ID 是 **session 局部** 的：两个命名 session 各自都有
   snapshot 中存在该 workspace/pane、`pane process-info` 的 shell_pid 与
   cwd 匹配、owner-start 一致。任一不符或含糊：失败并给诊断，不创建
   替代会话、不关闭猜测目标。
-- POSIX owner-start 取 `/proc/<pid>/stat` 的 starttime（Linux/WSL）。
-  Windows 的进程创建时间方案随原生支持退役。
-- session 名必须让 socket 路径落在实测上限内：Herdr 0.9.5 下 101 字节可用，
-  102 字节起 `workspace create` 失败并只报 closed-channel。生成长度按
-  `XDG_CONFIG_HOME` 实算，装不下时以真实原因拒绝（ADR 0007）。
+- POSIX owner-start 取 `/proc/<pid>/stat` 的 starttime（Linux/WSL）；macOS 用
+  `proc_pidinfo` 微秒文本。Windows 用 `GetProcessTimes` 创建 FILETIME 的十进制 u64
+  文本（100 ns，自 1601 起），Rust companion、viewer 与 Python wrapper 同一口径。
+  全部是不透明文本，只做精确相等比较，已退出进程视为不存在。
+- Windows Herdr 0.9.5 仍用 AF_UNIX socket 文件，不是 named pipe：
+  `<config root>\\herdr\\sessions\\<name>\\herdr.sock`。配置根先取非空 `XDG_CONFIG_HOME`，
+  Windows 否则取 `%APPDATA%`，POSIX 否则取 `$HOME/.config`。
+- session 名必须让 socket 路径落在实测上限内。Herdr 0.9.5：POSIX 101 字节可用，
+  102 字节起 `workspace create` 失败并只报 closed-channel；Windows build 26220 上
+  243 字节可建 workspace，244 起 closed-channel，251 起 server 无法启动。
+  生成长度按配置根与平台分隔符实算，装不下时在启动前以真实原因拒绝。
+- Windows canonical cwd 去掉 `\\?\` 前缀；Herdr 在 `workspace create` / `process-info`
+  给 cwd 加尾部 `\\`，snapshot 不加。核对目录时忽略尾部分隔符，根目录本身保留。
 - 双项目隔离已验证：A 的 workspace 关闭与 server 停止不影响 B。
   `cleanup!` 只作用于记录中的 session，绝不停共享/其他 session。
 
@@ -154,8 +191,12 @@ Herdr 的 pane ID 是 **session 局部** 的：两个命名 session 各自都有
 - `pane run` 的命令字符串**经 shell 解析**：裸 `$HOME` 会展开。字面 argv
   必须由项目桥接（对每个参数做 POSIX shell 引号转义后拼接）。已验证可
   字面保留：空格、单引号、反引号、`$`、`&`、`;`、Unicode/中文、空串、
-  尾部反斜杠。历史上 Windows 曾另行使用 PowerShell ArgumentList 桥，随
-  原生 Windows 支持一并退役（ADR 0007）。
+  尾部反斜杠。Windows 保留 Herdr 默认的 **Windows PowerShell 5.1 pane shell**，
+  不改用户 `default_shell`：以 `& 'exe' 'role' 'manifest'` 提交 runner，单引号加倍。
+  这是键入既有 pane 的 shell 文本，不是 PowerShell 安装/启动入口（ADR 0010）。
+  PowerShell 5.1 对原生命令的空参数、内嵌双引号与部分尾部反斜杠会重解析；桥接在
+  发送前拒绝这些参数。提交只包含 exe、role、manifest，真正 agent argv 写入 EDN
+  manifest 后由 runner 的 CreateProcessW 传递，因此 prompt、引号与换行不经过 pane shell。
 - 退出码不由 Herdr 上报，桥接器负责显式捕获（`echo EXIT=$?` 模式或
   runner 写状态文件）。已验证 exit 37/0 均可捕获。
 - 终端可见 attach：`herdr session attach <name>` 打开原生 TUI；历史 macOS 证据
@@ -172,7 +213,11 @@ Herdr 的 pane ID 是 **session 局部** 的：两个命名 session 各自都有
   `herdr config check` 时，不传这个变量，客户端照常读用户原配置。Windows
   Terminal 即使在引号内也按 `;` 拆分命令行，所以项目路径含 `;` 时新标签页
   不传这个变量（手动命令照传）。
-  原生 Windows 的 Windows Terminal 分支随原生支持退役（ADR 0007）。
+  原生 Windows 用 `wt.exe -w new new-tab --title <session> cmd.exe /d /s /c <line>`。
+  tab 不继承调用方环境，line 显式带 `set "XDG_CONFIG_HOME=…"&& set "HERDR_CONFIG_PATH=…"&& "<herdr.exe>" session attach <session>`。
+  原生 `herdr config check` 的配置变量直接设在子进程，不调用 `/usr/bin/env`。
+  wt 缺失/失败、配置根或 Herdr 路径含 cmd/WT 无法携带的 `%`、`"`、`;` 或控制字符时
+  只报告 attach 命令；仅 attach 配置路径含这些字符时省略该配置变量。
 - companion 的 EDN 邮箱联动不依赖 TUI：socket/CLI 控制与面板输入在
   无 TTY 下全部可用（已验证）。
 
@@ -225,12 +270,14 @@ attached.`）。
 #19 实现采用以下有界政策，而不是无限重启：
 
 - **runner**：pane 内启动项目拥有的 Rust runner（`uml-viewer companion-runner`）。
-  runner 用 `posix_spawn` 传精确 argv/cwd 并保留实际 Claude 子进程 handle；交互
+  runner 用 POSIX `posix_spawn` / Windows `CreateProcessW` 传精确 argv/cwd 并保留实际 child handle；交互
   stdin/stdout/stderr 继承 pane，状态文件原子替换记录唯一 generation token、实际
   child PID/start、退出码与时间。只接受可直接 exec 的命令：脚本 wrapper
   （`.ps1`/`.cmd`/`.bat`）会在创建资源前拒绝，因为无法证明实际 child 身份。runner
-  被杀死且没有匹配的最终 exit 记录时，原因未知，不恢复。上面描述的 Java runner
-  与 Windows 专属约束属历史记录。
+  被杀死且没有匹配的最终 exit 记录时，原因未知，不恢复。
+  Windows CODEX_BIN 可指向 npm 包里的原生 codex.exe，不能指向 codex.cmd / .ps1。
+  Herdr 0.9.5 的 Windows Codex integration v10 自己用 powershell -NoProfile
+  -ExecutionPolicy Bypass -File …\\herdr-agent-state.ps1 session hook，不要求 python3。
 - **controller**（历史为 JVM `FileChannel`，现由 `adapters/lock` 的 `flock` 承担）：项目独占 detached controller，经 OS 单例 lock 注册
   UUID/PID/start。Viewer 只持久化 immutable supervisor 引用；mutable phase、
   generation、child、budget、deadline、diagnostic 位于单独 `recovery.edn`，
@@ -247,7 +294,8 @@ attached.`）。
   generation。提交 ack 不确定时不得重复提交；runner generation lock 阻止
   重复 child。恢复命令显式 `--resume <原始 Claude session id>`，提示只消费
   FIFO 并返回 display，不重新扫描或发明 proposal。
-- **终端复位**：提交 runner 前先在 pane 内 `pane run` 一条 `printf`，关闭鼠标上报、
+- **终端复位**：提交 runner 前先在 pane 内 `pane run` 一条 POSIX `printf`，Windows
+  PowerShell 则用 `[Console]::Write(('…{0}…' -f [char]27))` 写同一 ESC 序列，关闭鼠标上报、
   备用屏、bracketed paste、弹出 kitty 键盘标志并显示光标，再发 `ctrl+c` 清空输入行。
   `pane run` 是把文本键入 shell，所以 ESC 必须写成 printf 自己展开的 `\033`：原始
   ESC 字节被行编辑器当按键吞掉，模式不复位。#199 实测 SIGTERM 的 Codex 留下 kitty
@@ -265,6 +313,9 @@ attached.`）。
   必须确认取消且退出后才销毁 workspace/server。close 阶段在每次破坏性
   操作之前落盘，可核对并续接已关闭 workspace、已停止 server 与已删除 session；
   身份变化或含糊时失败，不影响其他项目或共享 Herdr 服务。
+  Windows 的正常关闭向 viewer 顶层窗口投递 WM_CLOSE，winit CloseRequested 先取消
+  recovery、等待 helper 清理后退出 0。detached viewer 没有 console；共享 console
+  的进程仍支持 CTRL_C / CTRL_BREAK。
 
 Windows 已记录真实 Claude 异常恢复、namespace JVM 重启与身份连续性等部分
 原生结果，详见 `windows-herdr-21-acceptance.md`（历史）。WSL 上由
@@ -415,8 +466,8 @@ Herdr 是唯一后端；tmux/psmux adapter、pane 恢复 hook 和旧终端桥接
 
 ### 9.1 运行时身份文件与 `--restart`
 
-Rust viewer 经 POSIX 进程 adapter 读取自身 PID 与 `/proc/<pid>/stat` 的
-starttime（第 22 字段），在启动成功后写入
+Rust viewer 经平台 adapter 读取自身 PID 与创建身份（Linux/WSL `/proc/<pid>/stat`
+第 22 字段、macOS proc_pidinfo 微秒、Windows GetProcessTimes FILETIME），在启动成功后写入
 `.uml-viewer/viewer-process-identity.json`：
 
 ```json
@@ -424,8 +475,8 @@ starttime（第 22 字段），在启动成功后写入
 ```
 
 - `started` 是不透明十进制文本，restart wrapper（`scripts/uml_launch.py`）只做
-  精确相等比较，不解释、不设时间窗容差（ADR 0007）。Windows FILETIME 表示随
-  spec #106 退役，不再写出或接受。
+  精确相等比较，不解释、不设时间窗容差（ADR 0007 / ADR 0010）。Windows 写入
+  十进制 FILETIME u64 文本，wrapper 与 Rust 以相同口径核对，不接受旧 JVM 截断时间。
 - #72 切换后 JVM 实现已删除；#144 切换后 LOVE/Lua 实现也已删除：wrapper
   **不再识别** `.uml-viewer/viewer-jvm.json`，并拒绝 `runtime` 为 `love` 或
   `jvm` 的旧记录。`--restart` 只验证 `rust` 记录。

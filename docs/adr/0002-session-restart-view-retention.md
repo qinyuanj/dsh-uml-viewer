@@ -15,3 +15,11 @@ session 恢复契约采用显式路径、保存路径、旧会话 policy 输出�
 同图 `:display` 以 canonical file 身份比较路径，重新读取 IR 和质量快照，恢复 focus、camera、zoom、proposal、open layer、declutter 以及仍然有效的 selection/detail card。相对路径按 project root 解析，当前加载路径按其原始文件位置比较。focus 消失时退到最近有效的 namespace 祖先；proposal 消失时回 namespace tree；open layer 消失时回该 proposal 根；失效 selection/card 清除，不创造 proposal。不同图加载采用新图根视图。discussion context 独立于浏览视图，直到后续 `:context` mail 才改变。mtime/metrics reload 与 FIFO mail 契约保持不变。
 
 companion 提示需写明质量命令失败停止后续 IR/展示，以及项目声明的 mutation 退出 3 为有效结果。
+
+增补（2026-11-07，#201 / UV-5，ADR 0010）：原生 Windows 的当前 Rust/Python
+实现用 GetProcessTimes 创建 FILETIME 的十进制 u64 文本，Rust companion、viewer
+与 Python wrapper 完全一致；只做精确相等比较，已退出进程视为不存在。
+这不是恢复旧 JVM/.NET 的截断/时间容差规则。公共入口为 uml.cmd，正常关闭为
+WM_CLOSE；:quit-for-restart 继续保留 companion，--restart 核对原身份后复用它，
+恢复保存路径、discussion context、camera/zoom/focus 与 mail-seen。原生 Herdr
+pane shell、socket 与 Windows Terminal 细节见 herdr-backend-contract.md §2/§4/§6。

@@ -86,3 +86,17 @@ The LOVE-specific wording in the capability table is historical; the literal-arg
 spawn, explicit envp, `flock`, `rename`, `statx`, `/proc` starttime identity and
 Herdr socket-length rules are unchanged, and the platform check is implemented in
 Rust. LOVE/Lua and cimgui are no longer installed or required.
+
+Addendum (2026-11-07, #201 / UV-5 under ADR 0010): native Windows is a delivery
+platform from Windows 10 22H2 (build 19045), alongside WSL2/WSLg and macOS. The
+historical “Windows native refused” entries above are superseded. The companion
+chooses its Windows boundary at compile time: FILETIME identity, LockFileEx,
+CreateProcessW and explicit environments. Native Herdr 0.9.5 uses an AF_UNIX socket
+file under XDG_CONFIG_HOME, else APPDATA; the measured usable path budget is 243
+bytes on build 26220 (244 fails at workspace create), while POSIX keeps 101.
+PowerShell 5.1 remains Herdr's pane shell, with a literal runner submission and
+Console.Write terminal reset; no PowerShell entry script is reintroduced.
+Windows Terminal receives XDG_CONFIG_HOME and HERDR_CONFIG_PATH on its command
+line because a new tab uses the terminal's own environment. Missing/failed attach
+still only reports the command. The ownership, FIFO, identity verification and
+1/2/4-second, at-most-three-retry policy remain common to all platforms.
