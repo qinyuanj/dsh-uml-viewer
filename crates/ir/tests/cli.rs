@@ -73,22 +73,96 @@ fn duplicate_output_options_are_refused() {
     );
 }
 
+fn assert_source_link_refused(dir: &Path) {
+    std::fs::write(
+        dir.join("policy.edn"),
+        "{:lang :lua :src \"src\" :prefix \"app\"}",
+    )
+    .unwrap();
+    let code = run_in(dir, &["policy.edn", "result.edn"]);
+    assert_eq!(ExitCode::from(1), code);
+    assert!(!dir.join("result.edn").exists());
+}
+
+#[cfg(unix)]
 #[test]
 fn source_symlinks_are_refused() {
     let dir = tempdir("symlink");
     std::fs::create_dir_all(dir.join("src")).unwrap();
     std::fs::write(dir.join("src/a.lua"), "return {}\n").unwrap();
     std::os::unix::fs::symlink(dir.join("src"), dir.join("src/cycle")).unwrap();
+    assert_source_link_refused(&dir);
+}
+
+/// A directory junction is Windows' unprivileged directory link (symlinks
+/// need Developer Mode), so it is the link a Windows source tree really has.
+#[cfg(windows)]
+fn junction(link: &Path, target: &Path) {
+    let status = std::process::Command::new("cmd")
+        .args(["/d", "/c", "mklink", "/J"])
+        .arg(link)
+        .arg(target)
+        .stdout(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success(), "mklink /J failed");
+}
+
+#[cfg(windows)]
+#[test]
+fn source_junctions_are_refused() {
+    let dir = tempdir("junction");
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(dir.join("src/a.lua"), "return {}\n").unwrap();
+    junction(&dir.join("src").join("cycle"), &dir.join("src"));
+    assert_source_link_refused(&dir);
+}
+
+#[cfg(windows)]
+#[test]
+fn a_junction_to_a_file_tree_outside_the_root_is_refused() {
+    let outside = tempdir("junction-outside");
+    std::fs::write(outside.join("b.lua"), "return {}\n").unwrap();
+    let dir = tempdir("junction-out");
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(dir.join("src/a.lua"), "return {}\n").unwrap();
+    junction(&dir.join("src").join("elsewhere"), &outside);
+    assert_source_link_refused(&dir);
+}
+
+#[cfg(windows)]
+#[test]
+fn a_windows_root_yields_slash_separated_relative_files() {
+    // The root arrives as a native `C:\…` path; IR text must carry only
+    // project-relative `/` paths: no drive letter, backslash or `\\?\`.
+    let dir = tempdir("native-root");
+    std::fs::create_dir_all(dir.join("src").join("pkg")).unwrap();
+    std::fs::write(
+        dir.join("src").join("pkg").join("mod.lua"),
+        "local M = {}\nreturn M\n",
+    )
+    .unwrap();
     std::fs::write(
         dir.join("policy.edn"),
         "{:lang :lua :src \"src\" :prefix \"app\"}",
     )
     .unwrap();
-    let code = run_in(&dir, &["policy.edn", "result.edn"]);
-    assert_eq!(ExitCode::from(1), code);
-    assert!(!dir.join("result.edn").exists());
+    let output = dir.join("result.edn");
+    let code = run_in(&dir, &["policy.edn", output.to_str().unwrap()]);
+    assert_eq!(ExitCode::SUCCESS, code);
+    let document = std::fs::read_to_string(&output).unwrap();
+    assert!(
+        document.contains(r#":file "src/pkg/mod.lua""#),
+        "{document}"
+    );
+    assert!(!document.contains('\\'), "{document}");
+    assert!(!document.contains("uml-ir-cli-native-root"), "{document}");
+    assert!(!document.contains('\r'), "{document}");
 }
 
+// A backslash is a separator in a Windows file name, so this name only
+// exists on POSIX file systems.
+#[cfg(unix)]
 #[test]
 fn a_backslash_in_a_posix_file_name_is_kept() {
     let dir = tempdir("backslash");

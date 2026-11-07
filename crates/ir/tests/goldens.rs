@@ -70,18 +70,126 @@ fn lua_fixture_matches_the_jvm_golden() {
     );
 }
 
+fn items(document: &edn::Value, key: &str) -> Vec<edn::Value> {
+    match document.get(&edn::Value::keyword(key)) {
+        Some(edn::Value::Vector(items)) => items.clone(),
+        other => panic!("{key}: {other:?}"),
+    }
+}
+
+fn touches(item: &edn::Value, ids: &[edn::Value]) -> bool {
+    ["id", "from", "to"]
+        .iter()
+        .any(|k| matches!(item.get(&edn::Value::keyword(k)), Some(v) if ids.contains(v)))
+}
+
+/// The document with `key` replaced by its items for which `keep` holds.
+fn filtered(document: &edn::Value, key: &str, keep: impl Fn(&edn::Value) -> bool) -> edn::Value {
+    let edn::Value::Map(entries) = document else {
+        panic!("not a map");
+    };
+    let kept: Vec<edn::Value> = items(document, key).into_iter().filter(keep).collect();
+    edn::Value::Map(
+        entries
+            .iter()
+            .map(|(k, v)| {
+                if *k == edn::Value::keyword(key) {
+                    (k.clone(), edn::Value::Vector(kept.clone()))
+                } else {
+                    (k.clone(), v.clone())
+                }
+            })
+            .collect(),
+    )
+}
+
 #[test]
 fn rust_fixture_matches_the_jvm_golden() {
+    // The JVM oracle predates the platform modules (#201 story 7) and also
+    // feeds the frozen scene geometry, so it stays untouched: the platform
+    // modules are taken out here and pinned literally below.
     let scratch = Scratch::new("rust");
     let output = &scratch.0;
     assert_eq!(
         generate("rust-fixture", output),
         std::process::ExitCode::SUCCESS
     );
+    let platform = [
+        edn::parse(":rust.console").unwrap(),
+        edn::parse(":rust.signals").unwrap(),
+    ];
+    // Past eight edges the IR keeps Clojure's hash-map order (see
+    // `clojure_group_by_order_holds_past_the_array_map_boundary`), so the two
+    // extra edges reorder the vector: edges compare as a multiset here, and
+    // `fixtures/ir-bytes/rust-fixture.edn` pins their exact order.
+    let document = parsed(output);
+    let golden = parsed(&repo().join("fixtures/jvm-goldens/rust.ir.edn"));
+    let edges: Vec<edn::Value> = items(&document, "edges")
+        .into_iter()
+        .filter(|e| !touches(e, &platform))
+        .collect();
+    assert_same_items(&items(&golden, "edges"), &edges);
+    let document = filtered(&document, "classes", |c| !touches(c, &platform));
+    let document = filtered(&document, "edges", |_| false);
+    let golden = filtered(&golden, "edges", |_| false);
+    assert_eq!(golden, document);
+}
+
+fn assert_same_items(want: &[edn::Value], got: &[edn::Value]) {
+    let mut rest = got.to_vec();
+    for item in want {
+        let at = rest
+            .iter()
+            .position(|g| g == item)
+            .unwrap_or_else(|| panic!("missing {item:?} in {got:?}"));
+        rest.remove(at);
+    }
+    assert!(rest.is_empty(), "unexpected {rest:?}");
+}
+
+#[test]
+fn rust_cfg_platform_modules_are_classes_on_every_host() {
+    // `#[cfg(windows)]` and `#[cfg(unix)]` modules are source, not build
+    // configuration: both are classes whichever host generates the IR.
+    let scratch = Scratch::new("rust-cfg");
+    let output = &scratch.0;
     assert_eq!(
-        parsed(output),
-        parsed(&repo().join("fixtures/jvm-goldens/rust.ir.edn"))
+        generate("rust-fixture", output),
+        std::process::ExitCode::SUCCESS
     );
+    let platform = [
+        edn::parse(":rust.console").unwrap(),
+        edn::parse(":rust.signals").unwrap(),
+    ];
+    let document = parsed(output);
+    let classes: Vec<edn::Value> = items(&document, "classes")
+        .into_iter()
+        .filter(|c| touches(c, &platform))
+        .collect();
+    let edges: Vec<edn::Value> = items(&document, "edges")
+        .into_iter()
+        .filter(|e| touches(e, &platform))
+        .collect();
+    assert_eq!(
+        edn::parse(
+            "[{:ns \"bookwriter.rust.console\" :name \"console.rs\" :file \"src/console.rs\"
+               :ops [{:name \"attach\" :text \"attach\"}] :lang :rust :id :rust.console}
+              {:ns \"bookwriter.rust.signals\" :name \"signals.rs\" :file \"src/signals.rs\"
+               :ops [{:name \"install\" :text \"install\"}] :lang :rust :id :rust.signals}]"
+        )
+        .unwrap(),
+        edn::Value::Vector(classes)
+    );
+    let edn::Value::Vector(want) = edn::parse(
+        "[{:from :rust :to :rust.console :kind :dependency}
+          {:from :rust :to :rust.signals :kind :dependency}
+          {:from :rust.console :to :std :kind :dependency}
+          {:from :rust.signals :to :std :kind :dependency}]",
+    )
+    .unwrap() else {
+        unreachable!()
+    };
+    assert_same_items(&want, &edges);
 }
 
 #[test]

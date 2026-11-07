@@ -904,6 +904,10 @@ fn normalize(path: &str) -> String {
         }
     }
     let mut out = String::new();
+    // A Windows UNC root (`//server/share`) keeps both of its slashes.
+    if path.starts_with("//") {
+        out.push('/');
+    }
     if path.starts_with('/') {
         out.push('/');
     }
@@ -1778,5 +1782,32 @@ mod tests {
         ];
         let scan = scan_files("/p", "/p", &files);
         assert_eq!(vec!["lib dependency"], edges_from(&scan, "main"));
+    }
+
+    /// Windows canonical roots (`files::portable`): a drive path and a UNC
+    /// share keep resolving relative and aliased imports.
+    #[test]
+    fn drive_and_unc_roots_resolve_relative_and_aliased_imports() {
+        for project in ["C:/p", "//server/share/p"] {
+            let files = [
+                (
+                    format!("{project}/tsconfig.json"),
+                    "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"./src/*\"] } } }",
+                ),
+                (format!("{project}/src/lib/util.ts"), V),
+                (format!("{project}/src/a.ts"), V),
+                (
+                    format!("{project}/src/page.ts"),
+                    "import { util } from \"@/lib/util\";\nimport { v } from \"./a\";\n",
+                ),
+            ];
+            let files: Vec<(&str, &str)> = files.iter().map(|(p, s)| (p.as_str(), *s)).collect();
+            let scan = scan_files(&format!("{project}/src"), project, &files);
+            assert_eq!(
+                vec!["lib.util dependency", "a dependency"],
+                edges_from(&scan, "page"),
+                "{project}"
+            );
+        }
     }
 }
