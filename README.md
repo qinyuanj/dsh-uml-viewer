@@ -538,7 +538,8 @@ standalone copy downloads `uml_posix.py` with `curl.exe` (shipped since Windows
 10 1803) from `UML_VIEWER_INSTALLER_URL`, default the `UML_VIEWER_REF` (`main`)
 raw file. The installer then works as on POSIX: it builds
 `.uml-viewer\uml-viewer\target\release\uml-viewer.exe` with
-`cargo build --release --locked`, provisions Sarasa (hash-checked), creates the
+`cargo build --release --locked`, provisions Sarasa (hash-checked; an http(s)
+pin is downloaded with `curl.exe`, a `file://` pin read directly), creates the
 three tool venvs (`.uml-viewer\<tool>\.venv\Scripts\python.exe`) and copies
 `uml.cmd` into the project. A `uml.cmd` without the `Thin Windows entry` marker
 is not overwritten. A development install (`UML_VIEWER_TOOL_ROOT`) links

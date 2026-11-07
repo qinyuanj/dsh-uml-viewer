@@ -766,7 +766,8 @@ def command(root, args):
     host()
     args = take_runtime(args)
     refuse_coding_agent_outside_lifecycle(args)
-    tool_root = Path(os.environ.get('UML_VIEWER_TOOL_ROOT', root / '.uml-viewer/uml-viewer')).resolve()
+    # Empty means unset, as in the sh entry and the installer.
+    tool_root = Path(os.environ.get('UML_VIEWER_TOOL_ROOT') or root / '.uml-viewer/uml-viewer').resolve()
     if args and args[0] == 'ir':
         values = args[1:]
         has_policy = '--policy' in values
