@@ -21,14 +21,50 @@ fn canonical(path: &str) -> Result<String, String> {
     }
     std::fs::canonicalize(path)
         .map_err(|e| format!("cannot canonicalize path: {path}: {e}"))
-        .map(|p| p.to_string_lossy().into_owned())
+        .map(|p| portable(&p.to_string_lossy()))
 }
 
+/// The one canonical text form IR works in. POSIX paths are already it.
+#[cfg(not(windows))]
+fn portable(path: &str) -> String {
+    path.to_owned()
+}
+
+/// Windows `canonicalize` answers in verbatim form (`\\?\C:\a`,
+/// `\\?\UNC\server\share\a`). IR joins and strips paths textually with `/`,
+/// so the verbatim prefix goes and every separator becomes `/`: `C:/a` and
+/// `//server/share/a`, both of which Win32 file APIs accept as given.
+#[cfg(windows)]
+fn portable(path: &str) -> String {
+    let path = if let Some(unc) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{unc}")
+    } else {
+        path.strip_prefix(r"\\?\").unwrap_or(path).to_owned()
+    };
+    path.replace('\\', "/")
+}
+
+/// `X:/…`, `X:\…`, `\\server\…` and `/…` name a file without the root.
 fn absolute(root: &str, path: &str) -> String {
-    if path.starts_with('/') {
+    let native = Path::new(path);
+    if native.has_root() || native.is_absolute() {
         return path.to_owned();
     }
     format!("{root}/{path}")
+}
+
+/// A symlink, or on Windows any other reparse point (a junction, a mount
+/// point, an app execution alias): each can lead the walk out of the tree.
+fn is_link(meta: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return true;
+        }
+    }
+    meta.file_type().is_symlink()
 }
 
 /// Sorted directory entries; symlinks are refused like `lfs` mode `link`.
@@ -40,7 +76,7 @@ fn entries(path: &str) -> Result<Vec<(String, bool)>, String> {
         let name = entry.file_name().to_string_lossy().into_owned();
         let full = format!("{path}/{name}");
         let meta = std::fs::symlink_metadata(&full).map_err(|e| format!("{full}: {e}"))?;
-        if meta.file_type().is_symlink() {
+        if is_link(&meta) {
             return Err(format!("source symbolic link unsupported: {full}"));
         }
         result.push((name, meta.is_dir()));
@@ -177,5 +213,31 @@ impl Adapter {
             }
         }
         Ok(names)
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::{absolute, portable};
+
+    #[test]
+    fn a_verbatim_drive_path_becomes_a_slash_drive_path() {
+        assert_eq!("C:/Users/a b/src", portable(r"\\?\C:\Users\a b\src"));
+    }
+
+    #[test]
+    fn a_verbatim_unc_path_becomes_a_slash_unc_path() {
+        assert_eq!(
+            "//server/share/proj/src",
+            portable(r"\\?\UNC\server\share\proj\src")
+        );
+    }
+
+    #[test]
+    fn drive_and_unc_paths_are_absolute_and_relative_ones_join_the_root() {
+        assert_eq!("D:/out.edn", absolute("C:/p", "D:/out.edn"));
+        assert_eq!(r"D:\out.edn", absolute("C:/p", r"D:\out.edn"));
+        assert_eq!(r"\\server\s\o.edn", absolute("C:/p", r"\\server\s\o.edn"));
+        assert_eq!("C:/p/out.edn", absolute("C:/p", "out.edn"));
     }
 }
