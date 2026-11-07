@@ -1,6 +1,7 @@
 """POSIX 公共入口的安全 restart：身份核对、真实退出等待与拒绝规则。
 
-只通过公共 ./uml --restart 观察行为；进程用真实内核身份（Linux /proc，macOS proc_pidinfo）。
+只通过公共 ./uml --restart（Windows: uml.cmd --restart）观察行为；进程用真实内核身份
+（Linux /proc，macOS proc_pidinfo，Windows GetProcessTimes）。
 """
 import json
 import os
@@ -15,6 +16,9 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'scripts'))
 from uml_posix import proc_identity  # noqa: E402
+from test_posix_entries import (ENTRY, RUST_HERDR_PATH, codex_fixture,  # noqa: E402
+                                fixture_path_without, herdr_fixture, pending_on_windows,
+                                sleeper_argv)
 
 
 def start_identity(pid):
@@ -29,13 +33,13 @@ class RestartEntries(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.state = self.root / '.uml-viewer'
         self.state.mkdir()
-        shutil.copy2(REPO / 'scripts/uml', self.root / 'uml')
-        (self.root / 'uml').chmod(0o755)
+        shutil.copy2(REPO / 'scripts' / ENTRY, self.root / ENTRY)
+        (self.root / ENTRY).chmod(0o755)
         self.env = dict(os.environ, UML_VIEWER_TOOL_ROOT=str(REPO))
         self.env.pop('UML_VIEWER_PROJECT_ROOT', None)
 
     def invoke(self, *args):
-        return subprocess.run([str(self.root / 'uml'), *args], cwd=self.root, env=self.env,
+        return subprocess.run([str(self.root / ENTRY), *args], cwd=self.root, env=self.env,
                               capture_output=True, text=True, timeout=60)
 
     def write(self, name, record):
@@ -44,7 +48,7 @@ class RestartEntries(unittest.TestCase):
     def running_sleeper(self):
         # A live process whose recorded identity can never match: the wrapper
         # must refuse it rather than take over an unrelated process.
-        sleeper = subprocess.Popen(['sleep', '60'])
+        sleeper = subprocess.Popen(sleeper_argv(60))
         self.addCleanup(sleeper.wait, 10)
         self.addCleanup(sleeper.terminate)
         return sleeper
@@ -97,7 +101,7 @@ class RestartEntries(unittest.TestCase):
         sleeper = self.running_sleeper()
         # A launcher that has already exited: the wait for it returns at once,
         # so only the viewer identity can refuse the restart.
-        exited = subprocess.Popen(['true'])
+        exited = subprocess.Popen([sys.executable, '-c', 'pass'])
         exited.wait()
         launcher = {'pid': exited.pid, 'started': '1', 'runtime': 'rust'}
         self.write('viewer-process.json', launcher)
@@ -144,21 +148,10 @@ class RestartEntries(unittest.TestCase):
 
     def fixture_path(self, herdr='0.9.5', codex=None):
         bin_dir = self.root / 'fixture bin'
-        bin_dir.mkdir(exist_ok=True)
-        (bin_dir / 'herdr').write_text(
-            '#!/bin/sh\ncase "$1" in\n'
-            f"--version) echo 'herdr {herdr}' ;;\n"
-            "api) echo '{\"$schema\":\"f\",\"protocol\":22,\"schema_version\":1}' ;;\n"
-            "integration) echo 'codex: current (v10) (/h/codex.sh)' ;;\nesac\n")
-        (bin_dir / 'herdr').chmod(0o755)
+        herdr_fixture(bin_dir, herdr)
         if codex:
-            (bin_dir / 'codex').write_text(
-                f"#!/bin/sh\ncase \"$1\" in\n--version) echo 'codex-cli {codex}' ;;\n"
-                "--enable) echo 'hooks    stable    true' ;;\nesac\n")
-            (bin_dir / 'codex').chmod(0o755)
-        host = [d for d in os.environ['PATH'].split(':')
-                if d and not (Path(d) / 'herdr').exists() and not (Path(d) / 'codex').exists()]
-        self.env['PATH'] = ':'.join([str(bin_dir), *host])
+            codex_fixture(bin_dir / 'codex', codex)
+        self.env['PATH'] = fixture_path_without(('herdr', 'codex'), bin_dir)
 
     def test_restart_refuses_a_provider_that_conflicts_with_ownership_before_waiting(self):
         self.fixture_path(codex='0.166.0')
@@ -178,6 +171,7 @@ class RestartEntries(unittest.TestCase):
                 self.assertEqual(text, (self.state / 'companion.edn').read_text())
                 self.assertEqual(before, (self.state / 'viewer-process.json').read_bytes())
 
+    @pending_on_windows(RUST_HERDR_PATH)
     def test_restart_reuses_the_recorded_codex_provider_and_its_preflight(self):
         # No option: the recorded Codex provider decides, so its Herdr floor
         # refuses a 0.9.4 that a Claude project would accept.

@@ -1,5 +1,9 @@
-"""公共 POSIX 入口验收；使用真实 Rust 二进制和隔离源码，不启动 companion。"""
+"""公共入口验收（POSIX 与原生 Windows 共用）；使用真实 Rust 二进制和隔离源码，不启动 companion。
+
+Windows 下入口是 `uml.cmd` / `get-uml-viewer.cmd`，假工具是 `.exe`（见 native_program）。
+"""
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -12,11 +16,120 @@ import threading
 import time
 import unittest
 import unittest.mock
+import zipfile
 
 REPO = Path(__file__).resolve().parents[1]
 # check.py runs this file with python -I: import the entry by directory.
 sys.path.insert(0, str(REPO / 'scripts'))
-from uml_posix import proc_identity  # noqa: E402
+from uml_posix import BINARY, ENTRY as _ENTRY, VENV_PYTHON, WINDOWS, is_link, link_directory, proc_identity  # noqa: E402
+
+# The thin entry and installer this host runs (uml / uml.cmd).
+ENTRY = _ENTRY[0]
+INSTALLER = REPO / 'scripts' / ('get-uml-viewer.cmd' if WINDOWS else 'get-uml-viewer')
+
+
+def distlib_launcher():
+    """The console launcher pip writes console scripts with (t64.exe)."""
+    try:
+        import importlib.resources
+        return (importlib.resources.files('pip._vendor.distlib') / 't64.exe').read_bytes()
+    except (ImportError, FileNotFoundError):
+        import ensurepip
+        bundled = next((Path(ensurepip.__file__).parent / '_bundled').glob('pip-*.whl'))
+        with zipfile.ZipFile(bundled) as wheel:
+            return wheel.read('pip/_vendor/distlib/t64.exe')
+
+
+def native_program(path, source):
+    """A fake executable that runs Python `source` with this interpreter.
+
+    POSIX: a shebang script. Windows cannot CreateProcess a script, so it is
+    an `.exe` built like pip's console scripts: the distlib launcher, a
+    shebang line and a zip whose `__main__.py` is `source`. `sys.argv[0]` is
+    the program's own path either way. Returns the path to run (`.exe`
+    appended on Windows when missing).
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not WINDOWS:
+        path.write_text(f'#!{sys.executable}\n{source}')
+        path.chmod(0o755)
+        return path
+    if path.suffix.lower() != '.exe':
+        path = path.with_name(path.name + '.exe')
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, 'w') as bundle:
+        bundle.writestr('__main__.py', source)
+    shebang = f'#!"{sys.executable}"\n'.encode('utf-8')
+    path.write_bytes(distlib_launcher() + shebang + archive.getvalue())
+    return path
+
+
+def pending_on_windows(reason):
+    """Expected to fail on native Windows until `reason` is fixed.
+
+    Not a skip: the test still runs, and an unexpected pass fails the suite,
+    so the marker comes off in the change that fixes it.
+    """
+    del reason  # documentation at the call site
+    return unittest.expectedFailure if WINDOWS else (lambda test: test)
+
+
+# The Rust companion still splits PATH on ':' and looks for a bare `herdr`
+# (crates/companion/src/herdr/select.rs:51), so its preflight finds no
+# fixture Herdr on Windows. UV-5 of qinyuanj/uml-viewer#201 owns that.
+RUST_HERDR_PATH = 'companion Herdr PATH lookup on Windows (UV-5)'
+
+
+def herdr_fixture(bin_dir, version='0.9.5', protocol=22, integration='current'):
+    """A fixture `herdr` answering --version, api schema and integration status."""
+    schema = json.dumps({'$schema': 'f', 'protocol': protocol, 'schema_version': 1},
+                        separators=(',', ':'))
+    return native_program(bin_dir / 'herdr', (
+        'import sys\n'
+        'command = sys.argv[1] if len(sys.argv) > 1 else ""\n'
+        f'if command == "--version": print("herdr {version}")\n'
+        f'elif command == "api": print({schema!r})\n'
+        f'elif command == "integration": print("codex: {integration} (v10) (/h/codex.sh)")\n'))
+
+
+def codex_fixture(path, version, login=0, record=None, hooks='true'):
+    """A fixture Codex CLI; `record` collects its own path and argv, one per line."""
+    log = (f'with open({str(record)!r}, "a", encoding="utf-8") as log:\n'
+           '    log.write("".join(a + "\\n" for a in sys.argv))\n') if record else ''
+    return native_program(path, (
+        f'import sys\n{log}'
+        'command = sys.argv[1] if len(sys.argv) > 1 else ""\n'
+        f'if command == "--version": print("codex-cli {version}")\n'
+        f'elif command == "login":\n    print("Not logged in")\n    raise SystemExit({login})\n'
+        f'elif command == "--enable": print("hooks    stable    {hooks}")\n'))
+
+
+def sleeper_argv(seconds):
+    return [sys.executable, '-c', f'import time; time.sleep({seconds})']
+
+
+def fixture_path_without(names, front):
+    """PATH with `front` first and no host directory holding one of `names`."""
+    found = [variant for name in names for variant in (name, name + '.exe', name + '.cmd')]
+    host = [d for d in os.environ['PATH'].split(os.pathsep)
+            if d and not any((Path(d) / name).exists() for name in found)]
+    return os.pathsep.join([str(front), *host])
+
+
+def tree(directory):
+    """Every path under directory with its bytes or link target; never enters a link."""
+    found = {}
+    for path in sorted(directory.iterdir()):
+        relative = path.relative_to(directory).as_posix()
+        if is_link(path):
+            found[relative] = ('link', os.readlink(path))
+        elif path.is_file():
+            found[relative] = path.read_bytes()
+        else:
+            found[relative] = 'dir'
+            found.update({f'{relative}/{k}': v for k, v in tree(path).items()})
+    return dict(sorted(found.items()))
 
 
 class PosixEntries(unittest.TestCase):
@@ -25,7 +138,7 @@ class PosixEntries(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         # macOS: TMPDIR sits under the /var -> /private/var link.
         self.root = Path(self.temporary.name).resolve()
-        shutil.copy2(REPO / 'scripts/uml', self.root / 'uml')
+        shutil.copy2(REPO / 'scripts' / ENTRY, self.root / ENTRY)
         (self.root / 'src').mkdir()
         (self.root / 'src/a.lua').write_text('local M={}\nfunction M.hello() return "hello" end\nreturn M\n')
         self.policy = '{:lang :lua :src "src" :prefix "src" :proposals [{:id :saved :name "保留" :layers []}]}'
@@ -33,7 +146,7 @@ class PosixEntries(unittest.TestCase):
         self.env = dict(os.environ, UML_VIEWER_TOOL_ROOT=str(REPO))
 
     def entry(self, *args):
-        return subprocess.run([str(self.root / 'uml'), *args], cwd=self.root, env=self.env,
+        return subprocess.run([str(self.root / ENTRY), *args], cwd=self.root, env=self.env,
                               text=True, capture_output=True, timeout=30)
 
     def test_real_headless_ir_with_unicode_spaces_and_repeat(self):
@@ -138,7 +251,8 @@ class PosixEntries(unittest.TestCase):
         self.assertEqual('previous', output.read_text())
 
     def test_symlink_sources_fail_without_following_cycle(self):
-        (self.root / 'src/cycle').symlink_to(self.root / 'src', target_is_directory=True)
+        # A directory junction on Windows, which IR refuses like a symlink.
+        link_directory(self.root / 'src/cycle', self.root / 'src')
         result = self.entry('ir', 'policy.edn', 'result.edn')
         self.assertNotEqual(0, result.returncode)
         self.assertIn('symbolic link', result.stderr)
@@ -208,14 +322,14 @@ class PosixEntries(unittest.TestCase):
         (leftover / 'cimgui/init.lua').write_text('return {}\n')
         (self.root / '.uml-viewer/install.json').write_text('{"version": 1, "love": "/usr/bin/love"}\n')
         for attempt in range(2):
-            result = subprocess.run([str(REPO / 'scripts/get-uml-viewer'), '--install-only'],
+            result = subprocess.run([str(INSTALLER), '--install-only'],
                                     cwd=self.root, env=env, capture_output=True, text=True, timeout=900)
             self.assertEqual(0, result.returncode, result.stdout + result.stderr)
             self.assertFalse(leftover.exists())
             # Reported on stderr once; the rerun has nothing left to remove.
             self.assertEqual(attempt == 0, 'cimgui-love-1.90-1' in result.stderr, result.stderr)
             self.assertNotIn('cimgui-love', result.stdout)
-            self.assertTrue((self.root / 'uml').is_file())
+            self.assertTrue((self.root / ENTRY).is_file())
             self.assertEqual(policy, (self.root / 'policy.edn').read_bytes())
         self.assertEqual(1, (self.root / '.gitignore').read_text().count('# BEGIN UML-VIEWER'))
         # #143: each install ran the pinned release build in the checkout, and
@@ -224,16 +338,16 @@ class PosixEntries(unittest.TestCase):
         self.assertEqual(['build --release --locked'] * 2, builds)
         self.assertTrue(all('.uml-viewer/uml-viewer' in line
                             for line in cargo_calls.read_text().splitlines()))
-        binary = self.root / '.uml-viewer/uml-viewer/target/release/uml-viewer'
+        binary = self.root / '.uml-viewer/uml-viewer' / BINARY
         self.assertTrue(binary.is_file() and os.access(binary, os.X_OK))
         self.assertEqual(face.read_bytes(),
                          (self.root / '.uml-viewer/fonts/SarasaMonoSC-Regular.ttf').read_bytes())
         for tool in ('crapper', 'mutator', 'dryer'):
             directory = self.root / '.uml-viewer' / tool
             self.assertTrue((directory / '.git').exists(), tool)
-            self.assertTrue((directory / '.venv/bin/python').exists(), tool)
+            self.assertTrue((directory / '.venv' / VENV_PYTHON).exists(), tool)
         # Mutator needs a compatible crapper beside it.
-        check = subprocess.run([str(self.root / '.uml-viewer/mutator/.venv/bin/python'),
+        check = subprocess.run([str(self.root / '.uml-viewer/mutator/.venv' / VENV_PYTHON),
                                 '-I', '-m', 'pip', 'check'], capture_output=True, text=True)
         self.assertEqual(0, check.returncode, check.stdout + check.stderr)
         installed = json.loads((self.root / '.uml-viewer/install.json').read_text())
@@ -254,14 +368,13 @@ class PosixEntries(unittest.TestCase):
         face.write_bytes(b'pinned sarasa face')
         archive = self.root / 'fixture.7z'
         archive.write_bytes(b'archive bytes')
-        extractor = self.root / 'extractor'
-        # Shell sees $1=-I $2=-c $3=script $4=archive $5=target $6=face.
-        extractor.write_text('#!/bin/sh\n'
-                             'mkdir -p "$5"\n'
-                             f'cp "{face}" "$5/SarasaMonoSC-Regular.ttf"\n'
-                             'echo SarasaMonoSC-Regular.ttf\n')
-        extractor.chmod(0o755)
-        return face, {'UML_VIEWER_FONT_URL': 'file://' + str(archive),
+        # argv: 1=-I 2=-c 3=script 4=archive 5=target 6=face.
+        extractor = native_program(self.root / 'extractor',
+                                   'import shutil, sys\nfrom pathlib import Path\n'
+                                   'Path(sys.argv[5]).mkdir(parents=True, exist_ok=True)\n'
+                                   f'shutil.copy({str(face)!r}, Path(sys.argv[5]) / "SarasaMonoSC-Regular.ttf")\n'
+                                   'print("SarasaMonoSC-Regular.ttf")\n')
+        return face, {'UML_VIEWER_FONT_URL': archive.as_uri(),
                       'UML_VIEWER_FONT_ARCHIVE_SHA256': hashlib.sha256(archive.read_bytes()).hexdigest(),
                       'UML_VIEWER_FONT_SHA256': hashlib.sha256(face.read_bytes()).hexdigest(),
                       'UML_VIEWER_FONT_EXTRACTOR': str(extractor)}
@@ -316,33 +429,26 @@ class PosixEntries(unittest.TestCase):
         installer.ensure_ignore_block(self.root)
         self.assertEqual(block, ignore.read_text().lstrip())
 
-    def test_installer_refuses_hosts_other_than_wsl_x86_64_and_macos(self):
-        """WSL2 x86_64 and macOS are delivered (ADR 0007)."""
-        import importlib.util
-        from unittest import mock
-        specification = importlib.util.spec_from_file_location(
-            'uml_posix', REPO / 'scripts/uml_posix.py')
-        installer = importlib.util.module_from_spec(specification)
-        specification.loader.exec_module(installer)
-        hosts = {('Linux', 'aarch64', '6.6-microsoft-standard-WSL2'),
-                 ('Linux', 'x86_64', '6.8.0-generic'), ('Windows', 'AMD64', '11')}
-        for system, machine, release in sorted(hosts):
-            with self.subTest(system=system, machine=machine), \
-                    mock.patch.object(installer.platform, 'system', return_value=system), \
-                    mock.patch.object(installer.platform, 'machine', return_value=machine), \
-                    mock.patch.object(installer.platform, 'release', return_value=release):
-                with self.assertRaises(ValueError) as refused:
-                    installer.host()
-                self.assertIn('WSL2', str(refused.exception))
-        with mock.patch.object(installer.platform, 'system', return_value='Linux'), \
-                mock.patch.object(installer.platform, 'machine', return_value='x86_64'), \
-                mock.patch.object(installer.platform, 'release',
-                                  return_value='6.18.33.2-microsoft-standard-WSL2'):
-            self.assertIsNone(installer.host())
+    def test_installer_refuses_undelivered_hosts(self):
+        """WSL2 x86_64, macOS and x64 Windows from build 19045 are delivered
+        (ADR 0007, 0010). Declared-platform fixtures: no host is inferred."""
+        installer = self.installer_module()
+        refusal = installer.platform_refusal
+        for system, machine, release in (('Linux', 'aarch64', '6.6-microsoft-standard-WSL2'),
+                                         ('Linux', 'x86_64', '6.8.0-generic'),
+                                         ('FreeBSD', 'amd64', '14.1')):
+            with self.subTest(system=system, machine=machine):
+                self.assertIn('WSL2', refusal(system, machine, release, 0))
+        self.assertIsNone(refusal('Linux', 'x86_64', '6.18.33.2-microsoft-standard-WSL2', 0))
         for machine in ('arm64', 'x86_64'):
-            with mock.patch.object(installer.platform, 'system', return_value='Darwin'), \
-                    mock.patch.object(installer.platform, 'machine', return_value=machine):
-                self.assertIsNone(installer.host())
+            self.assertIsNone(refusal('Darwin', machine, '24.0.0', 0))
+        self.assertEqual('Windows build 19044 is not supported: the minimum is '
+                         'Windows 10 22H2 (build 19045)', refusal('Windows', 'AMD64', '10', 19044))
+        for build in (19045, 22631, 26220):
+            self.assertIsNone(refusal('Windows', 'AMD64', '10', build))
+        self.assertIn('ARM64', refusal('Windows', 'ARM64', '11', 26220))
+        # This development host is a delivered one.
+        self.assertIsNone(installer.host())
 
     def test_installer_provisions_the_pinned_font_and_refuses_a_mismatch(self):
         """The font pin is enforced by hash, not by trusting the download.
@@ -418,14 +524,16 @@ class PosixEntries(unittest.TestCase):
         _, font_env = self.font_fixture()
         temporary = self.root / 'install temp'
         temporary.mkdir()
-        env = dict(self.env, UML_CARGO_EXECUTABLE=str(cargo), TMPDIR=str(temporary), **font_env,
+        env = dict(self.env, UML_CARGO_EXECUTABLE=str(cargo), TMPDIR=str(temporary),
+                   TMP=str(temporary), TEMP=str(temporary), **font_env,
                    UML_VIEWER_FONT_TIMEOUT='1',
                    **{f'{tool.upper()}_REPO_URL': str(path) for tool, path in tools.items()},
                    **{f'{tool.upper()}_REF': 'main' for tool in tools})
 
-        def run(url):
-            return subprocess.run([str(REPO / 'scripts/get-uml-viewer'), '--install-only'],
-                                  cwd=self.root, env=dict(env, UML_VIEWER_FONT_URL=url),
+        def run(url, timeout='1'):
+            return subprocess.run([str(INSTALLER), '--install-only'],
+                                  cwd=self.root, env=dict(env, UML_VIEWER_FONT_URL=url,
+                                                          UML_VIEWER_FONT_TIMEOUT=timeout),
                                   capture_output=True, text=True, timeout=60)
         return run, temporary
 
@@ -452,7 +560,9 @@ class PosixEntries(unittest.TestCase):
         run, _ = self.font_download_install()
         with socket.create_server(('127.0.0.1', 0)) as closed:
             url = f'http://127.0.0.1:{closed.getsockname()[1]}/refused.7z'
-        result = run(url)
+        # Windows retries a refused SYN for about two seconds before it
+        # reports the refusal, longer than the 1 s stall timeout.
+        result = run(url, timeout='10' if WINDOWS else '1')
         self.assertEqual(1, result.returncode, result.stdout + result.stderr)
         self.assertIn('refused', result.stderr.lower())
         self.assertNotIn('超时', result.stderr)
@@ -467,7 +577,7 @@ class PosixEntries(unittest.TestCase):
         (state / 'cimgui-love-1.90-1/cimgui.so').write_bytes(b'ELF')
         (state / 'cimgui-love-1.90-1/cimgui/init.lua').write_text('return {}\n')
         before = self.tree(state)
-        result = subprocess.run([str(REPO / 'scripts/get-uml-viewer'), '--install-only'],
+        result = subprocess.run([str(INSTALLER), '--install-only'],
                                 cwd=self.root, env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(1, result.returncode)
         self.assertIn('保留已有运行态', result.stderr)
@@ -483,7 +593,7 @@ class PosixEntries(unittest.TestCase):
         directory.mkdir(parents=True)
         subprocess.run(['git', 'init', '-q', str(directory)], check=True)
         (directory / 'unique-work.txt').write_text('用户未提交内容')
-        (state / 'uml-viewer').symlink_to(REPO, target_is_directory=True)
+        link_directory(state / 'uml-viewer', REPO)
         started = proc_identity(os.getpid())['start']
         alive = {'pid': os.getpid(), 'started': started, 'runtime': 'rust', 'cwd': str(self.root)}
         closed = dict(alive, started=str(int(started) + 1))
@@ -498,7 +608,7 @@ class PosixEntries(unittest.TestCase):
                 (state / 'recovery.edn').write_text(recovery)
                 (state / 'viewer-process-identity.json').write_text(json.dumps(identity))
                 result = subprocess.run(
-                    [str(REPO / 'scripts/get-uml-viewer'), '--install-only'],
+                    [str(INSTALLER), '--install-only'],
                     cwd=self.root, env=self.env, capture_output=True, text=True, timeout=30)
                 self.assertEqual(1, result.returncode)
                 # A passed check runs on to the dirty tool checkout.
@@ -510,8 +620,8 @@ class PosixEntries(unittest.TestCase):
         subprocess.run(['git', 'init', '-q', str(directory)], check=True)
         user_file = directory / 'unique-work.txt'
         user_file.write_text('用户未提交内容')
-        (self.root / '.uml-viewer/uml-viewer').symlink_to(REPO, target_is_directory=True)
-        result = subprocess.run([str(REPO / 'scripts/get-uml-viewer'), '--install-only'],
+        link_directory(self.root / '.uml-viewer/uml-viewer', REPO)
+        result = subprocess.run([str(INSTALLER), '--install-only'],
                                 cwd=self.root, env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(1, result.returncode)
         self.assertIn('本地修改', result.stderr)
@@ -527,11 +637,11 @@ class PosixEntries(unittest.TestCase):
                         '--allow-empty', '-m', 'work'], check=True)
         state = self.root / '.uml-viewer'
         state.mkdir()
-        (state / 'uml-viewer').symlink_to(linked, target_is_directory=True)
+        link_directory(state / 'uml-viewer', linked)
         missing = str(self.root / 'no such remote')
         env = dict(self.env, UML_VIEWER_TOOL_ROOT='', UML_VIEWER_REPO_URL=str(linked),
                    **{f'{tool.upper()}_REPO_URL': missing for tool in ('crapper', 'mutator', 'dryer')})
-        result = subprocess.run([str(REPO / 'scripts/get-uml-viewer'), '--install-only'],
+        result = subprocess.run([str(INSTALLER), '--install-only'],
                                 cwd=self.root, env=env, capture_output=True, text=True, timeout=30)
         self.assertEqual(1, result.returncode)
         self.assertIn('UML_VIEWER_TOOL_ROOT', result.stderr)
@@ -555,13 +665,10 @@ class PosixEntries(unittest.TestCase):
     def stub_tool(self, tool, body='import sys\nraise SystemExit(3)\n', usage='  --exclude <glob>'):
         # `--help` answers like a tool that takes -s/--exclude unless `usage`
         # says otherwise; any other call runs `body`.
-        directory = self.root / f'.uml-viewer/{tool}/.venv/bin'
-        directory.mkdir(parents=True)
-        python = directory / 'python'
-        python.write_text('#!/usr/bin/python3\nimport sys\n'
-                          f'if sys.argv[1:] == ["-m", "{tool}", "--help"]:\n'
-                          f'    print({usage!r})\n    raise SystemExit(0)\n' + body)
-        python.chmod(0o755)
+        native_program(self.root / f'.uml-viewer/{tool}/.venv' / VENV_PYTHON,
+                       'import sys\n'
+                       f'if sys.argv[1:] == ["-m", "{tool}", "--help"]:\n'
+                       f'    print({usage!r})\n    raise SystemExit(0)\n' + body)
 
     def record(self):
         return json.loads((self.root / '.uml-viewer/quality-result.json').read_text())
@@ -577,12 +684,12 @@ class PosixEntries(unittest.TestCase):
         (self.root / 'uml-quality.json').write_text(json.dumps({'version': 1, 'standardTools': {'sourceRoots': ['src']}}))
         alias = Path(tempfile.mkdtemp(prefix='uml link ')) / 'project'
         self.addCleanup(shutil.rmtree, alias.parent)
-        alias.symlink_to(self.root, target_is_directory=True)
+        link_directory(alias, self.root)
         cases = [('mutate', ['src/a.lua', 'src/b.lua'], 3), ('mutate', ['src/b.lua', 'src/a.lua'], 3),
                  ('mutate', ['src/b.lua'], 0), ('dry', [], 0)]
         for operation, args, expected in cases:
             with self.subTest(operation=operation, args=args):
-                result = subprocess.run([str(alias / 'uml'), operation, *args], cwd=alias, env=self.env,
+                result = subprocess.run([str(alias / ENTRY), operation, *args], cwd=alias, env=self.env,
                                         text=True, capture_output=True, timeout=30)
                 self.assertEqual(expected, result.returncode, result.stderr)
                 record = self.record()
@@ -848,7 +955,7 @@ class PosixEntries(unittest.TestCase):
                      ('mutate', 'src/a.lua', '--coding-agent', 'codex'), ('dry', '--coding-agent')):
             with self.subTest(args=args):
                 (self.root / '.uml-viewer/quality-result.json').unlink(missing_ok=True)
-                result = subprocess.run([str(self.root / 'uml'), *args], cwd=self.root, env=env,
+                result = subprocess.run([str(self.root / ENTRY), *args], cwd=self.root, env=env,
                                         capture_output=True, text=True, timeout=30)
                 self.assertEqual(1, result.returncode, result.stdout + result.stderr)
                 self.assertIn('--coding-agent', result.stderr)
@@ -858,7 +965,7 @@ class PosixEntries(unittest.TestCase):
 
     def test_the_lifecycle_entry_forwards_a_coding_agent_literally(self):
         record, env = self.rust_stub()
-        result = subprocess.run([str(self.root / 'uml'), '--coding-agent', 'codex', 'd.edn'],
+        result = subprocess.run([str(self.root / ENTRY), '--coding-agent', 'codex', 'd.edn'],
                                 cwd=self.root, env=env, capture_output=True, text=True, timeout=30)
         self.assertEqual(0, result.returncode, result.stderr)
         launcher = self.launcher_record()
@@ -870,28 +977,13 @@ class PosixEntries(unittest.TestCase):
                           hooks='true'):
         """A PATH without the host's herdr/codex, plus fixture executables."""
         bin_dir = self.root / 'fixture bin'
-        bin_dir.mkdir(exist_ok=True)
-        herdr_path = bin_dir / 'herdr'
-        herdr_path.write_text(
-            '#!/bin/sh\ncase "$1" in\n'
-            f"--version) echo 'herdr {herdr}' ;;\n"
-            f"api) echo '{{\"$schema\":\"f\",\"protocol\":{protocol},\"schema_version\":1}}' ;;\n"
-            f"integration) echo 'codex: {integration} (v10) (/h/codex.sh)' ;;\nesac\n")
-        herdr_path.chmod(0o755)
+        herdr_fixture(bin_dir, herdr, protocol, integration)
         if codex:
             self.codex_fixture(bin_dir / 'codex', codex, hooks=hooks)
-        host = [d for d in os.environ['PATH'].split(':')
-                if d and not (Path(d) / 'herdr').exists() and not (Path(d) / 'codex').exists()]
-        return dict(self.env, PATH=':'.join([str(bin_dir), *host]))
+        return dict(self.env, PATH=fixture_path_without(('herdr', 'codex'), bin_dir))
 
     def codex_fixture(self, path, version, login=0, record=None, hooks='true'):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        log = f'printf "%s\\n" "$0" "$@" >> {str(record)!r}\n' if record else ''
-        path.write_text(f'#!/bin/sh\n{log}case "$1" in\n--version) echo \'codex-cli {version}\' ;;\n'
-                        f'login) echo "Not logged in"; exit {login} ;;\n'
-                        f"--enable) echo 'hooks    stable    {hooks}' ;;\nesac\n")
-        path.chmod(0o755)
-        return path
+        return codex_fixture(path, version, login=login, record=record, hooks=hooks)
 
     def assert_refused_before_resources(self, result, expected):
         self.assertEqual(1, result.returncode, result.stdout + result.stderr)
@@ -904,10 +996,11 @@ class PosixEntries(unittest.TestCase):
         for args in (('--coding-agent', 'gemini'), ('--coding-agent',),
                      ('--coding-agent', 'codex', '--coding-agent', 'codex', 'd.edn')):
             with self.subTest(args=args):
-                result = subprocess.run([str(self.root / 'uml'), *args], cwd=self.root, env=env,
+                result = subprocess.run([str(self.root / ENTRY), *args], cwd=self.root, env=env,
                                         capture_output=True, text=True, timeout=600)
                 self.assert_refused_before_resources(result, '--coding-agent claude|codex')
 
+    @pending_on_windows(RUST_HERDR_PATH)
     def test_codex_preflight_refuses_each_real_cause_before_a_viewer(self):
         cases = (
             ({}, 'Codex CLI not found'),
@@ -920,28 +1013,31 @@ class PosixEntries(unittest.TestCase):
         for fixtures, expected in cases:
             with self.subTest(**{k: str(v) for k, v in fixtures.items()}):
                 env = self.provider_fixtures(**fixtures)
-                result = subprocess.run([str(self.root / 'uml'), '--coding-agent', 'codex', 'd.edn'],
+                result = subprocess.run([str(self.root / ENTRY), '--coding-agent', 'codex', 'd.edn'],
                                         cwd=self.root, env=env, capture_output=True, text=True,
                                         timeout=600)
                 self.assert_refused_before_resources(result, expected)
 
+    @pending_on_windows(RUST_HERDR_PATH)
     def test_codex_bin_reaches_the_preflight_as_a_literal_argv_and_overrides_path(self):
         # A current codex on PATH must not stand in for the CODEX_BIN one,
         # whose path keeps its spaces, Unicode and shell metacharacters.
         env = self.provider_fixtures(codex='0.166.0')
         record = self.root / 'codex-argv.txt'
-        named = self.codex_fixture(self.root / '代码 $HOME;`x`' / "co dex'*", '0.150.0',
-                                   record=record)
+        # `*` cannot be part of a Windows file name.
+        named = self.codex_fixture(self.root / '代码 $HOME;`x`' / ("co dex'" if WINDOWS else "co dex'*"),
+                                   '0.150.0', record=record)
         env['CODEX_BIN'] = str(named)
-        result = subprocess.run([str(self.root / 'uml'), '--coding-agent', 'codex'],
+        result = subprocess.run([str(self.root / ENTRY), '--coding-agent', 'codex'],
                                 cwd=self.root, env=env, capture_output=True, text=True, timeout=600)
         self.assert_refused_before_resources(result, f'Codex CLI 0.150.0 at {named} is not a supported')
         self.assertEqual([str(named), '--version'], record.read_text().splitlines())
         env['CODEX_BIN'] = str(named) + ' missing'
-        result = subprocess.run([str(self.root / 'uml'), '--coding-agent', 'codex'],
+        result = subprocess.run([str(self.root / ENTRY), '--coding-agent', 'codex'],
                                 cwd=self.root, env=env, capture_output=True, text=True, timeout=600)
         self.assert_refused_before_resources(result, 'is not an executable file')
 
+    @pending_on_windows(RUST_HERDR_PATH)
     def test_a_claude_project_keeps_the_herdr_093_floor(self):
         # The preflight role answers `herdr` for the default and the explicit
         # Claude choice on Herdr 0.9.3 even when no Codex is installed.
@@ -966,14 +1062,14 @@ class PosixEntries(unittest.TestCase):
         # #144: no --runtime flag selects the Rust binary.
         record, env = self.rust_stub()
         arguments = ['ir', 'policy.edn', '结果 图.edn', 'literal;$value']
-        result = subprocess.run([str(self.root / 'uml'), *arguments], cwd=self.root,
+        result = subprocess.run([str(self.root / ENTRY), *arguments], cwd=self.root,
                                 env=env, capture_output=True, text=True, timeout=30)
         self.assertEqual(7, result.returncode, result.stderr)
         self.assertEqual(arguments, record.read_text().splitlines())
 
     def test_default_runtime_launches_the_rust_viewer_and_records_the_runtime(self):
         record, env = self.rust_stub()
-        result = subprocess.run([str(self.root / 'uml'), 'diagram with spaces.edn'],
+        result = subprocess.run([str(self.root / ENTRY), 'diagram with spaces.edn'],
                                 cwd=self.root, env=env, capture_output=True, text=True, timeout=30)
         self.assertEqual(0, result.returncode, result.stderr)
         launcher = self.launcher_record()
@@ -985,7 +1081,7 @@ class PosixEntries(unittest.TestCase):
 
     def test_default_runtime_without_a_built_binary_names_the_build_step(self):
         env = dict(self.env, UML_VIEWER_RUST_EXECUTABLE=str(self.root / 'missing'))
-        result = subprocess.run([str(self.root / 'uml'), 'ir'], cwd=self.root,
+        result = subprocess.run([str(self.root / ENTRY), 'ir'], cwd=self.root,
                                 env=env, capture_output=True, text=True, timeout=30)
         self.assertEqual(1, result.returncode)
         self.assertIn('cargo build --release --locked', result.stderr)
@@ -1009,10 +1105,7 @@ class PosixEntries(unittest.TestCase):
         source.write_text('fn main() {}\n')
         (tool / 'Cargo.toml').write_text('[workspace]\n')
         os.utime(tool / 'Cargo.toml', (0, 0))
-        binary = tool / 'target/release/uml-viewer'
-        binary.parent.mkdir(parents=True)
-        binary.write_text('#!/bin/sh\n')
-        binary.chmod(0o755)
+        binary = native_program(tool / BINARY, '')
         env = {k: v for k, v in os.environ.items() if k != 'UML_VIEWER_RUST_EXECUTABLE'}
         for source_age, built in ((100, 200), (300, 200)):
             os.utime(binary, (built, built))
@@ -1025,12 +1118,12 @@ class PosixEntries(unittest.TestCase):
                 self.assertEqual(source_age > built, build.called)
 
     def test_default_runtime_reaches_the_real_binary(self):
-        binary = REPO / 'target/release/uml-viewer'
+        binary = REPO / BINARY
         if not binary.is_file():
             self.skipTest('run cargo build --release --locked first')
         env = dict(self.env)
         env.pop('UML_VIEWER_RUST_EXECUTABLE', None)
-        result = subprocess.run([str(self.root / 'uml'), 'scene'], cwd=self.root,
+        result = subprocess.run([str(self.root / ENTRY), 'scene'], cwd=self.root,
                                 env=env, capture_output=True, text=True, timeout=30)
         # #137: the ported `scene` role answers its own usage error.
         self.assertEqual(2, result.returncode, result.stderr)
@@ -1039,7 +1132,7 @@ class PosixEntries(unittest.TestCase):
     def test_rust_ir_matches_all_four_language_goldens(self):
         # #136: the ported ir role reproduces the JVM goldens structurally
         # for every fixture project through the public entry.
-        binary = REPO / 'target/release/uml-viewer'
+        binary = REPO / BINARY
         if not binary.is_file():
             self.skipTest('run cargo build --release --locked first')
         env = dict(self.env)
@@ -1048,7 +1141,7 @@ class PosixEntries(unittest.TestCase):
             with self.subTest(language=language):
                 output = self.root / f'{language}.golden-result.edn'
                 result = subprocess.run(
-                    [str(self.root / 'uml'), 'ir',
+                    [str(self.root / ENTRY), 'ir',
                      '--root', str(REPO / f'{language}-fixture'),
                      '--policy', 'policy.edn', '--output', str(output)],
                     cwd=self.root, env=env, capture_output=True, text=True, timeout=30)
@@ -1062,14 +1155,14 @@ class PosixEntries(unittest.TestCase):
     def test_rust_ir_runs_on_this_repository(self):
         # #136/#144: the default runtime generates IR for this repository's
         # own Rust source tree.
-        binary = REPO / 'target/release/uml-viewer'
+        binary = REPO / BINARY
         if not binary.is_file():
             self.skipTest('run cargo build --release --locked first')
         env = dict(self.env)
         env.pop('UML_VIEWER_RUST_EXECUTABLE', None)
         output = self.root / 'repo.edn'
         result = subprocess.run(
-            [str(self.root / 'uml'), 'ir', '--root', str(REPO),
+            [str(self.root / ENTRY), 'ir', '--root', str(REPO),
              '--policy', 'examples/uml-viewer.policy.edn', '--output', str(output)],
             cwd=self.root, env=env, capture_output=True, text=True, timeout=30)
         self.assertEqual(0, result.returncode, result.stderr)
@@ -1079,18 +1172,16 @@ class PosixEntries(unittest.TestCase):
 
     def rust_stub(self, preflight='herdr'):
         """A stand-in Rust binary: records argv, answers the preflight."""
-        stub = self.root / 'rust stub'
         record = self.root / 'rust-argv.txt'
-        stub.write_text(
-            '#!/bin/sh\n'
-            'if [ "$1" = companion-preflight ]; then\n'
-            f'  printf "%s\\n" {preflight!r}\n'
-            '  exit 0\n'
-            'fi\n'
-            f'printf "%s\\n" "$@" > {str(record)!r}\n'
-            'if [ "$1" = viewer ]; then sleep 30; fi\n'
-            'exit 7\n')
-        stub.chmod(0o755)
+        stub = native_program(self.root / 'rust stub', (
+            'import sys, time\n'
+            'role = sys.argv[1] if len(sys.argv) > 1 else ""\n'
+            'if role == "companion-preflight":\n'
+            f'    print({preflight!r})\n    raise SystemExit(0)\n'
+            f'with open({str(record)!r}, "w", encoding="utf-8") as out:\n'
+            '    out.write("".join(a + "\\n" for a in sys.argv[1:]))\n'
+            'if role == "viewer":\n    time.sleep(30)\n'
+            'raise SystemExit(7)\n'))
         return record, dict(self.env, UML_VIEWER_RUST_EXECUTABLE=str(stub))
 
     def launcher_record(self):
@@ -1105,6 +1196,19 @@ class PosixEntries(unittest.TestCase):
             proc_identity(pid) is not None and os.kill(pid, 15)
         except (ProcessLookupError, PermissionError):
             pass
+        if WINDOWS:
+            # TerminateProcess returns before the stub tree releases its
+            # handles; an open viewer.log would block the temp-dir cleanup.
+            # Replacing a file fails while any process holds it open.
+            log = self.root / '.uml-viewer/viewer.log'
+            deadline = time.monotonic() + 10
+            while log.exists() and time.monotonic() < deadline:
+                try:
+                    log.with_suffix('.probe').write_bytes(b'')
+                    os.replace(log.with_suffix('.probe'), log)
+                    break
+                except PermissionError:
+                    time.sleep(0.05)
 
     def test_preflight_failure_stops_launch_without_a_viewer(self):
         # Ported from the retired suite: an unusable preflight answer stops the
@@ -1112,7 +1216,7 @@ class PosixEntries(unittest.TestCase):
         for preflight in ('', 'tmux', 'herdr\nextra'):
             with self.subTest(preflight=preflight):
                 _, env = self.rust_stub(preflight=preflight)
-                result = subprocess.run([str(self.root / 'uml'), 'diagram.edn'], cwd=self.root,
+                result = subprocess.run([str(self.root / ENTRY), 'diagram.edn'], cwd=self.root,
                                         env=env, capture_output=True, text=True, timeout=30)
                 self.assertEqual(1, result.returncode, result.stdout + result.stderr)
                 self.assertIn('preflight', result.stderr)
@@ -1125,7 +1229,7 @@ class PosixEntries(unittest.TestCase):
         # preflight consumed.
         record, env = self.rust_stub()
         arguments = ['diagram with spaces.edn', 'literal;$value']
-        result = subprocess.run([str(self.root / 'uml'), *arguments], cwd=self.root,
+        result = subprocess.run([str(self.root / ENTRY), *arguments], cwd=self.root,
                                 env=env, capture_output=True, text=True, timeout=30)
         self.assertEqual(0, result.returncode, result.stderr)
         launcher = self.launcher_record()
@@ -1169,20 +1273,23 @@ class PosixEntries(unittest.TestCase):
         tools = {tool: self.tool_fixture(self.root / f'{tool} source', tool)
                  for tool in ('crapper', 'mutator', 'dryer')}
         cargo, _ = self.cargo_stub()
+        # The local font pin keeps this ref test off the network (no real
+        # Sarasa download, no py7zr install), like every other install test.
+        _, font_env = self.font_fixture()
         base = dict(self.env, UML_VIEWER_TOOL_ROOT='', UML_VIEWER_REPO_URL=str(source),
-                    UML_CARGO_EXECUTABLE=str(cargo),
+                    UML_CARGO_EXECUTABLE=str(cargo), **font_env,
                     **{f'{tool.upper()}_REPO_URL': str(path) for tool, path in tools.items()})
         for name in ('UML_VIEWER_REF', 'CRAPPER_REF', 'MUTATOR_REF', 'DRYER_REF'):
             base.pop(name, None)
         # Default ref is main for every repository, including the tools.
-        result = subprocess.run([str(REPO / 'scripts/get-uml-viewer'), '--install-only'],
+        result = subprocess.run([str(INSTALLER), '--install-only'],
                                 cwd=self.root, env=base, capture_output=True, text=True, timeout=900)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         installed = json.loads((self.root / '.uml-viewer/install.json').read_text())
         self.assertEqual('main', installed['repositories']['crapper']['ref'])
         # An explicit commit pins the viewer even when main has moved on.
         pinned = dict(base, UML_VIEWER_REF=first)
-        result = subprocess.run([str(REPO / 'scripts/get-uml-viewer'), '--install-only'],
+        result = subprocess.run([str(INSTALLER), '--install-only'],
                                 cwd=self.root, env=pinned, capture_output=True, text=True, timeout=900)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         installed = json.loads((self.root / '.uml-viewer/install.json').read_text())
@@ -1203,7 +1310,7 @@ class PosixEntries(unittest.TestCase):
         self.assertIn('get-uml-viewer', result.stderr)
 
     def test_installer_help_and_missing_dependency(self):
-        entry = str(REPO / 'scripts/get-uml-viewer')
+        entry = str(INSTALLER)
         result = subprocess.run([entry, '--help'], capture_output=True, text=True)
         self.assertEqual(0, result.returncode)
         env = dict(self.env, UML_CARGO_EXECUTABLE='/missing/cargo')
@@ -1258,21 +1365,11 @@ class PosixEntries(unittest.TestCase):
         (outside / 'cimgui').mkdir(parents=True)
         (outside / 'cimgui.so').write_bytes(b'mine')
         (outside / 'cimgui/init.lua').write_text('mine')
-        (state / 'cimgui-love-1.90-1/escape').symlink_to(outside, target_is_directory=True)
+        link_directory(state / 'cimgui-love-1.90-1/escape', outside)
         return state, outside
 
     def tree(self, directory):
-        """Every path under directory with its bytes or link target."""
-        found = {}
-        for path in sorted(directory.rglob('*')):
-            relative = str(path.relative_to(directory))
-            if path.is_symlink():
-                found[relative] = ('link', os.readlink(path))
-            elif path.is_file():
-                found[relative] = path.read_bytes()
-            else:
-                found[relative] = 'dir'
-        return found
+        return tree(directory)
 
     def cleanup(self, installer, state):
         """Runs the legacy cleanup; it reports on stderr only."""
@@ -1319,7 +1416,7 @@ class PosixEntries(unittest.TestCase):
         (outside / 'cimgui').mkdir(parents=True)
         (outside / 'cimgui.so').write_bytes(b'mine')
         (outside / 'cimgui/init.lua').write_text('mine')
-        (state / 'cimgui-love-linked').symlink_to(outside, target_is_directory=True)
+        link_directory(state / 'cimgui-love-linked', outside)
         (state / 'cimgui-love-notes').mkdir()
         (state / 'cimgui-love-notes/readme.txt').write_text('mine')
         (state / 'cimgui-love-near/cimgui').mkdir(parents=True)
@@ -1342,16 +1439,17 @@ class PosixEntries(unittest.TestCase):
 
     def cargo_stub(self, version='1.99.1'):
         """A stand-in cargo: answers --version, records builds, emits a binary."""
-        stub = self.root / 'cargo stub'
         record = self.root / 'cargo-calls.txt'
-        stub.write_text(
-            '#!/bin/sh\n'
-            f'if [ "$1" = --version ]; then printf "cargo {version} (stub)\\n"; exit 0; fi\n'
-            f'printf "%s|%s\\n" "$(pwd -P)" "$*" >> {str(record)!r}\n'
-            'mkdir -p target/release\n'
-            'printf "#!/bin/sh\\n" > target/release/uml-viewer\n'
-            'chmod +x target/release/uml-viewer\n')
-        stub.chmod(0o755)
+        stub = native_program(self.root / 'cargo stub', (
+            'import os, sys\nfrom pathlib import Path\n'
+            'if sys.argv[1:2] == ["--version"]:\n'
+            f'    print("cargo {version} (stub)")\n    raise SystemExit(0)\n'
+            f'with open({str(record)!r}, "a", encoding="utf-8") as log:\n'
+            '    log.write(Path.cwd().resolve().as_posix() + "|" + " ".join(sys.argv[1:]) + "\\n")\n'
+            f'binary = Path({BINARY!r})\n'
+            'binary.parent.mkdir(parents=True, exist_ok=True)\n'
+            'binary.write_text("#!/bin/sh\\n")\n'
+            'binary.chmod(0o755)\n'))
         return stub, record
 
     def test_installer_preflight_names_a_missing_cargo(self):
@@ -1409,16 +1507,15 @@ class PosixEntries(unittest.TestCase):
         binary = installer.rust_build(str(cargo), checkout)
         self.assertEqual(['build --release --locked'],
                          [line.rsplit('|', 1)[-1] for line in record.read_text().splitlines()])
-        self.assertIn(str(checkout), record.read_text())
-        self.assertEqual(checkout / 'target/release/uml-viewer', binary)
+        self.assertIn(checkout.resolve().as_posix(), record.read_text())
+        self.assertEqual(checkout / BINARY, binary)
         self.assertTrue(os.access(binary, os.X_OK))
         # A build that produces no binary is an installer failure, not a pass.
-        quiet = self.root / 'cargo quiet'
-        quiet.write_text('#!/bin/sh\n'
-                         'if [ "$1" = --version ]; then printf "cargo 1.99.1 (stub)\\n"; exit 0; fi\n'
-                         'exit 0\n')
-        quiet.chmod(0o755)
-        (checkout / 'target/release/uml-viewer').unlink()
+        quiet = native_program(self.root / 'cargo quiet',
+                               'import sys\n'
+                               'if sys.argv[1:2] == ["--version"]:\n'
+                               '    print("cargo 1.99.1 (stub)")\n')
+        (checkout / BINARY).unlink()
         with self.assertRaises(ValueError) as caught:
             installer.rust_build(str(quiet), checkout)
         self.assertIn('uml-viewer', str(caught.exception))
@@ -1434,7 +1531,7 @@ class PosixEntries(unittest.TestCase):
         self.assertIn('Wayland', warnings[0])
 
     def test_install_names_a_missing_cargo_before_touching_state(self):
-        entry = str(REPO / 'scripts/get-uml-viewer')
+        entry = str(INSTALLER)
         env = dict(self.env, UML_CARGO_EXECUTABLE='/missing/cargo')
         result = subprocess.run([entry, '--install-only'], cwd=self.root, env=env,
                                 capture_output=True, text=True)
@@ -1445,7 +1542,8 @@ class PosixEntries(unittest.TestCase):
 
 class ViewerLaunchEnv(unittest.TestCase):
     """#139/#144: the launcher sets the WSLg render defaults for the only
-    runtime without overriding user values; macOS keeps Metal."""
+    runtime without overriding user values; macOS keeps Metal and Windows
+    DX12 (ADR 0010)."""
 
     @classmethod
     def setUpClass(cls):
@@ -1455,7 +1553,7 @@ class ViewerLaunchEnv(unittest.TestCase):
     def test_rust_runtime_gets_render_defaults(self):
         from uml_launch import viewer_env
         env = viewer_env({})
-        if sys.platform == 'darwin':
+        if sys.platform in ('darwin', 'win32'):
             self.assertEqual({}, env)
             return
         self.assertEqual('d3d12', env['GALLIUM_DRIVER'])
@@ -1520,8 +1618,7 @@ class RemovedRuntimeRecord(unittest.TestCase):
 # A stand-in viewer: records each launch (script, argv, the session.edn and
 # diagram it found), publishes the markers named for its script, and on the
 # save phase writes the session.edn the restore phase must find.
-FAKE_VIEWER = r'''#!{python}
-import json, os, sys
+FAKE_VIEWER = r'''import json, os, sys
 from pathlib import Path
 project = Path(os.environ['UML_VIEWER_PROJECT_ROOT'])
 evidence = Path(os.environ['UML_VIEWER_EVIDENCE'])
@@ -1550,9 +1647,7 @@ class ViewerDriverRunner(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix='uml driver ')
         self.addCleanup(self.temporary.cleanup)
         root = Path(self.temporary.name)
-        viewer = root / 'fake-viewer'
-        viewer.write_text(FAKE_VIEWER.format(python=sys.executable))
-        viewer.chmod(0o755)
+        viewer = native_program(root / 'fake-viewer', FAKE_VIEWER.format())
         self.log = root / 'launches.jsonl'
         self.root = root
         self.env = dict(os.environ, UML_VIEWER_RUST_EXECUTABLE=str(viewer),
