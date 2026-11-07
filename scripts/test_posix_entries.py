@@ -112,7 +112,7 @@ class PosixEntries(unittest.TestCase):
         self.assertFalse((self.root / 'ambiguous-result.edn').exists())
 
     def test_ir_matches_existing_language_goldens(self):
-        fixtures = [('rust-fixture', 'fixtures/jvm-goldens/rust.ir.edn')]
+        fixtures = [('rust-fixture', 'fixtures/ir-bytes/rust-fixture.edn')]
         for fixture, golden in fixtures:
             with self.subTest(fixture=fixture):
                 output = self.root / 'golden-result.edn'
