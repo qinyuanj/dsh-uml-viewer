@@ -19,12 +19,26 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 REPO = Path(__file__).resolve().parents[1]
+WINDOWS = sys.platform == 'win32'
+
+
+def edn_string(text):
+    """`text` as an EDN string literal: a Windows path's backslashes escaped."""
+    return '"' + str(text).replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+
+def write_text(path, text):
+    """UTF-8 with LF on every host, as the POSIX runs wrote it."""
+    with open(path, 'w', encoding='utf-8', newline='\n') as output:
+        output.write(text)
 
 
 def wait_for(test, timeout, interval=0.05, message='condition'):
@@ -45,10 +59,12 @@ def wait_for(test, timeout, interval=0.05, message='condition'):
 # exactly that setup, so retiring a wrapper dropped no behavioural assertion.
 def prepare_metrics(project):
     (project / '.metrics').mkdir(parents=True, exist_ok=True)
-    (project / 'diagram.edn').write_text(
+    write_text(
+        project / 'diagram.edn',
         '{:packages [{:label "Adapters" :classes [{:id :ffi :ns "ffi"}'
         ' {:id :imgui :ns "imgui"}]}] :edges [{:from :ffi :to :imgui}]}')
-    (project / '.metrics/crap.edn').write_text(
+    write_text(
+        project / '.metrics/crap.edn',
         '{:entries [{:namespace "ffi" :name "draw" :complexity 1'
         ' :coverage 100 :crap 1}]}')
 
@@ -56,14 +72,16 @@ def prepare_metrics(project):
 def prepare_navigation(project):
     children = ' '.join(f'{{:id :source.child{n}}}' for n in range(1, 21))
     ops = ' '.join(f'"operation{n}"' for n in range(1, 71))
-    (project / 'diagram.edn').write_text(
+    write_text(
+        project / 'diagram.edn',
         '{:hierarchical true :title "Navigation acceptance" :order [:source :other]'
         f' :classes [{{:id :source}} {{:id :source.lua}} {{:id :source.lua.parser}} {children}'
         f' {{:id :other :ops [{ops}]}}] :edges []}}')
 
 
 def prepare_search(project):
-    (project / 'diagram.edn').write_text(
+    write_text(
+        project / 'diagram.edn',
         '{:hierarchical true :classes [{:id :alpha.deep.parser :name "解析器"'
         ' :ns "demo.alpha.deep.parser"} {:id :beta.parser :name "解析器"'
         ' :ns "demo.beta.parser"}] :edges [{:from :alpha.deep.parser'
@@ -73,9 +91,9 @@ def prepare_search(project):
 def prepare_review_fixes(project):
     # Two independent source windows whose selections must not leak into each
     # other, and a text field elsewhere in the UI that must keep its own copy.
-    (project / 'diagram.edn').write_text('{:packages [{:id :p :classes [{:id :a}]}]}')
-    (project / 'first.lua').write_text('local FIRST = 1\nreturn FIRST\n')
-    (project / 'second.lua').write_text('local SECOND = 2\nreturn SECOND\n')
+    write_text(project / 'diagram.edn', '{:packages [{:id :p :classes [{:id :a}]}]}')
+    write_text(project / 'first.lua', 'local FIRST = 1\nreturn FIRST\n')
+    write_text(project / 'second.lua', 'local SECOND = 2\nreturn SECOND\n')
 
 
 SESSION_FIXTURE = (
@@ -84,15 +102,15 @@ SESSION_FIXTURE = (
 
 
 def prepare_session(project):
-    (project / 'diagram.edn').write_text(SESSION_FIXTURE)
+    write_text(project / 'diagram.edn', SESSION_FIXTURE)
 
 
 def prepare_legacy_session(project, evidence):
     # An older session.edn predating the window fields: the view is restored
     # and the chrome falls back to its defaults.
-    (project / '.uml-viewer/session.edn').write_text(
-        '{{:path "{}" :mail-seen 4 :focus [] :cam-x 7 :cam-y 0 :zoom 1.25}}'
-        .format(project / 'diagram.edn'))
+    write_text(project / '.uml-viewer/session.edn',
+               '{{:path {} :mail-seen 4 :focus [] :cam-x 7 :cam-y 0 :zoom 1.25}}'
+               .format(edn_string(project / 'diagram.edn')))
 
 
 def prepare_love_session(project, evidence):
@@ -100,10 +118,10 @@ def prepare_love_session(project, evidence):
     # (acceptance-evidence/142-mail-session-restart/love-session/), with only
     # the absolute :path substituted for this isolated project.
     source = REPO / 'acceptance-evidence/142-mail-session-restart/love-session'
-    session = (source / 'session.edn').read_text()
+    session = (source / 'session.edn').read_text(encoding='utf-8')
     diagram = project / 'diagram.edn'
-    session = session.replace('/tmp/uml142 love 项目/diagram.edn', str(diagram))
-    (project / '.uml-viewer/session.edn').write_text(session)
+    session = session.replace('"/tmp/uml142 love 项目/diagram.edn"', edn_string(diagram))
+    write_text(project / '.uml-viewer/session.edn', session)
     shutil.copy2(source / 'diagram.edn', diagram)
     shutil.copy2(source / 'session.edn', evidence / 'love-session-input.edn')
 
@@ -111,8 +129,12 @@ def prepare_love_session(project, evidence):
 def prepare_companion_worker(project):
     # A real isolated Herdr companion whose agent process is a harmless
     # placeholder (the same fixture the POSIX e2e tests use).
+    if WINDOWS:
+        # The placeholder is a sh script; the Windows companion and its
+        # fixtures belong to UV-5 (qinyuanj/uml-viewer#201).
+        raise DriverSkipped('the companion worker driver has no Windows fixture yet')
     placeholder = project / 'companion-placeholder'
-    placeholder.write_text('#!/bin/sh\nsleep 300\n')
+    write_text(placeholder, '#!/bin/sh\nsleep 300\n')
     placeholder.chmod(0o755)
 
 
@@ -120,12 +142,12 @@ def prepare_source_jump(project):
     # The retired wrapper named the source file absolutely; the driver asserts
     # the row it lands on, so the path must resolve exactly as written.
     source = project / 'source.lua'
-    source.write_text("local M = {}\n" + ''.join(f'-- preceding line {n}\n' for n in range(1, 81))
-                      + "\tfunction M.target() local 变量 = 'target ## %'; return 变量 end\nreturn M\n")
-    (project / 'diagram.edn').write_text(
-        '{:hierarchical true :title "Source jump acceptance" :classes'
-        ' [{:id :app.some_module :name "some_module" :ns "app.some_module" :lang :lua'
-        f' :file "{source}" :ops [{{:name "M.target"}}]}}] :edges []}}')
+    write_text(source, "local M = {}\n" + ''.join(f'-- preceding line {n}\n' for n in range(1, 81))
+               + "\tfunction M.target() local 变量 = 'target ## %'; return 变量 end\nreturn M\n")
+    write_text(project / 'diagram.edn',
+               '{:hierarchical true :title "Source jump acceptance" :classes'
+               ' [{:id :app.some_module :name "some_module" :ns "app.some_module" :lang :lua'
+               f' :file {edn_string(source)} :ops [{{:name "M.target"}}]}}] :edges []}}')
 
 
 def prepare_source_window(project):
@@ -133,14 +155,16 @@ def prepare_source_window(project):
 
 
 def prepare_inspector(project):
-    (project / 'diagram.edn').write_text(
+    write_text(
+        project / 'diagram.edn',
         '{:title "中文 Inspector" :hierarchical true :prefix "demo" :classes'
         ' [{:id :a :name "中文类" :ns "demo.a" :ops [{:name "work" :text "work()"}]}]'
         ' :proposals [{:id :plan :name "中文方案" :layers []}'
         ' {:id :keep :name "保留方案" :layers []}]}')
     # Proposal write-back (#141) must keep the other proposal and every other
     # policy key, so the IR has a sibling policy carrying both.
-    (project / 'diagram.policy.edn').write_text(
+    write_text(
+        project / 'diagram.policy.edn',
         '{:lang :rust :src "crates" :prefix "demo" :omit [:zzz]'
         ' :proposals [{:id :plan :name "中文方案" :layers []}'
         ' {:id :keep :name "保留方案" :layers []}]}')
@@ -148,20 +172,23 @@ def prepare_inspector(project):
 
 def prepare_detail_scroll(project):
     ops = ' '.join(f'{{:name "op{n}" :text "op{n}()"}}' for n in range(1, 41))
-    (project / 'diagram.edn').write_text(
+    write_text(
+        project / 'diagram.edn',
         '{:title "Scroll Inspector" :hierarchical true :prefix "demo" :classes'
         f' [{{:id :a :name "A" :ns "demo.a" :ops [{ops}]}}]'
         ' :proposals [{:id :plan :name "Plan A" :layers []}]}')
 
 
 def prepare_fonts(project):
-    (project / 'diagram.edn').write_text(
+    write_text(
+        project / 'diagram.edn',
         '{:hierarchical true :prefix "demo" :classes [{:id :a :name "中文类名"'
         ' :ns "demo.a"}] :proposals [{:id :plan :name "中文提案" :layers []}]}')
 
 
 def prepare_font_parity(project):
-    (project / 'diagram.edn').write_text(
+    write_text(
+        project / 'diagram.edn',
         '{:hierarchical true :prefix "demo" :classes [{:id :demo.detail'
         ' :name "中文详情类名" :ns "demo.detail" :level 2 :stereotype :abstract'
         ' :fields ["中文字段"] :ops [{:name "读取" :text "读取中文数据()" :crap 2'
@@ -169,7 +196,8 @@ def prepare_font_parity(project):
 
 
 def prepare_dpi_window(project):
-    (project / 'diagram.edn').write_text(
+    write_text(
+        project / 'diagram.edn',
         '{:title "DPI 角标" :hierarchical true :prefix "demo" :classes'
         ' [{:id :a :name "中文类" :ns "demo.a" :level 2 :stereotype :interface'
         ' :ops [{:name "work" :text "work()"}]} {:id :b :name "Beta" :ns "demo.b"'
@@ -178,10 +206,11 @@ def prepare_dpi_window(project):
 
 
 def prepare_mail(project):
-    (project / '.uml-viewer/to-viewer.edn').write_text('{:next-id 1 :queue []}')
+    write_text(project / '.uml-viewer/to-viewer.edn', '{:next-id 1 :queue []}')
     (project / '.metrics').mkdir(parents=True, exist_ok=True)
     for name, title in (('first.edn', 'First diagram'), ('second.edn', 'Second diagram')):
-        (project / name).write_text(
+        write_text(
+            project / name,
             f'{{:title "{title}" :packages [{{:label "P" :classes'
             ' [{:id :target :ns "app.target"}]}]}')
 
@@ -346,9 +375,16 @@ def scenarios_companion_worker(project, evidence):
 
 def scenarios_dpi_window(project, evidence):
     # Scale 1 is the deterministic case; other scales need a real display.
+    # On Windows the live process must also be per-monitor DPI aware.
     return [{'tag': 'first-1', 'needs_sarasa': True,
              'env': lambda p, e: env_dpi(p, e, 'first', 'first-1', '1'),
+             'observe': observe_dpi,
              'markers': ['first-1-pass.edn']}]
+
+
+def scenarios_terminate(project, evidence):
+    return [{'tag': 'terminate', 'observe': observe_terminate,
+             'markers': ['terminate-ready.txt', 'terminate-pass.txt']}]
 
 
 # Environments a single-run driver needs. Missing here means the retired
@@ -370,6 +406,7 @@ SCENARIOS = {
     'font_parity': scenarios_font_parity,
     'review_fixes': scenarios_review_fixes,
     'dpi_window': scenarios_dpi_window,
+    'terminate': scenarios_terminate,
     **{name: session_phase(name) for name in SESSION_PHASES},
 }
 FIXTURES.update({name: prepare_session for name in SESSION_PHASES})
@@ -397,6 +434,7 @@ DRIVERS = {
     'font_parity': {'seconds': 30, 'evidence': []},
     'dpi_window': {'seconds': 30, 'evidence': []},
     'companion_worker': {'seconds': 120, 'evidence': ['worker-ui-pass.txt', 'waiting.png']},
+    'terminate': {'seconds': 60, 'evidence': ['terminate-ready.txt', 'terminate-pass.txt']},
     'window_controls': {'seconds': 30, 'evidence': ['window-controls-display.edn',
                                                     'window-controls.png']},
     'session': {'seconds': 60, 'evidence': ['saved-session.edn', 'session-save-pass.edn',
@@ -420,16 +458,109 @@ def rust_executable():
     if configured:
         return configured
     for profile in ('release', 'debug'):
-        binary = REPO / 'target' / profile / 'uml-viewer'
+        binary = REPO / 'target' / profile / ('uml-viewer.exe' if WINDOWS else 'uml-viewer')
         if binary.is_file():
             return str(binary)
     raise ValueError('the Rust uml-viewer binary is missing: run cargo build --release '
                      '(or set UML_VIEWER_RUST_EXECUTABLE)')
 
 
+if WINDOWS:
+    import ctypes
+    from ctypes import wintypes
+
+    _user32 = ctypes.WinDLL('user32', use_last_error=True)
+    _kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    _shcore = ctypes.WinDLL('shcore', use_last_error=True)
+    _ENUM = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    _user32.EnumWindows.argtypes = [_ENUM, wintypes.LPARAM]
+    _user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    _user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    _user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    _kernel32.OpenProcess.restype = wintypes.HANDLE
+    _kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    _shcore.GetProcessDpiAwareness.argtypes = [wintypes.HANDLE, ctypes.POINTER(ctypes.c_int)]
+
+
+def viewer_windows(pid):
+    """The visible top-level windows of process `pid` (Windows)."""
+    found = []
+
+    def visit(hwnd, _):
+        owner = wintypes.DWORD()
+        _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid and _user32.IsWindowVisible(hwnd):
+            found.append(hwnd)
+        return True
+
+    _user32.EnumWindows(_ENUM(visit), 0)
+    return found
+
+
+WM_CLOSE = 0x0010
+
+
+def terminate_politely(process):
+    """The platform's polite termination (UV-3 close path): `WM_CLOSE` to the
+    viewer's window on Windows (the launcher starts it detached, so it has no
+    console for CTRL_BREAK), SIGTERM elsewhere. Both are a normal close."""
+    if not WINDOWS:
+        process.send_signal(signal.SIGTERM)
+        return
+    windows = wait_for(lambda: viewer_windows(process.pid), 30, message='the viewer window')
+    for hwnd in windows:
+        _user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+
+
+# PROCESS_DPI_AWARENESS: what winit asked for (per-monitor v2 reports 2).
+DPI_AWARENESS = {0: 'unaware', 1: 'system', 2: 'per-monitor'}
+
+
+def dpi_awareness(pid):
+    """The DPI awareness of process `pid` (Windows)."""
+    handle = _kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        value = ctypes.c_int(-1)
+        result = _shcore.GetProcessDpiAwareness(handle, ctypes.byref(value))
+        if result != 0:
+            raise OSError(f'GetProcessDpiAwareness failed: {result:#x}')
+        return DPI_AWARENESS.get(value.value, str(value.value))
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
+def observe_dpi(process, project, evidence, tag):
+    """Per-monitor DPI awareness, read from the live viewer once its window is up."""
+    if not WINDOWS:
+        return
+    wait_for(lambda: viewer_windows(process.pid), 30, message='the viewer window')
+    awareness = dpi_awareness(process.pid)
+    write_text(evidence / f'{tag}-dpi-awareness.txt', awareness + '\n')
+    assert awareness == 'per-monitor', f'{tag}: the viewer is {awareness} DPI aware'
+
+
+def observe_terminate(process, project, evidence, tag):
+    """After the driver is ready, terminate politely; the viewer must take the
+    normal close (exit 0) promptly, not the script's `:quit 1`."""
+    wait_for(lambda: (evidence / 'terminate-ready.txt').exists(), 60,
+             message='the terminate driver to be ready')
+    terminate_politely(process)
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        raise AssertionError(f'{tag}: the viewer ignored the polite termination')
+    write_text(evidence / 'terminate-pass.txt', 'closed\n')
+
+
 def run_viewer(project, evidence, seconds, driver, diagram, extra_env, tag='run',
-               viewer_args=()):
-    """Launch the real viewer once and require success plus its pass marker."""
+               viewer_args=(), observe=None):
+    """Launch the real viewer once and require success plus its pass marker.
+
+    `observe(process, project, evidence, tag)` runs beside the live viewer;
+    its AssertionError fails the scenario."""
     xdg = Path(tempfile.mkdtemp(prefix='uml-viewer-xdg-'))
     env = dict(os.environ,
                XDG_CONFIG_HOME=str(xdg / 'config'), XDG_DATA_HOME=str(xdg / 'data'),
@@ -440,17 +571,40 @@ def run_viewer(project, evidence, seconds, driver, diagram, extra_env, tag='run'
                UML_MAIL_TEST_ROOT=str(project), UML_COMPANION_NO_ATTACH='1')
     argv = [rust_executable(), 'viewer', *viewer_args, *diagram]
     # WSLg: without these the viewer falls back to llvmpipe (ADR 0008).
-    env.setdefault('GALLIUM_DRIVER', 'd3d12')
-    env.setdefault('WGPU_BACKEND', 'gl')
+    # Native Windows keeps wgpu's own D3D12 backend.
+    if not WINDOWS:
+        env.setdefault('GALLIUM_DRIVER', 'd3d12')
+        env.setdefault('WGPU_BACKEND', 'gl')
     env.update(extra_env)
+    failures = []
     try:
-        process = subprocess.run(argv, cwd=project, env=env, capture_output=True, text=True,
-                                 timeout=seconds + 120)
+        process = subprocess.Popen(argv, cwd=project, env=env, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, text=True, encoding='utf-8',
+                                   errors='replace')
+        watcher = None
+        if observe:
+            def watch():
+                try:
+                    observe(process, project, evidence, tag)
+                except (AssertionError, OSError) as error:
+                    failures.append(error)
+            watcher = threading.Thread(target=watch, daemon=True)
+            watcher.start()
+        try:
+            stdout, stderr = process.communicate(timeout=seconds + 120)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+            raise
+        if watcher:
+            watcher.join(timeout=30)
     finally:
         shutil.rmtree(xdg, ignore_errors=True)
-    (evidence / f'{tag}-stdout.txt').write_text(process.stdout or '')
-    (evidence / f'{tag}-stderr.txt').write_text(process.stderr or '')
-    return process
+    write_text(evidence / f'{tag}-stdout.txt', stdout or '')
+    write_text(evidence / f'{tag}-stderr.txt', stderr or '')
+    if failures:
+        raise AssertionError(str(failures[0]))
+    return subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
 
 
 def release_companion(project, timeout=90):
@@ -460,7 +614,7 @@ def release_companion(project, timeout=90):
         return
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if record.read_text().strip() in ('', '{}'):
+        if record.read_text(encoding='utf-8').strip() in ('', '{}'):
             return
         time.sleep(0.1)
 
@@ -530,7 +684,8 @@ def main():
                 scenario_driver = edn_script(scenario['script'])
                 assert scenario_driver, f"{tag}: no EDN script {scenario['script']}"
             process = run_viewer(project, evidence, seconds, scenario_driver, diagram, extra,
-                                 tag=tag, viewer_args=scenario.get('args', []))
+                                 tag=tag, viewer_args=scenario.get('args', []),
+                                 observe=scenario.get('observe'))
             expected = scenario.get('markers', markers)
             for marker in expected:
                 assert (evidence / marker).exists() or (project / marker).exists(), \
@@ -551,7 +706,7 @@ def main():
             shutil.rmtree(project, ignore_errors=True)
         elif not result.get('ok'):
             result['project_retained'] = str(project)
-        (evidence / 'result.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
+        write_text(evidence / 'result.json', json.dumps(result, ensure_ascii=False, indent=2) + '\n')
     if result.get('skipped'):
         print(f'SKIP driver {arguments.driver}: {result["skipped"]}')
         return 0
