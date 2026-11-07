@@ -65,6 +65,48 @@ def native_program(path, source):
     return path
 
 
+# An in-tree PEP 517/660 backend for the tool fixtures: an editable wheel is a
+# .pth file naming the source directory. No build requirements, no index.
+FIXTURE_BACKEND = '''\
+import base64, hashlib, os, zipfile
+
+NAME, VERSION = '@NAME@', '0.1.0'
+INFO = f'{NAME}-{VERSION}.dist-info'
+
+
+def _wheel(directory, files):
+    files = {**files,
+             f'{INFO}/METADATA': f'Metadata-Version: 2.1\\nName: {NAME}\\nVersion: {VERSION}\\n',
+             f'{INFO}/WHEEL': 'Wheel-Version: 1.0\\nGenerator: fixture\\nRoot-Is-Purelib: true\\nTag: py3-none-any\\n'}
+    record = []
+    for path, text in files.items():
+        data = text.encode('utf-8')
+        digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b'=').decode()
+        record.append(f'{path},sha256={digest},{len(data)}')
+    record.append(f'{INFO}/RECORD,,')
+    name = f'{NAME}-{VERSION}-py3-none-any.whl'
+    with zipfile.ZipFile(os.path.join(directory, name), 'w') as wheel:
+        for path, text in files.items():
+            wheel.writestr(path, text)
+        wheel.writestr(f'{INFO}/RECORD', '\\n'.join(record) + '\\n')
+    return name
+
+
+def build_editable(wheel_directory, config_settings=None, metadata_directory=None):
+    return _wheel(wheel_directory, {f'_{NAME}_fixture.pth': os.path.abspath('.') + '\\n'})
+
+
+def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
+    files = {}
+    for base, _, names in os.walk(NAME):
+        for file in names:
+            path = os.path.join(base, file)
+            with open(path, encoding='utf-8') as source:
+                files[path.replace(os.sep, '/')] = source.read()
+    return _wheel(wheel_directory, files)
+'''
+
+
 def pending_on_windows(reason):
     """Expected to fail on native Windows until `reason` is fixed.
 
@@ -310,8 +352,9 @@ class PosixEntries(unittest.TestCase):
             tools[tool] = self.tool_fixture(self.root / f'{tool} source', tool)
         cargo, cargo_calls = self.cargo_stub()
         face, font_env = self.font_fixture()
+        # The fixtures build offline; no index makes a regression fail, not hang.
         env = dict(self.env, UML_VIEWER_TOOL_ROOT='', UML_VIEWER_REPO_URL=str(source),
-                   UML_VIEWER_REF='main', UML_CARGO_EXECUTABLE=str(cargo), **font_env,
+                   UML_VIEWER_REF='main', UML_CARGO_EXECUTABLE=str(cargo), PIP_NO_INDEX='1', **font_env,
                    **{f'{tool.upper()}_REPO_URL': str(path) for tool, path in tools.items()},
                    **{f'{tool.upper()}_REF': 'main' for tool in tools})
         (self.root / '.gitignore').write_text('')
@@ -380,11 +423,16 @@ class PosixEntries(unittest.TestCase):
                       'UML_VIEWER_FONT_EXTRACTOR': str(extractor)}
 
     def tool_fixture(self, directory, name):
-        """A minimal installable Python package, enough for a real venv."""
+        """A minimal installable Python package, enough for a real venv.
+
+        Its build backend lives in the tree (no build requirements), so the
+        installer's real `pip install -e` needs no package index on any host.
+        """
         directory.mkdir(parents=True)
         (directory / 'pyproject.toml').write_text(
             f'[project]\nname = "{name}"\nversion = "0.1.0"\nrequires-python = ">=3.11"\n'
-            '[build-system]\nrequires = ["setuptools>=68"]\nbuild-backend = "setuptools.build_meta"\n')
+            '[build-system]\nrequires = []\nbuild-backend = "fixture_backend"\nbackend-path = ["."]\n')
+        (directory / 'fixture_backend.py').write_text(FIXTURE_BACKEND.replace('@NAME@', name))
         package = directory / name
         package.mkdir()
         (package / '__init__.py').write_text('')
@@ -564,7 +612,8 @@ class PosixEntries(unittest.TestCase):
         # reports the refusal, longer than the 1 s stall timeout.
         result = run(url, timeout='10' if WINDOWS else '1')
         self.assertEqual(1, result.returncode, result.stdout + result.stderr)
-        self.assertIn('refused', result.stderr.lower())
+        # Windows downloads through curl.exe, which words the refusal its own way.
+        self.assertIn('could not connect' if WINDOWS else 'refused', result.stderr.lower())
         self.assertNotIn('超时', result.stderr)
 
     def test_install_refuses_existing_ownership(self):
