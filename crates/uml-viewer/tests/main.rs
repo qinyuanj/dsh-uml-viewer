@@ -15,6 +15,7 @@ mod crap_stamp;
 mod dispatch;
 mod dry;
 mod dry_goldens;
+mod dry_languages;
 mod mutate;
 mod quality;
 mod quality_selection;

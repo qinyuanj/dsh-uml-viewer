@@ -1,0 +1,35 @@
+DUPLICATE score=1.00
+  src/app/conditional.clj:3-7
+  src/app/reader.cljc:3-7
+
+DUPLICATE score=1.00
+  src/app/conditional.clj:3-7
+  src/app/reader.cljc:15-19
+
+DUPLICATE score=1.00
+  src/app/conditional.clj:9-12
+  src/app/reader.cljc:9-13
+
+DUPLICATE score=1.00
+  src/app/extra.cljd:3-6
+  src/app/left.clj:3-6
+
+DUPLICATE score=1.00
+  src/app/extra.cljd:3-6
+  src/app/right.clj:3-6
+
+DUPLICATE score=1.00
+  src/app/fns.clj:3-6
+  src/app/more.clj:3-6
+
+DUPLICATE score=1.00
+  src/app/left.clj:3-6
+  src/app/right.clj:3-6
+
+DUPLICATE score=1.00
+  src/app/left.clj:8-11
+  src/app/right.clj:8-11
+
+DUPLICATE score=1.00
+  src/app/reader.cljc:3-7
+  src/app/reader.cljc:15-19

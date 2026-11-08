@@ -588,11 +588,8 @@ fn an_unported_language_is_an_explicit_error_record() {
     let project = Project::new();
     project.config(r#"{"version":1,"standardTools":{"sourceRoots":["src"]}}"#);
     project.write("src/main.go", "package main\n\nfunc main() {}\n");
-    project.write("src/app.py", "def f():\n    return 1\n");
-    for (operation, args, language) in [
-        ("mutate", vec!["src/main.go"], "go"),
-        ("dry", vec![], "python"),
-    ] {
+    project.write("src/main.ts", "export function f() { return 1; }\n");
+    for (operation, args, language) in [("mutate", vec!["src/main.go"], "go")] {
         let mut all = vec![operation];
         all.extend(args.iter().copied());
         let output = project.quality(&all);
@@ -612,6 +609,13 @@ fn an_unported_language_is_an_explicit_error_record() {
         assert!(!stderr(&output).contains("No source files"), "{operation}");
     }
     assert!(!project.root.join(".metrics").exists());
+    // After #7, dryer reads every ported language: the same mixed project is
+    // a real run, not an empty success and not a "not ported" refusal.
+    let output = project.quality(&["dry"]);
+    let record = checked(&output, "dry", &project.root);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(record["validResult"], true);
+    assert!(project.root.join(".metrics").join("dry.edn").exists());
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -921,10 +925,7 @@ fn python_executable() -> Option<std::ffi::OsString> {
 #[test]
 fn named_directories_and_files_reach_one_mutation_call_in_order() {
     let project = Project::new();
-    let root = mutation_project(
-        &project,
-        r#"["--no-coverage","--scan"]"#,
-    );
+    let root = mutation_project(&project, r#"["--no-coverage","--scan"]"#);
     let output = quality_at(
         &project.base,
         &root,
@@ -959,10 +960,7 @@ fn named_directories_and_files_reach_one_mutation_call_in_order() {
 #[test]
 fn changed_mutation_selects_the_changed_files_inside_the_declared_scope() {
     let project = Project::new();
-    let root = mutation_project(
-        &project,
-        r#"["--no-coverage","--scan"]"#,
-    );
+    let root = mutation_project(&project, r#"["--no-coverage","--scan"]"#);
     let git = |args: &[&str]| {
         let output = Command::new("git")
             .args(args)

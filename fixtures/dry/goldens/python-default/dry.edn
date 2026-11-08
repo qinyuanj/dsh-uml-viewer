@@ -1,0 +1,38 @@
+{:candidates [
+ {:score 1.0
+  :language "python"
+  :left {:file "src/app/carts.py", :start-line 2, :end-line 5, :namespace "app.carts.Cart", :name "total"}
+  :right {:file "src/app/orders.py", :start-line 8, :end-line 11, :namespace "app.orders.Order", :name "amount"}
+  :left-nodes 49
+  :right-nodes 49}
+ {:score 1.0
+  :language "python"
+  :left {:file "src/app/carts.py", :start-line 8, :end-line 11, :namespace "app.carts", :name "amount"}
+  :right {:file "src/app/orders.py", :start-line 1, :end-line 4, :namespace "app.orders", :name "total"}
+  :left-nodes 48
+  :right-nodes 48}
+ {:score 0.862068965517
+  :language "python"
+  :left {:file "src/app/carts.py", :start-line 2, :end-line 5, :namespace "app.carts.Cart", :name "total"}
+  :right {:file "src/app/carts.py", :start-line 8, :end-line 11, :namespace "app.carts", :name "amount"}
+  :left-nodes 49
+  :right-nodes 48}
+ {:score 0.862068965517
+  :language "python"
+  :left {:file "src/app/carts.py", :start-line 2, :end-line 5, :namespace "app.carts.Cart", :name "total"}
+  :right {:file "src/app/orders.py", :start-line 1, :end-line 4, :namespace "app.orders", :name "total"}
+  :left-nodes 49
+  :right-nodes 48}
+ {:score 0.862068965517
+  :language "python"
+  :left {:file "src/app/carts.py", :start-line 8, :end-line 11, :namespace "app.carts", :name "amount"}
+  :right {:file "src/app/orders.py", :start-line 8, :end-line 11, :namespace "app.orders.Order", :name "amount"}
+  :left-nodes 48
+  :right-nodes 49}
+ {:score 0.862068965517
+  :language "python"
+  :left {:file "src/app/orders.py", :start-line 1, :end-line 4, :namespace "app.orders", :name "total"}
+  :right {:file "src/app/orders.py", :start-line 8, :end-line 11, :namespace "app.orders.Order", :name "amount"}
+  :left-nodes 48
+  :right-nodes 49}
+]}
