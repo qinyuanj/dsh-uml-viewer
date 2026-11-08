@@ -182,12 +182,13 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
       ctx.fill()
       ctx.stroke()
       ctx.setLineDash([])
-      ctx.globalAlpha = 1
       if (item.text !== null) {
+        // The title dims with its box, as the native ink(*title, *dimmed).
         const [tx, ty] = worldToScreen(view, item.rect.x + 12, item.rect.y + 8)
         fittedText(p, item.text, tx, ty + (item.size * view.zoom) / 2, item.size, item.maxW,
           colorOf(item.ink), { italic: true, zoom: view.zoom })
       }
+      ctx.globalAlpha = 1
       return
     }
     case 'class': {
@@ -226,10 +227,11 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
       ctx.arc(cx, cy, radius, 0, Math.PI * 2)
       ctx.fill()
       ctx.stroke()
-      ctx.globalAlpha = 1
       if (lod === 'full') {
+        // The letter dims with its badge, as the native ink(*letter, *dimmed).
         text(p, item.text, cx, cy, frame.style.fonts.badge * view.zoom, colorOf(item.ink), { align: 'center' })
       }
+      ctx.globalAlpha = 1
       return
     }
     case 'marker':

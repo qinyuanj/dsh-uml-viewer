@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -15,6 +15,8 @@ const sarasa = readFontMetrics(
   path.resolve(fileURLToPath(new URL('../../../fonts/SarasaMonoSC-Regular.ttf', import.meta.url))),
   'Sarasa Mono SC',
 )
+
+const goldenNames = readdirSync(framesDir).filter(name => name.endsWith('.frame.json'))
 
 function golden(name: string): SceneFrame {
   return JSON.parse(readFileSync(path.join(framesDir, name), 'utf8')) as SceneFrame
@@ -135,27 +137,43 @@ describe('Canvas 2D namespace tree', () => {
     expect(fontPx(drawn!)).toBeCloseTo(item.slot * frame.camera.zoom, 8)
   })
 
-  it('dims no-data, child-wash, port-link and port items the producer marks dimmed', () => {
+  it('dims every draw of every world item kind the producer marks dimmed', () => {
+    // core-selected is the full-lod golden with the producer's dimmed items.
+    // Every kind any golden carries is checked: each dimmed golden item as
+    // written, and kinds with no dimmed instance (port, port-link) forced
+    // dimmed. child-wash appears in no golden, so it stays synthetic.
     const frame = golden('core-selected.frame.json')
-    const noData = frame.world.find(item => item.kind === 'no-data' && item.dimmed)
-    const portLink = frame.world.find(item => item.kind === 'port-link')
-    const port = frame.world.find(item => item.kind === 'port')
-    expect(noData, 'the producer frame has a dimmed no-data marker').toBeDefined()
-    const wash = {
+    expect(frame.lod).toBe('full')
+    const dim = frame.style.dimAlpha / 255
+    expect(frame.style.dimAlpha).toBe(70)
+    const kinds = new Set(goldenNames.flatMap(name => golden(name).world.map(item => item.kind as string)))
+    const items: SceneFrame['world'][number][] = frame.world.filter(item => item.dimmed)
+    for (const kind of kinds) {
+      if (items.some(item => item.kind === kind)) continue
+      const template = frame.world.find(item => item.kind === kind)
+      expect(template, `core-selected has a ${kind} item`).toBeDefined()
+      items.push({ ...template!, dimmed: true } as SceneFrame['world'][number])
+    }
+    items.push({
       kind: 'child-wash', lod: 'full', bounds: null, dimmed: true, owner: ':core',
       rect: { x: 70, y: 150, w: 100, h: 16 },
       marker: { wash: { role: 'row-wash' }, bar: { role: 'row-bar' }, barWidth: 2 },
-    } as unknown as SceneFrame['world'][number]
-    const items = [noData!, wash, { ...portLink!, dimmed: true }, { ...port!, dimmed: true }] as SceneFrame['world'][number][]
+    } as unknown as SceneFrame['world'][number])
+    // The golden's own dimmed package and quality items carry text.
+    expect(items.filter(item => item.kind === 'package' || item.kind === 'quality').length).toBeGreaterThanOrEqual(5)
+    const covered = new Set<string>()
     for (const item of items) {
       const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true })
       paintFrame({ ...frame, world: [item], edges: [], chrome: [] }, canvas)
       // Exclude only the canvas clear; every draw op of the item is dimmed.
       const drawn = canvas.recording.ops.filter(op => ['fill', 'stroke', 'fillText', 'fillRect'].includes(op.op)
         && !(op.op === 'fillRect' && op.x === 0 && op.y === 0 && op.width === frame.viewport.width && op.height === frame.viewport.height))
-      expect(drawn.length, item.kind).toBeGreaterThan(0)
-      for (const op of drawn) expect(op.globalAlpha, `${item.kind} ${op.op}`).toBeCloseTo(70 / 255, 6)
+      const label = `${item.kind} ${'id' in item ? String(item.id) : ''}`
+      expect(drawn.length, label).toBeGreaterThan(0)
+      for (const op of drawn) expect(op.globalAlpha, `${label} ${op.op} ${op.text ?? ''}`).toBeCloseTo(dim, 9)
+      covered.add(item.kind)
     }
+    for (const kind of kinds) expect(covered, kind).toContain(kind)
   })
 
   it('places a diamond back vertex 16 screen points behind the tip', () => {
