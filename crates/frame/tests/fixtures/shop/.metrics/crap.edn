@@ -1,0 +1,7 @@
+{:entries [
+  {:name "place", :namespace "shop.core.order", :complexity 2, :coverage 100.0, :crap 2.0}
+  {:name "cancel", :namespace "shop.core.order", :complexity 6, :coverage 40.0, :crap 14.64}
+  {:name "quote", :namespace "shop.core.price", :complexity 9, :coverage 10.0, :crap 67.0}
+  {:name "route", :namespace "shop.api.http", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "reply", :namespace "shop.api.http", :complexity 3, :coverage 66.7, :crap 3.33}
+]}

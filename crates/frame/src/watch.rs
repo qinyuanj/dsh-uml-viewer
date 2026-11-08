@@ -20,13 +20,14 @@ pub fn mtime(path: &Path) -> io::Result<String> {
 }
 
 /// Idle wake-up stamp (#143): stat-only fingerprint of every input a poll
-/// can reload (diagram, `.metrics/crap.edn`, `.metrics/mutate/**/*.edn`, the
-/// `to-viewer.edn` mailbox). The viewer repaints while idle only when it
+/// can reload (diagram, `.metrics/crap.edn`, `.metrics/mutate/**/*.edn`, and
+/// the caller's extra inputs such as the `to-viewer.edn` mailbox). The viewer repaints while idle only when it
 /// changes; the frame's own poll then does the full reload comparison.
 #[derive(Debug)]
 pub struct Wake {
     diagram: std::path::PathBuf,
     root: std::path::PathBuf,
+    inputs: Vec<std::path::PathBuf>,
     last: String,
 }
 
@@ -53,10 +54,11 @@ fn stamp_tree(out: &mut String, dir: &Path) {
 }
 
 impl Wake {
-    pub fn new(diagram: &Path, root: &Path) -> Wake {
+    pub fn new(diagram: &Path, root: &Path, inputs: &[&Path]) -> Wake {
         let mut wake = Wake {
             diagram: diagram.to_path_buf(),
             root: root.to_path_buf(),
+            inputs: inputs.iter().map(|p| p.to_path_buf()).collect(),
             last: String::new(),
         };
         wake.last = wake.stamp();
@@ -68,10 +70,9 @@ impl Wake {
         stamp_into(&mut out, &self.diagram);
         stamp_into(&mut out, &self.root.join(".metrics/crap.edn"));
         stamp_tree(&mut out, &self.root.join(".metrics/mutate"));
-        stamp_into(
-            &mut out,
-            companion::mailbox::Mailbox::inbox(&self.root).path(),
-        );
+        for path in &self.inputs {
+            stamp_into(&mut out, path);
+        }
         out
     }
 

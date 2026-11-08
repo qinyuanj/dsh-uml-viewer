@@ -10,6 +10,7 @@ autotests = false
 [dependencies]
 edn = { path = "../edn" }
 scene = { path = "../scene" }
+frame = { path = "../frame" }
 companion = { path = "../companion" }
 eframe = { version = "0.37", default-features = false, features = [
     "default_fonts",

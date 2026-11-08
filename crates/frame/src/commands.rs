@@ -6,14 +6,13 @@
 
 use edn::Value;
 use edn::record::{flag, get, local_name, seq};
-use egui::Color32;
 use scene::document::ViewState;
 use scene::highlight::Highlight;
 use scene::{Rect, vec2};
 
-use crate::lod;
+use crate::lod::{self, Tier};
 use crate::strings;
-use crate::theme::{self, Rgb, RowMarker, fonts};
+use crate::theme::{self, Role, RowMarker, fonts};
 
 // Text keeps the layout's 12px side padding; package titles also clear the
 // C/M dots. A class stacks its C/M dots in the right padding and puts its
@@ -29,7 +28,7 @@ pub const NO_DATA_STRIP: f64 = 12.0;
 pub struct PopupRow {
     pub text: String,
     pub violating: bool,
-    pub color: Color32,
+    pub color: Role,
 }
 
 /// Renderer commands; every class-owned command carries its owner id and the
@@ -47,9 +46,11 @@ pub enum Command {
         missing: bool,
         missing_count: i64,
         grade: Option<f64>,
-        fill: Rgb,
-        stroke: Rgb,
+        fill: Role,
+        stroke: Role,
         stroke_width: f32,
+        /// The title ink.
+        ink: Role,
         selected: bool,
         related: bool,
         dimmed: bool,
@@ -62,8 +63,8 @@ pub enum Command {
         id: Option<Value>,
         missing: bool,
         grade: Option<f64>,
-        fill: Rgb,
-        stroke: Rgb,
+        fill: Role,
+        stroke: Role,
         stroke_width: f32,
         selected: bool,
         hovered: bool,
@@ -81,6 +82,10 @@ pub enum Command {
         radius: f64,
         x: f64,
         y: f64,
+        fill: Role,
+        stroke: Role,
+        /// The C/M letter, drawn at the Full tier only.
+        ink: Role,
         owner_id: Option<Value>,
         dimmed: bool,
     },
@@ -90,7 +95,7 @@ pub enum Command {
         x: f64,
         y: f64,
         size: f64,
-        color: Color32,
+        color: Role,
         owner_id: Option<Value>,
         dimmed: bool,
     },
@@ -100,7 +105,7 @@ pub enum Command {
         x: f64,
         y: f64,
         size: f64,
-        color: Color32,
+        color: Role,
         owner_id: Option<Value>,
         dimmed: bool,
     },
@@ -110,7 +115,7 @@ pub enum Command {
         x: f64,
         w: f64,
         y: f64,
-        color: Rgb,
+        color: Role,
         owner_id: Option<Value>,
         dimmed: bool,
     },
@@ -118,7 +123,7 @@ pub enum Command {
         x: f64,
         y: f64,
         w: f64,
-        color: Rgb,
+        color: Role,
         owner_id: Option<Value>,
         dimmed: bool,
     },
@@ -135,6 +140,7 @@ pub enum Command {
         top: Option<f64>,
         h: Option<f64>,
         max_w: f64,
+        ink: Role,
         owner_id: Option<Value>,
         dimmed: bool,
     },
@@ -144,7 +150,7 @@ pub enum Command {
         right: f64,
         y: f64,
         size: f64,
-        color: Color32,
+        color: Role,
         owner_id: Option<Value>,
         dimmed: bool,
     },
@@ -157,6 +163,7 @@ pub enum Command {
     PortLink {
         behind: [f64; 2],
         tip: [f64; 2],
+        color: Role,
         owner_id: Option<Value>,
         dimmed: bool,
     },
@@ -165,8 +172,10 @@ pub enum Command {
         rect: Rect,
         text: String,
         marked: bool,
-        stroke: Rgb,
+        fill: Role,
+        stroke: Role,
         stroke_width: f32,
+        ink: Role,
         owner_id: Option<Value>,
         dimmed: bool,
     },
@@ -175,33 +184,35 @@ pub enum Command {
         text: String,
         x: f64,
         y: f64,
-        color: Color32,
+        color: Role,
     },
     ProposalBanner {
         text: String,
         x: f64,
         y: f64,
-        color: Color32,
+        color: Role,
     },
     Back {
         text: String,
         x: f64,
         y: f64,
-        color: Color32,
+        color: Role,
     },
     Status {
         text: String,
         x: f64,
         y: f64,
-        color: Color32,
+        color: Role,
     },
     /// Empty-canvas / missing-file hint, centered on the canvas.
-    Hint { text: String },
+    Hint { text: String, color: Role },
     Popup {
         x: f64,
         y: f64,
         w: f64,
         h: f64,
+        fill: Role,
+        border: Role,
         rows: Vec<PopupRow>,
     },
 }
@@ -227,6 +238,28 @@ impl Command {
             Command::Status { .. } => "status",
             Command::Hint { .. } => "hint",
             Command::Popup { .. } => "popup",
+        }
+    }
+
+    /// The coarsest LOD tier that draws this command (`lod`): silhouettes
+    /// and package titles at every tier, C/M dots and class names from
+    /// Frames, the remaining class detail at Full only. A quality dot's
+    /// letter is drawn at Full only.
+    pub fn tier(&self) -> Tier {
+        match self {
+            Command::Package { .. } | Command::Class { .. } => Tier::Blocks,
+            Command::Quality { .. } => Tier::Frames,
+            Command::Text { role, .. } if role == "name" => Tier::Frames,
+            Command::Marker { .. }
+            | Command::Level { .. }
+            | Command::Band { .. }
+            | Command::Rule { .. }
+            | Command::Text { .. }
+            | Command::NoData { .. }
+            | Command::ChildWash { .. }
+            | Command::PortLink { .. }
+            | Command::Port { .. } => Tier::Full,
+            _ => Tier::Blocks,
         }
     }
 
@@ -269,7 +302,7 @@ pub enum EdgeCommand {
         from: Option<Value>,
         to: Option<Value>,
         points: Vec<[f64; 2]>,
-        color: Rgb,
+        color: Role,
         width: f32,
         hot: bool,
         warm: bool,
@@ -281,7 +314,9 @@ pub enum EdgeCommand {
         head: String,
         tip: [f64; 2],
         behind: [f64; 2],
-        color: Rgb,
+        color: Role,
+        /// Interior of a closed head (canvas, or ink for a filled diamond).
+        fill: Role,
         width: f32,
         hot: bool,
         warm: bool,
@@ -291,8 +326,20 @@ pub enum EdgeCommand {
         id: Option<Value>,
         points: [[f64; 2]; 3],
         violating: bool,
+        color: Role,
         dimmed: bool,
     },
+}
+
+impl EdgeCommand {
+    /// The coarsest LOD tier that draws this command: no edges at Blocks,
+    /// strokes and indicators from Frames, arrowheads at Full only.
+    pub fn tier(&self) -> Tier {
+        match self {
+            EdgeCommand::Stroke { .. } | EdgeCommand::Indicator { .. } => Tier::Frames,
+            EdgeCommand::Head { .. } => Tier::Full,
+        }
+    }
 }
 
 fn quality(commands: &mut Vec<Command>, c: &Value, owner: &'static str) {
@@ -325,6 +372,9 @@ fn quality(commands: &mut Vec<Command>, c: &Value, owner: &'static str) {
             } else {
                 r.y + 10.0
             },
+            fill: Role::QualityFill(Some(g)),
+            stroke: Role::QualityStroke(Some(g)),
+            ink: Role::Marker,
             owner_id: None,
             dimmed: false,
         });
@@ -393,7 +443,7 @@ pub fn text_slots(c: &Value, r: Rect, unmeasured: bool) -> Vec<Command> {
                 x,
                 y: y - 4.0,
                 w,
-                color: theme::stroke(None),
+                color: Role::QualityStroke(None),
                 owner_id: None,
                 dimmed: false,
             });
@@ -424,6 +474,7 @@ pub fn text_slots(c: &Value, r: Rect, unmeasured: bool) -> Vec<Command> {
                 top: None,
                 h: None,
                 max_w: w - 2.0 * PAD,
+                ink: text_color(&kind),
                 owner_id: None,
                 dimmed: false,
             });
@@ -483,14 +534,15 @@ pub fn commands(scene: &Value, selected: Option<&Value>, hover: Option<&Value>) 
             missing: count > 0,
             missing_count: count,
             grade: g,
-            fill: theme::fill(g),
+            fill: Role::PackageFill(g),
             stroke: if is_selected {
-                theme::WHITE
+                Role::Selected
             } else if is_related {
-                theme::RELATED
+                Role::DependencyChain
             } else {
-                theme::stroke(g)
+                Role::PackageStroke(g)
             },
+            ink: Role::Accent,
             selected: is_selected,
             related: is_related,
             dimmed,
@@ -596,13 +648,13 @@ pub fn commands(scene: &Value, selected: Option<&Value>, hover: Option<&Value>) 
             id: id.clone(),
             missing: unmeasured,
             grade: g,
-            fill: theme::fill(g),
+            fill: Role::QualityFill(g),
             stroke: if is_selected {
-                theme::WHITE
+                Role::Selected
             } else if is_related {
-                theme::RELATED
+                Role::DependencyChain
             } else {
-                theme::stroke(g)
+                Role::QualityStroke(g)
             },
             selected: is_selected,
             hovered: hover_id.is_some() && hover_id == id,
@@ -641,7 +693,7 @@ pub fn commands(scene: &Value, selected: Option<&Value>, hover: Option<&Value>) 
                         .map_or(0.0, |t| estimate_w(t, fonts::LEVEL as f64) + 3.0),
                 y: r.y + 3.0,
                 size: fonts::MARKER as f64,
-                color: Color32::WHITE,
+                color: Role::Marker,
                 owner_id: None,
                 dimmed: false,
             });
@@ -653,7 +705,7 @@ pub fn commands(scene: &Value, selected: Option<&Value>, hover: Option<&Value>) 
                 x: r.x + 4.0,
                 y: r.y + 3.0,
                 size: fonts::LEVEL as f64,
-                color: theme::MUTED.color32(),
+                color: Role::Muted,
                 owner_id: None,
                 dimmed: false,
             });
@@ -674,7 +726,7 @@ pub fn commands(scene: &Value, selected: Option<&Value>, hover: Option<&Value>) 
                     x: r.x + 6.0,
                     w: r.w - 12.0,
                     y: (r.bottom() - 2.0).min(top + sh + 1.0),
-                    color: theme::stroke(g),
+                    color: Role::QualityStroke(g),
                     owner_id: None,
                     dimmed: false,
                 });
@@ -708,7 +760,7 @@ pub fn commands(scene: &Value, selected: Option<&Value>, hover: Option<&Value>) 
                 }
             }
             if let Command::Rule { color, .. } = &mut line {
-                *color = theme::stroke(g);
+                *color = Role::QualityStroke(g);
             }
             class_commands.push(line);
         }
@@ -728,6 +780,7 @@ pub fn commands(scene: &Value, selected: Option<&Value>, hover: Option<&Value>) 
                 class_commands.push(Command::PortLink {
                     behind,
                     tip,
+                    color: Role::PortLink,
                     owner_id: None,
                     dimmed: false,
                 });
@@ -742,11 +795,17 @@ pub fn commands(scene: &Value, selected: Option<&Value>, hover: Option<&Value>) 
                             .to_owned(),
                     },
                     marked: is_marked,
-                    stroke: if is_marked {
-                        theme::WHITE
+                    fill: if is_marked {
+                        Role::PortFillMarked
                     } else {
-                        theme::MUTED
+                        Role::PortFill
                     },
+                    stroke: if is_marked {
+                        Role::Selected
+                    } else {
+                        Role::PortOutline
+                    },
+                    ink: if is_marked { Role::Ink } else { Role::Muted },
                     stroke_width: if is_marked {
                         theme::widths::PORT_ON
                     } else {
@@ -764,7 +823,7 @@ pub fn commands(scene: &Value, selected: Option<&Value>, hover: Option<&Value>) 
                 right: r.right() - PAD,
                 y: r.bottom() - NO_DATA_STRIP - 2.0,
                 size: fonts::LEVEL as f64,
-                color: theme::band_color("red").color32(),
+                color: Role::NoData,
                 owner_id: None,
                 dimmed: false,
             });
@@ -791,15 +850,15 @@ enum Attention {
 /// Violation semantics win: attention never turns a violating edge white or
 /// gold. Other edges use white for hover and blue for the chain, at the
 /// same width so color alone distinguishes those states.
-fn edge_style(violating: bool, attention: Attention) -> (Rgb, f32) {
+fn edge_style(violating: bool, attention: Attention) -> (Role, f32) {
     use theme::widths as W;
     match (violating, attention) {
-        (true, Attention::Hovered) => (theme::EDGE_VIOLATING_HOT, W::EDGE_VIOLATING_HOT),
-        (true, Attention::Chain) => (theme::EDGE_VIOLATING_HOT, W::EDGE_VIOLATING),
-        (true, Attention::Outside) => (theme::EDGE_VIOLATING, W::EDGE_VIOLATING),
-        (false, Attention::Hovered) => (theme::WHITE, W::EDGE),
-        (false, Attention::Chain) => (theme::RELATED, W::EDGE),
-        (false, Attention::Outside) => (theme::EDGE, W::EDGE),
+        (true, Attention::Hovered) => (Role::ViolationHot, W::EDGE_VIOLATING_HOT),
+        (true, Attention::Chain) => (Role::ViolationHot, W::EDGE_VIOLATING),
+        (true, Attention::Outside) => (Role::Violation, W::EDGE_VIOLATING),
+        (false, Attention::Hovered) => (Role::RelationHover, W::EDGE),
+        (false, Attention::Chain) => (Role::DependencyChain, W::EDGE),
+        (false, Attention::Outside) => (Role::Relation, W::EDGE),
     }
 }
 
@@ -827,6 +886,11 @@ pub fn edge_commands(
                 id: get(ind, "id").cloned(),
                 points: [points[0], points[1], points[2]],
                 violating,
+                color: if violating {
+                    Role::Violation
+                } else {
+                    Role::Indicator
+                },
                 dimmed: get(ind, "id").is_some_and(|id| h.dimmed(id)),
             });
         }
@@ -865,10 +929,16 @@ pub fn edge_commands(
             vec2(get(e, "tip").unwrap_or(&Value::Nil)),
             vec2(get(e, "behind").unwrap_or(&Value::Nil)),
         ) {
+            let head = local_name(head).unwrap_or_default().to_owned();
             out.push(EdgeCommand::Head {
                 from,
                 to,
-                head: local_name(head).unwrap_or_default().to_owned(),
+                fill: if head == "diamond-fill" {
+                    Role::Ink
+                } else {
+                    Role::Canvas
+                },
+                head,
                 tip,
                 behind,
                 color,
@@ -922,17 +992,20 @@ pub fn fit(
 }
 
 /// Text ink by role: crap lines gold, stereotypes muted, everything else ink.
-pub fn text_color(role: &str) -> Rgb {
+pub fn text_color(role: &str) -> Role {
     match role {
-        "crap" => theme::GOLD,
-        "stereo" => theme::MUTED,
-        _ => theme::INK,
+        "crap" => Role::Accent,
+        "stereo" => Role::Muted,
+        _ => Role::Ink,
     }
 }
 
 /// A centered canvas hint command (waiting for :display, missing file).
 pub fn hint(text: &str) -> Command {
-    Command::Hint { text: text.into() }
+    Command::Hint {
+        text: text.into(),
+        color: Role::Muted,
+    }
 }
 
 /// Screen-space canvas chrome (port of `class_boxes.chrome`): the waiting
@@ -973,14 +1046,14 @@ pub fn chrome(state: &ViewState, width: f64, height: f64) -> Vec<Command> {
             ),
             x: 12.0,
             y: 8.0,
-            color: theme::GOLD.color32(),
+            color: Role::Accent,
         });
     } else if let Some(Value::String(title)) = title.filter(|_| !scoped) {
         out.push(Command::Title {
             text: title.clone(),
             x: 12.0,
             y: 8.0,
-            color: theme::MUTED.color32(),
+            color: Role::Muted,
         });
     }
     if scoped {
@@ -1007,7 +1080,7 @@ pub fn chrome(state: &ViewState, width: f64, height: f64) -> Vec<Command> {
             text: format!("{} · {scope}", strings::BACK),
             x: 12.0,
             y: if banner { 28.0 } else { 8.0 },
-            color: theme::GOLD.color32(),
+            color: Role::Accent,
         });
     }
     let rows = hover_rows(state);
@@ -1023,7 +1096,15 @@ pub fn chrome(state: &ViewState, width: f64, height: f64) -> Vec<Command> {
         if y + h > height {
             y = (8.0f64).max(my - h - 8.0);
         }
-        out.push(Command::Popup { x, y, w, h, rows });
+        out.push(Command::Popup {
+            x,
+            y,
+            w,
+            h,
+            fill: Role::Popup,
+            border: Role::Line,
+            rows,
+        });
     }
     out
 }
@@ -1060,7 +1141,7 @@ fn hover_rows(state: &ViewState) -> Vec<PopupRow> {
                 vec![PopupRow {
                     text,
                     violating: false,
-                    color: theme::INK.color32(),
+                    color: Role::Ink,
                 }]
             })
             .unwrap_or_default()
@@ -1085,9 +1166,9 @@ fn dependency_rows(deps: &[Value]) -> Vec<PopupRow> {
                 text: format!("{from} -> {to}"),
                 violating,
                 color: if violating {
-                    theme::VIOLATION.color32()
+                    Role::Violation
                 } else {
-                    theme::INK.color32()
+                    Role::Ink
                 },
             }
         })

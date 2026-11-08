@@ -90,7 +90,12 @@ fn class_style(command: &Command) -> (viewer::theme::Rgb, viewer::theme::Rgb, bo
     else {
         unreachable!()
     };
-    (*fill, *stroke, *selected, *dimmed)
+    (
+        viewer::theme::rgb(*fill),
+        viewer::theme::rgb(*stroke),
+        *selected,
+        *dimmed,
+    )
 }
 
 fn edge_style(commands: &[EdgeCommand], from: &str, to: &str) -> (viewer::theme::Rgb, f32, bool) {
@@ -107,7 +112,7 @@ fn edge_style(commands: &[EdgeCommand], from: &str, to: &str) -> (viewer::theme:
             } if edn::record::local_name(actual_from) == Some(from)
                 && edn::record::local_name(actual_to) == Some(to) =>
             {
-                Some((*color, *width, *dimmed))
+                Some((viewer::theme::rgb(*color), *width, *dimmed))
             }
             _ => None,
         })
@@ -174,7 +179,7 @@ fn selected_class_illuminates_the_whole_outgoing_dependency_chain() {
             ab,
             composite(
                 viewer::theme::CANVAS_BG,
-                viewer::theme::fade(e_stroke.color32())
+                viewer::color::fade(viewer::color::rgb(e_stroke))
             )
         ) >= 3.0
     );
@@ -198,9 +203,14 @@ fn selected_class_illuminates_the_whole_outgoing_dependency_chain() {
     assert!(!dimmed, "outside class names stay light");
     let outside_fill = composite(
         viewer::theme::CANVAS_BG,
-        viewer::theme::fade(e_fill.color32()),
+        viewer::color::fade(viewer::color::rgb(e_fill)),
     );
-    assert!(contrast(commands::text_color("name"), outside_fill) >= 4.5);
+    assert!(
+        contrast(
+            viewer::theme::rgb(commands::text_color("name")),
+            outside_fill
+        ) >= 4.5
+    );
 }
 
 #[test]
@@ -331,9 +341,9 @@ fn foreign_ovals_use_the_same_selected_and_chain_frames() {
         assert_eq!("oval", shape);
         assert_eq!((selected, dimmed), (*actual_selected, *actual_dimmed));
         if selected {
-            assert_eq!(viewer::theme::WHITE, *stroke);
+            assert_eq!(viewer::theme::WHITE, viewer::theme::rgb(*stroke));
         } else {
-            assert!(contrast(viewer::theme::WHITE, *stroke) >= 3.0);
+            assert!(contrast(viewer::theme::WHITE, viewer::theme::rgb(*stroke)) >= 3.0);
         }
     }
 }
@@ -471,7 +481,7 @@ fn chain_stays_three_to_one_above_dimmed_yellow_quality() {
     let outside = class_style(class_command(&commands, "e")).1;
     let outside = composite(
         viewer::theme::CANVAS_BG,
-        viewer::theme::fade(outside.color32()),
+        viewer::color::fade(viewer::color::rgb(outside)),
     );
     assert!(contrast(chain, outside) >= 3.0, "{chain:?} vs {outside:?}");
 }
@@ -498,7 +508,7 @@ fn folded_package_endpoints_use_the_chain_frame() {
                 related,
                 dimmed,
                 ..
-            } => Some((*stroke, *related, *dimmed)),
+            } => Some((viewer::theme::rgb(*stroke), *related, *dimmed)),
             _ => None,
         })
         .collect();
@@ -520,15 +530,15 @@ fn selected_member_uses_the_shared_readable_row_marker() {
         unreachable!()
     };
     let fill = class_style(class_command(&commands, "e")).0;
-    let background = composite(fill, marker.wash);
-    assert!(contrast(commands::text_color("child"), background) >= 4.5);
+    let background = composite(fill, viewer::color::color(marker.wash));
     assert!(
         contrast(
-            viewer::theme::Rgb(marker.bar.r(), marker.bar.g(), marker.bar.b()),
-            fill
-        ) >= 3.0
+            viewer::theme::rgb(commands::text_color("child")),
+            background
+        ) >= 4.5
     );
-    assert!(marker.wash.a() < 128);
+    assert!(contrast(viewer::theme::rgb(marker.bar), fill) >= 3.0);
+    assert!(viewer::theme::rgba(marker.wash).a < 128);
 
     let hovered = commands::commands(&s, None, Some(&selected));
     assert!(of_kind(&hovered, "child-wash").is_empty());
@@ -573,7 +583,7 @@ fn member_and_port_selection_focus_their_owning_class() {
         unreachable!()
     };
     assert!(marked);
-    assert_eq!(viewer::theme::WHITE, *stroke);
+    assert_eq!(viewer::theme::WHITE, viewer::theme::rgb(*stroke));
     assert_eq!(viewer::theme::widths::PORT_ON, *stroke_width);
 }
 
@@ -602,7 +612,7 @@ fn selecting_a_package_marks_only_that_package() {
         unreachable!()
     };
     assert!(selected);
-    assert_eq!(viewer::theme::WHITE, *stroke);
+    assert_eq!(viewer::theme::WHITE, viewer::theme::rgb(*stroke));
     assert_eq!(viewer::theme::widths::SELECTED, *stroke_width);
     let Command::Package {
         fill: plain_fill, ..
@@ -686,7 +696,7 @@ fn white_markers_and_level_zero_stay_inside_their_bounds() {
             unreachable!()
         };
         assert_eq!(text, t);
-        assert_eq!(egui::Color32::WHITE, *color);
+        assert_eq!(viewer::theme::WHITE, viewer::theme::rgb(*color));
         assert!(*x >= rect.x && x + 8.0 < rect.right() && *y >= rect.y);
     }
     let levels = of_kind(&commands, "level");
@@ -809,7 +819,7 @@ fn a_name_band_runs_under_the_name_slot_in_the_box_stroke() {
     assert_eq!(rect.x + 6.0, *x);
     assert_eq!(rect.w - 12.0, *w);
     let g = scene::metric_rating(Some(2.0), Some(9.0), Some(1.0), None).grade;
-    assert_eq!(viewer::theme::stroke(g), *color);
+    assert_eq!(viewer::theme::stroke(g), viewer::theme::rgb(*color));
 }
 
 #[test]
@@ -848,7 +858,7 @@ fn edges_choose_heads_and_violation_widths() {
     let hot: Vec<(f32, viewer::theme::Rgb)> = commands::edge_commands(&s, None, Some(&hovered))
         .into_iter()
         .filter_map(|c| match c {
-            EdgeCommand::Head { width, color, .. } => Some((width, color)),
+            EdgeCommand::Head { width, color, .. } => Some((width, viewer::theme::rgb(color))),
             _ => None,
         })
         .collect();

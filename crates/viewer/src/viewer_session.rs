@@ -696,13 +696,16 @@ impl ViewerSession {
                     grade,
                     stroke,
                     ..
-                } if cid == target => Some(format!(
-                    "Detail missing={missing} band={band} continuousGrade={} stroke={},{},{}",
-                    grade.map_or("nil".to_string(), |g| g.to_string()),
-                    stroke.0,
-                    stroke.1,
-                    stroke.2
-                )),
+                } if cid == target => {
+                    let stroke = frame::theme::rgb(stroke);
+                    Some(format!(
+                        "Detail missing={missing} band={band} continuousGrade={} stroke={},{},{}",
+                        grade.map_or("nil".to_string(), |g| g.to_string()),
+                        stroke.0,
+                        stroke.1,
+                        stroke.2
+                    ))
+                }
                 _ => None,
             })
     }

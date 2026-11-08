@@ -600,7 +600,7 @@ behaviour). `py -3 -I scripts\check.py` runs all of them.
   those src files; All Mutation passes `--mutate-all`. Omit adds the id to
   the current proposal's `:omit`, or to policy `:omit` on the real diagram.
 - Component titles paint **on top of** crossing arrows.
-- The viewer UI is Chinese (one string table, `crates/viewer/src/strings.rs`);
+- The viewer UI is Chinese (one string table, `crates/frame/src/strings.rs`);
   metric and tool names stay English. The inspector (检查器) lists the
   **real diagram** (源码图, the namespace tree) above
   **Proposals**. Click the real row to return to the tree; click a proposal
@@ -1211,7 +1211,7 @@ Layout follows Mermaid's three stages:
 
 ## Source extractors
 
-Clicking a member asks `crates/viewer/src/source.rs` for the **whole file** and a
+Clicking a member asks `crates/frame/src/source.rs` for the **whole file** and a
 **start line**. The IR (and the class card) only supply an **identity
 map**; a language-specific extractor turns that into
 `{:title :file :body :line}`. The source window opens on that file and
@@ -1229,7 +1229,7 @@ source::member_source(&ident, &files);
 ```
 
 `:lang` selects the extractor; there is no Clojure extractor after the cutover.
-The extractors live in `crates/viewer/src/source.rs` (`FileSource`, entered
+The extractors live in `crates/frame/src/source.rs` (`FileSource`, entered
 through `member_source`):
 
 | method | role |
@@ -1238,12 +1238,15 @@ through `member_source`):
 | `extract` | slice that member out of the file text |
 | `title` | window title |
 
-**TypeScript**, **Rust**, **Python**, and **Lua** (`crates/viewer/src/source.rs`)
+**TypeScript**, **Rust**, **Python**, and **Lua** (`crates/frame/src/source.rs`)
 open `:file` and find the
 exported declaration, the `fn`, the `def`, or the `function`. The class card passes
 `:lang` and `:file` from the class. The protocol is the seam; do
 not special-case languages in the class card.
 
 egui stays in the front end (`crates/viewer/src/paint.rs`,
-`crates/viewer/src/commands.rs`, `crates/viewer/src/inspector.rs`). The scene
-core (`crates/scene`) does not depend on egui.
+`crates/viewer/src/gui.rs`, `crates/viewer/src/app.rs`). Neither the scene
+core (`crates/scene`) nor the window-free viewer model (`crates/frame`: draw
+commands, theme roles, LOD, class card, inspector, source window, search,
+strings, session file, watch, render cache) depends on egui. The scene frame
+the viewer panel draws is `uml-viewer scene --frame` (`docs/scene-frame.md`).

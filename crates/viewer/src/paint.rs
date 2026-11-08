@@ -9,12 +9,14 @@ use egui::{Align, Color32, FontFamily, FontId, Galley, Pos2, Rect as ERect, Stro
 use scene::Rect;
 use scene::document::ViewState;
 
+use crate::color::color;
 use crate::commands::{self, Command, EdgeCommand};
 use crate::render_cache::RenderCache;
+use crate::theme::Role;
 use crate::{lod, strings, theme};
 
 pub fn canvas_bg() -> Color32 {
-    theme::CANVAS_BG.color32()
+    color(Role::Canvas)
 }
 
 /// World -> screen (points): `screen = origin + world * scale`.
@@ -68,8 +70,8 @@ impl Transform {
     }
 }
 
-fn ink(color: Color32, dimmed: bool) -> Color32 {
-    if dimmed { theme::fade(color) } else { color }
+fn ink(role: Role, dimmed: bool) -> Color32 {
+    crate::color::ink(role, dimmed)
 }
 
 fn stroke_of(color: Color32, width: f32) -> Stroke {
@@ -269,8 +271,8 @@ fn paint_head(
     head: &str,
     tip: [f64; 2],
     behind: [f64; 2],
-    color: Color32,
-    width: f32,
+    stroke: Stroke,
+    fill: Color32,
 ) {
     let p = transform.pos(tip);
     let b = transform.pos(behind);
@@ -293,19 +295,12 @@ fn paint_head(
         p.x - l * (dx * cos + dy * sin),
         p.y - l * (dy * cos - dx * sin),
     );
-    let stroke = stroke_of(color, width);
-    let bg = canvas_bg();
     match head {
         "triangle" => {
-            painter.add(egui::Shape::convex_polygon(vec![p, a, c], bg, stroke));
+            painter.add(egui::Shape::convex_polygon(vec![p, a, c], fill, stroke));
         }
         "diamond" | "diamond-fill" => {
             let back = Pos2::new(p.x - l * dx, p.y - l * dy);
-            let fill = if head == "diamond-fill" {
-                theme::INK.color32()
-            } else {
-                bg
-            };
             painter.add(egui::Shape::convex_polygon(
                 vec![p, a, back, c],
                 fill,
@@ -405,7 +400,10 @@ fn corner(radius: f32, scale: f32) -> f32 {
 type DeferredName<'a> = (Pos2, &'a str, f32, Color32, [bool; 3], f32);
 
 /// Smallest canvas text size drawn, in points.
-const MIN_TEXT_PX: f32 = 5.0;
+const MIN_TEXT_PX: f32 = lod::MIN_TEXT_PX;
+
+/// Screen-space chrome text size, in points.
+const CHROME_PX: f32 = theme::fonts::CHROME;
 
 /// Append a polyline as butt-ended quads (one per segment) to `mesh`.
 fn add_segments(
@@ -449,6 +447,9 @@ fn paint_edges(
     }
     let mut mesh = egui::Mesh::default();
     for (command, polyline) in cache.edges() {
+        if command.tier() > tier {
+            continue;
+        }
         match command {
             EdgeCommand::Stroke {
                 color,
@@ -460,7 +461,7 @@ fn paint_edges(
                     continue;
                 };
                 if line.bounds.overlaps(viewport) {
-                    let color = ink(color.color32(), *dimmed);
+                    let color = ink(*color, *dimmed);
                     let screen = line.points.iter().map(|p| transform.pos(*p));
                     add_segments(&mut mesh, screen, *width, color);
                 }
@@ -480,7 +481,7 @@ fn paint_edges(
                 let screen: Vec<Pos2> = line.points.iter().map(|p| transform.pos(*p)).collect();
                 painter.add(egui::Shape::line(
                     screen,
-                    stroke_of(ink(color.color32(), *dimmed), *width),
+                    stroke_of(ink(*color, *dimmed), *width),
                 ));
             }
             EdgeCommand::Head {
@@ -488,13 +489,11 @@ fn paint_edges(
                 tip,
                 behind,
                 color,
+                fill,
                 width,
                 dimmed,
                 ..
             } => {
-                if tier != lod::Tier::Full {
-                    continue;
-                }
                 if !point_visible(*tip, viewport) && !point_visible(*behind, viewport) {
                     continue;
                 }
@@ -504,27 +503,17 @@ fn paint_edges(
                     head,
                     *tip,
                     *behind,
-                    ink(color.color32(), *dimmed),
-                    *width,
+                    stroke_of(ink(*color, *dimmed), *width),
+                    ink(*fill, *dimmed),
                 );
             }
             EdgeCommand::Indicator {
                 points,
-                violating,
+                color,
                 dimmed,
                 ..
             } => {
-                if tier == lod::Tier::Blocks {
-                    continue;
-                }
-                let fill = ink(
-                    if *violating {
-                        theme::band_color("red").color32()
-                    } else {
-                        theme::INDICATOR.color32()
-                    },
-                    *dimmed,
-                );
+                let fill = ink(*color, *dimmed);
                 let screen: Vec<Pos2> = points.iter().map(|p| transform.pos(*p)).collect();
                 painter.add(egui::Shape::convex_polygon(
                     screen,
@@ -570,7 +559,7 @@ pub fn paint(
     let mut boxes = egui::Mesh::default();
     let mut names: Vec<DeferredName> = Vec::new();
     for (bounds, command) in cache.commands() {
-        if bounds.is_some_and(|b| !lod::visible(b, viewport)) {
+        if command.tier() > tier || bounds.is_some_and(|b| !lod::visible(b, viewport)) {
             continue;
         }
         match command {
@@ -580,9 +569,8 @@ pub fn paint(
                 fill,
                 stroke,
                 stroke_width,
+                ink: title,
                 missing,
-                selected,
-                related,
                 dimmed,
                 max_w,
                 ..
@@ -592,17 +580,8 @@ pub fn paint(
                     continue;
                 }
                 let corner = corner(theme::radius::PACKAGE, transform.scale);
-                painter.rect_filled(
-                    r,
-                    corner,
-                    ink(fill.with_alpha(theme::ALPHA_PACKAGE_FILL), *dimmed),
-                );
-                let line_color = if *selected || *related {
-                    stroke.color32()
-                } else {
-                    stroke.with_alpha(theme::ALPHA_PACKAGE_STROKE)
-                };
-                let line = stroke_of(ink(line_color, *dimmed), *stroke_width);
+                painter.rect_filled(r, corner, ink(*fill, *dimmed));
+                let line = stroke_of(ink(*stroke, *dimmed), *stroke_width);
                 if *missing {
                     dashed_rect(&clipped, r, line);
                 } else {
@@ -617,7 +596,7 @@ pub fn paint(
                     r.min.y + 8.0 * transform.scale,
                     label,
                     lod::font_px(theme::fonts::CANVAS as f64 * transform.scale as f64, 1.0),
-                    ink(theme::GOLD.color32(), *dimmed),
+                    ink(*title, *dimmed),
                     true,
                     false,
                     false,
@@ -639,24 +618,24 @@ pub fn paint(
                     continue;
                 }
                 let corner = corner(theme::radius::CLASS, transform.scale);
-                let line_color = ink(stroke.color32(), *dimmed);
+                let line_color = ink(*stroke, *dimmed);
                 let width = *stroke_width;
                 if overview && shape != "oval" && !*missing {
                     add_boxed(
                         &mut boxes,
                         r,
-                        ink(fill.color32(), *dimmed),
+                        ink(*fill, *dimmed),
                         stroke_of(line_color, width),
                     );
                 } else if shape == "oval" {
                     ellipse(
                         &clipped,
                         r,
-                        ink(fill.color32(), *dimmed),
+                        ink(*fill, *dimmed),
                         stroke_of(line_color, width),
                     );
                 } else {
-                    painter.rect_filled(r, corner, ink(fill.color32(), *dimmed));
+                    painter.rect_filled(r, corner, ink(*fill, *dimmed));
                     if *missing {
                         dashed_rect(&clipped, r, stroke_of(line_color, width));
                     } else {
@@ -673,46 +652,32 @@ pub fn paint(
                 x,
                 y,
                 radius,
-                grade,
+                fill,
+                stroke,
+                ink: letter,
                 text: label,
                 dimmed,
                 ..
             } => {
-                if tier == lod::Tier::Blocks {
-                    continue;
-                }
                 let center = transform.pos([*x, *y]);
                 let r = *radius as f32 * transform.scale;
                 if overview {
                     let half = theme::widths::DOT / 2.0;
-                    add_disc(
-                        &mut boxes,
-                        center,
-                        r + half,
-                        ink(theme::stroke(*grade).color32(), *dimmed),
-                    );
-                    add_disc(
-                        &mut boxes,
-                        center,
-                        r - half,
-                        ink(theme::fill(*grade).color32(), *dimmed),
-                    );
+                    add_disc(&mut boxes, center, r + half, ink(*stroke, *dimmed));
+                    add_disc(&mut boxes, center, r - half, ink(*fill, *dimmed));
                     continue;
                 }
-                painter.circle_filled(center, r, ink(theme::fill(*grade).color32(), *dimmed));
+                painter.circle_filled(center, r, ink(*fill, *dimmed));
                 painter.circle_stroke(
                     center,
                     r,
-                    stroke_of(
-                        ink(theme::stroke(*grade).color32(), *dimmed),
-                        theme::widths::DOT,
-                    ),
+                    stroke_of(ink(*stroke, *dimmed), theme::widths::DOT),
                 );
                 if tier == lod::Tier::Full {
                     // Centred on the dot by the laid-out row height, which
                     // scales with the zoom.
                     let px = lod::font_px(9.0 * transform.scale as f64, 1.0);
-                    let color = ink(Color32::WHITE, *dimmed);
+                    let color = ink(*letter, *dimmed);
                     let row = text.galley(ctx, label, px, color, false, true).size().y;
                     draw_text(
                         ctx,
@@ -739,9 +704,6 @@ pub fn paint(
                 dimmed,
                 ..
             } => {
-                if tier != lod::Tier::Full {
-                    continue;
-                }
                 let p = transform.pos([*x, *y]);
                 draw_text(
                     ctx,
@@ -767,9 +729,6 @@ pub fn paint(
                 dimmed,
                 ..
             } => {
-                if tier != lod::Tier::Full {
-                    continue;
-                }
                 let p = transform.pos([*x, *y]);
                 draw_text(
                     ctx,
@@ -794,15 +753,9 @@ pub fn paint(
                 dimmed,
                 ..
             } => {
-                if tier != lod::Tier::Full {
-                    continue;
-                }
                 let a = transform.pos([*x, *y]);
                 let b = transform.pos([x + w, *y]);
-                painter.line_segment(
-                    [a, b],
-                    stroke_of(ink(color.color32(), *dimmed), theme::widths::BAND),
-                );
+                painter.line_segment([a, b], stroke_of(ink(*color, *dimmed), theme::widths::BAND));
             }
             Command::Rule {
                 x,
@@ -812,18 +765,11 @@ pub fn paint(
                 dimmed,
                 ..
             } => {
-                if tier != lod::Tier::Full {
-                    continue;
-                }
                 let a = transform.pos([x + 6.0, *y]);
                 let b = transform.pos([x + w - 6.0, *y]);
-                painter.line_segment(
-                    [a, b],
-                    stroke_of(ink(color.color32(), *dimmed), theme::widths::RULE),
-                );
+                painter.line_segment([a, b], stroke_of(ink(*color, *dimmed), theme::widths::RULE));
             }
             Command::Text {
-                role,
                 italic,
                 bold,
                 center,
@@ -834,13 +780,10 @@ pub fn paint(
                 top,
                 h,
                 max_w,
+                ink: text_ink,
                 dimmed,
                 ..
             } => {
-                // Blocks show silhouettes only; Frames add the name line.
-                if tier == lod::Tier::Blocks || (tier == lod::Tier::Frames && role != "name") {
-                    continue;
-                }
                 // A slotted line draws at its slot height: text_slots scales
                 // a crowded run down together, and the nominal size would
                 // overflow onto the title band and the next line.
@@ -858,7 +801,7 @@ pub fn paint(
                 } else {
                     transform.pos([*x, 0.0]).x
                 };
-                let color = ink(commands::text_color(role).color32(), *dimmed);
+                let color = ink(*text_ink, *dimmed);
                 let budget = (*max_w * transform.scale as f64) as f32;
                 if overview {
                     names.push((
@@ -895,9 +838,6 @@ pub fn paint(
                 dimmed,
                 ..
             } => {
-                if tier != lod::Tier::Full {
-                    continue;
-                }
                 let px = lod::font_px(*size * transform.scale as f64, 1.0);
                 let p = transform.pos([*right, *y]);
                 let width = text.width(ctx, label, px);
@@ -922,11 +862,12 @@ pub fn paint(
                 dimmed,
                 ..
             } => {
-                if tier != lod::Tier::Full {
-                    continue;
-                }
                 let r = transform.rect(*rect);
-                painter.rect_filled(r, corner(2.0, transform.scale), ink(marker.wash, *dimmed));
+                painter.rect_filled(
+                    r,
+                    corner(theme::radius::ROW_WASH, transform.scale),
+                    ink(marker.wash, *dimmed),
+                );
                 painter.rect_filled(
                     ERect::from_min_size(
                         r.min,
@@ -939,13 +880,11 @@ pub fn paint(
             Command::PortLink {
                 behind,
                 tip,
+                color,
                 dimmed,
                 ..
             } => {
-                if tier != lod::Tier::Full {
-                    continue;
-                }
-                let color = ink(theme::MUTED.color32(), *dimmed);
+                let color = ink(*color, *dimmed);
                 let a = transform.pos(*behind);
                 let b = transform.pos(*tip);
                 painter.line_segment([a, b], stroke_of(color, theme::widths::PORT_LINK));
@@ -966,33 +905,20 @@ pub fn paint(
             Command::Port {
                 rect,
                 text: label,
-                marked,
+                fill,
                 stroke,
                 stroke_width,
+                ink: label_ink,
                 dimmed,
                 ..
             } => {
-                if tier != lod::Tier::Full {
-                    continue;
-                }
                 let r = transform.rect(*rect);
-                let corner = corner(3.0, transform.scale);
-                painter.rect_filled(
-                    r,
-                    corner,
-                    ink(
-                        if *marked {
-                            theme::PORT_FILL_ON.color32()
-                        } else {
-                            theme::PORT_FILL.color32()
-                        },
-                        *dimmed,
-                    ),
-                );
+                let corner = corner(theme::radius::PORT, transform.scale);
+                painter.rect_filled(r, corner, ink(*fill, *dimmed));
                 painter.rect_stroke(
                     r,
                     corner,
-                    stroke_of(ink(stroke.color32(), *dimmed), *stroke_width),
+                    stroke_of(ink(*stroke, *dimmed), *stroke_width),
                     StrokeKind::Inside,
                 );
                 draw_text(
@@ -1003,14 +929,7 @@ pub fn paint(
                     r.center().y - 5.0 * transform.scale,
                     label,
                     lod::font_px(theme::fonts::PORT as f64 * transform.scale as f64, 1.0),
-                    ink(
-                        if *marked {
-                            theme::INK.color32()
-                        } else {
-                            theme::MUTED.color32()
-                        },
-                        *dimmed,
-                    ),
+                    ink(*label_ink, *dimmed),
                     false,
                     false,
                     true,
@@ -1043,66 +962,103 @@ pub fn paint(
     paint_edges(&clipped, &transform, viewport, cache, tier);
 
     // Screen-space chrome: banner, return scope, popup (view units = points).
-    for command in commands::chrome(state, screen.width() as f64, screen.height() as f64) {
+    let chrome = frame::frame::chrome(
+        state,
+        screen.width() as f64,
+        screen.height() as f64,
+        hint,
+        status,
+    );
+    for command in chrome {
         match command {
             Command::Title {
                 text: label,
                 x,
                 y,
-                color,
+                color: role,
             }
             | Command::ProposalBanner {
                 text: label,
                 x,
                 y,
-                color,
+                color: role,
             }
             | Command::Back {
                 text: label,
                 x,
                 y,
-                color,
+                color: role,
             } => {
+                let color = color(role);
                 let at = screen.min + egui::vec2(x as f32, y as f32);
                 // A plate keeps the scope legible over the diagram beneath.
-                let size = text.galley(ctx, &label, 18.0, color, false, false).size();
+                let size = text
+                    .galley(ctx, &label, CHROME_PX, color, false, false)
+                    .size();
                 painter.rect_filled(
                     egui::Rect::from_min_size(at, size).expand2(egui::vec2(6.0, 2.0)),
                     3.0,
-                    theme::CANVAS_BG.color32().gamma_multiply(0.92),
+                    crate::color::color(Role::ChromePlate),
                 );
                 draw_text(
-                    ctx, text, painter, at.x, at.y, &label, 18.0, color, false, false, false, None,
+                    ctx, text, painter, at.x, at.y, &label, CHROME_PX, color, false, false, false,
+                    None,
                 )
             }
-            Command::Hint { text: label } => draw_text(
+            Command::Status {
+                text: label,
+                x,
+                y,
+                color: role,
+            } => draw_text(
+                ctx,
+                text,
+                painter,
+                screen.min.x + x as f32,
+                screen.min.y + y as f32,
+                &label,
+                CHROME_PX,
+                color(role),
+                false,
+                false,
+                false,
+                None,
+            ),
+            Command::Hint {
+                text: label,
+                color: role,
+            } => draw_text(
                 ctx,
                 text,
                 painter,
                 screen.center().x,
                 screen.center().y,
                 &label,
-                18.0,
-                theme::MUTED.color32(),
+                CHROME_PX,
+                color(role),
                 false,
                 false,
                 true,
                 None,
             ),
-            Command::Popup { x, y, w, h, rows } => {
+            Command::Popup {
+                x,
+                y,
+                w,
+                h,
+                fill,
+                border,
+                rows,
+            } => {
                 let box_rect = ERect::from_min_size(
                     Pos2::new(screen.min.x + x as f32, screen.min.y + y as f32),
                     egui::vec2(w as f32, h as f32),
                 );
-                painter.rect_filled(
-                    box_rect,
-                    4.0,
-                    theme::POPUP_BG.with_alpha(theme::ALPHA_POPUP),
-                );
+                painter.rect_filled(box_rect, 4.0, color(fill));
                 painter.rect_stroke(
                     box_rect,
                     4.0,
-                    stroke_of(theme::LINE.color32(), 1.0),
+                    stroke_of(color(border), 1.0),
                     StrokeKind::Inside,
                 );
                 for (i, row) in rows.iter().enumerate() {
@@ -1113,8 +1069,8 @@ pub fn paint(
                         box_rect.min.x + 8.0,
                         box_rect.min.y + 8.0 + i as f32 * 20.0,
                         &row.text,
-                        18.0,
-                        row.color,
+                        CHROME_PX,
+                        color(row.color),
                         false,
                         false,
                         false,
@@ -1125,38 +1081,6 @@ pub fn paint(
             _ => {}
         }
     }
-    if let Some(label) = hint {
-        draw_text(
-            ctx,
-            text,
-            painter,
-            screen.center().x,
-            screen.center().y,
-            label,
-            18.0,
-            theme::MUTED.color32(),
-            false,
-            false,
-            true,
-            None,
-        );
-    }
-    if let Some(label) = status {
-        draw_text(
-            ctx,
-            text,
-            painter,
-            screen.min.x + 12.0,
-            screen.max.y - 30.0,
-            label,
-            18.0,
-            theme::MUTED.color32(),
-            false,
-            false,
-            false,
-            None,
-        );
-    }
     if show_performance && let Some(line) = performance {
         draw_text(
             ctx,
@@ -1165,8 +1089,8 @@ pub fn paint(
             screen.min.x + 12.0,
             screen.min.y + 48.0,
             &line,
-            18.0,
-            theme::MUTED.color32(),
+            CHROME_PX,
+            color(Role::Muted),
             false,
             false,
             false,

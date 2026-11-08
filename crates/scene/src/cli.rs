@@ -249,7 +249,7 @@ fn parse_args(args: &[OsString]) -> Result<Options, String> {
 
 /// Load quality snapshots from `<root>/.metrics`, mirroring the adapter's
 /// file discovery (CRAP tree plus every mutation snapshot).
-pub(crate) fn load_snapshots(root: &Path) -> Vec<Snapshot> {
+pub fn load_snapshots(root: &Path) -> Vec<Snapshot> {
     let mut files = Vec::new();
     let crap = root.join(".metrics/crap.edn");
     if let Ok(text) = std::fs::read_to_string(&crap) {

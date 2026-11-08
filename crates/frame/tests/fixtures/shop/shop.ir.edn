@@ -1,0 +1,50 @@
+;; #16 scene-frame goldens: the #147 proposal fixture
+;; (fixtures/route-goldens/proposal.ir.edn) with a stereotype per kind and
+;; every relation kind, measured by the snapshots under .metrics/.
+{:hierarchical true
+ :title "Shop"
+ :prefix "shop"
+ :edge-kinds {}
+ :omit-edges []
+ :levels [[core] [api store] [util]]
+ :order [api core store util]
+ :omit []
+ :classes
+ [{:id :api :name "api" :ns "shop.api" :lang :rust :level 1
+   :ops [{:name "serve" :text "serve"}]}
+  {:id :api.http :name "http" :ns "shop.api.http" :lang :rust :level 1
+   :ops [{:name "route" :text "route"} {:name "reply" :text "reply"}]}
+  {:id :core :name "core" :ns "shop.core" :lang :rust :level 0
+   :ops [{:name "run" :text "run"}]}
+  {:id :core.order :name "order" :ns "shop.core.order" :lang :rust :level 0
+   :ops [{:name "place" :text "place"} {:name "cancel" :text "cancel"}]}
+  {:id :core.price :name "price" :ns "shop.core.price" :lang :rust :level 0
+   :stereotype :abstract
+   :ops [{:name "quote" :text "quote"}]}
+  {:id :core.cart :name "Cart" :ns "shop.core.cart" :lang :rust :level 0
+   :stereotype :interface
+   :ops [{:name "add" :text "add"}]}
+  {:id :store :name "store" :ns "shop.store" :lang :rust :level 1
+   :ops [{:name "open" :text "open"}]}
+  {:id :store.sql :name "sql" :ns "shop.store.sql" :lang :rust :level 1
+   :ops [{:name "query" :text "query"}]}
+  {:id :util :name "util" :ns "shop.util" :lang :rust :level 2
+   :ops [{:name "clamp" :text "clamp"}]}
+  {:id :serde :name "serde" :ns "serde" :foreign true}]
+ :edges
+ [{:from :api.http :to :core.order :kind :dependency}
+  {:from :api :to :api.http :kind :dependency}
+  {:from :core.order :to :core.price :kind :dependency}
+  {:from :core.order :to :core.cart :kind :association}
+  {:from :core.cart :to :core.price :kind :aggregation}
+  {:from :core.price :to :core.cart :kind :composition}
+  {:from :core.cart :to :core :kind :inheritance}
+  {:from :store.sql :to :core.order :kind :implements}
+  {:from :core.price :to :util :kind :dependency :violating true}
+  {:from :store.sql :to :serde :kind :dependency}
+  {:from :api.http :to :serde :kind :dependency}]
+ :proposals
+ [{:id :p-shop :name "2026-10-24 10:00:00"
+   :layers [{:id :domain :label "Domain" :nses [core]}
+            {:id :edge :label "Edge" :nses [api store]}]
+   :omit []}]}

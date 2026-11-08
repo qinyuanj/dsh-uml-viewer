@@ -1,0 +1,1 @@
+{:version 1 :tested-at "2026-11-08T12:00:00+08:00" :source "src/api/http.rs" :namespace "shop.api.http" :outcomes {"[\"src/api/http.rs\",\"shop.api.http\",\"defn/route\",10,11,\"+\",\"-\"]" :killed} :forms [{:id "defn/route" :kind "defn" :file "src/api/http.rs" :line 1 :end-line 5 :hash "0" :killed 1 :survived 0 :uncovered 1 :sites 2}]}

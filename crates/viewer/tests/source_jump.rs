@@ -252,15 +252,13 @@ fn splits_a_body_into_numbered_rows_with_the_target_highlighted() {
         rows.iter().map(|r| r.marker.is_some()).collect::<Vec<_>>()
     );
     let marker = rows[1].marker.unwrap();
-    assert_eq!(255, marker.bar.a());
-    assert!(marker.wash.a() < 128, "the row wash stays translucent");
+    assert_eq!(255, theme::rgba(marker.bar).a);
     assert!(
-        contrast(
-            theme::Rgb(marker.bar.r(), marker.bar.g(), marker.bar.b()),
-            theme::SOURCE_GUTTER_BG
-        ) >= 3.0
+        theme::rgba(marker.wash).a < 128,
+        "the row wash stays translucent"
     );
-    let background = composite(theme::SOURCE_BG, marker.wash);
+    assert!(contrast(theme::rgb(marker.bar), theme::SOURCE_GUTTER_BG) >= 3.0);
+    let background = composite(theme::SOURCE_BG, viewer::color::color(marker.wash));
     for ink in [
         theme::SOURCE_INK,
         theme::SOURCE_KEYWORD,
