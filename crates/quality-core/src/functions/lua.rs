@@ -50,12 +50,13 @@ fn binary_logic(node: Node) -> bool {
             .any(|child| matches!(child.kind(), "and" | "or"))
 }
 
-pub(super) fn functions(source: &str, path: &str, root: &Path) -> Vec<Function> {
+pub(super) fn functions(source: &str, path: &str, root: &Path) -> std::io::Result<Vec<Function>> {
     let tree = Grammar::Lua.parse(source);
-    assert!(
-        !tree.root_node().has_error(),
-        "Lua source does not parse: {path}"
-    );
+    if tree.root_node().has_error() {
+        return Err(std::io::Error::other(format!(
+            "Lua source does not parse: {path}"
+        )));
+    }
     let nodes = crate::grammar::preorder(tree.root_node());
     let mut candidates: Vec<Node> = nodes
         .iter()
@@ -139,5 +140,5 @@ pub(super) fn functions(source: &str, path: &str, root: &Path) -> Vec<Function> 
             Language::Lua,
         ));
     }
-    result
+    Ok(result)
 }

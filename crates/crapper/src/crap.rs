@@ -77,7 +77,7 @@ pub fn analyze(
         let relative = quality_core::paths::relative_posix(file, root)
             .unwrap_or_else(|| quality_core::paths::posix(file));
         for function in
-            quality_core::functions::functions_in_file(language, &source, &relative, root)
+            quality_core::functions::functions_in_file(language, &source, &relative, root)?
         {
             let coverage = bundle.and_then(|bundle| bundle.percent_for(&function));
             entries.push(make_entry(&function, coverage));

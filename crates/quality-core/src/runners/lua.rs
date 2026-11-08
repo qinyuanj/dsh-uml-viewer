@@ -256,10 +256,25 @@ pub fn shard_specs(specs: &[String], count: usize, module: &Path) -> Vec<Vec<Str
     result
 }
 
+/// Mutator keeps the original unqualified merge error and wraps it itself.
 pub fn merge_stats(parts: &[PathBuf], target: &Path) -> Result<(), CoverageError> {
+    merge_stats_in(parts, target, None)
+}
+
+fn merge_stats_in(
+    parts: &[PathBuf],
+    target: &Path,
+    module: Option<&Path>,
+) -> Result<(), CoverageError> {
+    let failure = |detail: String| {
+        error(match module {
+            Some(module) => format!("Cannot sum LuaCov stats in {}: {detail}", module.display()),
+            None => format!("Cannot sum LuaCov stats: {detail}"),
+        })
+    };
     let mut merged = BTreeMap::<Vec<u8>, Vec<u64>>::new();
     for part in parts {
-        let bytes = fs::read(part).map_err(|e| error(format!("Cannot sum LuaCov stats: {e}")))?;
+        let bytes = fs::read(part).map_err(|e| failure(format!("{e}")))?;
         let lines: Vec<&[u8]> = bytes.split(|b| *b == b'\n').collect();
         for pair in lines.chunks(2) {
             if pair.len() != 2 {
@@ -282,7 +297,7 @@ pub fn merge_stats(parts: &[PathBuf], target: &Path) -> Result<(), CoverageError
                 hits[index] += std::str::from_utf8(count)
                     .ok()
                     .and_then(|s| s.parse::<u64>().ok())
-                    .ok_or_else(|| error("Cannot sum LuaCov stats: invalid hit count"))?;
+                    .ok_or_else(|| failure("invalid hit count".to_string()))?;
             }
         }
     }
@@ -294,7 +309,7 @@ pub fn merge_stats(parts: &[PathBuf], target: &Path) -> Result<(), CoverageError
         }
         bytes.push(b'\n');
     }
-    fs::write(target, bytes).map_err(|e| error(format!("Cannot sum LuaCov stats: {e}")))
+    fs::write(target, bytes).map_err(|e| failure(format!("{e}")))
 }
 
 fn prepare(
@@ -423,7 +438,16 @@ fn prepare(
                     module.display()
                 )));
             }
-            merge_stats(&parts, &stats)?;
+            for part in &parts {
+                if !part.is_file() {
+                    return Err(error(format!(
+                        "LuaCov stats missing after Lua tests in {}: {}",
+                        module.display(),
+                        part.display()
+                    )));
+                }
+            }
+            merge_stats_in(&parts, &stats, Some(&module))?;
             let leftovers: Vec<PathBuf> = fs::read_dir(report.parent().unwrap())
                 .into_iter()
                 .flatten()

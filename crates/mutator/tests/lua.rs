@@ -30,7 +30,8 @@ fn lua_site_discovery_matches_the_pinned_original() {
         }
         let path = root.join(name);
         let source = quality_core::grammar::read_source(&path).expect("the fixture source reads");
-        let (found, forms) = sites::discover(&source, &path, &root, name);
+        let (found, forms) =
+            sites::discover(&source, &path, &root, name).expect("the Lua fixture sources parse");
         let Value::Array(expected) = expected else {
             panic!("{name} lists its sites");
         };

@@ -217,22 +217,28 @@ type FormParts = (usize, Vec<(usize, usize, String)>);
 
 /// Mutation sites in source order and forms in first-line order. Test code is
 /// excluded by shared function discovery; private forms retain their defn-/ IDs.
-pub fn discover(source: &str, path: &Path, root: &Path, file_key: &str) -> (Vec<Site>, Vec<Form>) {
+pub fn discover(
+    source: &str,
+    path: &Path,
+    root: &Path,
+    file_key: &str,
+) -> std::io::Result<(Vec<Site>, Vec<Form>)> {
     let Some(language) = language_of(path) else {
-        return (Vec::new(), Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     };
     let grammar = match language {
         Language::Rust => Grammar::Rust,
         Language::Lua => Grammar::Lua,
-        _ => return (Vec::new(), Vec::new()),
+        _ => return Ok((Vec::new(), Vec::new())),
     };
     let located = if path.is_absolute() {
         resolve(path)
     } else {
         resolve(&root.join(path))
     };
-    // The original resolves both sides before naming the module.
-    let functions = functions_in_file(language, source, &posix(&located), &resolve(root));
+    // The original resolves both sides before naming the module. Malformed Lua
+    // is an input error for the caller to report, never a panic.
+    let functions = functions_in_file(language, source, &posix(&located), &resolve(root))?;
     let mut forms: Vec<Form> = Vec::new();
     let mut grouped: BTreeMap<(String, String), FormParts> = BTreeMap::new();
     let mut owners = Vec::new();
@@ -343,7 +349,7 @@ pub fn discover(source: &str, path: &Path, root: &Path, file_key: &str) -> (Vec<
     }
     found.sort_by_key(|site| (site.line, site.start, site.end));
     forms.sort_by_key(|form| form.line);
-    (found, forms)
+    Ok((found, forms))
 }
 /// Replace the site's UTF-8 byte span.
 pub fn apply_site(source: &str, site: &Site) -> String {

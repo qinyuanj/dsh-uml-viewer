@@ -450,7 +450,13 @@ pub fn prepare(
         })?;
         let source = read_source(file).map_err(|_| 2)?;
         let key = metrics::source_key(file, root).map_err(|_| 2)?;
-        let (sites, forms) = sites::discover(&source, file, root, &key);
+        let (sites, forms) = sites::discover(&source, file, root, &key).map_err(|error| {
+            eprintln!(
+                "Cannot discover mutation sites in {}: {error}",
+                file.display()
+            );
+            1
+        })?;
         let history = metrics::load_history(root, &key);
         let covered = sites
             .iter()
