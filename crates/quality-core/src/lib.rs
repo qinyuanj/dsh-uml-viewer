@@ -26,3 +26,4 @@ pub mod process;
 pub mod runner;
 pub mod select;
 pub mod snapshot;
+pub mod stamp;

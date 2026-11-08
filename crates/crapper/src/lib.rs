@@ -59,10 +59,6 @@ fn platform_warning(root: &Path) -> Option<String> {
 }
 
 fn analyze_project(options: &Options) -> u8 {
-    if options.changed {
-        eprintln!("--changed is not ported to uml-viewer crap yet (qinyuanj/dsh-uml-viewer#3).");
-        return 1;
-    }
     let scope = Scope {
         root: options.project_root.clone(),
         source_roots: options.source_roots.clone(),
@@ -80,7 +76,11 @@ fn analyze_project(options: &Options) -> u8 {
     }
     let files = {
         let mut stderr = std::io::stderr();
-        scope.select(&options.positionals, &mut stderr)
+        if options.changed {
+            scope.select_changed(&options.positionals, &mut stderr)
+        } else {
+            scope.select(&options.positionals, &mut stderr)
+        }
     };
     if let Some(file) = files
         .iter()

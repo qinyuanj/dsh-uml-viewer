@@ -351,6 +351,15 @@ in a full-tree refresh. A failed refresh preserves the previous snapshot rather
 than replacing other classes' metrics with a partial result. `--no-coverage`
 explicitly requests complexity only; it does not establish fresh coverage.
 
+The direct `uml-viewer crap` subcommand also accepts `--changed`: it selects
+git's existing added, modified and untracked files, narrowed by source roots
+and exclusions. A successful coverage run writes
+`target/coverage/crapper-stamp.json` per language. The stamp records the
+coverage command and fingerprints the tree (including tests); edits during
+coverage invalidate that run. Skipped directories and coverage-tool caches do
+not make coverage stale. A missing or invalid fresh custom LCOV report fails
+without replacing `.metrics/crap.edn`.
+
 Mutator accepts repeated `-s`/`--source-root` and `--exclude` and selects files
 by crapper's rules. With `-s`, named paths and `--changed` are narrowed to the
 source roots: a named file outside every root is dropped with
