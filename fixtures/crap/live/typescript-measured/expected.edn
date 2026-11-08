@@ -1,0 +1,3 @@
+{:entries [
+  {:name "choose", :namespace "calc", :complexity 2, :coverage 83.3333, :crap 2.0185}
+]}

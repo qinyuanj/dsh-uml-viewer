@@ -19,7 +19,7 @@ use quality_core::coverage::load_bundle;
 use quality_core::functions::supported;
 use quality_core::language::language_of;
 use quality_core::paths::posix;
-use quality_core::runner::run_coverage;
+use quality_core::runner::run_coverage_with_lua_shards;
 use quality_core::select::Scope;
 
 use crate::cli::{HELP, Options, Parsed};
@@ -59,10 +59,6 @@ fn platform_warning(root: &Path) -> Option<String> {
 }
 
 fn analyze_project(options: &Options) -> u8 {
-    if options.changed {
-        eprintln!("--changed is not ported to uml-viewer crap yet (qinyuanj/dsh-uml-viewer#3).");
-        return 1;
-    }
     let scope = Scope {
         root: options.project_root.clone(),
         source_roots: options.source_roots.clone(),
@@ -80,7 +76,11 @@ fn analyze_project(options: &Options) -> u8 {
     }
     let files = {
         let mut stderr = std::io::stderr();
-        scope.select(&options.positionals, &mut stderr)
+        if options.changed {
+            scope.select_changed(&options.positionals, &mut stderr)
+        } else {
+            scope.select(&options.positionals, &mut stderr)
+        }
     };
     if let Some(file) = files
         .iter()
@@ -103,10 +103,11 @@ fn analyze_project(options: &Options) -> u8 {
     let mut bundle = None;
     if !options.no_coverage && (!files.is_empty() || options.coverage_command.is_some()) {
         if !options.use_existing_coverage {
-            match run_coverage(
+            match run_coverage_with_lua_shards(
                 &root,
                 &files,
                 options.coverage_command.as_deref(),
+                options.lua_shards,
                 options.full_tree,
             ) {
                 Ok(found) => bundle = found,

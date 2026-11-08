@@ -3,8 +3,8 @@
 //! A custom coverage command must write a fresh, valid `coverage/lcov.info`
 //! or the run fails. A built-in runner that fails leaves its language N/A,
 //! unless the run is strict (a whole-tree refresh), where it fails too.
-//! Built-in runners for languages other than Rust, and the coverage stamp
-//! mutator reuses, arrive with later tickets (#3, #4, #5).
+//! Built-in runners for languages other than Rust arrive with #4/#5. The
+//! coverage stamp mutator reuses is shared here (#3).
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -33,6 +33,18 @@ fn warn(message: &str) {
 /// Run `program` in `cwd` after echoing it; 127 when it did not start.
 pub fn run_shell(program: &Program, cwd: &Path) -> i32 {
     warn(&format!("+ ({}) {}", cwd.display(), program.display()));
+    let mut resolved_args = Vec::new();
+    if let Program::Argv(argv) = program
+        && let Some(path) = argv.first().and_then(|program| which(program))
+    {
+        resolved_args.push(path.to_string_lossy().into_owned());
+        resolved_args.extend(argv.iter().skip(1).cloned());
+    }
+    let program = if resolved_args.is_empty() {
+        program
+    } else {
+        &Program::Argv(&resolved_args)
+    };
     match run(program, cwd) {
         Ok(code) => code,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -267,15 +279,66 @@ pub fn run_coverage(
     command: Option<&str>,
     strict: bool,
 ) -> Result<Option<CoverageBundle>, CoverageError> {
+    run_coverage_with_lua_shards(root, files, command, None, strict)
+}
+
+/// Coverage with the crapper CLI's optional Lua shard count. Other callers
+/// retain `run_coverage`'s original four-argument API.
+pub fn run_coverage_with_lua_shards(
+    root: &Path,
+    files: &[PathBuf],
+    command: Option<&str>,
+    lua_shards: Option<u32>,
+    strict: bool,
+) -> Result<Option<CoverageBundle>, CoverageError> {
     let root = resolve(root);
-    if let Some(command) = command {
-        return run_custom(&root, command).map(Some);
-    }
-    let languages: BTreeSet<Language> = files.iter().filter_map(|file| language_of(file)).collect();
-    let mut failed: Vec<&str> = Vec::new();
-    if languages.contains(&Language::Rust) && !cover_rust(&root, files) {
-        failed.push(Language::Rust.name());
-    }
+    let before = crate::stamp::fingerprint(&root);
+    let mut failed: Vec<&str> = files
+        .iter()
+        .filter_map(|file| language_of(file))
+        .map(Language::name)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let mut managed: Option<crate::coverage::Records> = None;
+    let result = if let Some(command) = command {
+        run_custom(&root, command)
+            .map(Some)
+            .inspect(|_| failed.clear())
+    } else {
+        let languages: BTreeSet<Language> =
+            files.iter().filter_map(|file| language_of(file)).collect();
+        failed.clear();
+        if languages.contains(&Language::TypeScript)
+            && !crate::runners::typescript::cover(&root, files)
+        {
+            failed.push(Language::TypeScript.name());
+        }
+        if languages.contains(&Language::Python) && !crate::runners::python::cover(&root, files) {
+            failed.push(Language::Python.name());
+        }
+        if languages.contains(&Language::Rust) && !cover_rust(&root, files) {
+            failed.push(Language::Rust.name());
+        }
+        // Lua runs last and raises instead of returning false; the stamp below
+        // still records every language, exactly as the original's `finally`.
+        if languages.contains(&Language::Lua) {
+            match crate::runners::lua::cover(&root, files, lua_shards) {
+                Ok(records) => {
+                    managed = records;
+                    Ok(None)
+                }
+                Err(error) => {
+                    failed.push(Language::Lua.name());
+                    Err(error)
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    };
+    crate::stamp::record(&root, files, command, &failed, &before);
+    let bundle = result?;
     if strict && !failed.is_empty() {
         failed.sort();
         return Err(CoverageError(format!(
@@ -283,5 +346,15 @@ pub fn run_coverage(
             failed.join(", ")
         )));
     }
-    Ok(None)
+    if let Some(records) = managed {
+        let mut bundle = crate::coverage::load_bundle(&root);
+        bundle.add_fresh(&records, &root);
+        return Ok(Some(bundle));
+    }
+    Ok(bundle)
+}
+
+/// Python-compatible freshness lookup for mutator and dryer.
+pub fn stale_files(root: &Path, files: &[PathBuf], command: Option<&str>) -> Vec<PathBuf> {
+    crate::stamp::stale_files(root, files, command)
 }

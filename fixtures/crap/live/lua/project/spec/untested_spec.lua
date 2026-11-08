@@ -1,0 +1,5 @@
+describe("uncovered utility", function()
+  it("does not call the utility", function()
+    assert.is_true(true)
+  end)
+end)

@@ -1,0 +1,36 @@
+{:entries [
+  {:name "choose", :namespace "demo.box", :complexity 14, :coverage nil, :crap nil}
+  {:name "M.choose", :namespace "src.calc.edges", :complexity 10, :coverage nil, :crap nil}
+  {:name "choose", :namespace "demo.box", :complexity 7, :coverage nil, :crap nil}
+  {:name "outer", :namespace "src.calc.edges", :complexity 4, :coverage nil, :crap nil}
+  {:name "tick", :namespace "demo.sample.Outer.Inner", :complexity 3, :coverage nil, :crap nil}
+  {:name "helper", :namespace "src.calc.edges", :complexity 3, :coverage nil, :crap nil}
+  {:name "View", :namespace "ui.view", :complexity 3, :coverage nil, :crap nil}
+  {:name "arrow", :namespace "demo.box", :complexity 2, :coverage nil, :crap nil}
+  {:name "load", :namespace "demo.box", :complexity 2, :coverage nil, :crap nil}
+  {:name "outer", :namespace "demo.box", :complexity 2, :coverage nil, :crap nil}
+  {:name "outer", :namespace "demo.box", :complexity 2, :coverage nil, :crap nil}
+  {:name "open", :namespace "demo.box.Box", :complexity 2, :coverage nil, :crap nil}
+  {:name "open", :namespace "demo.box.Box", :complexity 2, :coverage nil, :crap nil}
+  {:name "shut", :namespace "demo.box.Box", :complexity 2, :coverage nil, :crap nil}
+  {:name "secret", :namespace "demo.sample.Hidden", :complexity 2, :coverage nil, :crap nil}
+  {:name "second", :namespace "src.calc.edges", :complexity 2, :coverage nil, :crap nil}
+  {:name "choose", :namespace "app", :complexity 1, :coverage nil, :crap nil}
+  {:name "run", :namespace "board", :complexity 1, :coverage nil, :crap nil}
+  {:name "literal", :namespace "demo", :complexity 1, :coverage nil, :crap nil}
+  {:name "f", :namespace "demo.app", :complexity 1, :coverage nil, :crap nil}
+  {:name "arrow", :namespace "demo.declarations", :complexity 1, :coverage nil, :crap nil}
+  {:name "choose", :namespace "demo.namespace", :complexity 1, :coverage nil, :crap nil}
+  {:name "factory", :namespace "demo.sample", :complexity 1, :coverage nil, :crap nil}
+  {:name "f", :namespace "python", :complexity 1, :coverage nil, :crap nil}
+  {:name "run", :namespace "python.app.main", :complexity 1, :coverage nil, :crap nil}
+  {:name "Account:deposit", :namespace "src.calc.edges", :complexity 1, :coverage nil, :crap nil}
+  {:name "M.bar", :namespace "src.calc.edges", :complexity 1, :coverage nil, :crap nil}
+  {:name "global_fn", :namespace "src.calc.edges", :complexity 1, :coverage nil, :crap nil}
+  {:name "literal", :namespace "src.calc.edges", :complexity 1, :coverage nil, :crap nil}
+  {:name "local_start", :namespace "src.calc.edges", :complexity 1, :coverage nil, :crap nil}
+  {:name "choose", :namespace "trailing", :complexity 1, :coverage nil, :crap nil}
+  {:name "view", :namespace "typescript.ui.view", :complexity 1, :coverage nil, :crap nil}
+  {:name "view", :namespace "typescript.ui.view", :complexity 1, :coverage nil, :crap nil}
+  {:name "view", :namespace "typescript.ui.view", :complexity 1, :coverage nil, :crap nil}
+]}

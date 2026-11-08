@@ -16,6 +16,7 @@
 //! - [`paths`]: Python-compatible `resolve` / `as_posix`.
 
 pub mod atomic;
+pub mod changed;
 pub mod coverage;
 pub mod functions;
 pub mod grammar;
@@ -23,5 +24,7 @@ pub mod language;
 pub mod paths;
 pub mod process;
 pub mod runner;
+pub mod runners;
 pub mod select;
 pub mod snapshot;
+pub mod stamp;
