@@ -1,5 +1,7 @@
 //! The crate's one integration test binary (see `autotests` in
 //! Cargo.toml): each file below is a module of it.
+// Test code is the outside harness: it launches the binary and children itself.
+#![allow(clippy::disallowed_methods)]
 
 mod class_card;
 mod cli;

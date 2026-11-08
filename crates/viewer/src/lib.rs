@@ -7,6 +7,9 @@
 //! link. `app` is the eframe adapter around it; `paint`, `gui` and the
 //! driver's pixel, font and window steps are exercised by the declarative
 //! EDN driver scripts under `scripts/drivers/`.
+// Tests are the outside harness and launch their own children; production
+// code launches through `companion::command_stdout` (clippy.toml).
+#![cfg_attr(test, allow(clippy::disallowed_methods))]
 
 pub mod app;
 pub mod bench;

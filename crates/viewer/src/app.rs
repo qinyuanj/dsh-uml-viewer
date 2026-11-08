@@ -130,11 +130,7 @@ fn lib_present(name: &str) -> bool {
     if paths.iter().any(|dir| Path::new(dir).join(name).exists()) {
         return true;
     }
-    std::process::Command::new("ldconfig")
-        .arg("-p")
-        .output()
-        .map(|out| String::from_utf8_lossy(&out.stdout).contains(name))
-        .unwrap_or(false)
+    companion::command_stdout("ldconfig", &["-p"]).is_some_and(|out| out.contains(name))
 }
 
 fn env_nonempty(name: &str) -> Option<String> {

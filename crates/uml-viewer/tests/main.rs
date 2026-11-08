@@ -1,6 +1,8 @@
 //! One integration test binary per crate: every binary here links the
 //! whole dependency stack, so separate files relink it once each. A crate
 //! that does this sets `autotests = false` and declares its files below.
+// Test code is the outside harness: it launches the binary under test itself.
+#![allow(clippy::disallowed_methods)]
 
 mod dispatch;
 mod scene_cli;

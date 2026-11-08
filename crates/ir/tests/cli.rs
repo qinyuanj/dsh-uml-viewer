@@ -2,6 +2,8 @@
 //! language detection, mirroring the POSIX entry expectations. These run
 //! `ir::run` in a process with a changed working directory, so they are
 //! serial by file and restore the directory afterwards.
+// Test code is the outside harness: it launches its own children.
+#![allow(clippy::disallowed_methods)]
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
