@@ -37,6 +37,25 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.3'
+          cache: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Clojure CLI
+        run: |
+          curl -fsSLO https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh
+          sudo bash linux-install.sh
+
+      - name: Java fixture JaCoCo report
+        run: mvn -q -f fixtures/crap/java/pom.xml test
+      - name: Clojure fixture Cloverage report
+        run: clj -M:cov --lcov
+        working-directory: fixtures/crap/clojure
+
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
 

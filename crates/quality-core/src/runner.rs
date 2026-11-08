@@ -276,6 +276,15 @@ pub fn run_coverage(
     if languages.contains(&Language::Rust) && !cover_rust(&root, files) {
         failed.push(Language::Rust.name());
     }
+    if languages.contains(&Language::Go) && !crate::runner_go::cover(&root, files) {
+        failed.push(Language::Go.name());
+    }
+    if languages.contains(&Language::Java) && !crate::runner_java::cover(&root, files) {
+        failed.push(Language::Java.name());
+    }
+    if languages.contains(&Language::Clojure) && !crate::runner_clojure::cover(&root) {
+        failed.push(Language::Clojure.name());
+    }
     if strict && !failed.is_empty() {
         failed.sort();
         return Err(CoverageError(format!(

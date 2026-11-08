@@ -50,7 +50,7 @@ fn prepare(scenario: &Path, project: &Project) -> Vec<String> {
         match word {
             "project" => {
                 let source = match rest {
-                    "rust" => crap.join("rust"),
+                    "rust" | "go" | "java" | "clojure" => crap.join(rest),
                     "rust-fixture" => repo().join("rust-fixture"),
                     other => panic!("unknown project {other}"),
                 };

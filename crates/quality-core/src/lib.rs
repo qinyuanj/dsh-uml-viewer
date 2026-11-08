@@ -17,11 +17,15 @@
 
 pub mod atomic;
 pub mod coverage;
+mod coverage_reports;
 pub mod functions;
 pub mod grammar;
 pub mod language;
 pub mod paths;
 pub mod process;
 pub mod runner;
+mod runner_clojure;
+mod runner_go;
+mod runner_java;
 pub mod select;
 pub mod snapshot;

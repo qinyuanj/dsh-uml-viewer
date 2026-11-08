@@ -348,6 +348,7 @@ fn record<'t>(
     Some(Function {
         name: text(source, ident).to_string(),
         namespace,
+        jacoco_class: None,
         complexity: complexity(node, &is_decision),
         start_line: start_line(node),
         end_line: end_line(node),

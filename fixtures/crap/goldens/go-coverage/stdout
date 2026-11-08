@@ -1,0 +1,13 @@
+CRAP Report
+===========
+Languages: go
+
+Function                       Namespace                                    CC    Cov%     CRAP
+-----------------------------------------------------------------------------------------------
+Branchy                        example.com/quality/go                        5  80.0%      5.2
+Cases                          example.com/quality/go                        5 100.0%      5.0
+Ready                          example.com/quality/go.Widget                 3 100.0%      3.0
+Run                            example.com/quality/go.Widget                 3 100.0%      3.0
+Place                          example.com/quality/go/internal/game.Board    3 100.0%      3.0
+Closure                        example.com/quality/go                        2 100.0%      2.0
+Simple                         example.com/quality/go                        1 100.0%      1.0

@@ -87,7 +87,7 @@ pub fn normalize_path(path: &str) -> String {
     text
 }
 
-fn segments(path: &str) -> Vec<String> {
+pub(super) fn segments(path: &str) -> Vec<String> {
     normalize_path(path)
         .split('/')
         .filter(|part| !part.is_empty())
@@ -96,7 +96,7 @@ fn segments(path: &str) -> Vec<String> {
 }
 
 /// The names one source path may appear under in a report.
-fn candidates(source_path: &str) -> Vec<String> {
+pub(super) fn candidates(source_path: &str) -> Vec<String> {
     let relative = normalize_path(source_path);
     let absolute = if source_path.is_empty() {
         relative.clone()
@@ -386,6 +386,7 @@ impl SuffixIndex {
 
 /// Coverage for every analysed function.
 pub struct CoverageBundle {
+    languages: crate::coverage_reports::Reports,
     suffix: SuffixIndex,
     fresh: Option<(HashMap<String, Lines>, PathBuf)>,
 }
@@ -394,6 +395,7 @@ impl CoverageBundle {
     /// Reports already on disk, matched by path suffix.
     pub fn from_reports(lcov: &Records) -> CoverageBundle {
         CoverageBundle {
+            languages: crate::coverage_reports::Reports::default(),
             suffix: SuffixIndex::new(lcov),
             fresh: None,
         }
@@ -408,6 +410,7 @@ impl CoverageBundle {
                 .or_insert_with(|| lines.clone());
         }
         CoverageBundle {
+            languages: crate::coverage_reports::Reports::default(),
             suffix: SuffixIndex::new(&Records::default()),
             fresh: Some((exact, root.to_path_buf())),
         }
@@ -415,9 +418,15 @@ impl CoverageBundle {
 
     /// The percentage of `function`'s lines covered, or None.
     pub fn percent_for(&self, function: &Function) -> Option<f64> {
+        if let Some(percent) = self.languages.percent(function) {
+            return Some(percent);
+        }
         let lines = match &self.fresh {
             Some((exact, root)) => exact.get(&normcase(&resolve(&root.join(&function.path)))),
-            None => self.suffix.get(&function.path),
+            None => self
+                .suffix
+                .get(&function.path)
+                .or_else(|| self.languages.forms_percent(&function.path)),
         };
         percent_for_range(lines, function.start_line, function.end_line)
     }
@@ -472,7 +481,7 @@ fn glob(root: &Path, pattern: &str) -> Vec<PathBuf> {
 }
 
 /// The text of each report once, in pattern order.
-fn report_texts(root: &Path, patterns: &[&str]) -> Vec<String> {
+pub(super) fn report_texts(root: &Path, patterns: &[&str]) -> Vec<String> {
     let mut seen: Vec<String> = Vec::new();
     let mut texts = Vec::new();
     for path in patterns.iter().flat_map(|pattern| glob(root, pattern)) {
@@ -497,9 +506,12 @@ fn report_texts(root: &Path, patterns: &[&str]) -> Vec<String> {
 /// Every LCOV report on disk under `root`, merged; a later record for a
 /// source wins.
 pub fn load_bundle(root: &Path) -> CoverageBundle {
+    let mut bundle = CoverageBundle::from_reports(&Records::default());
+    bundle.languages = crate::coverage_reports::Reports::load(root);
     let mut merged = Records::default();
     for text in report_texts(root, LCOV_REPORTS) {
         merged.update(parse_lcov(&text));
     }
-    CoverageBundle::from_reports(&merged)
+    bundle.suffix = SuffixIndex::new(&merged);
+    bundle
 }

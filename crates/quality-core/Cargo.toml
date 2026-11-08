@@ -13,6 +13,10 @@ publish.workspace = true
 # is byte-identical across the workspace and the cargo registry sources.
 tree-sitter = "=0.26.13"
 tree-sitter-rust = "=0.24.2"
+tree-sitter-go = "=0.25.0"
+tree-sitter-java = "=0.23.5"
+roxmltree = "=0.21.1"
+regex = "=1.13.1"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage)"] }

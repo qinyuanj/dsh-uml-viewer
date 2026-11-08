@@ -16,12 +16,16 @@ use tree_sitter::{Node, Parser, Tree};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Grammar {
     Rust,
+    Go,
+    Java,
 }
 
 impl Grammar {
     pub fn language(self) -> tree_sitter::Language {
         match self {
             Grammar::Rust => tree_sitter_rust::LANGUAGE.into(),
+            Grammar::Go => tree_sitter_go::LANGUAGE.into(),
+            Grammar::Java => tree_sitter_java::LANGUAGE.into(),
         }
     }
 

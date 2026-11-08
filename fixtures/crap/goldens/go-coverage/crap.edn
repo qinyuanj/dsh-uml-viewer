@@ -1,0 +1,9 @@
+{:entries [
+  {:name "Branchy", :namespace "example.com/quality/go", :complexity 5, :coverage 80.0, :crap 5.2}
+  {:name "Cases", :namespace "example.com/quality/go", :complexity 5, :coverage 100.0, :crap 5.0}
+  {:name "Ready", :namespace "example.com/quality/go.Widget", :complexity 3, :coverage 100.0, :crap 3.0}
+  {:name "Run", :namespace "example.com/quality/go.Widget", :complexity 3, :coverage 100.0, :crap 3.0}
+  {:name "Place", :namespace "example.com/quality/go/internal/game.Board", :complexity 3, :coverage 100.0, :crap 3.0}
+  {:name "Closure", :namespace "example.com/quality/go", :complexity 2, :coverage 100.0, :crap 2.0}
+  {:name "Simple", :namespace "example.com/quality/go", :complexity 1, :coverage 100.0, :crap 1.0}
+]}
