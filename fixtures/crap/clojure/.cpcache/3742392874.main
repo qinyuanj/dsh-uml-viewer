@@ -1,8 +1,0 @@
--m
-cloverage.coverage
---src-ns-path
-src
---test-ns-path
-test
---output
-target/coverage

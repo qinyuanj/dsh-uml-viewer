@@ -3,6 +3,7 @@
 .scratch/
 target/
 coverage/
+.cpcache/
 uml-viewer-log.txt
 
 # teaching workspace (/teach)
