@@ -25,7 +25,7 @@ import sys
 
 REPO = Path(__file__).resolve().parents[1]
 # Static source rules: seconds, no build, so they run first.
-FAST_SUITES = ['test_process_boundary.py']
+FAST_SUITES = ['test_process_boundary.py', 'test_line_endings.py']
 
 
 def interpreter(command):
