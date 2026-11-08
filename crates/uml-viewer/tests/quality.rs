@@ -589,25 +589,13 @@ fn an_unported_language_is_an_explicit_error_record() {
     project.config(r#"{"version":1,"standardTools":{"sourceRoots":["src"]}}"#);
     project.write("src/main.go", "package main\n\nfunc main() {}\n");
     project.write("src/main.ts", "export function f() { return 1; }\n");
-    for (operation, args, language) in [("mutate", vec!["src/main.go"], "go")] {
-        let mut all = vec![operation];
-        all.extend(args.iter().copied());
-        let output = project.quality(&all);
-        let record = checked(&output, operation, &project.root);
-        assert_eq!(
-            output.status.code(),
-            Some(1),
-            "{operation}: {}",
-            stderr(&output)
-        );
-        assert_eq!(record["validResult"], false);
-        let reason = record["reason"].as_str().unwrap();
-        assert!(
-            reason.contains(&format!("not ported for {language}")),
-            "{operation}: {reason}"
-        );
-        assert!(!stderr(&output).contains("No source files"), "{operation}");
-    }
+    let output = project.quality(&["mutate", "src/main.go"]);
+    let record = checked(&output, "mutate", &project.root);
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert_eq!(record["validResult"], false);
+    let reason = record["reason"].as_str().unwrap();
+    assert!(reason.contains("not ported for go"), "{reason}");
+    assert!(!stderr(&output).contains("No source files"));
     assert!(!project.root.join(".metrics").exists());
     // After #7, dryer reads every ported language: the same mixed project is
     // a real run, not an empty success and not a "not ported" refusal.
@@ -861,7 +849,8 @@ fn the_committed_contract_samples_are_the_binary_output() {
     let mut actual = Vec::new();
     actual.push(project.quality(&["crap"]));
     actual.push(project.quality(&["dry"]));
-    actual.push(project.quality(&["mutate", "crates/a/src/lib.rs"]));
+    // With no target and no --changed, mutator is refused on every platform.
+    actual.push(project.quality(&["mutate"]));
     project.config(&format!(
         r#"{{"version":1,"operations":{{
             "crap":{{"argv":[{python:?},"-c","raise SystemExit(1)"],"forwardArgs":"none","scope":"whole-tree","validResultExitCodes":[0]}},
@@ -999,4 +988,106 @@ fn changed_mutation_selects_the_changed_files_inside_the_declared_scope() {
     );
     assert!(!err.contains("app/src/lib.rs"), "unchanged file: {err}");
     assert!(!err.contains("util/src/lib.rs"), "unchanged file: {err}");
+}
+
+/// The standard route's own exit sets, from the real crapper: a threshold
+/// finding is exit 2 and valid; coverage that joins no function is exit 3
+/// and not valid without a declaration.
+#[test]
+fn crapper_threshold_findings_are_valid_but_an_unmeasured_threshold_is_not() {
+    let project = Project::new();
+    project.write(
+        "src/lib.rs",
+        "\npub fn choose(x: bool) -> i32 {\n    if x { 1 } else { 0 }\n}\n",
+    );
+    // Custom coverage writes its report through the host shell on both
+    // platforms, so --full-tree can still score a threshold without a test run.
+    let config = |coverage: &str| {
+        project.write("src/lcov.txt", coverage);
+        project.write("coverage/.keep", "");
+        let command = if cfg!(windows) {
+            "type src\\lcov.txt > coverage\\lcov.info"
+        } else {
+            "cat src/lcov.txt > coverage/lcov.info"
+        };
+        project.config(&format!(
+            r#"{{"version":1,"standardTools":{{"sourceRoots":["src"],"crapperOptions":["--coverage-command",{},"--threshold","1"]}}}}"#,
+            serde_json::to_string(command).unwrap()
+        ));
+    };
+    config("SF:src/lib.rs\nDA:2,0\nDA:3,0\nLF:2\nLH:0\nend_of_record\n");
+    let output = project.quality(&["crap"]);
+    let record = checked(&output, "crap", &project.root);
+    assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+    assert_eq!(record["validResult"], true, "crapper's valid set is 0/2");
+    assert!(project.root.join(".metrics").join("crap.edn").exists());
+    project.write("src/other.rs", "// no functions here\n");
+    config("SF:src/other.rs\nDA:1,1\nLF:1\nLH:1\nend_of_record\n");
+    let output = project.quality(&["crap"]);
+    let record = checked(&output, "crap", &project.root);
+    assert_eq!(output.status.code(), Some(3), "{}", stderr(&output));
+    assert_eq!(record["validResult"], false, "3 needs a declaration");
+    assert_eq!(record["reason"], serde_json::Value::Null, "crapper ran");
+}
+
+/// `operations` requires crap and mutate; an omitted dry stays on the
+/// standard route (`configured: false`, `tool: dryer`).
+#[test]
+fn an_operations_manifest_without_dry_keeps_the_standard_dryer() {
+    let project = Project::new();
+    let operation = r#"{"argv":["unused"],"forwardArgs":"none","validResultExitCodes":[0]}"#;
+    let crap = r#"{"argv":["unused"],"forwardArgs":"none","scope":"whole-tree","validResultExitCodes":[0]}"#;
+    project.config(&format!(
+        r#"{{"version":1,"operations":{{"crap":{crap},"mutate":{operation}}}}}"#
+    ));
+    project.write("src/lib.rs", "pub fn one() -> i64 { 1 }\n");
+    let output = project.quality(&["dry"]);
+    let record = checked(&output, "dry", &project.root);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(record["configured"], false);
+    assert_eq!(record["tool"], "dryer");
+    assert!(project.root.join(".metrics").join("dry.edn").exists());
+}
+
+/// A real crap and dry run over this repository's own Rust fixture project,
+/// copied to scratch so the checkout is never measured in place.
+#[test]
+fn quality_runs_crap_and_dry_on_the_repository_rust_fixture() {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rust-fixture");
+    let project = Project::new();
+    for entry in walk_files(&source) {
+        let relative = entry.strip_prefix(&source).unwrap();
+        let text = fs::read_to_string(&entry).unwrap();
+        project.write(&relative.to_string_lossy().replace('\\', "/"), &text);
+    }
+    project.config(
+        r#"{"version":1,"standardTools":{"sourceRoots":["src"],"crapperOptions":["--no-coverage"]}}"#,
+    );
+    let output = project.quality(&["crap"]);
+    let record = checked(&output, "crap", &project.root);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(record["validResult"], true);
+    let snapshot = fs::read_to_string(project.root.join(".metrics").join("crap.edn")).unwrap();
+    assert!(
+        snapshot.contains(":namespace \"crate::console\""),
+        "{snapshot}"
+    );
+    let output = project.quality(&["dry"]);
+    let record = checked(&output, "dry", &project.root);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(record["validResult"], true);
+    assert!(project.root.join(".metrics").join("dry.edn").exists());
+}
+
+fn walk_files(root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for entry in fs::read_dir(root).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            found.extend(walk_files(&path));
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            found.push(path);
+        }
+    }
+    found
 }

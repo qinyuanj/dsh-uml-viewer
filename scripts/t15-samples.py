@@ -27,7 +27,8 @@ with tempfile.TemporaryDirectory() as scratch:
 
     (root / 'uml-quality.json').write_text(json.dumps({'version': 1, 'standardTools': {
         'sourceRoots': ['crates'], 'crapperOptions': ['--no-coverage']}}))
-    records = [record('crap'), record('dry'), record('mutate', 'crates/a/src/lib.rs')]
+    # No target: refused identically on every platform.
+    records = [record('crap'), record('dry'), record('mutate')]
     (root / 'uml-quality.json').write_text(json.dumps({'version': 1, 'operations': {
         'crap': {'argv': [sys.executable, '-c', 'raise SystemExit(1)'], 'forwardArgs': 'none',
                  'scope': 'whole-tree', 'validResultExitCodes': [0]},
