@@ -104,7 +104,10 @@ that command does; the dispatcher reports its real exit.
 
 ## Samples
 
-`fixtures/quality/records.jsonl` holds real output lines (regenerate with
+`fixtures/quality/records.jsonl` holds real output lines that are identical on
+Linux and Windows: a mutation run's exit depends on the platform's isolation,
+so the sampled mutation cases are its pre-launch refusal and the `operations`
+route instead. Regenerate with
 `python scripts/t15-samples.py target/debug/uml-viewer.exe
 fixtures/quality/records.jsonl` after the binary is built). The Rust test
 `quality::the_committed_contract_samples_are_the_binary_output` re-emits the
