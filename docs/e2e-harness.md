@@ -36,6 +36,14 @@ pnpm e2e:install
 pnpm test:e2e
 ```
 
+On native Windows those paths must be **Windows-absolute** (`D:/…` or `D:\…`).
+An MSYS/Git Bash value such as `/d/dev/…` is not absolute to Windows: `$PWD`
+expands to `/d/…`, the host resolves it against the current drive (`D:\d\…`),
+and the confinement runner answers `CreateProcessAsUserW failed (Win32 2)`
+with `exitCode 127`, so `uml_ir` fails and the panel ends on
+`data-kind="closed"` instead of `"frame"`. Only the display assertion catches
+it.
+
 ## Isolation
 
 Every run creates a unique `DSH_HOME` under `.scratch/e2e/run-*`. That home
