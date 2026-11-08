@@ -1,0 +1,6 @@
+# Without an ns form the namespace comes from the path after its first
+# /src/ (crapper treesitter.py strip_src), not its last.
+project clojure
+arg -s
+arg testdata/nested-src
+arg --no-coverage

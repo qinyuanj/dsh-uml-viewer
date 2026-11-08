@@ -99,9 +99,9 @@ fn every_scenario_matches_the_python_crapper_byte_for_byte() {
         .filter(|path| path.join("scenario").is_file())
         .collect();
     scenarios.sort();
-    // Exact: 22 base scenarios and 64 behavior groups (65 pinned cases less
+    // Exact: 24 base scenarios and 64 behavior groups (65 pinned cases less
     // the helper-only string-blanking case). A dropped scenario must fail.
-    assert_eq!(scenarios.len(), 86, "scenarios: {scenarios:?}");
+    assert_eq!(scenarios.len(), 88, "scenarios: {scenarios:?}");
     // A behavior scenario must select its materialized source; an empty
     // selection means its `-s` root does not exist and nothing was tested.
     let hollow: Vec<String> = scenarios
