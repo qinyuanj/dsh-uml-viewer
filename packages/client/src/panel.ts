@@ -8,7 +8,7 @@
  * actions (`viewport`, `camera`, `select`). Only pan/zoom drag deltas are local,
  * because they are a camera update, not a layout decision.
  */
-import type { PanelAck, PanelAction, PanelEvent, SceneFrame } from '@dsh-uml-viewer/contracts'
+import type { DiscussionContext, PanelAck, PanelAction, PanelEvent, SceneFrame } from '@dsh-uml-viewer/contracts'
 import { hitTest, paintFrame } from './paint.js'
 import { screenToWorld, viewTransform } from './fit.js'
 
@@ -29,6 +29,8 @@ export interface PanelStatus {
   reason: string | null
   actions: readonly string[]
   frame: SceneFrame | null
+  /** The discussion context carried by this session's stream. */
+  context: DiscussionContext | null
 }
 
 export interface PanelDeps {
@@ -50,7 +52,7 @@ export class PanelController {
   private stream: PanelStream | null = null
   private sessionId: string | null = null
   private frame: SceneFrame | null = null
-  private status: PanelStatus = { kind: 'connecting', reason: null, actions: [], frame: null }
+  private status: PanelStatus = { kind: 'connecting', reason: null, actions: [], frame: null, context: null }
   private observer: MutationObserver | null = null
   private readonly listeners = new Set<Listener>()
   // Pending pointer gesture, in screen pixels.
@@ -78,7 +80,7 @@ export class PanelController {
     this.sessionId = sessionId
     const abort = new AbortController()
     this.abort = abort
-    this.publish({ kind: 'connecting', reason: null, actions: [], frame: this.frame })
+    this.publish({ kind: 'connecting', reason: null, actions: [], frame: this.frame, context: null })
     this.observeTheme()
     const size = await this.measureViewport()
     this.setViewport(size.width, size.height)
@@ -90,10 +92,10 @@ export class PanelController {
           if (abort.signal.aborted) return
           this.handle(event, abort.signal)
         }
-        if (!abort.signal.aborted) this.publish({ kind: 'closed', reason: null, actions: [], frame: this.frame })
+        if (!abort.signal.aborted) this.publish({ kind: 'closed', reason: null, actions: [], frame: this.frame, context: this.status.context })
       } catch (error) {
         if (abort.signal.aborted) return
-        this.publish({ kind: 'failed', reason: messageOf(error), actions: [], frame: this.frame })
+        this.publish({ kind: 'failed', reason: messageOf(error), actions: [], frame: this.frame, context: this.status.context })
       }
     })()
   }
@@ -200,20 +202,23 @@ export class PanelController {
   private handle(event: PanelEvent, signal: AbortSignal): void {
     switch (event.kind) {
       case 'ready':
-        this.publish({ kind: 'live', reason: null, actions: event.actions, frame: this.frame })
+        this.publish({ kind: 'live', reason: null, actions: event.actions, frame: this.frame, context: this.status.context })
         // The panel names its viewport before the first frame can be laid out.
         if (this.viewport) void this.send({ action: 'viewport', viewport: this.viewport })
         return
       case 'frame':
         this.frame = event.frame
-        this.publish({ kind: 'live', reason: null, actions: this.status.actions, frame: event.frame })
+        this.publish({ kind: 'live', reason: null, actions: this.status.actions, frame: event.frame, context: this.status.context ?? { kind: 'real', edn: '{:context :real}' } })
         this.paint(event.frame, this.canvas)
         return
+      case 'context':
+        this.publish({ ...this.status, context: event.context })
+        return
       case 'refused':
-        this.publish({ kind: 'refused', reason: event.reason, actions: [], frame: this.frame })
+        this.publish({ kind: 'refused', reason: event.reason, actions: [], frame: this.frame, context: this.status.context })
         return
       case 'failed':
-        this.publish({ kind: 'failed', reason: event.reason, actions: [], frame: this.frame })
+        this.publish({ kind: 'failed', reason: event.reason, actions: [], frame: this.frame, context: this.status.context })
         return
       default:
         // context/state/search events belong to later tickets (#22–#27).

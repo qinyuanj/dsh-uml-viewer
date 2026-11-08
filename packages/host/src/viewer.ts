@@ -31,6 +31,9 @@ export function panelEvent(event: ResidentEvent): PanelEvent | null {
  * select, search, save) to that resident.
  */
 export class ViewerService {
+  /** The gateway discovers this public binding when the Remote is mounted. */
+  readonly typertRemote = { service: this, serviceKey: 'umlViewer', namespace: 'umlViewer' }
+
   constructor(private readonly sessions: ResidentSessions, private readonly prompts: PanelPrompts) {}
 
   async *watch(agent: Agent, signal: AbortSignal): AsyncIterable<PanelEvent> {
@@ -45,6 +48,7 @@ export class ViewerService {
     const queue = connection.attach()
     try {
       yield { kind: 'ready', actions: [...connection.actions] }
+      if (connection.latestContext) yield { kind: 'context', context: connection.latestContext }
       if (connection.latestFrame) yield { kind: 'frame', seq: null, frame: connection.latestFrame }
       for (;;) {
         const next = await queue.next(signal)

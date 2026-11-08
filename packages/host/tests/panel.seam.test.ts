@@ -329,6 +329,26 @@ it('keeps one resident per session and stops it when the last panel stream close
   await other.close()
 })
 
+it('sends the restored discussion context with the first panel stream', async () => {
+  const { home, stream } = await setup()
+  const states = path.join(home, 'dsh-uml-viewer', 'sessions')
+  await mkdir(states, { recursive: true })
+  await writeFile(path.join(states, 'session-a.json'), JSON.stringify({
+    schema: 'dsh-uml-viewer/session-state', version: 1, diagram: null,
+    context: { kind: 'proposal', proposalId: ':p-ledger', name: 'Ledger proposal', edn: '{:context :proposal}' },
+    focus: [], proposalId: ':p-ledger', openLayer: null, declutter: null,
+    camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null,
+  }))
+  const reader = stream('session-a')
+  expect((await timeout(reader.next())).value).toMatchObject({ kind: 'ready' })
+  expect((await timeout(reader.next())).value).toEqual({
+    kind: 'context',
+    context: { kind: 'proposal', proposalId: ':p-ledger', name: 'Ledger proposal', edn: '{:context :proposal}' },
+  })
+  expect((await timeout(reader.next())).value?.kind).toBe('frame')
+  await reader.close()
+})
+
 it('registers the companion prompt section only while that session’s panel stream is open', async () => {
   const { stream, prompts } = await setup()
   expect(prompts['session-a']!.sections).toEqual([])
@@ -356,6 +376,7 @@ it('publishes the hand-written typed Remote for the browser to mount', async () 
   expect(contribution.face).toBe('host')
   expect(contribution.invocations.map(invocation => invocation.id).sort())
     .toEqual(UML_VIEWER_REMOTE.descriptors.map(descriptor => descriptor.id).sort())
+  expect(ctx.get('umlViewer')).toMatchObject({ typertRemote: { serviceKey: 'umlViewer', namespace: 'umlViewer' } })
   await fiber.dispose()
   expect(contributions).toHaveLength(0)
   let after: unknown
