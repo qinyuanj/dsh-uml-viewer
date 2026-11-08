@@ -1,0 +1,5 @@
+project rust-fixture
+file rust-fixture.lcov coverage/lcov.info
+arg --use-existing-coverage
+arg src/lib.rs
+arg src/proto

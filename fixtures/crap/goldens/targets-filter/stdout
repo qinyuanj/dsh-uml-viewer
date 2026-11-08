@@ -1,0 +1,12 @@
+CRAP Report
+===========
+Languages: rust
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+drain                          crap_demo::parse                       4   N/A       N/A
+parse_pairs                    crap_demo::parse                       4   N/A       N/A
+grüße                          crap_demo::parse                       2   N/A       N/A
+keep_even                      crap_demo::parse                       2   N/A       N/A
+outer                          crap_demo::parse                       2   N/A       N/A
+r#match                        crap_demo::parse                       1   N/A       N/A

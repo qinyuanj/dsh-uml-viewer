@@ -1,0 +1,8 @@
+# Named files and a named directory.
+project rust
+file rust.existing.lcov target/coverage/rust/lcov.info
+crlf src/shapes.rs
+arg --use-existing-coverage
+arg src/shapes.rs
+arg src/geometry
+arg src/bin/tool.rs

@@ -1,0 +1,6 @@
+# A full-tree refresh of an empty business tree publishes no entries.
+project rust
+arg --full-tree
+arg --no-coverage
+arg --exclude
+arg src

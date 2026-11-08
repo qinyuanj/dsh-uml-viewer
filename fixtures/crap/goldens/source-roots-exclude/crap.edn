@@ -1,0 +1,5 @@
+{:entries [
+  {:name "clamp", :namespace "crap_demo::geometry::inner", :complexity 3, :coverage nil, :crap nil}
+  {:name "distance", :namespace "crap_demo::geometry", :complexity 1, :coverage nil, :crap nil}
+  {:name "cells", :namespace "crap_demo::geometry::inner::Grid", :complexity 1, :coverage nil, :crap nil}
+]}
