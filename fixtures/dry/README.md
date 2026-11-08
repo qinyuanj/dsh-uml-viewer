@@ -196,3 +196,47 @@ asserts the exact scenario count (37) and that only `changed-empty`,
 `changed-scoped` and `empty-selection` print `No source files to analyze.`.
 Every other scenario must select real files and report the pairs the pinned
 original reported.
+
+### `test_cli.py`, case by case (51)
+
+- **Discovery and argument cases, `crates/dryer/src/original/cli.rs` (18):**
+  `language_detection`, `names_that_are_tests`,
+  `cljd_is_clojure_source_and_its_tests_are_tests`,
+  `test_files_and_skipped_directories_are_left_out`, `a_named_file_is_walked_as_is`,
+  `installed_tooling_is_not_project_source`, `selection_follows_crapper_and_adds_cljd`,
+  `source_root_limits_the_walk`, `exclude_filters_the_walk_and_source_roots`,
+  `an_excluded_file_named_explicitly_is_skipped`,
+  `a_named_file_outside_the_source_roots_is_skipped_with_a_message`,
+  `a_named_directory_keeps_only_files_under_the_source_roots`,
+  `a_named_file_inside_a_source_root_is_all_that_is_chosen`,
+  `source_roots_alone_still_walk_the_roots_then_filter_and_exclude`,
+  `parse_defaults_and_flags`, `zero_is_a_valid_count`,
+  `changed_finds_new_directories_under_a_subdirectory_root` (the selected list,
+  `.cljd` included), `exclude_filters_changed_files`.
+- **Binary seam, `crates/uml-viewer/tests/dry_languages.rs` (11):**
+  `project_report_and_snapshot`, `edn_stdout`,
+  `an_external_source_does_not_create_a_missing_project_root`,
+  `outside_project_selection_is_rejected_without_replacing_snapshot` (file,
+  directory and source-root), `path_filter`, `lua_fixture_reports_the_copied_function`,
+  `lua_fixture_snapshot_is_the_golden_bytes` (LF and CRLF),
+  `edn_on_stdout_is_the_golden_bytes`, `crlf_sources_report_the_same_lines_and_names_as_lf`,
+  `changed_finds_new_directories_under_a_subdirectory_root` (the exact report),
+  `changed_reports_git_failure`.
+- **Already asserted by #6's tests and goldens (17):** `help_does_not_scan`,
+  `unknown_format`, `unknown_option`, `explicit_test_file_is_included`
+  (`python-explicit-test`), `an_option_without_a_value_is_a_usage_error`,
+  `an_empty_value_is_rejected`, `a_flag_is_not_a_value`,
+  `a_negative_count_is_rejected`, `a_count_must_be_an_integer`,
+  `a_threshold_must_be_a_number`, `text_format_wins_when_it_comes_last`,
+  `a_second_report_replaces_the_snapshot`, `source_roots_narrow_changed_files`
+  (`changed-scoped`, and #3's shared selection tests),
+  `exclude_is_in_the_help`, `help_says_source_roots_narrow_paths_and_changed`,
+  `empty_project` (the count and threshold tables run on an empty root),
+  `an_exclusion_outside_the_project_is_a_usage_error`.
+- **Shared selection matrix (1):** `source_roots_and_exclusions_select_what_crapper_selects`
+  is `quality_selection.rs`, now for all seven languages.
+- **Not portable (4):** `parse_reads_the_process_arguments`, `main_exits`,
+  `run_reports_a_missing_crapper_as_a_usage_error`, `help_works_without_crapper`.
+
+`test_clojure.py` (29), `test_languages.py` (28) and `test_names.py` (10) are
+ported one for one; the tenth naming case is POSIX-only.
