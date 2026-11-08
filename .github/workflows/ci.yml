@@ -53,6 +53,49 @@ jobs:
           cargo test -p crapper --locked
           cargo test -p uml-viewer --test integration crap_ --locked
 
+  # Native Windows mutation (#10): per-command project copies over the shared
+  # kill-on-close Job Object, with real cargo test inside the copies.
+  windows-mutate:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      # A missing toolchain must fail here, never skip.
+      MUTATOR_REQUIRE_TOOLCHAINS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain pinned by rust-toolchain.toml
+        run: rustup toolchain install
+      # cargo llvm-cov needs llvm-profdata; the default-coverage golden uses it.
+      - name: LLVM tools for cargo-llvm-cov
+        run: |
+          rustup component add llvm-tools
+          cargo install cargo-llvm-cov --locked
+      - uses: Swatinem/rust-cache@v2
+      - name: Mutation native Windows tests
+        run: |
+          cargo test -p mutator --locked
+          cargo test -p uml-viewer --test integration mutate --locked
+
+  # macOS (#10): mutate refuses with exit 1 before any command; crap and dry
+  # are unaffected. No mutation isolation is claimed on this platform.
+  macos-quality:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain pinned by rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: mutate refuses, crap and dry work
+        run: |
+          cargo test -p mutator --locked
+          cargo test -p uml-viewer --test integration mutate --locked
+          cargo test -p uml-viewer --test integration crap_goldens dry_ --locked
+          cargo test -p dryer -p crapper --locked
+
   linux:
     runs-on: ubuntu-latest
     timeout-minutes: 60

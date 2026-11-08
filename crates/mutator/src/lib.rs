@@ -34,29 +34,16 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode
             return ExitCode::from(1);
         }
     };
-    if cfg!(target_os = "macos") {
-        eprintln!(
-            "Mutation testing is not supported on macOS: mutator's isolation is a private \
-             overlay view on Linux and a per-worker project copy on native Windows; neither \
-             exists on macOS, and mutator never runs a weaker isolation. CRAP and dry work \
-             on this machine."
-        );
+    if let Some(refusal) = platform_refusal(
+        std::env::consts::OS,
+        if cfg!(windows) {
+            platform::host().build
+        } else {
+            0
+        },
+    ) {
+        eprintln!("{refusal}");
         return ExitCode::from(1);
-    }
-    if !cfg!(any(target_os = "linux", windows)) {
-        eprintln!("Mutation testing is not supported on this platform.");
-        return ExitCode::from(1);
-    }
-    if cfg!(windows) {
-        let build = platform::host().build;
-        if build < platform::MINIMUM_WINDOWS_BUILD {
-            eprintln!(
-                "mutator needs Windows 10 22H2 (build {}) or later; this is build {build}. \
-                 Update Windows, or run mutator inside WSL2.",
-                platform::MINIMUM_WINDOWS_BUILD
-            );
-            return ExitCode::from(1);
-        }
     }
     if cfg!(target_os = "linux") {
         let shown = quality_core::paths::posix(&options.scope.project_root());
@@ -87,6 +74,30 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode
     }
     code
 }
+/// The platform decision, before selection and before any command.
+///
+/// Pure in the declared host, so the macOS refusal is testable anywhere.
+/// macOS has neither mechanism: the original's `NamespaceViews` calls
+/// `unshare`, which does not exist there, so the pinned Python crashes with a
+/// traceback. This port says so on one line instead; exit 1 is the original's
+/// isolation-refusal code, and `crap`/`dry` are unaffected.
+fn platform_refusal(os: &str, build: u32) -> Option<String> {
+    match os {
+        "macos" => Some(
+            "Mutation testing is not supported on macOS: mutator runs every mutant in a private              overlay view on Linux or in a per-worker project copy on native Windows, and              neither mechanism exists on macOS. Mutator never runs a weaker isolation.              CRAP and dry work on this machine."
+                .into(),
+        ),
+        "linux" => None,
+        "windows" if build >= platform::MINIMUM_WINDOWS_BUILD => None,
+        "windows" => Some(format!(
+            "mutator needs Windows 10 22H2 (build {}) or later; this is build {build}. \
+             Update Windows, or run mutator inside WSL2.",
+            platform::MINIMUM_WINDOWS_BUILD
+        )),
+        other => Some(format!("Mutation testing is not supported on {other}.")),
+    }
+}
+
 fn run_mutation(root: &Path, options: &cli::Options, clock: impl Fn() -> String) -> ExitCode {
     let mut files = if options.flag("--changed") {
         // The shared changed selection: source roots narrow it only when they
@@ -139,4 +150,23 @@ fn run_mutation(root: &Path, options: &cli::Options, clock: impl Fn() -> String)
         eprint!("{}", timings.summary());
     }
     ExitCode::from(status as u8)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::platform_refusal;
+
+    #[test]
+    fn macos_is_refused_with_a_reason_and_linux_is_not() {
+        let refusal = platform_refusal("macos", 0).unwrap();
+        assert!(refusal.contains("not supported on macOS"), "{refusal}");
+        assert!(refusal.contains("CRAP and dry work"), "{refusal}");
+        assert_eq!(platform_refusal("linux", 0), None);
+        assert_eq!(platform_refusal("windows", 19045), None);
+        assert!(
+            platform_refusal("windows", 19044)
+                .unwrap()
+                .contains("19045")
+        );
+    }
 }

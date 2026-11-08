@@ -217,7 +217,15 @@ fn batch(launcher: &Path, args: &[String]) -> io::Result<Prepared> {
 }
 
 fn environment(added: Vec<(OsString, OsString)>) -> Vec<u16> {
-    let mut vars: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+    // Overrides replace, never duplicate: with two HOME entries the child
+    // resolves the first one and the redirection would silently not happen.
+    let mut vars: Vec<(OsString, OsString)> = std::env::vars_os()
+        .filter(|(key, _)| {
+            !added.iter().any(|(other, _)| {
+                key.to_string_lossy().to_lowercase() == other.to_string_lossy().to_lowercase()
+            })
+        })
+        .collect();
     vars.extend(added);
     vars.sort_by(|a, b| {
         a.0.to_string_lossy()

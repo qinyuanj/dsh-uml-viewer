@@ -77,6 +77,7 @@ fn execute(
         .run(root, cwd, command, site, timeout)
         .map_err(|failure| match failure {
             Failure::Interrupted => Failure::Interrupted,
+            Failure::Unavailable(text) => Failure::Unavailable(text),
             Failure::Message(error) => {
                 Failure::Message(format!("Cannot enter the mutation isolation view: {error}"))
             }
@@ -167,7 +168,7 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Records
                 .map_err(|failure| match failure {
                     // The interrupt path reports and cleans up; no exit here.
                     Failure::Interrupted => 2,
-                    Failure::Message(error) => {
+                    Failure::Message(error) | Failure::Unavailable(error) => {
                         eprintln!("Isolation unavailable: {error}");
                         1
                     }
@@ -478,6 +479,10 @@ pub fn mutate(
                     eprintln!("{error}");
                     return 2;
                 }
+                Err(Failure::Unavailable(error)) => {
+                    eprintln!("{error}");
+                    return 1;
+                }
             };
             if code != 0 {
                 eprintln!("Baseline tests failed (exit {code}).");
@@ -519,6 +524,10 @@ pub fn mutate(
                 Err(Failure::Message(error)) => {
                     eprintln!("{error}");
                     return 2;
+                }
+                Err(Failure::Unavailable(error)) => {
+                    eprintln!("{error}");
+                    return 1;
                 }
             }
         }

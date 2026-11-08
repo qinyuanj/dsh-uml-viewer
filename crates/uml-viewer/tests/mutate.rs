@@ -22,12 +22,63 @@ fn mutate_binary_exposes_original_help_and_usage_exit() {
             .starts_with(b"Unknown option: --nope\n\nUsage:")
     );
 }
-#[cfg(not(target_os = "linux"))]
+/// macOS: mutation refuses before selection and before any command, with the
+/// agreed isolation-refusal exit 1 and a reason. `crap` and `dry` are not
+/// gated by this; the macOS CI job runs their suites alongside this one.
+#[cfg(target_os = "macos")]
 #[test]
-fn non_linux_mutation_refuses_without_running_tests() {
+fn macos_mutation_refuses_before_any_command_and_crap_and_dry_still_run() {
+    let root = std::env::temp_dir().join(format!("mutate-macos-{}", std::process::id()));
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("src/lib.rs"),
+        "pub fn twice(x: i64) -> i64 { x + x }\n",
+    )
+    .unwrap();
+    let marker = root.join("command-ran");
+    let output = binary([
+        "mutate",
+        "--root",
+        &root.to_string_lossy(),
+        "--coverage-command",
+        &format!("touch {}", marker.display()),
+        "--test-command",
+        &format!("touch {}", marker.display()),
+        "--mutate-all",
+        "src/lib.rs",
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("not supported on macOS"), "{stderr}");
+    assert!(stderr.contains("CRAP and dry work"), "{stderr}");
+    assert!(!marker.exists(), "a command ran despite the refusal");
+    assert!(!root.join(".metrics").exists(), "a snapshot was published");
+    for tool in ["crap", "dry"] {
+        // dry has no coverage flag; only crap takes --no-coverage.
+        let mut args = vec![
+            tool.to_string(),
+            "--root".into(),
+            root.to_string_lossy().into_owned(),
+        ];
+        if tool == "crap" {
+            args.push("--no-coverage".into());
+        }
+        let output = binary(args);
+        assert!(
+            output.status.success(),
+            "{tool} must work on macOS: {:?}",
+            output.stderr
+        );
+    }
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
+#[test]
+fn unsupported_platform_mutation_refuses_without_running_tests() {
     let output = binary(["mutate"]);
     assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("only on Linux"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("not supported"));
 }
 
 #[cfg(target_os = "linux")]

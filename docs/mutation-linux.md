@@ -1,11 +1,11 @@
 # Linux mutation isolation
 
-This Rust port handles **Rust projects on Linux**. `--max-workers N` runs up to
+This Rust port handles **Rust projects on Linux**. Native Windows uses
+per-command project copies and Job Objects, and macOS refuses mutation before
+any command: see [mutation-windows.md](mutation-windows.md). `--max-workers N` runs up to
 N mutants at once; without it the limit is one per core, and the actual number
 is the smaller of that limit, the core count and the file's selected sites, as
-in the original. Other mutation languages and the Windows and macOS isolation
-mechanisms are not silently substituted: they are left to their follow-up
-tickets.
+in the original. Other mutation languages are not silently substituted.
 
 A snapshot is byte-identical whatever the worker count: outcomes are keyed by
 mutation id and forms are sorted, so parallel execution cannot reorder the EDN.

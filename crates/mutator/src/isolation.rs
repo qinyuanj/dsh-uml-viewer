@@ -24,6 +24,10 @@ pub enum Failure {
     /// A stop signal arrived; the caller's interrupt path cleans up.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Interrupted,
+    /// This host cannot give the command its isolation: never run weaker.
+    /// The original reports this with exit 1, before any test result counts.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Unavailable(String),
     /// The view could not be entered, or the command could not be launched.
     Message(String),
 }
@@ -249,11 +253,10 @@ pub fn describe() -> &'static str {
 /// A report a command wrote inside its own view, never in the project.
 pub fn report_path(view: &View, relative: &Path) -> PathBuf {
     #[cfg(windows)]
-    {
-        return crate::copies::report(&crate::copies::Slot::reused(&view.directory), relative);
-    }
+    let base = crate::copies::Slot::reused(&view.directory).project_root();
     #[cfg(not(windows))]
-    view.directory.join("upper").join(relative)
+    let base = view.directory.join("upper");
+    base.join(relative)
 }
 
 #[cfg(target_os = "linux")]

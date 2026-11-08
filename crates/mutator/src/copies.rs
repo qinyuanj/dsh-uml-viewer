@@ -81,9 +81,12 @@ impl Slot {
     /// Reset the slot and copy the project into it. `relative` and `data` are
     /// the mutated source this command must see, if any.
     fn copy(&self, root: &Path, mutation: Option<(&Path, &str)>) -> io::Result<()> {
+        // The whole slot is fresh for every command, including the copy's
+        // parent: a mutant's `..` write must not greet the next mutant.
+        for entry in fs::read_dir(&self.directory)? {
+            scratch::force_remove(&entry?.path())?;
+        }
         let project = self.project();
-        scratch::force_remove(&project)?;
-        scratch::force_remove(&self.home())?;
         scratch::private_directory(&project)?;
         copy_tree(root, &project, &hide_build_output(root))?;
         for (_, folder) in REDIRECTED {
@@ -120,8 +123,14 @@ impl Slot {
         mutation: Option<(&Path, &str)>,
         timeout: Option<Duration>,
     ) -> Result<Completed, Failure> {
-        self.copy(root, mutation)
-            .map_err(|error| Failure::Message(error.to_string()))?;
+        self.copy(root, mutation).map_err(|error| {
+            let text = error.to_string();
+            if text.starts_with("Copy isolation cannot freeze") {
+                Failure::Unavailable(text)
+            } else {
+                Failure::Message(text)
+            }
+        })?;
         let cwd = self
             .cwd(root, cwd)
             .map_err(|error| Failure::Message(error.to_string()))?;
@@ -180,9 +189,11 @@ impl Slot {
     }
 }
 
-/// A report the command wrote inside the copy, never in the project.
-pub fn report(slot: &Slot, relative: &Path) -> PathBuf {
-    slot.project().join(relative)
+impl Slot {
+    /// The copy's root: reports a command wrote live here, never in the project.
+    pub fn project_root(&self) -> PathBuf {
+        self.project()
+    }
 }
 
 fn message(error: io::Error) -> Failure {
