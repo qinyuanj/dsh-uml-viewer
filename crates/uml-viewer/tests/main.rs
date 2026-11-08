@@ -34,22 +34,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    static SERIAL: AtomicU64 = AtomicU64::new(0);
-    let scratch = std::env::temp_dir().join(format!(
-        "uml-viewer-bin-{}-{}",
-        std::process::id(),
-        SERIAL.fetch_add(1, Ordering::Relaxed)
-    ));
-    fs::create_dir_all(&scratch).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
-        .args(args)
-        .current_dir(&scratch)
-        .env_remove("DISPLAY")
-        .env_remove("WAYLAND_DISPLAY")
-        .output()
-        .unwrap();
-    let _ = fs::remove_dir_all(&scratch);
-    output
+    binary_env(args, &[])
 }
 
 /// The same run with extra environment variables, such as the Lua shard pin
@@ -59,7 +44,12 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let scratch = std::env::temp_dir().join(format!("uml-viewer-bin-env-{}", std::process::id()));
+    static SERIAL: AtomicU64 = AtomicU64::new(0);
+    let scratch = std::env::temp_dir().join(format!(
+        "uml-viewer-bin-{}-{}",
+        std::process::id(),
+        SERIAL.fetch_add(1, Ordering::Relaxed)
+    ));
     fs::create_dir_all(&scratch).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
         .args(args)

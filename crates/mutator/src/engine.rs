@@ -581,6 +581,15 @@ fn failure(item: &Prepared, command: &Command, tail: &str) -> i32 {
     2
 }
 
+/// The run-wide pieces a plan needs: the root, the timeout factor and the
+/// shared pristine-run cache.
+struct Context<'a> {
+    root: &'a Path,
+    factor: f64,
+    baselines: &'a mut Baselines,
+    timings: &'a mut Timings,
+}
+
 /// `--select-specs`: run only the specs that cover a mutant, and fall back to
 /// the full suite when an attribution is missing or its subset does not pass.
 fn lua_plans(
@@ -589,10 +598,7 @@ fn lua_plans(
     selected: &[Site],
     command: &Command,
     timeout: f64,
-    factor: f64,
-    root: &Path,
-    baselines: &mut Baselines,
-    timings: &mut Timings,
+    context: &mut Context<'_>,
 ) -> (BTreeMap<String, (Command, f64)>, Command, f64) {
     let mut plans = BTreeMap::new();
     let mut subsets: BTreeMap<Vec<String>, Option<(Command, f64)>> = BTreeMap::new();
@@ -602,18 +608,18 @@ fn lua_plans(
         let specs = index.select(&item.file, site.line).unwrap_or_default();
         if !specs.is_empty() && !subsets.contains_key(&specs) {
             let selected_command = command.extend(&specs);
-            let entry = match baselines.remember(
-                root,
+            let entry = match context.baselines.remember(
+                context.root,
                 &selected_command,
                 &index.directory,
                 None,
                 None,
-                timings,
+                context.timings,
             ) {
                 Ok(seconds) => Some((
                     selected_command,
-                    (index.seconds_for(&specs) * factor)
-                        .max(seconds * factor)
+                    (index.seconds_for(&specs) * context.factor)
+                        .max(seconds * context.factor)
                         .max(2.0),
                 )),
                 Err(_) => None,
@@ -639,15 +645,16 @@ fn lua_plans(
         .values()
         .flatten()
         .map(|(command, _)| {
-            baselines
+            context
+                .baselines
                 .entries
                 .get(&(command.clone(), index.directory.clone()))
                 .and_then(|entry| entry.as_ref().ok().copied())
                 .unwrap_or_default()
         })
         .sum();
-    let check_timeout = (index.seconds_for(&specs) * factor)
-        .max(passed * factor)
+    let check_timeout = (index.seconds_for(&specs) * context.factor)
+        .max(passed * context.factor)
         .max(2.0);
     (plans, command.extend(&specs), check_timeout)
 }
@@ -775,10 +782,12 @@ pub fn mutate(
                         &selected,
                         &run_command,
                         timeout,
-                        options.timeout_factor,
-                        root,
-                        &mut baselines,
-                        timings,
+                        &mut Context {
+                            root,
+                            factor: options.timeout_factor,
+                            baselines: &mut baselines,
+                            timings,
+                        },
                     );
                     plans = Some(found);
                     check_command = check;

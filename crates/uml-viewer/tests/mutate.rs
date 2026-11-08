@@ -1,4 +1,6 @@
-use crate::{binary, binary_env};
+use crate::binary;
+#[cfg(target_os = "linux")]
+use crate::binary_env;
 use std::fs;
 
 /// A copy of the Lua fixture project: a root module, a nested module, a spec
