@@ -120,7 +120,18 @@ fn analyze_project(options: &Options) -> u8 {
             }
         }
         if bundle.is_none() {
-            bundle = Some(load_bundle(&root));
+            match load_bundle(&root) {
+                Ok(found) => bundle = Some(found),
+                // crapper lets the parse error escape: the run fails and the
+                // previous snapshot stays.
+                Err(error) => {
+                    eprintln!(
+                        "Coverage failed: {error} {} was not replaced.",
+                        metrics.display()
+                    );
+                    return 1;
+                }
+            }
         }
     }
 

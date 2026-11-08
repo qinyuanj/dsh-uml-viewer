@@ -174,8 +174,25 @@ pub fn splitlines(text: &str) -> Vec<&str> {
     lines
 }
 
-fn python_strip(text: &str) -> &str {
+pub(super) fn python_strip(text: &str) -> &str {
     text.trim_matches(|c: char| c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c))
+}
+
+/// A string as Python's `repr` prints it inside an exception message.
+pub(super) fn python_repr(text: &str) -> String {
+    let mut out = String::from("'");
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\'' => out.push_str("\\'"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(c),
+        }
+    }
+    out.push('\'');
+    out
 }
 
 fn digits(text: &str) -> Option<u64> {
@@ -539,13 +556,13 @@ pub(super) fn report_texts(root: &Path, patterns: &[&str]) -> Vec<String> {
 
 /// Every LCOV report on disk under `root`, merged; a later record for a
 /// source wins.
-pub fn load_bundle(root: &Path) -> CoverageBundle {
+pub fn load_bundle(root: &Path) -> Result<CoverageBundle, String> {
     let mut bundle = CoverageBundle::from_reports(&Records::default());
-    bundle.languages = crate::coverage_reports::Reports::load(root);
+    bundle.languages = crate::coverage_reports::Reports::load(root)?;
     let mut merged = Records::default();
     for text in report_texts(root, LCOV_REPORTS) {
         merged.update(parse_lcov(&text));
     }
     bundle.suffix = SuffixIndex::new(&merged);
-    bundle
+    Ok(bundle)
 }

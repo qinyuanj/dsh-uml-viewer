@@ -1,6 +1,7 @@
 //! Native report formats used by Go, Java and Cloverage.
 use crate::coverage::{
-    Lines, Records, SuffixIndex, candidates, coverage_percent, normalize_path, report_texts,
+    Lines, Records, SuffixIndex, candidates, coverage_percent, normalize_path, python_repr,
+    python_strip, report_texts, splitlines,
 };
 use crate::functions::Function;
 use crate::language::Language;
@@ -79,31 +80,41 @@ impl Reports {
             _ => None,
         }
     }
-    fn add_go(&mut self, text: &str) {
-        for raw in text.lines() {
-            let fields: Vec<&str> = raw.split_whitespace().collect();
-            if fields.is_empty() || raw.trim().starts_with("mode:") {
+    /// crapper `parse_go_profile`: an unusable segment raises, so the run
+    /// fails instead of publishing unmeasured classes.
+    fn add_go(&mut self, text: &str) -> Result<(), String> {
+        for (index, raw) in splitlines(text).into_iter().enumerate() {
+            let number = index + 1;
+            let line = python_strip(raw);
+            if line.is_empty() || line.starts_with("mode:") {
                 continue;
             }
-            if fields.len() != 3 {
-                continue;
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            let invalid = || {
+                format!(
+                    "invalid coverage segment on line {number}: {}",
+                    python_repr(raw)
+                )
+            };
+            if fields.len() != 3 || !fields[0].contains(':') {
+                return Err(invalid());
             }
             let Some((file, range)) = fields[0].split_once(':') else {
-                continue;
+                return Err(invalid());
             };
             let Some((start, end)) = range.split_once(',') else {
-                continue;
+                return Err(invalid());
             };
-            let parse_line = |s: &str| s.split('.').next()?.parse::<usize>().ok();
+            let parse_line = |s: &str| s.split('.').next().and_then(|n| n.parse::<usize>().ok());
             let (Some(start), Some(end), Ok(statements), Ok(hits)) = (
                 parse_line(start),
                 parse_line(end),
                 fields[1].parse(),
                 fields[2].parse(),
             ) else {
-                continue;
+                return Err(invalid());
             };
-            let index = self
+            let position = self
                 .go
                 .iter()
                 .position(|(key, _)| key == file)
@@ -111,16 +122,17 @@ impl Reports {
                     self.go.push((file.into(), Vec::new()));
                     self.go.len() - 1
                 });
-            self.go[index].1.push((start, end, statements, hits));
+            self.go[position].1.push((start, end, statements, hits));
         }
+        Ok(())
     }
-    fn add_java(&mut self, text: &str) {
+    /// crapper `parse_jacoco_index`: unparseable XML raises for the run.
+    fn add_java(&mut self, text: &str) -> Result<(), String> {
         let clean = Regex::new(r"(?i)<!DOCTYPE[^>]*>")
             .unwrap()
             .replace_all(text, "");
-        let Ok(doc) = roxmltree::Document::parse(&clean) else {
-            return;
-        };
+        let doc = roxmltree::Document::parse(&clean)
+            .map_err(|error| format!("invalid JaCoCo XML: {error}"))?;
         for class in doc.descendants().filter(|n| n.has_tag_name("class")) {
             let name = class.attribute("name").unwrap_or("").replace('/', ".");
             for method in class.children().filter(|n| n.has_tag_name("method")) {
@@ -149,8 +161,9 @@ impl Reports {
                 ));
             }
         }
+        Ok(())
     }
-    pub fn load(root: &Path) -> Self {
+    pub fn load(root: &Path) -> Result<Self, String> {
         let mut reports = Self::default();
         let mut forms = Records::default();
         for text in report_texts(
@@ -163,7 +176,7 @@ impl Reports {
                 "*/*/target/coverage/go/coverage.out",
             ],
         ) {
-            reports.add_go(&text);
+            reports.add_go(&text)?;
         }
         for text in report_texts(
             root,
@@ -173,7 +186,7 @@ impl Reports {
                 "*/*/target/site/jacoco/jacoco.xml",
             ],
         ) {
-            reports.add_java(&text);
+            reports.add_java(&text)?;
         }
         let coverage = root.join("target/coverage");
         let span =
@@ -217,6 +230,6 @@ impl Reports {
             forms.insert(key, lines);
         }
         reports.forms = SuffixIndex::new(&forms);
-        reports
+        Ok(reports)
     }
 }
