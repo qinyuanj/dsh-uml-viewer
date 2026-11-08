@@ -217,12 +217,7 @@ fn override_command(
     let program = quality_core::process::Program::Argv(&argv);
     let status = redirect::stdout_to_stderr(|| quality_core::process::run(&program, root))
         .map_err(|error| refuse(format!("cannot launch {}: {error}", argv[0])))?;
-    // A signal `n` comes back as `-n`; the record carries 128+n.
-    let exit_code = if status < 0 {
-        (128 - status).clamp(0, 255) as u8
-    } else {
-        status.clamp(0, 255) as u8
-    };
+    let exit_code = native_exit(status);
     Ok(Outcome {
         exit_code,
         valid_result: declared.valid_exit_codes.contains(&exit_code),
@@ -230,6 +225,36 @@ fn override_command(
         configured: true,
         tool: "configured".to_string(),
     })
+}
+
+/// A child's exit as an entry status, as `uml_posix.native_exit` reports it.
+/// `raw` is `quality_core::process::run`'s status: on POSIX a signal `n` is
+/// `-n` and becomes `128+n`; on Windows it is the 32-bit exit code, and an
+/// NTSTATUS above 255 becomes `128+signal` for the known ones, else 255,
+/// named on stderr.
+fn native_exit(raw: i32) -> u8 {
+    if cfg!(unix) {
+        return if raw < 0 {
+            (128 - raw).clamp(0, 255) as u8
+        } else {
+            raw.clamp(0, 255) as u8
+        };
+    }
+    let code = raw as u32;
+    if code <= 255 {
+        return code as u8;
+    }
+    let signal = match code {
+        0xC000_013A => Some(2),
+        0xC000_001D => Some(4),
+        0xC000_0094 => Some(8),
+        0xC000_0005 | 0xC000_00FD => Some(11),
+        0xC000_0409 => Some(6),
+        _ => None,
+    };
+    let mapped = signal.map_or(255, |n| 128 + n);
+    eprintln!("uml: child ended with NTSTATUS 0x{code:08X}; reported as exit {mapped}.");
+    mapped
 }
 
 /// Script and shim entries are refused: a shell boundary cannot preserve

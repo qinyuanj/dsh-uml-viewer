@@ -737,15 +737,16 @@ fn snapshots(root: &Path) -> Vec<String> {
 
 /// `:refresh-mutate` and `:refresh-mutate-all` through the dispatcher: every
 /// target in one call, `--mutate-all` only on the named targets, and an
-/// unchanged rerun is differential. `--test-command true` lets every mutant
-/// survive (exit 3, a valid mutator result).
+/// unchanged rerun is differential. The test command fails only inside a
+/// mutant's view, so every mutant is killed (exit 0) and a killed outcome is
+/// reused by the next differential run (a survivor would be re-executed).
 #[cfg(target_os = "linux")]
 #[test]
 fn mutation_is_differential_on_all_targets_in_one_call() {
     let project = Project::new();
     let root = mutation_project(
         &project,
-        r#"["--max-workers","1","--no-coverage","--test-command","true"]"#,
+        r#"["--max-workers","1","--no-coverage","--test-command","test ! -f \"$MUTATOR_VIEW/mutation\""]"#,
     );
     let output = quality_at(
         &project.base,
@@ -759,11 +760,8 @@ fn mutation_is_differential_on_all_targets_in_one_call() {
     );
     let record = checked(&output, "mutate", &root);
     let err = stderr(&output);
-    assert_eq!(output.status.code(), Some(3), "{err}");
-    assert_eq!(
-        record["validResult"], true,
-        "survivors are a valid mutator result"
-    );
+    assert_eq!(output.status.code(), Some(0), "{err}");
+    assert_eq!(record["validResult"], true, "{err}");
     assert_eq!(record["tool"], "mutator");
     assert!(err.contains("app/src/lib.rs: executed=1 reused=0"), "{err}");
     assert!(
@@ -777,6 +775,9 @@ fn mutation_is_differential_on_all_targets_in_one_call() {
     );
     let before = fs::read(root.join(".metrics/mutate/app.edn")).unwrap();
     // :refresh-mutate: the same targets again, unchanged, reuse every outcome.
+    // mutator reports the fully reusable run as "No mutations selected; keeping
+    // the previous snapshots."; a rerun after one target changed shows the
+    // other target's reused outcome below.
     let output = quality_at(
         &project.base,
         &root,
@@ -785,9 +786,29 @@ fn mutation_is_differential_on_all_targets_in_one_call() {
     let record = checked(&output, "mutate", &root);
     let err = stderr(&output);
     assert_eq!(record["validResult"], true, "{err}");
+    assert!(
+        err.contains("No mutations selected; keeping the previous snapshots."),
+        "{err}"
+    );
+    // Changing one of two targets in one call reuses the other target's
+    // outcome and executes only the changed one.
+    let changed = root.join("app/src/more.rs");
+    fs::write(
+        &changed,
+        fs::read_to_string(&changed)
+            .unwrap()
+            .replace("x / 2", "x / 3"),
+    )
+    .unwrap();
+    let output = quality_at(
+        &project.base,
+        &root,
+        &["mutate", "app/src/lib.rs", "app/src/more.rs"],
+    );
+    let err = stderr(&output);
     assert!(err.contains("app/src/lib.rs: executed=0 reused=1"), "{err}");
     assert!(
-        err.contains("app/src/more.rs: executed=0 reused=1"),
+        err.contains("app/src/more.rs: executed=1 reused=0"),
         "{err}"
     );
     // A new target joins the same call; the unchanged one is still reused.
@@ -810,4 +831,172 @@ fn mutation_is_differential_on_all_targets_in_one_call() {
     let before = String::from_utf8(before).unwrap();
     let outcomes = |text: &str| text.split(":outcomes").nth(1).unwrap().to_string();
     assert_eq!(outcomes(&after), outcomes(&before));
+}
+
+/// The contracts fixture (fixtures/quality/records.jsonl, consumed by
+/// packages/contracts/tests/quality.test.ts) is real binary output. Run the
+/// same scenarios and compare the lines byte for byte apart from the root.
+#[test]
+fn the_committed_contract_samples_are_the_binary_output() {
+    let project = Project::new();
+    project.config(
+        r#"{"version":1,"standardTools":{"sourceRoots":["crates"],"crapperOptions":["--no-coverage"]}}"#,
+    );
+    project.write("crates/a/src/lib.rs", "pub fn a(x: i64) -> i64 { x + 1 }\n");
+    let Some(python) = python_executable() else {
+        eprintln!("SKIP: no python on PATH; the samples need a native fake tool");
+        return;
+    };
+    let samples = include_str!("../../../fixtures/quality/records.jsonl");
+    let expected: Vec<serde_json::Value> = samples
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let mut actual = Vec::new();
+    actual.push(project.quality(&["crap"]));
+    actual.push(project.quality(&["dry"]));
+    actual.push(project.quality(&["mutate", "crates/a/src/lib.rs"]));
+    project.config(&format!(
+        r#"{{"version":1,"operations":{{
+            "crap":{{"argv":[{python:?},"-c","raise SystemExit(1)"],"forwardArgs":"none","scope":"whole-tree","validResultExitCodes":[0]}},
+            "mutate":{{"argv":[{python:?},"-c","raise SystemExit(3)"],"forwardArgs":"append","validResultExitCodes":[0,3]}}}}}}"#,
+        python = python.to_string_lossy()
+    ));
+    actual.push(project.quality(&["crap"]));
+    actual.push(project.quality(&["mutate", "x.rs"]));
+    project.config(r#"{"version":1}"#);
+    actual.push(project.quality(&["crap"]));
+    assert_eq!(actual.len(), expected.len());
+    for (output, expected) in actual.iter().zip(&expected) {
+        let text = String::from_utf8(output.stdout.clone()).unwrap();
+        let normalized = text.replace(
+            &format!(r#""{}""#, escape_json(&project.root.to_string_lossy())),
+            r#""/project""#,
+        );
+        assert_eq!(
+            normalized.trim(),
+            samples
+                .lines()
+                .find(|line| {
+                    let parsed: serde_json::Value = serde_json::from_str(line).unwrap();
+                    &parsed == expected
+                })
+                .unwrap(),
+            "the committed sample for {expected}"
+        );
+    }
+}
+
+#[cfg_attr(windows, allow(dead_code))]
+fn escape_json(text: &str) -> String {
+    serde_json::to_string(text)
+        .unwrap()
+        .trim_matches('"')
+        .to_string()
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn python_executable() -> Option<std::ffi::OsString> {
+    if cfg!(windows) {
+        return None;
+    }
+    for candidate in ["python", "python3"] {
+        let probe = Command::new(candidate)
+            .args(["-c", "import sys; print(sys.executable)"])
+            .output();
+        if let Some(found) = probe.ok().filter(|o| o.status.success()) {
+            return Some(String::from_utf8_lossy(&found.stdout).trim().into());
+        }
+    }
+    None
+}
+
+/// Every named target reaches mutator unexpanded and in the order named
+/// (ADR 0001 2026-11-01): a directory that contains a root, one inside a
+/// root, and a file. `--scan` lists the sites mutator selected, so the
+/// forwarded targets are observable without any test run.
+#[cfg(target_os = "linux")]
+#[test]
+fn named_directories_and_files_reach_one_mutation_call_in_order() {
+    let project = Project::new();
+    let root = mutation_project(
+        &project,
+        r#"["--max-workers","1","--no-coverage","--scan"]"#,
+    );
+    let output = quality_at(
+        &project.base,
+        &root,
+        &["mutate", "app", "util/src", "app/src/lib.rs"],
+    );
+    let record = checked(&output, "mutate", &root);
+    let err = stderr(&output);
+    assert_eq!(output.status.code(), Some(0), "{err}");
+    assert_eq!(record["validResult"], true);
+    for file in ["app/src/lib.rs", "app/src/more.rs", "util/src/lib.rs"] {
+        assert!(
+            err.contains(&format!("Scan: 1 mutation sites in {file}")),
+            "{err}"
+        );
+    }
+    // A named directory outside every root is named on stderr and dropped;
+    // with only such targets the call is refused without launching.
+    let output = quality_at(&project.base, &root, &["mutate", "app/tests"]);
+    let record = checked(&output, "mutate", &root);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("uml: omitted mutation target outside business scope: app/tests"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(record["validResult"], false);
+}
+
+/// `:refresh-mutate` with `--changed`: mutator takes the git-changed set,
+/// narrowed by the declared roots and exclusions, with no named target.
+#[cfg(target_os = "linux")]
+#[test]
+fn changed_mutation_selects_the_changed_files_inside_the_declared_scope() {
+    let project = Project::new();
+    let root = mutation_project(
+        &project,
+        r#"["--max-workers","1","--no-coverage","--scan"]"#,
+    );
+    let git = |args: &[&str]| {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(&root)
+            .output()
+            .expect("git is required for --changed");
+        assert!(output.status.success(), "{args:?}: {:?}", output);
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.email", "t15@example.invalid"]);
+    git(&["config", "user.name", "t15"]);
+    git(&["add", "."]);
+    git(&["commit", "-qm", "fixture"]);
+    let changed = root.join("app/src/more.rs");
+    fs::write(
+        &changed,
+        fs::read_to_string(&changed)
+            .unwrap()
+            .replace("x / 2", "x / 4"),
+    )
+    .unwrap();
+    // util stays unchanged; an out-of-scope change is not selected either.
+    fs::write(
+        root.join("Cargo.toml"),
+        fs::read_to_string(root.join("Cargo.toml")).unwrap(),
+    )
+    .unwrap();
+    let output = quality_at(&project.base, &root, &["mutate", "--changed"]);
+    let record = checked(&output, "mutate", &root);
+    let err = stderr(&output);
+    assert_eq!(output.status.code(), Some(0), "{err}");
+    assert_eq!(record["validResult"], true);
+    assert!(
+        err.contains("Scan: 1 mutation sites in app/src/more.rs"),
+        "{err}"
+    );
+    assert!(!err.contains("app/src/lib.rs"), "unchanged file: {err}");
+    assert!(!err.contains("util/src/lib.rs"), "unchanged file: {err}");
 }
