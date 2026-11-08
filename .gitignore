@@ -1,6 +1,8 @@
 .DS_Store
 .uml-viewer/
 .scratch/
+# Browser-acceptance lane (#22): per-run scratch homes, traces and captures.
+/run-*
 target/
 node_modules/
 lib/

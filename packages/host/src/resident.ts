@@ -1,5 +1,5 @@
 import { realpath } from 'node:fs/promises'
-import type { ResidentEvent, SceneFrame, SessionState } from '@dsh-uml-viewer/contracts'
+import type { DiscussionContext, ResidentEvent, SceneFrame, SessionState } from '@dsh-uml-viewer/contracts'
 import { parseResidentLine, residentAction } from '@dsh-uml-viewer/contracts'
 import { binaryArgv } from './binary.js'
 import type { Config } from './binary.js'
@@ -64,6 +64,8 @@ export class ResidentConnection {
   actions: readonly string[] = []
   latestFrame: SceneFrame | null = null
   latestState: SessionState | null = null
+  /** The discussion context restored with `open`, before any context event. */
+  latestContext: DiscussionContext | null = null
   refs = 0
   seq = 0
   private readonly subscribers = new Set<Queue<ResidentEvent>>()
@@ -115,6 +117,7 @@ export class ResidentConnection {
     if (event.event === 'ready') this.actions = event.actions
     else if (event.event === 'frame') this.latestFrame = event.frame
     else if (event.event === 'state') this.latestState = event.state
+    else if (event.event === 'context') this.latestContext = event.context
     const seq = typeof event.seq === 'number' ? event.seq : null
     if (seq !== null) {
       const resolver = this.pending.get(seq)
@@ -224,6 +227,7 @@ export class ResidentSessions {
     this.connections.set(connection.id, connection)
     try {
       const state = await this.states.read(connection.id)
+      connection.latestContext = state?.context ?? null
       const opened = await connection.request({ action: 'open', waiting: true, ...(state ? { state } : {}) }, READY_TIMEOUT_MS)
       if (opened.event === 'error') throw new Refusal(`uml-viewer resident could not open the project: ${opened.message}`)
       if (opened.event !== 'frame') throw new Error(`uml-viewer resident answered open with ${opened.event}`)
@@ -302,11 +306,26 @@ export class ResidentSessions {
     if (connection.refs <= 0) await this.stop(connection)
   }
 
-  /** Send one action to this session's resident (starting and stopping it when no panel is open). */
-  async refresh(agent: Agent, signal: AbortSignal, action: { action: string } & Record<string, unknown>): Promise<ResidentEvent> {
+  /**
+   * Send one action to this session's resident (starting and stopping it when
+   * no panel is open). A display also re-applies the persisted proposal
+   * context: showing a diagram resets the resident to the source view, while
+   * the session's discussion context may still be a proposal.
+   */
+  async refresh(agent: Agent, signal: AbortSignal, action: { action: string } & Record<string, unknown>,
+    restoreContext = false): Promise<ResidentEvent> {
     const connection = await this.open(agent, signal)
     try {
-      return await connection.request(action, ACTION_TIMEOUT_MS)
+      let event = await connection.request(action, ACTION_TIMEOUT_MS)
+      const context = connection.latestContext
+      if (restoreContext && context?.kind === 'proposal' && context.proposalId && event.event === 'frame') {
+        const switched = await connection.request({ action: 'context', proposalId: context.proposalId }, ACTION_TIMEOUT_MS)
+        if (switched.event === 'error') return switched
+        // `context` answers with a context event; `reload` returns the frame
+        // now rendered in that discussion context.
+        event = await connection.request({ action: 'reload' }, ACTION_TIMEOUT_MS)
+      }
+      return event
     } finally {
       await this.release(connection)
     }

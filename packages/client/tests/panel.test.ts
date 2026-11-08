@@ -182,6 +182,18 @@ describe('session-bound panel stream', () => {
     h.controller.close()
   })
 
+  it('keeps the stream’s discussion context on the panel status', async () => {
+    const h = harness([{ kind: 'ready', actions: [] }])
+    await h.controller.open('session-a')
+    h.emit({ kind: 'context', context: { kind: 'proposal', proposalId: ':p-shop', name: 'Shop proposal', edn: '{:context :proposal}' } })
+    h.emit({ kind: 'frame', seq: 1, frame })
+    await settle(() => h.painted.length === 1, 'the frame')
+    expect(h.controller.current.context).toEqual({
+      kind: 'proposal', proposalId: ':p-shop', name: 'Shop proposal', edn: '{:context :proposal}',
+    })
+    h.controller.close()
+  })
+
   it('repaints the last frame when the host theme flips', async () => {
     const before = FakeMutationObserver.instances.length
     const h = harness([{ kind: 'frame', seq: 1, frame }])
