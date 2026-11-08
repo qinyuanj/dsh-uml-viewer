@@ -40,7 +40,7 @@ mod armed {
     fn install(signum: libc::c_int) -> Option<libc::sigaction> {
         unsafe {
             let mut action: libc::sigaction = std::mem::zeroed();
-            action.sa_sigaction = stop as usize;
+            action.sa_sigaction = stop as *const () as usize;
             // Restarted calls keep the poll loops simple; each loop checks
             // `pending` between its short waits anyway.
             action.sa_flags = libc::SA_RESTART;
@@ -57,6 +57,8 @@ mod armed {
 
     impl Armed {
         pub fn new() -> Self {
+            // A new run starts unstopped, even in a process that ran one before.
+            STOP.store(0, Ordering::Relaxed);
             let previous = [libc::SIGINT, libc::SIGTERM]
                 .into_iter()
                 .filter_map(|signum| install(signum).map(|previous| (signum, previous)))

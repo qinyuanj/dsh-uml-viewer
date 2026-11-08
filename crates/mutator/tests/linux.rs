@@ -1,4 +1,6 @@
 #![cfg(target_os = "linux")]
+// Test code is the outside harness; it launches the fixture tools itself.
+#![allow(clippy::disallowed_methods)]
 use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::OsString,
@@ -270,6 +272,351 @@ fn concurrent_mutants_run_in_parallel_worker_views() {
         fs::read_to_string(fixture.root().join(".metrics/mutate/app/extra.edn")).unwrap();
     assert!(snapshot.contains(":sites 2"), "{snapshot}");
     assert!(snapshot.contains(":survived 2"), "{snapshot}");
+}
+
+/// Acceptance: one coverage run and one baseline are shared by every target
+/// file of a single call, and each target still publishes its own snapshot.
+#[test]
+fn one_coverage_run_and_one_baseline_are_shared_by_every_target_file() {
+    let fixture = Fixture::new();
+    let marker = fixture.scratch().join("phases.txt");
+    let command = format!(
+        "if [ -f \"$MUTATOR_VIEW/mutation\" ]; then echo mutant >> {marker}; \
+         else echo baseline >> {marker}; fi; true",
+        marker = marker.display()
+    );
+    let coverage = format!(
+        "printf 'coverage\n' >> {marker}; mkdir -p coverage; \
+         printf 'SF:%s/util/src/lib.rs\nDA:2,1\nLH:1\nLF:1\nend_of_record\n\
+         SF:%s/app/src/lib.rs\nDA:4,1\nLH:1\nLF:1\nend_of_record\n\
+         SF:%s/app/src/more.rs\nDA:2,1\nLH:1\nLF:1\nend_of_record\n' \
+         \"$PWD\" \"$PWD\" \"$PWD\" > coverage/lcov.info",
+        marker = marker.display()
+    );
+    assert_eq!(
+        fixture.run_many(
+            2,
+            &[
+                "--coverage-command",
+                &coverage,
+                "--mutate-all",
+                "--test-command",
+                &command,
+                "util/src/lib.rs",
+                "app/src/lib.rs",
+                "app/src/more.rs"
+            ]
+        ),
+        // Every mutant's command succeeds, so all three sites survive.
+        ExitCode::from(3)
+    );
+    let text = fs::read_to_string(&marker).unwrap();
+    let phases: Vec<&str> = text.lines().collect();
+    let count = |phase: &str| phases.iter().filter(|line| **line == phase).count();
+    assert_eq!(count("coverage"), 1, "{text}");
+    assert_eq!(count("baseline"), 1, "{text}");
+    assert_eq!(count("mutant"), 3, "{text}");
+    // Each target file published its own snapshot.
+    let mut published: Vec<String> = snapshot_bytes(&fixture.root()).into_keys().collect();
+    published.sort();
+    assert_eq!(published, ["app.edn", "app/more.edn", "util.edn"]);
+}
+
+/// Acceptance: worker slots belong to the call, not to the file or the
+/// command. Two files of two sites each use the same two slots.
+#[test]
+fn worker_slots_are_reused_across_target_files() {
+    let fixture = Fixture::new();
+    fs::write(
+        fixture.root().join("app/src/extra.rs"),
+        "pub fn alpha(x: i64) -> i64 { x + x + x }\n",
+    )
+    .unwrap();
+    fs::write(
+        fixture.root().join("util/src/extra.rs"),
+        "pub fn beta(y: i64) -> i64 { y + y + y }\n",
+    )
+    .unwrap();
+    let recorded = fixture.scratch().join("workers.txt");
+    let command = format!(
+        "sleep 0.15; \
+         if grep -q 'x - x + x' app/src/extra.rs; then n=app-inner; \
+         elif grep -q 'x + x - x' app/src/extra.rs; then n=app-outer; \
+         elif grep -q 'y - y + y' util/src/extra.rs; then n=util-inner; \
+         elif grep -q 'y + y - y' util/src/extra.rs; then n=util-outer; \
+         else n=baseline; fi; \
+         printf '%s %s\n' \"$MUTATOR_VIEW\" \"$n\" >> {recorded}; true",
+        recorded = recorded.display()
+    );
+    assert_eq!(
+        fixture.run_many(
+            2,
+            &[
+                "--no-coverage",
+                "--mutate-all",
+                "--test-command",
+                &command,
+                "app/src/extra.rs",
+                "util/src/extra.rs"
+            ]
+        ),
+        ExitCode::from(3)
+    );
+    let text = fs::read_to_string(&recorded).unwrap();
+    let lines: Vec<(String, String)> = text
+        .lines()
+        .map(|line| line.split_once(' ').unwrap())
+        .map(|(view, name)| (view.to_string(), name.to_string()))
+        .collect();
+    let views: BTreeSet<&str> = lines.iter().map(|(view, _)| view.as_str()).collect();
+    assert_eq!(views.len(), 2, "{text}");
+    let mut mutants: Vec<&str> = lines
+        .iter()
+        .filter(|(_, name)| name != "baseline")
+        .map(|(_, name)| name.as_str())
+        .collect();
+    mutants.sort();
+    assert_eq!(
+        mutants,
+        ["app-inner", "app-outer", "util-inner", "util-outer"],
+        "{text}"
+    );
+    // Both target files' mutants ran in the same two slots: the pool belongs
+    // to the call, not to the file.
+    for file in ["app", "util"] {
+        let used: BTreeSet<&str> = lines
+            .iter()
+            .filter(|(_, name)| name.starts_with(file))
+            .map(|(view, _)| view.as_str())
+            .collect();
+        assert_eq!(used, views, "{file} used {used:?} of {views:?}");
+    }
+}
+
+/// Acceptance: `--mutate-all` changes decisions, never the selection, and only
+/// the files named on the command line publish snapshots.
+#[test]
+fn mutate_all_applies_only_to_the_explicitly_selected_files() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        fixture.run_many(
+            2,
+            &[
+                "--no-coverage",
+                "--mutate-all",
+                "--test-command",
+                "true",
+                "app/src/lib.rs"
+            ]
+        ),
+        ExitCode::from(3)
+    );
+    let published = snapshot_bytes(&fixture.root());
+    assert_eq!(
+        published.keys().cloned().collect::<Vec<String>>(),
+        ["app.edn"]
+    );
+    assert!(
+        String::from_utf8_lossy(&published["app.edn"]).contains(":survived 1"),
+        "the selected site must execute under --mutate-all"
+    );
+    // A source root still narrows the named files: the flag widens no scope.
+    assert_eq!(
+        fixture.run(&[
+            "--no-coverage",
+            "--mutate-all",
+            "--test-command",
+            "true",
+            "-s",
+            "app/src",
+            "util/src/lib.rs"
+        ]),
+        ExitCode::SUCCESS
+    );
+    assert_eq!(
+        snapshot_bytes(&fixture.root())
+            .keys()
+            .cloned()
+            .collect::<Vec<String>>(),
+        ["app.edn"]
+    );
+    // A second file, alone: still exactly one snapshot for it.
+    let other = Fixture::new();
+    assert_eq!(
+        other.run(&[
+            "--no-coverage",
+            "--mutate-all",
+            "--test-command",
+            "true",
+            "util/src/lib.rs"
+        ]),
+        ExitCode::from(3)
+    );
+    assert_eq!(
+        snapshot_bytes(&other.root())
+            .keys()
+            .cloned()
+            .collect::<Vec<String>>(),
+        ["util.edn"]
+    );
+}
+
+/// Whether a host process is gone, waiting out the kernel's reaping.
+fn gone(pid: u32) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if !Path::new(&format!("/proc/{pid}")).exists() {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    !Path::new(&format!("/proc/{pid}")).exists()
+}
+
+/// A command that leaves a `sleep` behind, recording its host pid in `pids`.
+/// Every command gets its own file; `tail` decides its exit status and runs
+/// once the pid is recorded.
+fn leaves_a_child(fixture: &Fixture, ignore_term: bool, tail: &str) -> (String, PathBuf) {
+    let helper = fixture.scratch().join("leave.sh");
+    let trap = if ignore_term { "trap '' TERM\n" } else { "" };
+    fs::write(
+        &helper,
+        format!(
+            "#!/bin/sh\n{trap}awk '/^NSpid:/{{print $2}}' /proc/self/status > \"$1\"\nexec sleep 600\n"
+        ),
+    )
+    .unwrap();
+    let pids = fixture.scratch().join("pids");
+    fs::create_dir_all(&pids).unwrap();
+    let command = format!(
+        "own=$(mktemp {pids}/pid.XXXXXX); sh {helper} \"$own\" & \
+         i=0; while [ ! -s \"$own\" ]; do i=$((i+1)); [ $i -lt 100 ] || exit 98; sleep 0.01; done; \
+         {tail}",
+        pids = pids.display(),
+        helper = helper.display()
+    );
+    (command, pids)
+}
+
+fn recorded_pids(directory: &Path) -> Vec<u32> {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    let mut pids: Vec<u32> = entries
+        .flatten()
+        .filter_map(|entry| fs::read_to_string(entry.path()).ok())
+        .filter_map(|text| text.trim().parse().ok())
+        .collect();
+    pids.sort_unstable();
+    pids
+}
+
+/// Ported from the original `test_reap.py`: a command's leftovers do not
+/// outlive the view that ran it.
+#[test]
+fn a_child_left_by_a_passing_command_is_reaped() {
+    let fixture = Fixture::new();
+    let (command, pidfile) = leaves_a_child(&fixture, false, "true");
+    assert_eq!(
+        fixture.run(&[
+            "--no-coverage",
+            "--mutate-all",
+            "--test-command",
+            &command,
+            "app/src/lib.rs"
+        ]),
+        // The command passes, so the mutant survives.
+        ExitCode::from(3)
+    );
+    let pids = recorded_pids(&pidfile);
+    assert!(pids.len() >= 2, "baseline and mutant both ran: {pids:?}");
+    for pid in pids {
+        assert!(gone(pid), "child {pid} outlived its view");
+    }
+}
+
+#[test]
+fn a_failing_command_keeps_its_exit_code_and_loses_its_child() {
+    let fixture = Fixture::new();
+    let (command, pidfile) = leaves_a_child(
+        &fixture,
+        false,
+        "if [ -f \"$MUTATOR_VIEW/mutation\" ]; then exit 3; fi; true",
+    );
+    assert_eq!(
+        fixture.run(&[
+            "--no-coverage",
+            "--mutate-all",
+            "--test-command",
+            &command,
+            "app/src/lib.rs"
+        ]),
+        // A failing mutant is a killed mutant, not a failed run.
+        ExitCode::SUCCESS
+    );
+    for pid in recorded_pids(&pidfile) {
+        assert!(gone(pid), "child {pid} outlived its view");
+    }
+}
+
+#[test]
+fn a_child_that_ignores_sigterm_is_killed_with_its_view() {
+    let fixture = Fixture::new();
+    let (command, pidfile) = leaves_a_child(&fixture, true, "true");
+    assert_eq!(
+        fixture.run(&[
+            "--no-coverage",
+            "--mutate-all",
+            "--test-command",
+            &command,
+            "app/src/lib.rs"
+        ]),
+        ExitCode::from(3)
+    );
+    for pid in recorded_pids(&pidfile) {
+        assert!(gone(pid), "child {pid} survived its view");
+    }
+}
+
+/// Ported from the original `test_runtime_failure_removes_workers`: a mutant
+/// that never finishes is killed, the source stays untouched and the call's
+/// scratch root is removed.
+#[test]
+fn a_timed_out_mutant_is_killed_and_the_scratch_root_is_removed() {
+    let fixture = Fixture::new();
+    let source = fixture.root().join("app/src/lib.rs");
+    let before = fs::read(&source).unwrap();
+    let recorded = fixture.scratch().join("roots.txt");
+    let command = format!(
+        "echo \"$(dirname \"$MUTATOR_VIEW\")\" >> {recorded}; \
+         if [ -f \"$MUTATOR_VIEW/mutation\" ]; then sleep 10; fi; true",
+        recorded = recorded.display()
+    );
+    let started = std::time::Instant::now();
+    assert_eq!(
+        fixture.run(&[
+            "--no-coverage",
+            "--mutate-all",
+            "--test-command",
+            &command,
+            "app/src/lib.rs"
+        ]),
+        ExitCode::SUCCESS
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(9),
+        "the mutant must be killed at its timeout"
+    );
+    assert_eq!(fs::read(&source).unwrap(), before);
+    let roots: BTreeSet<String> = fs::read_to_string(&recorded)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert!(!roots.is_empty());
+    for root in roots {
+        assert!(!Path::new(&root).exists(), "{root} survived the run");
+    }
 }
 
 #[test]

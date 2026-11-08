@@ -70,6 +70,11 @@ impl View {
     }
 
     #[cfg(target_os = "linux")]
+    // The Linux namespace view launcher is the quality tools' own adapter for
+    // this one command kind: it owns PR_SET_PDEATHSIG, the per-command process
+    // group and the file-redirected streams that the generic capture API in
+    // quality_core::process cannot express.
+    #[allow(clippy::disallowed_methods)]
     pub fn run(
         &self,
         root: &Path,
