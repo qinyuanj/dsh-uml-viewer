@@ -12,14 +12,16 @@
   {:lang :rust, :root "crates/companion/src", :prefix "uml.companion"}
   {:lang :rust, :root "crates/frame/src", :prefix "uml.frame"}
   {:lang :rust, :root "crates/viewer/src", :prefix "uml.viewer"}
-  {:lang :rust, :root "crates/uml-viewer/src", :prefix "uml.main"}],
+  {:lang :rust, :root "crates/uml-viewer/src", :prefix "uml.main"}
+  {:lang :typescript, :root "packages/contracts/src", :prefix "uml.contracts"}
+  {:lang :typescript, :root "packages/host/src", :prefix "uml.host"}],
  :proposals [{:id :p-1791033119418, :name "test", :layers []}],
  :levels
- [[edn platform]
+ [[edn platform contracts]
   [ir scene companion]
   [frame]
   [viewer]
-  [main]],
+  [main host]],
  :out "examples/uml-viewer.edn",
- :order [main viewer frame companion scene ir edn platform],
+ :order [main host viewer frame companion scene ir edn platform contracts],
  :foreign [libc egui eframe image winit log]}

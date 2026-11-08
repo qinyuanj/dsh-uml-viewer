@@ -1,0 +1,6 @@
+packages:
+  - packages/*
+
+# Build with the platform esbuild package; no dependency lifecycle scripts.
+allowBuilds:
+  esbuild: false

@@ -1,0 +1,56 @@
+{
+  "name": "dsh-uml-viewer",
+  "version": "1.0.0",
+  "description": "UML diagrams with CRAP and mutation quality for the session's project, as a DeepSeek Harness plugin.",
+  "license": "UNLICENSED",
+  "private": true,
+  "icon": "./icon.svg",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qinyuanj/dsh-uml-viewer.git"
+  },
+  "os": ["win32", "linux", "darwin"],
+  "cpu": ["x64", "arm64"],
+  "main": "lib/host.js",
+  "exports": {
+    ".": "./lib/host.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "locale",
+    "cordis.patch.yml",
+    "dsh-plugin.json",
+    "icon.svg",
+    "docs/plugin-development.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build-plugin.mjs",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r run test"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.2-rc.1 <0.3.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "packageManager": "pnpm@12.11.2"
+}

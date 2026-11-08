@@ -1,0 +1,33 @@
+{
+  "$schema": "https://raw.githubusercontent.com/T-Auto/dsh-std/8a15541117cb3c13ddb8f2468308691b6051d162/packages/manifest/schema/dsh-plugin-0.15.schema.json",
+  "manifestVersion": "0.15",
+  "id": "dsh-uml-viewer",
+  "name": "dsh-uml-viewer",
+  "version": "1.0.0",
+  "license": "UNLICENSED",
+  "facets": {
+    "host": { "entry": "lib/host.js", "apiVersion": "v1alpha1" }
+  },
+  "requires": {
+    "contracts": [{ "apiVersion": "tools.dsh/v1alpha1", "kind": "Tool" }]
+  },
+  "permissions": [
+    { "name": "uml-viewer.process", "scope": "subprocess", "reason": "Run the native IR generator through the session sandbox policy and DSH subprocess provider." },
+    { "name": "uml-viewer.read", "scope": "filesystem-read", "reason": "Read policy and source files in the session project and locate the plugin binary." },
+    { "name": "uml-viewer.write", "scope": "filesystem-write", "reason": "Generate project IR under the session sandbox policy." },
+    { "name": "uml-viewer.home", "scope": "dsh-home", "reason": "Reserved for versioned binaries and session view state; not used by the development skeleton." }
+  ],
+  "contributes": {
+    "x-components": [{
+      "id": "dsh-uml-viewer",
+      "entry": "dsh-uml-viewer",
+      "defaultEnabled": true,
+      "platforms": ["win32", "linux", "darwin"],
+      "targets": ["win32-x64", "linux-x64", "darwin-arm64", "darwin-x64"],
+      "tools": ["uml_ir"],
+      "notes": "Host skeleton. uml_crap, uml_mutate and uml_dry follow in #20; the Web client facet, panel and uml_display follow in #21. Platform binary packaging follows in the release tickets."
+    }],
+    "x-planned-tools": ["uml_crap", "uml_mutate", "uml_dry", "uml_display"]
+  },
+  "subscriptions": []
+}

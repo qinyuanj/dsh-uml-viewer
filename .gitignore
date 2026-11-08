@@ -2,6 +2,9 @@
 .uml-viewer/
 .scratch/
 target/
+node_modules/
+lib/
+*.tsbuildinfo
 coverage/
 uml-viewer-log.txt
 
