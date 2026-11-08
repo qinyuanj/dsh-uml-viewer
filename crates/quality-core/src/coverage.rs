@@ -10,6 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::functions::Function;
+use crate::language::Language;
 use crate::paths::{normcase, posix, resolve};
 
 /// Line → (covered lines, lines): one `DA` record per line.
@@ -87,7 +88,7 @@ pub fn normalize_path(path: &str) -> String {
     text
 }
 
-fn segments(path: &str) -> Vec<String> {
+pub(super) fn segments(path: &str) -> Vec<String> {
     normalize_path(path)
         .split('/')
         .filter(|part| !part.is_empty())
@@ -96,7 +97,7 @@ fn segments(path: &str) -> Vec<String> {
 }
 
 /// The names one source path may appear under in a report.
-fn candidates(source_path: &str) -> Vec<String> {
+pub(super) fn candidates(source_path: &str) -> Vec<String> {
     let relative = normalize_path(source_path);
     let absolute = if source_path.is_empty() {
         relative.clone()
@@ -173,8 +174,25 @@ pub fn splitlines(text: &str) -> Vec<&str> {
     lines
 }
 
-fn python_strip(text: &str) -> &str {
+pub(super) fn python_strip(text: &str) -> &str {
     text.trim_matches(|c: char| c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c))
+}
+
+/// A string as Python's `repr` prints it inside an exception message.
+pub(super) fn python_repr(text: &str) -> String {
+    let mut out = String::from("'");
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\'' => out.push_str("\\'"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(c),
+        }
+    }
+    out.push('\'');
+    out
 }
 
 fn digits(text: &str) -> Option<u64> {
@@ -327,16 +345,17 @@ fn io_message(error: &std::io::Error, path: &Path) -> String {
     }
 }
 
-/// Legacy exact-then-suffix matching: the first report record, in report
-/// order, whose path ends with any candidate name of the source.
-struct SuffixIndex {
+/// Legacy exact-then-suffix matching: an exact normalized key first, else the
+/// first report record, in report order, whose path ends with any candidate
+/// name of the source.
+pub(super) struct SuffixIndex {
     normalized: HashMap<String, usize>,
     lines: Vec<Lines>,
     suffixes: HashMap<Vec<String>, usize>,
 }
 
 impl SuffixIndex {
-    fn new(records: &Records) -> SuffixIndex {
+    pub(super) fn new(records: &Records) -> SuffixIndex {
         let mut index = SuffixIndex {
             normalized: HashMap::new(),
             lines: Vec::new(),
@@ -364,7 +383,7 @@ impl SuffixIndex {
         index
     }
 
-    fn get(&self, source_path: &str) -> Option<&Lines> {
+    pub(super) fn get(&self, source_path: &str) -> Option<&Lines> {
         if self.lines.is_empty() {
             return None;
         }
@@ -386,6 +405,7 @@ impl SuffixIndex {
 
 /// Coverage for every analysed function.
 pub struct CoverageBundle {
+    languages: crate::coverage_reports::Reports,
     suffix: SuffixIndex,
     fresh: Option<(HashMap<String, Lines>, PathBuf)>,
     managed_lua: Option<(HashMap<String, Lines>, PathBuf)>,
@@ -395,6 +415,7 @@ impl CoverageBundle {
     /// Reports already on disk, matched by path suffix.
     pub fn from_reports(lcov: &Records) -> CoverageBundle {
         CoverageBundle {
+            languages: crate::coverage_reports::Reports::default(),
             suffix: SuffixIndex::new(lcov),
             fresh: None,
             managed_lua: None,
@@ -420,6 +441,7 @@ impl CoverageBundle {
                 .or_insert_with(|| lines.clone());
         }
         CoverageBundle {
+            languages: crate::coverage_reports::Reports::default(),
             suffix: SuffixIndex::new(&Records::default()),
             fresh: Some((exact, root.to_path_buf())),
             managed_lua: None,
@@ -427,8 +449,14 @@ impl CoverageBundle {
     }
 
     /// The percentage of `function`'s lines covered, or None.
+    ///
+    /// Java (JaCoCo) and Go (statement profile) have their own report formats
+    /// and never fall back to LCOV, so a custom coverage command's fresh
+    /// report leaves them unmeasured. Every other language prefers
+    /// Cloverage's form counts and only then reads LCOV, as crapper's
+    /// `percent_for` does.
     pub fn percent_for(&self, function: &Function) -> Option<f64> {
-        if function.language == crate::language::Language::Lua
+        if function.language == Language::Lua
             && let Some((exact, root)) = &self.managed_lua
         {
             return percent_for_range(
@@ -437,10 +465,16 @@ impl CoverageBundle {
                 function.end_line,
             );
         }
-        let lines = match &self.fresh {
-            Some((exact, root)) => exact.get(&normcase(&resolve(&root.join(&function.path)))),
-            None => self.suffix.get(&function.path),
-        };
+        if matches!(function.language, Language::Java | Language::Go) {
+            return self.languages.percent(function);
+        }
+        let lines = self
+            .languages
+            .forms_percent(&function.path)
+            .or_else(|| match &self.fresh {
+                Some((exact, root)) => exact.get(&normcase(&resolve(&root.join(&function.path)))),
+                None => self.suffix.get(&function.path),
+            });
         percent_for_range(lines, function.start_line, function.end_line)
     }
 }
@@ -459,6 +493,32 @@ const LCOV_REPORTS: &[&str] = &[
 /// `root.glob(pattern)` for patterns of literal segments with at most one
 /// `**`; directory entries are visited in name order.
 fn glob(root: &Path, pattern: &str) -> Vec<PathBuf> {
+    if pattern.starts_with("*/") || pattern.starts_with("*/*/") {
+        let depth = usize::from(pattern.starts_with("*/*/")) + 1;
+        let rest = pattern.splitn(depth + 1, '/').last().unwrap();
+        let mut found = Vec::new();
+        fn children_at(root: &Path, depth: usize, found: &mut Vec<PathBuf>) {
+            if depth == 0 {
+                found.push(root.to_path_buf());
+                return;
+            }
+            let Ok(entries) = fs::read_dir(root) else {
+                return;
+            };
+            let mut entries: Vec<_> = entries.flatten().map(|entry| entry.path()).collect();
+            entries.sort();
+            for entry in entries {
+                if entry.is_dir() {
+                    children_at(&entry, depth - 1, found);
+                }
+            }
+        }
+        children_at(root, depth, &mut found);
+        return found
+            .into_iter()
+            .flat_map(|directory| glob(&directory, rest))
+            .collect();
+    }
     let Some((prefix, rest)) = pattern.split_once("/**/") else {
         let path = root.join(pattern);
         return if path.exists() {
@@ -494,7 +554,7 @@ fn glob(root: &Path, pattern: &str) -> Vec<PathBuf> {
 }
 
 /// The text of each report once, in pattern order.
-fn report_texts(root: &Path, patterns: &[&str]) -> Vec<String> {
+pub(super) fn report_texts(root: &Path, patterns: &[&str]) -> Vec<String> {
     let mut seen: Vec<String> = Vec::new();
     let mut texts = Vec::new();
     for path in patterns.iter().flat_map(|pattern| glob(root, pattern)) {
@@ -518,10 +578,13 @@ fn report_texts(root: &Path, patterns: &[&str]) -> Vec<String> {
 
 /// Every LCOV report on disk under `root`, merged; a later record for a
 /// source wins.
-pub fn load_bundle(root: &Path) -> CoverageBundle {
+pub fn load_bundle(root: &Path) -> Result<CoverageBundle, String> {
+    let mut bundle = CoverageBundle::from_reports(&Records::default());
+    bundle.languages = crate::coverage_reports::Reports::load(root)?;
     let mut merged = Records::default();
     for text in report_texts(root, LCOV_REPORTS) {
         merged.update(parse_lcov(&text));
     }
-    CoverageBundle::from_reports(&merged)
+    bundle.suffix = SuffixIndex::new(&merged);
+    Ok(bundle)
 }

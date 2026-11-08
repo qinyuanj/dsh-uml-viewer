@@ -1,0 +1,3 @@
+{:entries [
+  {:name "foo", :namespace "demo.core", :complexity 1, :coverage nil, :crap nil}
+]}

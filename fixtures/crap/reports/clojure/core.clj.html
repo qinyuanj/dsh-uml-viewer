@@ -1,0 +1,134 @@
+<html>
+ <head>
+   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <link rel="stylesheet" href="../coverage.css"/>  <title> demo/core.clj </title>
+ </head>
+ <body>
+<span class="covered" title="1 out of 1 forms covered">
+                001&nbsp;&nbsp;(ns&nbsp;demo.core)
+                </span><br/>
+<span class="blank" title="0 out of 0 forms covered">
+                002&nbsp;&nbsp;
+                </span><br/>
+<span class="covered" title="1 out of 1 forms covered">
+                003&nbsp;&nbsp;(defn&nbsp;choose&nbsp;[x]
+                </span><br/>
+<span class="partial" title="3 out of 4 forms covered">
+                004&nbsp;&nbsp;&nbsp;&nbsp;(if&nbsp;x&nbsp;1&nbsp;0))
+                </span><br/>
+<span class="blank" title="0 out of 0 forms covered">
+                005&nbsp;&nbsp;
+                </span><br/>
+<span class="partial" title="1 out of 2 forms covered">
+                006&nbsp;&nbsp;(defn-&nbsp;hidden&nbsp;[y]&nbsp;y)
+                </span><br/>
+<span class="blank" title="0 out of 0 forms covered">
+                007&nbsp;&nbsp;
+                </span><br/>
+<span class="covered" title="1 out of 1 forms covered">
+                008&nbsp;&nbsp;(defn&nbsp;branches&nbsp;[x]
+                </span><br/>
+<span class="not-covered" title="0 out of 6 forms covered">
+                009&nbsp;&nbsp;&nbsp;&nbsp;(if-not&nbsp;x&nbsp;0&nbsp;1)
+                </span><br/>
+<span class="not-covered" title="0 out of 8 forms covered">
+                010&nbsp;&nbsp;&nbsp;&nbsp;(if-let&nbsp;[y&nbsp;x]&nbsp;y&nbsp;0)
+                </span><br/>
+<span class="not-covered" title="0 out of 11 forms covered">
+                011&nbsp;&nbsp;&nbsp;&nbsp;(if-some&nbsp;[y&nbsp;x]&nbsp;y&nbsp;0)
+                </span><br/>
+<span class="not-covered" title="0 out of 4 forms covered">
+                012&nbsp;&nbsp;&nbsp;&nbsp;(when&nbsp;x&nbsp;1)
+                </span><br/>
+<span class="not-covered" title="0 out of 5 forms covered">
+                013&nbsp;&nbsp;&nbsp;&nbsp;(when-not&nbsp;x&nbsp;1)
+                </span><br/>
+<span class="not-covered" title="0 out of 8 forms covered">
+                014&nbsp;&nbsp;&nbsp;&nbsp;(when-let&nbsp;[y&nbsp;x]&nbsp;y)
+                </span><br/>
+<span class="not-covered" title="0 out of 11 forms covered">
+                015&nbsp;&nbsp;&nbsp;&nbsp;(when-some&nbsp;[y&nbsp;x]&nbsp;y)
+                </span><br/>
+<span class="not-covered" title="0 out of 15 forms covered">
+                016&nbsp;&nbsp;&nbsp;&nbsp;(when-first&nbsp;[y&nbsp;[x]]&nbsp;y)
+                </span><br/>
+<span class="not-covered" title="0 out of 6 forms covered">
+                017&nbsp;&nbsp;&nbsp;&nbsp;(and&nbsp;x&nbsp;true)
+                </span><br/>
+<span class="not-covered" title="0 out of 6 forms covered">
+                018&nbsp;&nbsp;&nbsp;&nbsp;(or&nbsp;x&nbsp;false)
+                </span><br/>
+<span class="not-covered" title="0 out of 3 forms covered">
+                019&nbsp;&nbsp;&nbsp;&nbsp;(loop&nbsp;[i&nbsp;0]&nbsp;i)
+                </span><br/>
+<span class="not-covered" title="0 out of 3 forms covered">
+                020&nbsp;&nbsp;&nbsp;&nbsp;(try&nbsp;x&nbsp;(catch&nbsp;Exception&nbsp;e&nbsp;nil)))
+                </span><br/>
+<span class="blank" title="0 out of 0 forms covered">
+                021&nbsp;&nbsp;
+                </span><br/>
+<span class="covered" title="1 out of 1 forms covered">
+                022&nbsp;&nbsp;(defn&nbsp;clauses&nbsp;[x]
+                </span><br/>
+<span class="not-covered" title="0 out of 11 forms covered">
+                023&nbsp;&nbsp;&nbsp;&nbsp;(cond&nbsp;(=&nbsp;x&nbsp;1)&nbsp;{:a&nbsp;1&nbsp;:b&nbsp;2}&nbsp;:else&nbsp;nil)
+                </span><br/>
+<span class="not-covered" title="0 out of 21 forms covered">
+                024&nbsp;&nbsp;&nbsp;&nbsp;(condp&nbsp;=&nbsp;x&nbsp;1&nbsp;:one&nbsp;2&nbsp;:two)
+                </span><br/>
+<span class="not-covered" title="0 out of 5 forms covered">
+                025&nbsp;&nbsp;&nbsp;&nbsp;(case&nbsp;x&nbsp;()&nbsp;:empty&nbsp;[1]&nbsp;:one&nbsp;:other)
+                </span><br/>
+<span class="not-covered" title="0 out of 16 forms covered">
+                026&nbsp;&nbsp;&nbsp;&nbsp;(cond-&gt;&nbsp;x&nbsp;(number?&nbsp;x)&nbsp;inc&nbsp;(number?&nbsp;x)&nbsp;dec)
+                </span><br/>
+<span class="not-covered" title="0 out of 9 forms covered">
+                027&nbsp;&nbsp;&nbsp;&nbsp;(cond-&gt;&gt;&nbsp;x&nbsp;(number?&nbsp;x)&nbsp;inc)
+                </span><br/>
+<span class="not-covered" title="0 out of 18 forms covered">
+                028&nbsp;&nbsp;&nbsp;&nbsp;(some-&gt;&nbsp;x&nbsp;inc&nbsp;dec)
+                </span><br/>
+<span class="not-covered" title="0 out of 23 forms covered">
+                029&nbsp;&nbsp;&nbsp;&nbsp;(some-&gt;&gt;&nbsp;[x]&nbsp;(map&nbsp;inc)&nbsp;(filter&nbsp;pos?)))
+                </span><br/>
+<span class="blank" title="0 out of 0 forms covered">
+                030&nbsp;&nbsp;
+                </span><br/>
+<span class="partial" title="1 out of 6 forms covered">
+                031&nbsp;&nbsp;(defn&nbsp;strings&nbsp;[x]
+                </span><br/>
+<span class="not-tracked" title="0 out of 0 forms covered">
+                032&nbsp;&nbsp;&nbsp;&nbsp;&quot;say&nbsp;\&quot;hi\&quot;\n&nbsp;(if&nbsp;true&nbsp;1&nbsp;0)&quot;
+                </span><br/>
+<span class="not-tracked" title="0 out of 0 forms covered">
+                033&nbsp;&nbsp;&nbsp;&nbsp;&quot;&quot;&nbsp;&quot;\\&quot;&nbsp;&quot;\&quot;&quot;
+                </span><br/>
+<span class="not-tracked" title="0 out of 0 forms covered">
+                034&nbsp;&nbsp;&nbsp;&nbsp;;;&nbsp;(when&nbsp;fake)
+                </span><br/>
+<span class="not-tracked" title="0 out of 0 forms covered">
+                035&nbsp;&nbsp;&nbsp;&nbsp;\space
+                </span><br/>
+<span class="not-covered" title="0 out of 4 forms covered">
+                036&nbsp;&nbsp;&nbsp;&nbsp;(if&nbsp;x&nbsp;1&nbsp;0))
+                </span><br/>
+<span class="blank" title="0 out of 0 forms covered">
+                037&nbsp;&nbsp;
+                </span><br/>
+<span class="partial" title="5 out of 12 forms covered">
+                038&nbsp;&nbsp;(def&nbsp;data&nbsp;[{:pred&nbsp;(fn&nbsp;[v]&nbsp;(if&nbsp;v&nbsp;(when&nbsp;v&nbsp;true)&nbsp;false))}])
+                </span><br/>
+<span class="covered" title="6 out of 6 forms covered">
+                039&nbsp;&nbsp;(def&nbsp;char-literals&nbsp;[\a&nbsp;\(&nbsp;\&quot;&nbsp;\space])
+                </span><br/>
+<span class="covered" title="2 out of 2 forms covered">
+                040&nbsp;&nbsp;(defn&nbsp;after-characters&nbsp;[]&nbsp;\x)
+                </span><br/>
+<span class="partial" title="1 out of 6 forms covered">
+                041&nbsp;&nbsp;(defn&nbsp;fallback-clause&nbsp;[x]&nbsp;(cond&nbsp;x&nbsp;1&nbsp;:else&nbsp;nil))
+                </span><br/>
+<span class="partial" title="1 out of 5 forms covered">
+                042&nbsp;&nbsp;(defn&nbsp;empty-clauses&nbsp;[x]&nbsp;(cond)&nbsp;(some-&gt;&nbsp;x))
+                </span><br/>
+ </body>
+</html>

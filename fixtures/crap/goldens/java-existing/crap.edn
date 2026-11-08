@@ -1,0 +1,14 @@
+{:entries [
+  {:name "nested", :namespace "demo.Example", :complexity 13, :coverage 73.7705, :crap 16.0497}
+  {:name "score", :namespace "demo.Example", :complexity 10, :coverage 85.7143, :crap 10.2915}
+  {:name "overloaded", :namespace "demo.Example", :complexity 2, :coverage 0.0, :crap 6.0}
+  {:name "uncovered", :namespace "demo.Example", :complexity 2, :coverage 0.0, :crap 6.0}
+  {:name "present", :namespace "demo.Example.Contract", :complexity 2, :coverage 0.0, :crap 6.0}
+  {:name "switched", :namespace "demo.Example", :complexity 4, :coverage 80.0, :crap 4.128}
+  {:name "overloaded", :namespace "demo.Example", :complexity 2, :coverage 66.6667, :crap 2.1481}
+  {:name "positive", :namespace "demo.Example.Value", :complexity 2, :coverage 87.5, :crap 2.0078}
+  {:name "outer", :namespace "demo.Example", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "stable", :namespace "demo.Example", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "tick", :namespace "demo.Example.Inner", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "code", :namespace "demo.Example.Mode", :complexity 1, :coverage 100.0, :crap 1.0}
+]}

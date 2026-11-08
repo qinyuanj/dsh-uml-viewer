@@ -1,0 +1,11 @@
+{:entries [
+  {:name "Branchy", :namespace "example.com/quality/go", :complexity 5, :coverage nil, :crap nil}
+  {:name "Cases", :namespace "example.com/quality/go", :complexity 5, :coverage nil, :crap nil}
+  {:name "Ready", :namespace "example.com/quality/go.Widget", :complexity 3, :coverage nil, :crap nil}
+  {:name "Run", :namespace "example.com/quality/go.Widget", :complexity 3, :coverage nil, :crap nil}
+  {:name "Place", :namespace "example.com/quality/go/internal/game.Board", :complexity 3, :coverage nil, :crap nil}
+  {:name "Closure", :namespace "example.com/quality/go", :complexity 2, :coverage nil, :crap nil}
+  {:name "Simple", :namespace "example.com/quality/go", :complexity 1, :coverage nil, :crap nil}
+  {:name "First", :namespace "example.com/quality/go/module", :complexity 1, :coverage nil, :crap nil}
+  {:name "Last", :namespace "example.com/quality/go/module", :complexity 1, :coverage nil, :crap nil}
+]}

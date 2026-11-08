@@ -1,0 +1,4 @@
+{:entries [
+  {:name "choose", :namespace "demo.core", :complexity 2, :coverage nil, :crap nil}
+  {:name "hidden", :namespace "demo.core", :complexity 1, :coverage nil, :crap nil}
+]}

@@ -1,0 +1,7 @@
+CRAP Report
+===========
+Languages: go
+
+Function                       Namespace                                               CC    Cov%     CRAP
+----------------------------------------------------------------------------------------------------------
+Real                           example.com/quality/go/testdata/behavior/declarations    1   N/A       N/A

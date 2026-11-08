@@ -31,9 +31,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 CRAP = REPO / "fixtures" / "crap"
 GOLDENS = CRAP / "goldens"
-PROJECTS = {"rust": CRAP / "rust", "rust-fixture": REPO / "rust-fixture",
-            **{name: REPO / name for name in ("python-fixture", "typescript-fixture", "lua-fixture")},
-            "language-edges": CRAP / "language-edges"}
+PROJECTS = {name: CRAP / name for name in ("rust", "go", "java", "clojure")}
+PROJECTS["rust-fixture"] = REPO / "rust-fixture"
+for name in ("python-fixture", "typescript-fixture", "lua-fixture"):
+    PROJECTS[name] = REPO / name
+PROJECTS["language-edges"] = CRAP / "language-edges"
 PINNED = (GOLDENS / "SOURCE").read_text(encoding="utf-8").split()[1]
 
 

@@ -1,0 +1,3 @@
+project clojure
+file reports/clojure/core.clj.html target/coverage/demo/core.clj.html
+arg --use-existing-coverage

@@ -1,0 +1,4 @@
+project clojure
+arg -s
+arg testdata/behavior/core-extra/src
+arg --no-coverage

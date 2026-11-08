@@ -1,0 +1,7 @@
+CRAP Report
+===========
+Languages: clojure
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+foo                            core-extra                             1   N/A       N/A
