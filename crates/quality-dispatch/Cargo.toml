@@ -1,0 +1,19 @@
+[package]
+name = "quality-dispatch"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# ADR 0001 2026-11-08 appendix: the binary's `quality` subcommand. It reads
+# `uml-quality.json`, dispatches to the built-in tools or a declared
+# operation and prints the version-1 result record on stdout.
+[dependencies]
+quality-core = { path = "../quality-core" }
+crapper = { path = "../crapper" }
+mutator = { path = "../mutator" }
+dryer = { path = "../dryer" }
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_System_Console"] }

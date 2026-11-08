@@ -1,5 +1,5 @@
 //! Candidate duplicate structures, ported from Python dryer b3f72ad.
-use quality_core::select::Scope;
+use quality_core::{platform, select::Scope};
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -9,7 +9,6 @@ mod discover;
 mod extract;
 mod names;
 mod normalize;
-mod platform;
 mod report;
 mod scan;
 
@@ -140,6 +139,22 @@ pub(crate) fn parse(args: &[String]) -> Parsed {
     }
     Parsed::Scan(options)
 }
+/// Whether this port scans `language` yet: all seven since
+/// qinyuanj/dsh-uml-viewer#7. Kept as the dispatcher's guard so an
+/// unknown future language is refused rather than silently skipped.
+pub fn scans(language: quality_core::language::Language) -> bool {
+    matches!(
+        language,
+        quality_core::language::Language::Rust
+            | quality_core::language::Language::Go
+            | quality_core::language::Language::Java
+            | quality_core::language::Language::Clojure
+            | quality_core::language::Language::Python
+            | quality_core::language::Language::TypeScript
+            | quality_core::language::Language::Lua
+    )
+}
+
 /// The binary's dry role. It preserves the original argument and exit contract.
 pub fn run(args: &[OsString]) -> ExitCode {
     run_on(platform::Host::current(), platform::windows_build(), args)
@@ -164,7 +179,7 @@ fn run_on(host: platform::Host, build: Option<u32>, args: &[OsString]) -> ExitCo
         }
         Parsed::Scan(options) => options,
     };
-    if let Some(refusal) = platform::refusal(host, build) {
+    if let Some(refusal) = platform::refusal(platform::Tool::Dryer, host, build) {
         eprintln!("{refusal}");
         return ExitCode::FAILURE;
     }

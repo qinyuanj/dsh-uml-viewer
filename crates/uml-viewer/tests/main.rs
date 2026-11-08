@@ -17,6 +17,7 @@ mod dry;
 mod dry_goldens;
 mod dry_languages;
 mod mutate;
+mod quality;
 mod quality_selection;
 mod resident;
 mod scene_cli;

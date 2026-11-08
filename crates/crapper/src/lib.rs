@@ -26,14 +26,24 @@ use crate::cli::{HELP, Options, Parsed};
 use crate::crap::{Entry, analyze, format_report, metrics_path, render_edn};
 
 pub fn run(args: &[OsString]) -> ExitCode {
+    run_on(
+        quality_core::platform::Host::current(),
+        quality_core::platform::windows_build(),
+        args,
+    )
+}
+
+/// The same contract with the host declared, matching the pinned tests'
+/// monkeypatch of `sys.platform` and `windows_build`.
+fn run_on(host: quality_core::platform::Host, build: Option<u32>, args: &[OsString]) -> ExitCode {
     let args: Vec<String> = args
         .iter()
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
-    ExitCode::from(status(&args))
+    ExitCode::from(status_on(host, build, &args))
 }
 
-fn status(args: &[String]) -> u8 {
+fn status_on(host: quality_core::platform::Host, build: Option<u32>, args: &[String]) -> u8 {
     match cli::parse(args) {
         Parsed::Help => {
             print!("{HELP}");
@@ -43,7 +53,15 @@ fn status(args: &[String]) -> u8 {
             eprint!("{message}\n\n{HELP}");
             1
         }
-        Parsed::Analyze(options) => analyze_project(&options),
+        Parsed::Analyze(options) => {
+            if let Some(refusal) =
+                quality_core::platform::refusal(quality_core::platform::Tool::Crapper, host, build)
+            {
+                eprintln!("{refusal}");
+                return 1;
+            }
+            analyze_project(&options)
+        }
     }
 }
 
@@ -204,4 +222,35 @@ fn threshold_status(entries: &[Entry], threshold: Option<f64>, coverage_requeste
     }
     eprintln!("CRAP threshold exceeded: {worst:.1} > {threshold:.1}");
     2
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn scratch(name: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("dsh-crap-{name}-{}-{unique}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn an_older_windows_build_is_refused_before_selection_and_publishes_nothing() {
+        let root = scratch("old-windows");
+        let args = vec![
+            OsString::from("--root"),
+            root.as_os_str().to_owned(),
+            OsString::from("--no-coverage"),
+        ];
+        let exit = run_on(quality_core::platform::Host::Windows, Some(19044), &args);
+        assert_eq!(ExitCode::FAILURE, exit);
+        assert!(!root.join(".metrics").exists());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 }
