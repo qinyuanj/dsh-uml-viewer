@@ -76,18 +76,31 @@ fn prepare(scenario: &Path, project: &Project) -> Vec<String> {
     args
 }
 
-/// The generator's normalization: root → `<ROOT>`, `\` → `/`, no `+ (` echoes.
+/// The generator's normalization: root → `<ROOT>`; native separators on
+/// `Wrote` and other root-bearing path tokens → `<SEP>`; no `+ (` echoes.
+/// Every other byte stays exact.
 fn normalize(stderr: &str, root: &Path) -> String {
-    let mut text = stderr.to_string();
+    let mut text = stderr.replace("\r\n", "\n");
     for form in [
         root.display().to_string(),
         root.display().to_string().replace('\\', "/"),
     ] {
         text = text.replace(&form, "<ROOT>");
     }
-    text.replace('\\', "/")
-        .split('\n')
+    text.split('\n')
         .filter(|line| !line.starts_with("+ ("))
+        .map(|line| {
+            line.split(' ')
+                .map(|word| {
+                    if word.contains("<ROOT>") {
+                        word.replace(std::path::MAIN_SEPARATOR, "<SEP>")
+                    } else {
+                        word.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }

@@ -58,7 +58,7 @@ pub(crate) fn scan_files(
             .into_iter()
             .filter(|entry| keep(entry, min_lines, min_nodes))
             .collect();
-        entries.extend(names::named(kept, language, &source, &file, root));
+        entries.extend(names::named(kept, language, &source, &file, root)?);
     }
     Ok((entries, warnings))
 }

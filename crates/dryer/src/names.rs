@@ -32,9 +32,9 @@ pub(crate) fn named(
     source: &str,
     file: &str,
     root: &Path,
-) -> Vec<Entry> {
-    let functions = functions_in_file(language, source, file, root);
-    entries
+) -> std::io::Result<Vec<Entry>> {
+    let functions = functions_in_file(language, source, file, root)?;
+    Ok(entries
         .into_iter()
         .map(|mut entry| {
             if let Some(function) = owner(&functions, entry.start_line, entry.end_line) {
@@ -43,5 +43,5 @@ pub(crate) fn named(
             }
             entry
         })
-        .collect()
+        .collect())
 }

@@ -192,6 +192,19 @@ fn usage_errors_name_the_problem_and_print_help_to_stderr() {
     assert_eq!(help, stdout(&output));
 }
 
+/// Raw native bytes complement the golden's `<SEP>` normalization: pinned
+/// crapper prints `root / ".metrics" / "crap.edn"` with host separators.
+#[cfg(windows)]
+#[test]
+fn native_windows_wrote_path_has_no_mixed_separators() {
+    let project = Project::new();
+    project.write("src/lib.rs", "pub fn one() {}\n");
+    let output = project.crap(&["--no-coverage"]);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let expected = format!("Wrote {}\\.metrics\\crap.edn\n", project.root.display());
+    assert_eq!(stderr(&output), expected);
+}
+
 /// Both tools share `quality_core::number::python_float`, and the pinned
 /// originals' `_threshold` and `_number` are the same `float()`.
 /// `fixtures/dry/threshold/cases.tsv` holds the originals' answers.
@@ -234,6 +247,7 @@ fn threshold_parses_like_python_float_at_the_crapper_seam() {
 #[test]
 fn help_documents_scope_exits_and_exclusions() {
     let help = help();
+    assert!(help.starts_with("Usage: crapper [options] [path-or-filter ...]\n"));
     assert!(help.contains("--exclude"));
     assert!(help.contains("outside the source roots"));
     assert!(help.contains("or 3 when coverage was requested"));

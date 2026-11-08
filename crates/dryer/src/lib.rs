@@ -1,5 +1,5 @@
 //! Candidate duplicate structures, ported from Python dryer b3f72ad.
-use quality_core::select::Scope;
+use quality_core::{platform, select::Scope};
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -9,7 +9,6 @@ mod discover;
 mod extract;
 mod names;
 mod normalize;
-mod platform;
 mod report;
 mod scan;
 
@@ -164,7 +163,7 @@ fn run_on(host: platform::Host, build: Option<u32>, args: &[OsString]) -> ExitCo
         }
         Parsed::Scan(options) => options,
     };
-    if let Some(refusal) = platform::refusal(host, build) {
+    if let Some(refusal) = platform::refusal(platform::Tool::Dryer, host, build) {
         eprintln!("{refusal}");
         return ExitCode::FAILURE;
     }

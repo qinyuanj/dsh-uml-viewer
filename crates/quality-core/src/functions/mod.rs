@@ -85,15 +85,16 @@ pub fn functions_in_file(
     source: &str,
     path: &str,
     project_root: &Path,
-) -> Vec<Function> {
+) -> std::io::Result<Vec<Function>> {
     let path = path.replace('\\', "/");
-    match language {
+    let functions = match language {
         Language::Rust => rust::functions(source, &path, project_root),
         Language::Go => go::functions(source, &path, project_root),
         Language::Java => java::functions(source, &path, project_root),
         Language::Clojure => clojure::functions(source, &path, project_root),
         Language::Python => python::functions(source, &path, project_root),
         Language::TypeScript => typescript::functions(source, &path, project_root),
-        Language::Lua => lua::functions(source, &path, project_root),
-    }
+        Language::Lua => lua::functions(source, &path, project_root)?,
+    };
+    Ok(functions)
 }
