@@ -380,7 +380,22 @@ fn a_malformed_line_or_unknown_action_is_an_error_event_and_the_session_continue
     resident.send(json!({"version": 2, "seq": 3, "action": "save"}));
     let error = resident.expect("error");
     assert_eq!(json!(3), error["seq"]);
-    resident.ask(4, json!({"action": "save"}), "state");
+    let before = resident.ask(4, json!({"action": "save"}), "state");
+    resident.ask(
+        5,
+        json!({"action": "context", "proposalId": ":missing"}),
+        "error",
+    );
+    resident.ask(
+        6,
+        json!({"action": "display", "path": "missing.edn"}),
+        "error",
+    );
+    let after = resident.ask(7, json!({"action": "save"}), "state");
+    assert_eq!(
+        before["state"], after["state"],
+        "errors keep the usable view and context"
+    );
     resident.finish();
     let _ = std::fs::remove_dir_all(dir);
 }

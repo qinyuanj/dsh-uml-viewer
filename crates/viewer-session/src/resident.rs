@@ -254,6 +254,12 @@ impl Resident {
             }
             "display" => {
                 let path = text(action, "path")?;
+                self.session()?;
+                let resolved = resolve(&self.project, path);
+                let text = std::fs::read_to_string(&resolved)
+                    .map_err(|e| format!("cannot display {}: {e}", resolved.display()))?;
+                scene::ir::read_document(&text)
+                    .map_err(|e| format!("cannot display {}: {e}", resolved.display()))?;
                 let mut command = Value::Map(vec![]);
                 command.assoc(Value::keyword("op"), Value::keyword("display"));
                 command.assoc(Value::keyword("path"), Value::String(path.to_owned()));
@@ -323,6 +329,15 @@ impl Resident {
                     None | Some(Json::Null) => None,
                     Some(_) => Some(edn_field(action, "proposalId")?),
                 };
+                if let Some(id) = &id {
+                    let session = self.session()?;
+                    if !frame::inspector::entries(session.state())
+                        .iter()
+                        .any(|entry| entry.id.as_ref() == Some(id))
+                    {
+                        return Err(format!("unknown proposal {}", edn_text(id)));
+                    }
+                }
                 let outcome = self.session()?.act(Action::Choose(id), &dims);
                 let context = outcome
                     .context
