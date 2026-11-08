@@ -195,3 +195,34 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Option<Covera
 pub fn coverage_roots(root: &Path, files: &[PathBuf]) -> Vec<PathBuf> {
     modules_with(files, Language::TypeScript, "package.json", root)
 }
+
+#[cfg(test)]
+mod tests {
+    //! Ported from the original `tests/test_runner.py` TypeScript plan cases.
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    #[test]
+    fn typescript_plan_is_npm_test_at_the_nearest_package() {
+        let root = std::env::temp_dir().join(format!(
+            "mutator-typescript-plan-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/a.ts"), "export const a = 1;\n").unwrap();
+        assert_eq!(
+            test_plan(&root, &root.join("src/a.ts")),
+            (vec!["npm".into(), "test".into()], resolve(&root))
+        );
+        fs::write(root.join("package.json"), "{}\n").unwrap();
+        fs::create_dir_all(root.join("nested/src")).unwrap();
+        fs::write(root.join("nested/src/a.ts"), "export const a = 1;\n").unwrap();
+        fs::write(root.join("nested/package.json"), "{}\n").unwrap();
+        assert_eq!(
+            test_plan(&root, &root.join("nested/src/a.ts")).1,
+            root.join("nested")
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+}

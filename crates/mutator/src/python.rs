@@ -198,3 +198,148 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Coverage {
             .to_path_buf(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Ported from the original `tests/test_runner.py` Python cases.
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    struct Project(PathBuf);
+    impl Project {
+        fn new(name: &str) -> Self {
+            let directory = std::env::temp_dir().join(format!(
+                "mutator-python-plan-{}-{}-{name}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&directory).unwrap();
+            Self(directory)
+        }
+        fn write(&self, relative: &str, text: &str) {
+            let path = self.0.join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        }
+        #[cfg(unix)]
+        fn executable(&self, relative: &str) -> PathBuf {
+            use std::os::unix::fs::PermissionsExt;
+            let path = self.0.join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, "#!/bin/sh\n").unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        }
+    }
+    impl Drop for Project {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    fn plan(root: &Path, source: &Path) -> (Vec<String>, PathBuf) {
+        test_plan(root, source)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn python_command_uses_an_absolute_project_interpreter() {
+        let project = Project::new("proj");
+        let dot = project.executable(".venv/bin/python");
+        project.write("pytest.ini", "[pytest]\n");
+        assert_eq!(interpreter(&project.0), dot);
+        assert_eq!(
+            test_plan(&project.0, &project.0.join("a.py")).0,
+            vec![
+                dot.to_string_lossy().into_owned(),
+                "-m".into(),
+                "pytest".into()
+            ]
+        );
+        let other = Project::new("other");
+        let plain = other.executable("venv/bin/python");
+        assert_eq!(
+            test_plan(&other.0, &other.0.join("a.py")).0,
+            vec![
+                plain.to_string_lossy().into_owned(),
+                "-m".into(),
+                "unittest".into(),
+                "discover".into()
+            ]
+        );
+        let preferred = other.executable(".venv/bin/python");
+        assert_eq!(interpreter(&other.0), preferred);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn python_command_keeps_the_virtualenv_symlink() {
+        let project = Project::new("proj");
+        let target = project.executable("real-python");
+        let link = project.0.join(".venv/bin/python");
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        project.write("pytest.ini", "[pytest]\n");
+        // Resolving the symlink would leave the virtualenv.
+        assert_eq!(interpreter(&project.0), link);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn python_command_falls_back_when_the_virtualenv_cannot_run() {
+        let project = Project::new("proj");
+        project.write(".venv/bin/python", "");
+        let fallback = interpreter(&project.0);
+        assert_eq!(fallback, PathBuf::from("python3"));
+        let missing = Project::new("missing");
+        assert_eq!(interpreter(&missing.0), PathBuf::from("python3"));
+    }
+
+    #[test]
+    fn python_commands_detect_pytest() {
+        let pytest_dir = Project::new("py");
+        pytest_dir.write("pytest.ini", "[pytest]\n");
+        assert!(uses_pytest(&pytest_dir.0));
+        let unit = Project::new("unit");
+        assert!(!uses_pytest(&unit.0));
+        let cfg = Project::new("cfg");
+        cfg.write("setup.cfg", "[tool:pytest]\n");
+        assert!(uses_pytest(&cfg.0));
+        let project = Project::new("proj");
+        project.write("pyproject.toml", "[project]\ndependencies=['pytest']\n");
+        assert!(uses_pytest(&project.0));
+        let other = Project::new("other");
+        other.write("setup.cfg", "[metadata]\nname = demo\n");
+        assert!(!uses_pytest(&other.0));
+        let conf = Project::new("conf");
+        conf.write("conftest.py", "");
+        assert!(uses_pytest(&conf.0));
+        let nested = Project::new("nested");
+        nested.write("tests/conftest.py", "");
+        assert!(uses_pytest(&nested.0));
+    }
+
+    #[test]
+    fn plans_prefer_markers_in_a_fixed_order_over_nearness() {
+        let root = Project::new("root");
+        root.write("sub/app.py", "x = 1\n");
+        root.write("sub/setup.cfg", "[metadata]\n");
+        assert_eq!(
+            plan(&root.0, &root.0.join("sub/app.py")).1,
+            root.0.join("sub")
+        );
+        root.write("pytest.ini", "[pytest]\n");
+        assert_eq!(plan(&root.0, &root.0.join("sub/app.py")).1, root.0);
+        root.write("sub/pytest.ini", "[pytest]\n");
+        root.write("pyproject.toml", "[project]\n");
+        assert_eq!(plan(&root.0, &root.0.join("sub/app.py")).1, root.0);
+    }
+
+    #[test]
+    fn python_plan_falls_back_to_the_root() {
+        let root = Project::new("root");
+        root.write("src/a.py", "x = 1\n");
+        let (command, directory) = plan(&root.0, &root.0.join("src/a.py"));
+        assert_eq!(directory, root.0);
+        assert_eq!(command[1..], ["-m", "unittest", "discover"]);
+    }
+}

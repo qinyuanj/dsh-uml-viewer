@@ -251,3 +251,106 @@ fn quality_commands_publish_the_same_selected_source_files() {
         }
     }
 }
+
+/// The same scope contract for Python and TypeScript sources: crap and mutate
+/// select the same files for the same `-s`/`--exclude`, and mutate's snapshots
+/// prove the selected files' sites actually ran and were killed. dry joins when
+/// its Python/TypeScript port (#7) lands.
+#[test]
+fn python_and_typescript_selection_agrees_across_tools() {
+    let languages = [("py", "def"), ("ts", "export function")];
+    let files = [
+        "src/a",
+        "src/nested/b",
+        "extra/c",
+        "src/drop/d",
+        "tests/e",
+        "target/f",
+        "build/g",
+        "testdata/h",
+        "vendor/i",
+    ];
+    let scenarios: &[(&[&str], &[&str])] = &[
+        (&[], &["src/a", "src/nested/b", "extra/c", "src/drop/d"]),
+        (&["-s", "src"], &["src/a", "src/nested/b", "src/drop/d"]),
+        (
+            &["--source-root", "src", "-s", "extra", "-s", "src/nested"],
+            &["src/a", "src/nested/b", "extra/c", "src/drop/d"],
+        ),
+        (
+            &["-s", "src", "--exclude", "src/drop"],
+            &["src/a", "src/nested/b"],
+        ),
+        (&["--exclude", "**"], &[]),
+        (&["-s", "missing"], &[]),
+        (
+            &["-s", "src", "--exclude", "**/b.*"],
+            &["src/a", "src/drop/d"],
+        ),
+    ];
+    for (extension, keyword) in languages {
+        for (args, expected) in scenarios {
+            for tool in TOOLS {
+                if tool.linux_only && !cfg!(target_os = "linux") {
+                    continue;
+                }
+                if tool.role == "dry" {
+                    continue;
+                }
+                let project = Project::new();
+                project.write("pyproject.toml", "[project]\nname = \"scope\"\n");
+                project.write("package.json", "{\"scripts\":{\"test\":\"true\"}}\n");
+                for file in files {
+                    let id = file.replace('/', "__");
+                    let body = match extension {
+                        "py" => format!(
+                            "{keyword} {id}_left(x):\n    return x + 1\n{keyword} {id}_right(y):\n    return y + 2\n"
+                        ),
+                        _ => format!(
+                            "{keyword} {id}_left(x: number) {{ return x + 1; }}\n{keyword} {id}_right(y: number) {{ return y + 2; }}\n"
+                        ),
+                    };
+                    project.write(&format!("{file}.{extension}"), &body);
+                }
+                let output = Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
+                    .arg(tool.role)
+                    .arg("--root")
+                    .arg(&project.root)
+                    .args(tool.flags)
+                    .args(*args)
+                    .current_dir(&project.root)
+                    .env_remove("DISPLAY")
+                    .env_remove("WAYLAND_DISPLAY")
+                    .output()
+                    .unwrap();
+                assert_eq!(
+                    output.status.code(),
+                    Some(0),
+                    "{extension} {} {args:?}: {output:?}",
+                    tool.role
+                );
+                let selected: BTreeSet<String> = (tool.report)(&project.root)
+                    .into_iter()
+                    .map(|name| {
+                        // crap infers the file from the function name; dry and
+                        // mutate publish the path. Compare without extensions.
+                        name.rsplit_once('.')
+                            .map_or(name.clone(), |(base, _)| base.to_string())
+                    })
+                    .collect();
+                let expected: BTreeSet<String> =
+                    expected.iter().map(|name| name.to_string()).collect();
+                assert_eq!(selected, expected, "{extension} {} {args:?}", tool.role);
+                (tool.verify)(&project.root);
+                if expected.is_empty() {
+                    (tool.empty)(&output);
+                    assert!(
+                        !(tool.published)(&project.root),
+                        "{extension} {} {args:?}: an empty selection publishes nothing",
+                        tool.role
+                    );
+                }
+            }
+        }
+    }
+}

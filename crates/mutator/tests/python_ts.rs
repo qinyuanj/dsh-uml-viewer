@@ -399,5 +399,73 @@ fn python_unittest_discovery_with_no_tests_fails_the_baseline() {
         fs::read_to_string(project.join("src/demo.py")).unwrap(),
         "def add(a, b):\n    return a + b\n"
     );
+    // The guard itself: a command that exits 0 but reports an empty suite is a
+    // failed baseline, even where unittest's own exit status would not fail.
+    let code = mutator::run_with_clock(
+        &[
+            OsString::from("--root"),
+            project.clone().into_os_string(),
+            OsString::from("--no-coverage"),
+            OsString::from("--mutate-all"),
+            OsString::from("--max-workers"),
+            OsString::from("1"),
+            OsString::from("--test-command"),
+            OsString::from("printf 'Ran 0 tests in 0.000s\\n'; exit 0"),
+            OsString::from("src/demo.py"),
+        ],
+        || CLOCK.to_string(),
+    );
+    assert_eq!(
+        code,
+        ExitCode::from(2),
+        "Ran 0 tests must fail the baseline"
+    );
+    assert!(!project.join(".metrics").exists());
+    fs::remove_dir_all(&directory).unwrap();
+}
+
+/// Ported `test_snapshot_bytes.py`: one Python file, one killed mutant, the
+/// original's exact LF bytes with this platform's `:namespace-view`.
+#[test]
+fn a_single_python_file_publishes_the_original_snapshot_bytes() {
+    let available = std::process::Command::new("python3")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if !available {
+        skip("python3 is not on PATH for the snapshot-bytes case");
+        return;
+    }
+    let directory = std::env::temp_dir().join(format!(
+        "mutator-python-ts-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(
+        directory.join("calc.py"),
+        b"def add(a, b):\n    return a + b\n",
+    )
+    .unwrap();
+    let code = mutator::run_with_clock(
+        &[
+            OsString::from("--root"),
+            directory.clone().into_os_string(),
+            OsString::from("--no-coverage"),
+            OsString::from("--mutate-all"),
+            OsString::from("--max-workers"),
+            OsString::from("1"),
+            OsString::from("--test-command"),
+            OsString::from("python3 -c 'from calc import add; assert add(2, 1) == 3'"),
+            OsString::from(directory.join("calc.py").to_string_lossy().into_owned()),
+        ],
+        || CLOCK.to_string(),
+    );
+    assert_eq!(code, ExitCode::SUCCESS);
+    let expected = b"{:version 1 :tested-at \"2026-11-07T12:00:00+00:00\" :isolation :namespace-view :source \"calc.py\" :namespace \"calc\" :outcomes {\"[\\\"calc.py\\\",\\\"calc\\\",\\\"defn/add\\\",28,29,\\\"+\\\",\\\"-\\\"]\" :killed} :forms [{:id \"defn/add\" :kind \"defn\" :file \"calc.py\" :line 1 :end-line 2 :hash \"7f5d06820e37639e83a860f5e4c06bc64504526affd8a2c0203143ecf47713a4\" :killed 1 :survived 0 :uncovered 0 :sites 1}]}\n";
+    let actual = fs::read(directory.join(".metrics/mutate/calc.edn")).unwrap();
+    assert_eq!(actual, expected, "original snapshot bytes");
     fs::remove_dir_all(&directory).unwrap();
 }
