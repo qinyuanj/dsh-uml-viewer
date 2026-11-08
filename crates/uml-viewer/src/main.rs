@@ -27,6 +27,11 @@ const ROLES: &[(&str, &str, Entry)] = &[
         "export scene geometry for each focus, headless",
         |_, args| scene::run(args),
     ),
+    (
+        "crap",
+        "score every function with the CRAP metric, .metrics/crap.edn",
+        |_, args| crapper::run(args),
+    ),
     ("companion-worker", "Herdr companion worker", |_, args| {
         companion::run_worker(args)
     }),
