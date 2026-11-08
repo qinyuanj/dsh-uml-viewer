@@ -5,6 +5,8 @@ import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 const config = JSON.parse(readFileSync('resident.json', 'utf8'))
 writeFileSync('resident-invocation.json', JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(2) }))
 const frame = JSON.parse(readFileSync(config.framePath, 'utf8'))
+const sourceContext = { kind: 'real', edn: '{:context :real}' }
+let discussionContext = config.context ?? sourceContext
 const waitingFrame = {
   ...frame,
   waiting: true,
@@ -37,6 +39,7 @@ function handle(action) {
   appendFileSync('resident-actions.log', `${JSON.stringify(action)}\n`)
   switch (action.action) {
     case 'open':
+      discussionContext = action.state?.context ?? sourceContext
       return answer(action.seq, { event: 'frame', frame: config.openWaiting === false ? frame : waitingFrame })
     case 'reload':
       return config.displayError
@@ -46,12 +49,24 @@ function handle(action) {
       return config.displayError
         ? answer(action.seq, { event: 'error', message: config.displayError })
         : answer(action.seq, { event: 'frame', frame })
+    case 'context': {
+      const proposalId = action.proposalId
+      if (proposalId && (config.unknownProposals ?? []).includes(proposalId)) {
+        return answer(action.seq, { event: 'error', message: `unknown proposal ${proposalId}` })
+      }
+      discussionContext = proposalId
+        ? { kind: 'proposal', proposalId, name: proposalId, edn: `{:context :proposal :proposal-id ${proposalId}}` }
+        : sourceContext
+      answer(action.seq, { event: 'context', context: discussionContext })
+      return answer(action.seq, { event: 'frame', frame })
+    }
     case 'save':
       return answer(action.seq, {
         event: 'state',
         state: {
           schema: 'dsh-uml-viewer/session-state', version: 1, diagram: config.diagram ?? null,
-          context: { kind: 'real', edn: '{:context :real}' }, focus: [':core'], proposalId: null,
+          context: discussionContext, focus: [':core'],
+          proposalId: discussionContext.kind === 'proposal' ? discussionContext.proposalId : null,
           openLayer: null, declutter: ':triangles', camera: { x: 4, y: 5, zoom: 0.75 }, selected: null, detail: null,
         },
       })
