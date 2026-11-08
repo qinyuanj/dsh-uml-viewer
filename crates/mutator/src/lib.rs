@@ -1,4 +1,5 @@
 //! Differential mutation testing with isolated Linux test runs.
+use quality_core::language::{Language, language_of};
 use std::{ffi::OsString, path::Path, process::ExitCode};
 mod cli;
 mod engine;
@@ -8,6 +9,7 @@ pub mod lua;
 mod metrics;
 mod operators;
 mod python;
+pub mod queue;
 mod scratch;
 pub mod sites;
 mod typescript;
@@ -29,7 +31,7 @@ pub fn run(args: &[OsString]) -> ExitCode {
             .to_rfc3339_opts(quality_core::chrono::SecondsFormat::Secs, false)
     })
 }
-pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode {
+pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String + Sync) -> ExitCode {
     let args: Vec<String> = args
         .iter()
         .map(|arg| arg.to_string_lossy().into_owned())
@@ -72,7 +74,17 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode
     }
     code
 }
-fn run_mutation(root: &Path, options: &cli::Options, clock: impl Fn() -> String) -> ExitCode {
+/// Full-suite Lua files share one worker queue; every other file runs on its
+/// own, exactly as the original's `cli._shares_queue` decides.
+pub fn shares_queue(file: &Path, test_command: Option<&str>, select_specs: bool) -> bool {
+    language_of(file) == Some(Language::Lua) && test_command.is_none() && !select_specs
+}
+
+fn run_mutation(
+    root: &Path,
+    options: &cli::Options,
+    clock: impl Fn() -> String + Sync,
+) -> ExitCode {
     let mut files = if options.flag("--changed") {
         // The shared changed selection: source roots narrow it only when they
         // are given, and the positional filters and exclusions always apply.
