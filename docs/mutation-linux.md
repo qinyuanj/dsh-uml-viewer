@@ -1,11 +1,13 @@
-# Linux mutation isolation
+This Rust port handles **Rust and Lua projects on Linux**. `--max-workers N` runs up to
+N mutants at once; without it the limit is one per core, and the actual number
+is the smaller of that limit, the core count and the file's selected sites, as
+in the original. Other mutation languages and the Windows and macOS isolation
+mechanisms are not silently substituted: they are left to their follow-up
+tickets.
 
-This first Rust port handles **Rust and Lua projects, one worker at a time, on
-Linux**. Pass `--max-workers 1`; other worker counts are an explicit usage error
-until a parallel-worker ticket implements them. Other mutation languages and the
-Windows and macOS isolation mechanisms are not silently substituted: they are
-left to their follow-up tickets.
-
+A snapshot is byte-identical whatever the worker count: outcomes are keyed by
+mutation id and forms are sorted, so parallel execution cannot reorder the EDN.
+The acceptance test compares every published snapshot under `--max-workers 3`
 ## Lua suites (Busted + LuaCov/cluacov)
 
 For a `.lua` source the test command is the generated Busted argv, not a shell
@@ -55,6 +57,17 @@ both collection and mutation, and a `--test-command` string bypasses the whole
 Lua plan, as the original does.
 
 ## Write contract (stronger than the original baseline)
+with the single-worker run and with the original's goldens.
+
+## Worker slots and the write contract (stronger than the original baseline)
+
+One call creates one private scratch root and a pool of worker slots
+`worker-0…worker-N` inside it. Every slot is reused by every mutant of every
+target file in that call, and every command still runs in a fresh overlay over
+the same slot path: the previous command's layers are removed before the next
+one. A mutant's writes therefore reach neither the project nor the next mutant,
+while `MUTATOR_VIEW` names the same few slots for the whole call. The pool and
+its root are removed when the call ends.
 
 Coverage commands, the baseline test command and every mutant run in a separate
 child user+mount+PID namespace. Within the child, `mount --make-rprivate /`
@@ -72,7 +85,7 @@ failure on stderr instead of ignoring it. Each command's shell is the PID
 namespace's first process (`unshare --pid --fork --kill-child`), so when it
 exits every remaining descendant dies with the namespace, including a `setsid`
 escape; the unshare parent also takes SIGKILL when `uml-viewer` dies. Tests can
-read `MUTATOR_VIEW` (the scratch path inside the child) to observe these
+read `MUTATOR_VIEW` (the worker slot's path inside the child) to observe these
 properties.
 
 Commands run with `HOME`, `XDG_CACHE_HOME` and `TMPDIR` inside the view's own
@@ -99,7 +112,33 @@ coverage tools or components. Timeouts and command exit status select outcomes;
 snapshot publication is atomic and the normal clock records local ISO/RFC3339
 wall time with seconds and a `+HH:MM` offset.
 
+## Interrupt, kill and abandoned scratch
+
+`SIGINT` and `SIGTERM` stop a run instead of killing the process mid-cleanup.
+The handler only records the signal; the command poll loop kills that command's
+process group, the worker loop stops taking sites, and the run removes every
+scratch root it owns before reporting
+`Interrupted by SIGTERM; unfinished files keep their previous snapshots.` and
+exiting `128 + signal`. Files that finished keep their new snapshots; the
+unfinished file publishes nothing.
+
+`SIGKILL` cannot be handled. It still leaves nothing running or mounted: each
+child is the first process of its own PID namespace and takes `SIGKILL` when
+`uml-viewer` dies (`PR_SET_PDEATHSIG`), so its overlay vanishes with the
+namespace. The scratch root survives. The next call reclaims it: the owner
+writes a `0600` owner file and holds its `flock` for the process's lifetime, so
+a root whose lock can be taken belongs to a process that no longer exists, and
+`mutate` sweeps it before it starts. A live concurrent run's root keeps its
+lock and is never touched. Only this user's `mutator-*` directories directly
+under `TMPDIR` are considered, links are never followed, and the removal
+reports a failure instead of ignoring it.
+
 ## Selection, differential reuse and recovery
+
+`--mutate-all` is a decision, never a wider selection: it executes every
+covered site of the files named on the command line (or the changed set), and
+no other file gains a snapshot. Source roots, positional filters and
+`--exclude` narrow the selection exactly as they do without it.
 
 `--changed` follows the original and uses the shared changed selection
 (`Scope::select_changed`): source roots narrow the selection only when `-s` is
@@ -150,6 +189,14 @@ normal `uml-viewer mutate` uses the real local clock, not timestamp replay.
   default Rust coverage runs again in the overlay instead. No coverage or build
   output reaches the original project either way.
 - A source that is not UTF-8 aborts the run with exit 2 instead of being skipped.
+- The original's Rust worker slots also keep a Cargo target directory per slot
+  across files and runs (`WorkerSlots`). This port reuses the slot but not its
+  build output: every command builds in the overlay's own
+  `target/mutator-build`, exactly as the single-worker port did. Snapshot bytes
+  are unaffected; only build time is.
+- `--paranoid-workers` is accepted and ignored. One pristine run per command
+  and working directory is the pool's baseline, and every worker's view is
+  built the same way, so a per-worker check would repeat the same run.
 - Only `HOME`, `XDG_CACHE_HOME` and `TMPDIR` are redirected; the Windows-only
   profile and app-data variables of the original's copy isolation have no Linux
   counterpart here.
@@ -160,9 +207,11 @@ normal `uml-viewer mutate` uses the real local clock, not timestamp replay.
   LCOV reports the shared path finds, and a spec index needed by
   `--select-specs` is recollected in a fresh view. Persisting it would write
   into the project, which this build never does.
-- With one worker, the original's per-worker pristine check is the same run as
-  the cached baseline, so an already-run plan is not repeated; the selected-spec
-  union subset still gets its own pristine run before any mutant.
+- Pristine runs (the baseline, each selected-spec subset and their union) run
+  in the pool's first slot and are cached per command and directory, instead of
+  the original's per-worker pristine checks; a subset that fails its pristine
+  run falls back to the full suite, and survivors are confirmed on it.
 - `MUTATOR_LUA_NO_PIN=1` opts out of the LuaRocks search-path pinning as in the
-  original; the original's `lua_support.lua`/fasttrace worker machinery and its
-  2 GiB Lua address-space cap are not ported here (there are no workers yet).
+  original; the original's `lua_support.lua`/fasttrace machinery and its 2 GiB
+  Lua address-space cap are not ported here. Lua mutants use the same worker
+  slots as Rust ones, with the covering specs first or the selected subset.

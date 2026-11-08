@@ -1,9 +1,11 @@
 use crate::{
     cli::Options,
-    isolation::View,
+    interrupts,
+    isolation::{Failure, View},
     lua::{self, Index},
     metrics::{self, Decision},
     sites::{self, Form, Site},
+    workers::{self, Workers},
 };
 use quality_core::{
     coverage::{Records, parse_lcov},
@@ -137,79 +139,27 @@ fn lua_module(root: &Path, source: &Path) -> PathBuf {
 }
 
 fn execute(
+    view: &View,
     root: &Path,
     cwd: &Path,
     command: &Command,
     site: Option<(&Path, &str)>,
     timeout: Option<Duration>,
-) -> Result<(i32, Duration), String> {
-    let view = View::new(root).map_err(|error| error.to_string())?;
+) -> Result<(i32, Duration), Failure> {
     let run = match command {
         Command::Shell(text) => view.run(root, cwd, text, site, timeout),
         Command::Argv(argv) => view.run_argv(root, cwd, argv, site, timeout),
     };
-    let result =
-        run.map_err(|error| format!("Cannot enter user+mount namespace overlay: {error}"))?;
+    let result = run.map_err(|failure| match failure {
+        Failure::Interrupted => Failure::Interrupted,
+        Failure::Message(error) => Failure::Message(format!(
+            "Cannot enter user+mount namespace overlay: {error}"
+        )),
+    })?;
     if !result.output.is_empty() {
         eprint!("{}", result.output);
     }
     Ok((result.code, result.elapsed))
-}
-
-/// A pristine run of one plan: the build first where the plan needs one, then
-/// the test command. The original caches this per (command, directory).
-fn pristine(
-    root: &Path,
-    command: &Command,
-    cwd: &Path,
-    build: Option<&Command>,
-    timeout: Option<Duration>,
-) -> Result<f64, String> {
-    let started = std::time::Instant::now();
-    if let Some(build) = build {
-        let (code, _) = execute(root, cwd, build, None, None)?;
-        if code != 0 {
-            return Err(format!("build command exited {code}"));
-        }
-    }
-    let (code, _) = execute(root, cwd, command, None, timeout)?;
-    if code != 0 {
-        return Err(format!("exit {code}"));
-    }
-    Ok(started.elapsed().as_secs_f64())
-}
-
-/// Pristine test runs, cached per command and directory like the original's
-/// shared baseline map: one key per distinct plan, failures included.
-#[derive(Default)]
-struct Baselines {
-    entries: BTreeMap<(Command, PathBuf), Result<f64, String>>,
-}
-impl Baselines {
-    fn seed(&mut self, command: &Command, cwd: &Path, seconds: f64) {
-        self.entries
-            .entry((command.clone(), cwd.to_path_buf()))
-            .or_insert(Ok(seconds));
-    }
-    fn remember(
-        &mut self,
-        root: &Path,
-        command: &Command,
-        cwd: &Path,
-        build: Option<&Command>,
-        timeout: Option<Duration>,
-        timings: &mut Timings,
-    ) -> Result<f64, String> {
-        let key = (command.clone(), cwd.to_path_buf());
-        if let Some(found) = self.entries.get(&key) {
-            return found.clone();
-        }
-        let started = std::time::Instant::now();
-        let entry = pristine(root, command, cwd, build, timeout);
-        timings.add("baseline", started.elapsed());
-        self.entries.insert(key, entry.clone());
-        entry
-    }
 }
 
 fn quote(path: &Path) -> String {
@@ -351,12 +301,16 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
             eprintln!("{error}");
             2
         })?;
-        let result = view
-            .run(root, &cwd, &command, None, None)
-            .map_err(|error| {
-                eprintln!("Isolation unavailable: {error}");
-                1
-            })?;
+        let result =
+            view.run(root, &cwd, &command, None, None)
+                .map_err(|failure| match failure {
+                    // The interrupt path reports and cleans up; no exit here.
+                    Failure::Interrupted => 2,
+                    Failure::Message(error) => {
+                        eprintln!("Isolation unavailable: {error}");
+                        1
+                    }
+                })?;
         eprint!("{}", result.output);
         if result.code != 0 {
             eprintln!("Coverage command exited {}.", result.code);
@@ -581,47 +535,37 @@ fn failure(item: &Prepared, command: &Command, tail: &str) -> i32 {
     2
 }
 
-/// The run-wide pieces a plan needs: the root, the timeout factor and the
-/// shared pristine-run cache.
-struct Context<'a> {
-    root: &'a Path,
-    factor: f64,
-    baselines: &'a mut Baselines,
-    timings: &'a mut Timings,
-}
-
 /// `--select-specs`: run only the specs that cover a mutant, and fall back to
 /// the full suite when an attribution is missing or its subset does not pass.
+/// `pristine` runs a subset's pristine check and reports its seconds.
 fn lua_plans(
     item: &Prepared,
     index: &Index,
     selected: &[Site],
     command: &Command,
     timeout: f64,
-    context: &mut Context<'_>,
+    factor: f64,
+    pristine: &mut dyn FnMut(&Command) -> Result<f64, String>,
 ) -> (BTreeMap<String, (Command, f64)>, Command, f64) {
     let mut plans = BTreeMap::new();
     let mut subsets: BTreeMap<Vec<String>, Option<(Command, f64)>> = BTreeMap::new();
+    let mut passed: BTreeMap<Vec<String>, f64> = BTreeMap::new();
     let mut union: BTreeSet<String> = BTreeSet::new();
     let mut full_suite = false;
     for site in selected {
         let specs = index.select(&item.file, site.line).unwrap_or_default();
         if !specs.is_empty() && !subsets.contains_key(&specs) {
             let selected_command = command.extend(&specs);
-            let entry = match context.baselines.remember(
-                context.root,
-                &selected_command,
-                &index.directory,
-                None,
-                None,
-                context.timings,
-            ) {
-                Ok(seconds) => Some((
-                    selected_command,
-                    (index.seconds_for(&specs) * context.factor)
-                        .max(seconds * context.factor)
-                        .max(2.0),
-                )),
+            let entry = match pristine(&selected_command) {
+                Ok(seconds) => {
+                    passed.insert(specs.clone(), seconds);
+                    Some((
+                        selected_command,
+                        (index.seconds_for(&specs) * factor)
+                            .max(seconds * factor)
+                            .max(2.0),
+                    ))
+                }
                 Err(_) => None,
             };
             subsets.insert(specs.clone(), entry);
@@ -641,20 +585,8 @@ fn lua_plans(
         return (plans, Command::Argv(index.command.clone()), timeout);
     }
     let specs: Vec<String> = union.into_iter().collect();
-    let passed: f64 = subsets
-        .values()
-        .flatten()
-        .map(|(command, _)| {
-            context
-                .baselines
-                .entries
-                .get(&(command.clone(), index.directory.clone()))
-                .and_then(|entry| entry.as_ref().ok().copied())
-                .unwrap_or_default()
-        })
-        .sum();
-    let check_timeout = (index.seconds_for(&specs) * context.factor)
-        .max(passed * context.factor)
+    let check_timeout = (index.seconds_for(&specs) * factor)
+        .max(passed.values().sum::<f64>() * factor)
         .max(2.0);
     (plans, command.extend(&specs), check_timeout)
 }
@@ -729,9 +661,34 @@ pub fn mutate(
         println!("No mutations selected; keeping the previous snapshots.");
         return 0;
     }
-    let mut baselines = Baselines::default();
+    let mut baselines: BTreeMap<(Command, PathBuf), Result<(i32, Duration), Failure>> =
+        BTreeMap::new();
     let mut status = 0;
     let mut survived_any = false;
+    // One pool for the whole call: its slots are the workers every target
+    // file's mutants reuse, and dropping it removes them.
+    let selected_counts: Vec<usize> = prepared
+        .iter()
+        .map(|item| {
+            item.decisions
+                .values()
+                .filter(|decision| decision.action == "executed")
+                .count()
+        })
+        .collect();
+    let limit = workers::worker_count(usize::MAX, options.max_workers);
+    let pool_size = limit.min(selected_counts.iter().copied().max().unwrap_or(0));
+    let pool = if pool_size == 0 {
+        None
+    } else {
+        match Workers::new(root, pool_size) {
+            Ok(pool) => Some(pool),
+            Err(error) => {
+                eprintln!("{error}");
+                return 2;
+            }
+        }
+    };
     for mut item in prepared {
         let (command, cwd) = plan(root, options, &item.file);
         let selected: Vec<Site> = item
@@ -745,6 +702,10 @@ pub fn mutate(
             .cloned()
             .collect();
         if !selected.is_empty() {
+            if interrupts::pending().is_some() {
+                return 2;
+            }
+            let workers = pool.as_ref().expect("a selected site needs a worker");
             // `language == "lua" and not test_command`: the generated Busted
             // command, with or without a coverage index.
             let standard_lua = language_of(&item.file) == Some(Language::Lua)
@@ -755,13 +716,57 @@ pub fn mutate(
                 if index.fresh {
                     // The fresh coverage run already proved the pristine suite
                     // passes; its duration is the timeout base (ADR 0001).
-                    baselines.seed(&command, &index.directory, index.seconds);
+                    baselines
+                        .entry((command.clone(), index.directory.clone()))
+                        .or_insert(Ok((0, Duration::from_secs_f64(index.seconds))));
                 }
             }
-            let build = (!standard_lua && options.value("--test-command").is_none())
-                .then(|| Command::Shell("cargo test --no-run".into()));
-            let baseline = baselines.remember(root, &command, &cwd, build.as_ref(), None, timings);
-            let seconds = match baseline {
+            let run_cwd = if standard_lua {
+                item.index
+                    .as_ref()
+                    .map_or_else(|| cwd.clone(), |index| index.directory.clone())
+            } else {
+                cwd.clone()
+            };
+            // One pristine run per command and working directory, shared by
+            // every target file in this call.
+            let mut pristine = |command: &Command,
+                                build: bool,
+                                timeout: Option<Duration>|
+             -> Result<f64, String> {
+                let key = (command.clone(), run_cwd.clone());
+                if !baselines.contains_key(&key) {
+                    let started = std::time::Instant::now();
+                    let check = workers.view(0);
+                    let result = (|| {
+                        if build {
+                            let built = execute(
+                                &check,
+                                root,
+                                &run_cwd,
+                                &Command::Shell("cargo test --no-run".into()),
+                                None,
+                                None,
+                            )?;
+                            if built.0 != 0 {
+                                return Ok(built);
+                            }
+                        }
+                        execute(&check, root, &run_cwd, command, None, timeout)
+                    })();
+                    timings.add("baseline", started.elapsed());
+                    baselines.insert(key.clone(), result);
+                }
+                match baselines.get(&key) {
+                    Some(Ok((0, duration))) => Ok(duration.as_secs_f64()),
+                    Some(Ok((code, _))) => Err(format!("exit {code}")),
+                    Some(Err(Failure::Message(error))) => Err(error.clone()),
+                    Some(Err(Failure::Interrupted)) => Err("interrupted".into()),
+                    None => Err("no pristine run".into()),
+                }
+            };
+            let build = !standard_lua && options.value("--test-command").is_none();
+            let seconds = match pristine(&command, build, None) {
                 Ok(seconds) => seconds,
                 Err(tail) => return failure(&item, &command, &tail),
             };
@@ -782,12 +787,8 @@ pub fn mutate(
                         &selected,
                         &run_command,
                         timeout,
-                        &mut Context {
-                            root,
-                            factor: options.timeout_factor,
-                            baselines: &mut baselines,
-                            timings,
-                        },
+                        options.timeout_factor,
+                        &mut |plan: &Command| pristine(plan, false, None),
                     );
                     plans = Some(found);
                     check_command = check;
@@ -803,46 +804,45 @@ pub fn mutate(
                 }
             }
             // With one worker the pristine plan check is the cached baseline;
-            // the selected-specs union subset is the extra pristine run.
-            if let Err(tail) = baselines.remember(
-                root,
+            // the selected-specs union subset still gets its own pristine run
+            // before any mutant can earn a kill.
+            if let Err(tail) = pristine(
                 &check_command,
-                &cwd,
-                None,
+                false,
                 Some(Duration::from_secs_f64(check_timeout)),
-                timings,
             ) {
                 return failure(&item, &check_command, &tail);
             }
-            let mut outcomes = BTreeMap::new();
-            for site in &selected {
+            let count = workers::worker_count(selected.len(), options.max_workers);
+            let source = &item.source;
+            let file = &item.file;
+            let outcomes = workers.run_selected(count, &selected, |view, site| {
                 let (site_command, site_timeout) = plans
                     .as_ref()
                     .and_then(|plans| plans.get(&site.mutation_id))
                     .cloned()
                     .unwrap_or_else(|| (run_command.clone(), timeout));
-                let mutated = sites::apply_site(&item.source, site);
-                let result = execute(
+                let mutated = sites::apply_site(source, site);
+                execute(
+                    view,
                     root,
-                    &cwd,
+                    &run_cwd,
                     &site_command,
-                    Some((&item.file, &mutated)),
+                    Some((file, &mutated)),
                     Some(Duration::from_secs_f64(site_timeout)),
-                );
-                let code = match result {
-                    Ok((code, _)) => code,
-                    Err(error) => {
-                        eprintln!("{error}");
-                        return 2;
-                    }
-                };
-                outcomes.insert(
-                    site.mutation_id.clone(),
-                    if code == 0 { "survived" } else { "killed" }.to_string(),
-                );
-            }
+                )
+                .map(|(code, _)| code)
+            });
+            let mut outcomes = match outcomes {
+                Ok(outcomes) => outcomes,
+                Err(Failure::Interrupted) => return 2,
+                Err(Failure::Message(error)) => {
+                    eprintln!("{error}");
+                    return 2;
+                }
+            };
             if let Some((full, full_timeout)) = confirmation {
-                let survivors: Vec<Site> = selected
+                let survivors: Vec<&Site> = selected
                     .iter()
                     .filter(|site| {
                         outcomes.get(&site.mutation_id).map(String::as_str) == Some("survived")
@@ -851,31 +851,27 @@ pub fn mutate(
                                 .and_then(|plans| plans.get(&site.mutation_id))
                                 .is_none_or(|(command, _)| command != &full)
                     })
-                    .cloned()
                     .collect();
                 if !survivors.is_empty() {
-                    if let Err(tail) = baselines.remember(
-                        root,
-                        &full,
-                        &cwd,
-                        None,
-                        Some(Duration::from_secs_f64(full_timeout)),
-                        timings,
-                    ) {
+                    if let Err(tail) =
+                        pristine(&full, false, Some(Duration::from_secs_f64(full_timeout)))
+                    {
                         return failure(&item, &full, &tail);
                     }
                     for site in survivors {
-                        let mutated = sites::apply_site(&item.source, &site);
+                        let mutated = sites::apply_site(&item.source, site);
                         let result = execute(
+                            &workers.view(0),
                             root,
-                            &cwd,
+                            &run_cwd,
                             &full,
                             Some((&item.file, &mutated)),
                             Some(Duration::from_secs_f64(full_timeout)),
                         );
                         let code = match result {
                             Ok((code, _)) => code,
-                            Err(error) => {
+                            Err(Failure::Interrupted) => return 2,
+                            Err(Failure::Message(error)) => {
                                 eprintln!("{error}");
                                 return 2;
                             }
@@ -887,11 +883,11 @@ pub fn mutate(
                     }
                 }
             }
-            for (id, outcome) in outcomes {
+            for (mutation_id, outcome) in outcomes {
                 if outcome == "survived" {
                     survived_any = true;
                 }
-                item.outcomes.insert(id, outcome);
+                item.outcomes.insert(mutation_id, outcome);
             }
         }
         let changed = fs::read(&item.file).ok() != Some(item.raw)
@@ -948,12 +944,12 @@ pub fn mutate(
         let executed = item
             .decisions
             .values()
-            .filter(|decision| decision.action == "executed")
+            .filter(|d| d.action == "executed")
             .count();
         let reused = item
             .decisions
             .values()
-            .filter(|decision| decision.action == "reused")
+            .filter(|d| d.action == "reused")
             .count();
         println!("{}: executed={executed} reused={reused}", item.key);
     }

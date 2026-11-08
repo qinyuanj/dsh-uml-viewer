@@ -11,7 +11,19 @@ fn help_wins_over_unknown_options_and_usage_errors_fail() {
     assert_eq!(run(&["--unknown"]), ExitCode::from(1));
     assert_eq!(run(&["--root"]), ExitCode::from(1));
     assert_eq!(run(&["--max-workers", "0"]), ExitCode::from(1));
-    assert_eq!(run(&["--max-workers", "2"]), ExitCode::from(1));
+    assert_eq!(run(&["--max-workers", "many"]), ExitCode::from(1));
+    // Several workers are a valid request. Parsing it is enough here; an empty
+    // project proves that without running a command.
+    #[cfg(target_os = "linux")]
+    {
+        let empty = std::env::temp_dir().join(format!("mutator-cli-{}", std::process::id()));
+        std::fs::create_dir_all(&empty).unwrap();
+        assert_eq!(
+            run(&["--root", empty.to_str().unwrap(), "--max-workers", "2"]),
+            ExitCode::SUCCESS
+        );
+        std::fs::remove_dir(&empty).unwrap();
+    }
     assert_eq!(run(&["--root", "--help"]), ExitCode::SUCCESS);
     assert_eq!(run(&["--lines", "0"]), ExitCode::from(1));
     assert_eq!(run(&["--timeout-factor", "0"]), ExitCode::from(1));
