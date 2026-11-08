@@ -162,6 +162,46 @@ fn coverage_hit(records: &Records, root: &Path, file: &str, line: usize) -> bool
     }
     false
 }
+/// Python's `reused_run` contract: the file still owns sites, its form digests
+/// are exactly the recorded ones and no site was selected, treating every site
+/// as covered. Anything else takes the normal path so the snapshot is
+/// republished even when no test runs.
+fn reusable(root: &Path, item: &Prepared) -> bool {
+    let history = metrics::load_history(root, &item.key);
+    !item.sites.is_empty()
+        && metrics::unchanged(&item.forms, &history)
+        && item
+            .decisions
+            .values()
+            .all(|decision| decision.action != "executed")
+}
+
+fn backups_hold_files(directory: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() => backups_hold_files(&path),
+            _ => path.is_file(),
+        }
+    })
+}
+/// Refuse to run while an older mutator's backups are present. Mutants only
+/// touch overlay views, so such a backup can only come from a run that still
+/// mutated the project; it records no bytes that run last wrote, so nothing is
+/// written back and no test runs.
+pub fn check_backups(root: &Path) -> Result<(), String> {
+    let base = root.join("target").join("mutator-backup");
+    if base.is_dir() && backups_hold_files(&base) {
+        return Err(format!(
+            "Found backups from an older mutator under {}. Stopping before any test runs; the sources and backups were left untouched. Compare them, then remove the directory.",
+            base.display()
+        ));
+    }
+    Ok(())
+}
 pub fn prepare(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Vec<Prepared>, i32> {
     let mut prepared = Vec::new();
     for file in files {
@@ -197,10 +237,7 @@ pub fn prepare(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Vec<
             covered,
         });
     }
-    if prepared
-        .iter()
-        .all(|item| item.decisions.values().all(|d| d.action != "executed"))
-    {
+    if prepared.iter().all(|item| reusable(root, item)) {
         return Ok(prepared);
     }
     let records = if options.flag("--no-coverage") {
@@ -290,13 +327,9 @@ pub fn mutate(
         }
         return 0;
     }
-    if prepared
-        .iter()
-        .all(|item| item.decisions.values().all(|d| d.action != "executed"))
-        && prepared
-            .iter()
-            .all(|item| !metrics::load_history(root, &item.key).forms.is_empty())
-    {
+    // Reuse the snapshots only when every file is unchanged in the sense of
+    // `reusable`; a new or rewritten form still needs its snapshot republished.
+    if prepared.iter().all(|item| reusable(root, item)) {
         println!("No mutations selected; keeping the previous snapshots.");
         return 0;
     }

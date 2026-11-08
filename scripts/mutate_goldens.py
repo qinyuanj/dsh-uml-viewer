@@ -29,6 +29,12 @@ EXPECTED = {
     "util.edn": (412, "31190035242fa75d52f3ee27f0c6f431189198236bc4a5174f2bcd6bd66fe8c8"),
 }
 TARGETS = ["util/src/lib.rs", "app/src/lib.rs", "app/src/more.rs"]
+# A zero-mutation function changes the form digests, so the file is not
+# reusable; the original republishes its snapshot without running a test.
+ZERO_SITE_FUNCTION = b"\npub fn no_sites() {}\n"
+ZERO_SITE_COMMAND = "grep -q 'x + x' app/src/lib.rs"
+ZERO_SITE_GOLDEN = "app-no-sites.edn"
+EXPECTED_ZERO_SITE = (601, "49a18a35b755671f972712523d78187064c2924b3121273f920c0df458ac5433")
 
 
 def git(ref: Path, *args: str) -> str:
@@ -103,6 +109,32 @@ def main() -> None:
             assert len(data) == size and hashlib.sha256(data).hexdigest() == digest, name
             assert b"\r" not in data and data.endswith(b"\n")
         assert all((parent / name).read_bytes() == data for name, data in before.items())
+        # The differential guard: a function with no mutation sites still makes
+        # the file unreusable, so the snapshot is republished with the new form
+        # set and the carried outcomes instead of being kept.
+        zero = scratch / "zero-site"
+        shutil.copytree(parent, zero)
+        zero_root = zero / "project"
+        zero_source = zero_root / "app/src/lib.rs"
+        zero_source.write_bytes(zero_source.read_bytes() + ZERO_SITE_FUNCTION)
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            result = run(["--root", str(zero_root), "--no-coverage", "--max-workers", "1",
+                          "--test-command", ZERO_SITE_COMMAND, "app/src/lib.rs"])
+        print(stdout.getvalue(), end="")
+        print(stderr.getvalue(), end="", file=sys.stderr)
+        assert result == 0, result
+        zero_data = (zero_root / ".metrics/mutate/app.edn").read_bytes()
+        assert zero_data != snapshots["app.edn"], "zero-site rerun kept stale bytes"
+        assert b'defn/no_sites' in zero_data and b":killed 1" in zero_data
+        for name in ("app/more.edn", "util.edn"):
+            assert (zero_root / ".metrics/mutate" / name).read_bytes() == snapshots[name], name
+        assert all((zero / name).read_bytes() == data
+                   for name, data in before.items() if name.parts[0] == "project"
+                   and name.as_posix() != "project/app/src/lib.rs")
+        size, digest = EXPECTED_ZERO_SITE
+        assert len(zero_data) == size and hashlib.sha256(zero_data).hexdigest() == digest, (
+            len(zero_data), hashlib.sha256(zero_data).hexdigest())
         assert set(FILES) == {p.relative_to("project").as_posix()
                               for p in before if p.parts[0] == "project"}
         for name, revision in PINS.items():
@@ -121,6 +153,7 @@ def main() -> None:
             destination = output / "goldens" / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(data)
+        (output / "goldens" / ZERO_SITE_GOLDEN).write_bytes(zero_data)
         evidence = {
             "references": PINS,
             "clock": "2026-11-07T12:00:00+00:00",
@@ -129,6 +162,17 @@ def main() -> None:
             "arguments": ["--root", "<native-/tmp-parent>/project", "--max-workers", "1", "--timeout-factor", "20", *TARGETS],
             "first_run": {"prepend": ["--mutate-all"], "exit": 0, "killed": 3, "survived": 0, "uncovered": 0},
             "unchanged_rerun": {"exit": 0, "executed": 0, "reused": 3, "identical_snapshot_bytes": True},
+            "differential_zero_site_rerun": {
+                "function_added": ZERO_SITE_FUNCTION.decode(),
+                "command": ZERO_SITE_COMMAND,
+                "exit": 0,
+                "executed": 0,
+                "reused": 1,
+                "identical_snapshot_bytes": False,
+                "snapshot": ZERO_SITE_GOLDEN,
+                "bytes": len(zero_data),
+                "sha256": hashlib.sha256(zero_data).hexdigest(),
+            },
             "original_tests": {"passed": 4, "files": ["test_snapshot_bytes.py", "test_rust_slots_cargo.py"]},
             "original_manifest_source_test_bytes_unchanged": True,
             "reference_worktrees_clean": True,

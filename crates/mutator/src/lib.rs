@@ -37,8 +37,21 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode
     }
     let root = options.scope.project_root();
     let mut files = if options.flag("--changed") {
+        // Source roots narrow the changed selection only when they are given;
+        // the positional text filters and exclusions always apply afterwards.
+        let changed = quality_core::select::changed_files(&root);
         let roots = options.scope.roots();
-        quality_core::select::under_roots(quality_core::select::changed_files(&root), &roots)
+        let narrowed = if roots.is_empty() {
+            changed
+        } else {
+            quality_core::select::under_roots(changed, &roots)
+        };
+        let filters = options.scope.named(&options.positionals).filters;
+        quality_core::select::exclude_files(
+            quality_core::select::apply_filters(narrowed, &filters),
+            &root,
+            &options.scope.exclusions,
+        )
     } else {
         options
             .scope
@@ -63,6 +76,12 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode
     if files.is_empty() {
         eprintln!("No source files to mutate.");
         return ExitCode::SUCCESS;
+    }
+    if !options.flag("--scan")
+        && let Err(error) = engine::check_backups(&root)
+    {
+        eprintln!("{error}");
+        return ExitCode::from(2);
     }
     let prepared = match engine::prepare(&root, &options, &files) {
         Ok(value) => value,

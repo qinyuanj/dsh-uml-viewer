@@ -164,6 +164,33 @@ pub fn load_history(root: &Path, file_key: &str) -> History {
     history
 }
 
+/// The current form digests, keyed by namespace and form id.
+pub fn digests(forms: &[Form]) -> BTreeMap<(String, String), String> {
+    forms
+        .iter()
+        .map(|form| {
+            (
+                (form.namespace.clone(), form.id.clone()),
+                form.digest.clone(),
+            )
+        })
+        .collect()
+}
+
+/// Whether the history records exactly the current form set and its digests.
+/// A form added or rewritten since the snapshot makes the file unreusable,
+/// even when it owns no mutation site of its own.
+pub fn unchanged(forms: &[Form], history: &History) -> bool {
+    let current = digests(forms);
+    current.len() == history.forms.len()
+        && current.iter().all(|(key, digest)| {
+            history
+                .forms
+                .get(key)
+                .is_some_and(|prior| prior.digest == *digest)
+        })
+}
+
 pub fn decide(
     sites: &[Site],
     covered: &BTreeMap<String, bool>,

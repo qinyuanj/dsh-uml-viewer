@@ -41,6 +41,17 @@ the observed `:namespace-view` bytes.
 | `app.edn` | 406 | `919be95f1a4856e91619a060d4bfc062554cc5aee45447444248ea13d47cc095` |
 | `app/more.edn` | 419 | `713568c32383e59f2f0b7569903cd570aa353984562b1cd4f4403f0fe5e7575e` |
 | `util.edn` | 412 | `31190035242fa75d52f3ee27f0c6f431189198236bc4a5174f2bcd6bd66fe8c8` |
+| `app-no-sites.edn` | 601 | `49a18a35b755671f972712523d78187064c2924b3121273f920c0df458ac5433` |
+
+`app-no-sites.edn` is the differential guard oracle. After the covered run and
+the unchanged rerun, the regeneration script copies the oracle tree, appends
+`\npub fn no_sites() {}\n` to `app/src/lib.rs` and reruns the CLI on that file
+without `--mutate-all`, using `--no-coverage --test-command
+"grep -q 'x + x' app/src/lib.rs"`. The added function owns no mutation site, but
+the function digests differ, so the original does not reuse the snapshot: it
+exits 0, runs no test, republishes `app.edn` with both forms and the carried
+`:killed` outcome, and leaves the other two snapshots byte-identical. The Rust
+integration test performs the same edit and compares the republished bytes.
 
 `help.txt` contains the original CLI `HELP` string as UTF-8 bytes, starting
 with `Usage:` and retaining its final LF. It is suitable for Rust `include_str!`

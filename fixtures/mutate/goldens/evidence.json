@@ -36,6 +36,17 @@
     "reused": 3,
     "identical_snapshot_bytes": true
   },
+  "differential_zero_site_rerun": {
+    "function_added": "\npub fn no_sites() {}\n",
+    "command": "grep -q 'x + x' app/src/lib.rs",
+    "exit": 0,
+    "executed": 0,
+    "reused": 1,
+    "identical_snapshot_bytes": false,
+    "snapshot": "app-no-sites.edn",
+    "bytes": 601,
+    "sha256": "49a18a35b755671f972712523d78187064c2924b3121273f920c0df458ac5433"
+  },
   "original_tests": {
     "passed": 4,
     "files": [

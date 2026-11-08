@@ -33,6 +33,24 @@ coverage tools or components. Timeouts and command exit status select outcomes;
 snapshot publication is atomic and the normal clock records local ISO/RFC3339
 wall time with seconds and a `+HH:MM` offset.
 
+## Selection, differential reuse and recovery
+
+`--changed` follows the original: source roots narrow the selection only when
+`-s` is given, and the positional text filters and `--exclude` patterns apply
+afterwards, like every other selection.
+
+The differential fast path ("No mutations selected; keeping the previous
+snapshots.") mirrors the original `reused_run` guard per file: the file must
+still own mutation sites, every current function digest must equal the recorded
+one, and no site may be selected while every site is treated as covered. A
+function added or rewritten with no mutation sites of its own is therefore not
+reusable: the run takes the normal path and republishes that file's snapshot,
+carrying the prior outcomes, without executing a test.
+
+Before any test, the non-`--scan` path refuses to run with exit 2 while
+`target/mutator-backup` holds files, as the original does; nothing is written
+back and an empty backup directory is not a refusal.
+
 ## Byte oracle
 
 `fixtures/mutate` and `scripts/mutate_goldens.py` are development-only inputs.
