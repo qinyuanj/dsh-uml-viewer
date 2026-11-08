@@ -21,7 +21,8 @@ is the view's EDN extras (`{:declutter :triangles}`, `{:proposal true
 :proposal-id :p-1}`, `{:open-layer :x}`); a hit is the EDN map hit testing
 yields (`{:kind :class :id :ir.graph}`, `{:kind :edge :from :a :to :b
 :deps [...]}`). Without `--frame` the `scene` subcommand writes the geometry
-EDN as before.
+EDN as before. The resident mode (`uml-viewer resident`) streams the same
+frames, one per line, in reply to actions: [resident-protocol.md](resident-protocol.md).
 
 The goldens in `crates/frame/tests/fixtures/frames/*.frame.json` are the
 contract, locked byte for byte by `crates/frame/tests/golden_frame.rs`.

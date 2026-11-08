@@ -83,8 +83,9 @@ exports the public contracts. Later additions belong in separate modules:
 - `panel.ts`: visible panel requests, discussion context and view state shared
   by host/client. FIFO remains DSH's `session.prompt` queue (#21 onward).
 - `resident.ts`: validation and codecs for #17's line-delimited JSON protocol,
-  schema `dsh-uml-viewer/resident`. Rust owns its wire fields; consume the
-  protocol documentation and golden messages from #17 rather than guessing.
+  schema `dsh-uml-viewer/resident`. Rust owns its wire fields; consume
+  `docs/resident-protocol.md` and `crates/uml-viewer/tests/resident.rs` from
+  the integrated #17 rather than guessing.
 - `scene-frame.ts`: validate the Rust-owned wire format documented in
   `docs/scene-frame.md`, tested against `crates/frame/tests/fixtures/frames`.
   Do not invent a second scene model. Additive fields/kinds are compatible;

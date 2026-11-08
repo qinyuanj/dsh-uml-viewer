@@ -1,16 +1,15 @@
 //! The production companion link (#142, #161): the viewer side of the
-//! companion worker (start, poll, stop, `wake` with the delivery id), and the
-//! boundary `:display` mail loads diagrams through. The viewer session owns
-//! the `to-viewer.edn` queue; a wake failure never loses mail (contract §5).
+//! companion worker (start, poll, stop, `wake` with the delivery id). The
+//! window's session owns the `to-viewer.edn` queue; a wake failure never
+//! loses mail (contract §5). `:display` loads through
+//! `viewer_session::display` (#17).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use companion::CodingAgent;
 use companion::worker::{self, Worker};
-use edn::Value;
-use scene::document::{self, MailBoundary, ViewState};
 
-use crate::viewer_session::{CompanionLink, LinkPoll, Stop};
+use crate::shell_session::{CompanionLink, LinkPoll, Stop};
 
 /// The real worker behind the session's companion link. A launch without
 /// `--backend`, or whose helper did not start, has no worker: mail is still
@@ -110,127 +109,9 @@ impl CompanionLink for Companion {
     }
 }
 
-/// Loads a `:display` path exactly as a fresh document load would: the
-/// metrics root is derived from the diagram (`metrics.root`), not from the
-/// project, so a diagram elsewhere still joins its own snapshots.
-pub struct DisplayBoundary {
-    root: PathBuf,
-}
-
-impl DisplayBoundary {
-    /// Relative `:display` paths resolve against the project `root`.
-    pub fn new(root: &Path) -> DisplayBoundary {
-        DisplayBoundary {
-            root: root.to_path_buf(),
-        }
-    }
-}
-
-impl MailBoundary for DisplayBoundary {
-    fn resolve(&self, path: &str, root: Option<&str>) -> String {
-        if path.starts_with('/') {
-            return path.to_owned();
-        }
-        let base = root
-            .map(str::to_owned)
-            .unwrap_or_else(|| self.root.to_string_lossy().into_owned());
-        format!("{base}/{path}")
-    }
-
-    fn canonical(&self, path: &str) -> String {
-        crate::project_files::canonical(Path::new(path))
-            .to_string_lossy()
-            .into_owned()
-    }
-
-    fn load(&self, path: &str) -> Option<ViewState> {
-        let text = std::fs::read_to_string(path).ok()?;
-        let doc = scene::ir::read_document(&text).ok()?;
-        let mtime = crate::watch::mtime(Path::new(path)).ok();
-        let base = crate::metrics::root(Path::new(path));
-        let (snapshots, stamp) = crate::metrics::snapshot(&base);
-        let mut state = document::new_state(
-            doc,
-            mtime.map(Value::String),
-            None,
-            Some(&crate::session::view_options()),
-            &snapshots,
-            Some(stamp),
-        );
-        state.path = Some(path.to_owned());
-        state.project_root = Some(self.root.to_string_lossy().into_owned());
-        Some(state)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use edn::record::get;
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    /// A fresh temporary directory per call: process id plus an in-process
-    /// counter, so parallel tests never share one.
-    fn scratch(label: &str) -> std::path::PathBuf {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!("{label} {} {n}", std::process::id()))
-    }
-
-    #[test]
-    fn a_display_path_resolves_against_the_project_root_unless_absolute() {
-        let directory = scratch("uml mail");
-        std::fs::create_dir_all(&directory).unwrap();
-        std::fs::write(directory.join("second.edn"), "{:title \"Second\"}").unwrap();
-        let boundary = DisplayBoundary::new(&directory);
-        let root = directory.to_string_lossy().into_owned();
-        assert_eq!(
-            format!("{root}/second.edn"),
-            boundary.resolve("second.edn", None)
-        );
-        assert_eq!("/abs/x.edn", boundary.resolve("/abs/x.edn", None));
-        // POSIX names: `\` is an ordinary character and `C:` no drive.
-        assert_eq!(
-            format!("{root}/odd\\name.edn"),
-            boundary.resolve("odd\\name.edn", None)
-        );
-        assert_eq!(
-            format!("{root}/C:/x.edn"),
-            boundary.resolve("C:/x.edn", None)
-        );
-        // A state's own project root wins when it names one.
-        assert_eq!(
-            "/other/second.edn",
-            boundary.resolve("second.edn", Some("/other"))
-        );
-        let loaded = boundary
-            .load(&boundary.resolve("second.edn", None))
-            .unwrap();
-        assert_eq!(
-            Some(&Value::String("Second".into())),
-            get(loaded.document.as_ref().unwrap(), "title")
-        );
-        assert_eq!(
-            Some(directory.to_string_lossy().into_owned()),
-            loaded.project_root
-        );
-        let _ = std::fs::remove_dir_all(directory);
-    }
-
-    #[test]
-    fn a_display_path_loads_under_the_launch_canonical_project_root() {
-        // The shell canonicalizes the project root once; on Windows a
-        // verbatim `\\?\C:\…` root would not accept the `/` join.
-        let directory = scratch("uml mail canonical");
-        std::fs::create_dir_all(&directory).unwrap();
-        std::fs::write(directory.join("second.edn"), "{:title \"Second\"}").unwrap();
-        let root = crate::project_files::canonical(&directory);
-        assert!(!root.to_string_lossy().starts_with(r"\\?\"), "{root:?}");
-        let boundary = DisplayBoundary::new(&root);
-        let loaded = boundary.load(&boundary.resolve("second.edn", None));
-        assert!(loaded.is_some(), "second.edn under {root:?}");
-        let _ = std::fs::remove_dir_all(directory);
-    }
 
     #[test]
     fn a_mail_only_link_wakes_stops_and_is_settled_without_a_helper() {
