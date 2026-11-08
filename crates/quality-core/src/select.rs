@@ -5,10 +5,27 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::language::{SKIP_DIRS, TEST_DIRS, is_source_file, language_of};
+use crate::language::{Language, SKIP_DIRS, TEST_DIRS, is_source_file, language_of};
 use crate::paths::{posix, relative_posix, resolve, shown, sorted_unique};
 
-fn walk(root: &Path, found: &mut Vec<PathBuf>) {
+/// Which paths a tool counts as source. crapper's table is the default;
+/// dryer adds `.cljd` (dryer `discover.py`), and the same walk, roots,
+/// exclusions, filters and changed-file narrowing serve both.
+#[derive(Clone, Copy)]
+pub struct Discovery {
+    pub language_of: fn(&Path) -> Option<Language>,
+    pub is_source: fn(&Path) -> bool,
+}
+
+impl Discovery {
+    /// crapper's and mutator's tables.
+    pub const CRAPPER: Discovery = Discovery {
+        language_of,
+        is_source: is_source_file,
+    };
+}
+
+fn walk(root: &Path, found: &mut Vec<PathBuf>, discovery: Discovery) {
     if root.is_file() {
         found.push(root.to_path_buf());
         return;
@@ -30,9 +47,9 @@ fn walk(root: &Path, found: &mut Vec<PathBuf>) {
         if is_dir {
             let skipped = SKIP_DIRS.iter().chain(TEST_DIRS).any(|dir| name == *dir);
             if !skipped && !kind.is_symlink() {
-                walk(&path, found);
+                walk(&path, found, discovery);
             }
-        } else if is_source_file(&path) {
+        } else if (discovery.is_source)(&path) {
             found.push(path);
         }
     }
@@ -41,9 +58,14 @@ fn walk(root: &Path, found: &mut Vec<PathBuf>) {
 /// Every source file under `roots` (a file root is itself), resolved,
 /// deduplicated and sorted by posix path.
 pub fn iter_source_files(roots: &[PathBuf]) -> Vec<PathBuf> {
+    iter_source_files_with(roots, Discovery::CRAPPER)
+}
+
+/// The same walk with another language table (dryer's `.cljd`).
+pub fn iter_source_files_with(roots: &[PathBuf], discovery: Discovery) -> Vec<PathBuf> {
     let mut found = Vec::new();
     for root in roots {
-        walk(root, &mut found);
+        walk(root, &mut found, discovery);
     }
     sorted_unique(found.iter().map(|path| resolve(path)).collect())
 }
@@ -271,11 +293,16 @@ impl Scope {
 
     /// The walk of the source roots, or of the project root without any.
     pub fn walk(&self) -> Vec<PathBuf> {
+        self.walk_with(Discovery::CRAPPER)
+    }
+
+    /// The same walk with another language table.
+    pub fn walk_with(&self, discovery: Discovery) -> Vec<PathBuf> {
         let roots = self.roots();
         if roots.is_empty() {
-            iter_source_files(&[self.project_root()])
+            iter_source_files_with(&[self.project_root()], discovery)
         } else {
-            iter_source_files(&roots)
+            iter_source_files_with(&roots, discovery)
         }
     }
 
@@ -284,12 +311,25 @@ impl Scope {
     /// language (named test files are kept). `notes` gets one line per
     /// file dropped.
     pub fn explicit_files(&self, paths: &[PathBuf], notes: &mut dyn Write) -> Vec<PathBuf> {
+        self.explicit_files_with(paths, notes, Discovery::CRAPPER)
+    }
+
+    /// Named paths under another language table.
+    pub fn explicit_files_with(
+        &self,
+        paths: &[PathBuf],
+        notes: &mut dyn Write,
+        discovery: Discovery,
+    ) -> Vec<PathBuf> {
         let root = self.project_root();
         let roots = self.roots();
         let mut files = Vec::new();
         for path in paths {
             if path.is_dir() {
-                files.extend(self.in_scope(iter_source_files(std::slice::from_ref(path)), &roots));
+                files.extend(self.in_scope(
+                    iter_source_files_with(std::slice::from_ref(path), discovery),
+                    &roots,
+                ));
             } else if self.in_scope(vec![path.clone()], &roots).is_empty() {
                 let _ = writeln!(
                     notes,
@@ -298,7 +338,7 @@ impl Scope {
                 );
             } else if excluded(path, &root, &self.exclusions) {
                 let _ = writeln!(notes, "Skipping excluded {}", shown(path, &root));
-            } else if language_of(path).is_some() {
+            } else if (discovery.language_of)(path).is_some() {
                 files.push(path.clone());
             }
         }
@@ -308,9 +348,19 @@ impl Scope {
     /// Git changes narrowed by source roots, text filters and exclusions.
     /// Existing positional paths do not replace the changed set.
     pub fn select_changed(&self, positionals: &[String], notes: &mut dyn Write) -> Vec<PathBuf> {
+        self.select_changed_with(positionals, notes, Discovery::CRAPPER)
+    }
+
+    /// Git changes under another language table (dryer's `.cljd`).
+    pub fn select_changed_with(
+        &self,
+        positionals: &[String],
+        notes: &mut dyn Write,
+        discovery: Discovery,
+    ) -> Vec<PathBuf> {
         let files = crate::changed::changed_files(&self.project_root(), notes)
             .into_iter()
-            .filter(|path| is_source_file(path))
+            .filter(|path| (discovery.is_source)(path))
             .collect();
         let selected = self.in_scope(files, &self.roots());
         let filtered = apply_filters(selected, &self.named(positionals).filters);
@@ -320,11 +370,21 @@ impl Scope {
     /// crapper's selection: named paths, or the walk; then text filters,
     /// then exclusions; sorted by posix path.
     pub fn select(&self, positionals: &[String], notes: &mut dyn Write) -> Vec<PathBuf> {
+        self.select_with(positionals, notes, Discovery::CRAPPER)
+    }
+
+    /// The same selection with another language table.
+    pub fn select_with(
+        &self,
+        positionals: &[String],
+        notes: &mut dyn Write,
+        discovery: Discovery,
+    ) -> Vec<PathBuf> {
         let named = self.named(positionals);
         let selected = if named.paths.is_empty() {
-            self.walk()
+            self.walk_with(discovery)
         } else {
-            self.explicit_files(&named.paths, notes)
+            self.explicit_files_with(&named.paths, notes, discovery)
         };
         let filtered = apply_filters(selected, &named.filters);
         let kept = exclude_files(filtered, &self.project_root(), &self.exclusions);

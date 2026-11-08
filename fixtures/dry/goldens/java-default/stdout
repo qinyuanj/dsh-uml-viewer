@@ -1,0 +1,7 @@
+DUPLICATE score=1.00
+  src/demo/Left.java:4-8
+  src/demo/Right.java:8-12
+
+DUPLICATE score=1.00
+  src/demo/Left.java:10-18
+  src/demo/Right.java:14-22

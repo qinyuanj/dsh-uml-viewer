@@ -1,0 +1,31 @@
+DUPLICATE score=1.00
+  src/ui/card.tsx:1-4
+  src/ui/widget.tsx:1-4
+
+DUPLICATE score=1.00
+  src/ui/left.ts:1-5
+  src/ui/right.ts:1-5
+
+DUPLICATE score=1.00
+  src/ui/left.ts:7-11
+  src/ui/right.ts:7-11
+
+DUPLICATE score=1.00
+  src/ui/left.ts:19-24
+  src/ui/right.ts:19-24
+
+DUPLICATE score=0.84
+  src/ui/left.ts:1-5
+  src/ui/left.ts:7-11
+
+DUPLICATE score=0.84
+  src/ui/left.ts:1-5
+  src/ui/right.ts:7-11
+
+DUPLICATE score=0.84
+  src/ui/left.ts:7-11
+  src/ui/right.ts:1-5
+
+DUPLICATE score=0.84
+  src/ui/right.ts:1-5
+  src/ui/right.ts:7-11

@@ -1,5 +1,7 @@
 use crate::scan::{Candidate, Span};
 use quality_core::snapshot::{decimal, string};
+use std::io;
+use std::path::{Path, PathBuf};
 
 pub(crate) fn text(candidates: &[Candidate]) -> String {
     if candidates.is_empty() {
@@ -46,4 +48,13 @@ pub(crate) fn edn(candidates: &[Candidate]) -> String {
         "{{:candidates [\n{}\n]}}\n",
         rows.collect::<Vec<_>>().join("\n")
     )
+}
+
+/// Write `.metrics/dry.edn` under `root` (`dryer.report.write_metrics`).
+/// Pinned dryer prints `root / ".metrics" / "dry.edn"`, so the path is built
+/// per component and every separator is the host's.
+pub(crate) fn write_metrics(candidates: &[Candidate], root: &Path) -> io::Result<PathBuf> {
+    let path = root.join(".metrics").join("dry.edn");
+    quality_core::atomic::write_bytes(&path, edn(candidates).as_bytes())?;
+    Ok(path)
 }

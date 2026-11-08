@@ -67,7 +67,7 @@ are also asserted without normalization in `crates/uml-viewer/tests/dry.rs`.
 There are no timing or shell-echo lines to discard. `--check` reruns every CLI invocation and compares these
 files and their presence byte for byte, without modifying provenance or outputs.
 
-Scenario syntax is `project rust` followed by zero or more `arg <literal argv
+Scenario syntax is `project <fixture directory>` followed by zero or more `arg <literal argv
 item>` lines. Empty/comment lines after the project line are ignored. The
 runner prepends `--root <temporary project>`; all other argv items come directly
 from the scenario file. Optional `git init`, `git add`, `commit <paths>`,
@@ -130,3 +130,69 @@ score `0.847826086957` while its text output displays `0.85`.
 
 The fixture is input for structural scanning; regeneration does not compile it,
 run its tests, fetch coverage, or write metrics into the repository project.
+
+## Languages (ticket 7)
+
+`dry` reads all seven languages. Each new fixture project is a small,
+self-contained tree whose *expected* output still comes only from the pinned
+Python dryer; nothing here is compiled or executed by the oracle.
+
+| Fixture project | What it exercises |
+| --- | --- |
+| `python/` | Module functions, methods and a nested `inner` (not a candidate); `tests/` and `*_test.py` are left out, an explicitly named test file is compared. |
+| `typescript/` | Function declarations, arrow functions assigned to a `variable_declarator`, class methods, a nested `inner` (skipped), an argument-position arrow (skipped), and the `.tsx` grammar. `--min-lines 3` makes the three-line methods pair where the default 4 drops them. |
+| `lua/` | Declarations, `local function`, functions assigned in an `assignment_statement`, a returned function (not an entry), and Lua-only operators (`#`). |
+| `lua_project/` | The original dryer's own fixture, copied verbatim from `tests/fixtures/lua_project` at b3f72ad. |
+| `go/` | Functions and methods with a body, a declaration without one (skipped), `*_test.go` left out. |
+| `java/` | Methods with a body, an abstract declaration (skipped), a local class inside a method (not descended into), and a `tests/` copy that must not be selected. |
+| `clojure/` | `defn` forms, `.cljd` sources, `(def … (fn …))` forms with nil names, reader conditionals (`:clj` wins), metadata and `#_` discards, sets/maps, and an unreadable tail that warns on stderr without dropping the earlier form. |
+| `multi/` | One pair per language, seven languages: at threshold 0.0 there are exactly seven candidates, so a cross-language pair would be visible. |
+
+`fixtures/dry/lua_project-original.edn` is the golden the Python repository
+itself committed (`tests/fixtures/lua_project.dry.edn`, sha256
+`efa1210199dbd629c76c23811b01a9af34ef23c3434f5a78008111a5fe9e8637`). The
+`lua-project` scenario reproduces it byte for byte, so the capture pipeline is
+checked against an independently published expectation and not only against
+its own output; `dry_languages.rs` also compares LF and CRLF copies of that
+fixture against the same golden.
+
+## Ported pytest cases
+
+| Original module (b3f72ad) | Ported to |
+| --- | --- |
+| `tests/test_clojure.py` | `crates/dryer/src/original/clojure.rs` (reader, normalization, reports, file-level duplicates) |
+| `tests/test_languages.py` | `crates/dryer/src/original/languages.rs` (pickers, normalization, scoring) |
+| `tests/test_names.py` | `crates/dryer/src/original/names.rs` (owner choice, crapper names, snapshot publication) |
+| `tests/test_cli.py` | discovery, language and argument cases in `crates/dryer/src/original/cli.rs`; process-level cases in `crates/uml-viewer/tests/dry_languages.rs`; the selection matrix shared with crapper in `crates/uml-viewer/tests/quality_selection.rs` |
+| `tests/test_platform.py` | #6: `crates/dryer/src/platform.rs`, `fixtures/dry/platform/cases.tsv`, `crates/uml-viewer/tests/dry.rs` |
+
+Not ported, with reasons:
+
+- `test_guardrails.py` polices the Python repository's own sources (which
+  modules may start a process, and CRLF in tracked fixtures). There is no
+  Python source tree left to police; the Rust equivalents are the workspace
+  `disallowed_methods` lint and `.gitattributes` (`fixtures/** text eol=lf`).
+- `test_crapper_link.py` covers the Python import fallback and its
+  `ImportError` text. The Rust dryer links quality-core at build time, so
+  there is no runtime lookup to fail.
+- `test_parse_reads_the_process_arguments` and `test_main_exits` monkeypatch
+  `sys.argv`/`sys.exit`; the Rust binary reads its process arguments and
+  returns an `ExitCode`, asserted by every CLI test.
+- `test_run_reports_a_missing_crapper_as_a_usage_error` and
+  `test_help_works_without_crapper` belong to the same import fallback.
+- In `test_lua_operators_count_only_in_lua` the original compares
+  `repr(normalize(...))`, whose `K` reprs are object addresses. The port
+  compares `pr(...)` — the printed form the fingerprints are built from — and
+  asserts the same distinction (Lua-only operators appear only for Lua).
+- `test_a_failed_write_keeps_the_previous_snapshot` is exercised on POSIX by
+  making `.metrics` read-only; Windows does not honour that bit, so the
+  refusal is not faked there. Publication failure and its exit are covered on
+  Windows by the report writer's error path.
+
+## Gates
+
+`dry_goldens::every_scenario_matches_the_pinned_python_dryer_byte_for_byte`
+asserts the exact scenario count (37) and that only `changed-empty`,
+`changed-scoped` and `empty-selection` print `No source files to analyze.`.
+Every other scenario must select real files and report the pairs the pinned
+original reported.
