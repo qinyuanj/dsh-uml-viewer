@@ -227,10 +227,20 @@ impl Resident {
         let dims = self.dims();
         match name {
             "open" => {
-                self.viewport(action)?;
+                // Validate both candidates before committing either: an
+                // invalid state/diagram must retain the current viewport,
+                // and an invalid viewport must retain the current session.
+                let (width, height) = self.viewport(action)?;
                 self.open(action)?;
+                self.width = width;
+                self.height = height;
             }
-            "viewport" => self.viewport(action)?,
+            "viewport" => {
+                let (width, height) = self.viewport(action)?;
+                self.session()?;
+                self.width = width;
+                self.height = height;
+            }
             "camera" => {
                 let camera = |key: &str| {
                     action
@@ -326,7 +336,8 @@ impl Resident {
             }
             "context" => {
                 let id = match action.get("proposalId") {
-                    None | Some(Json::Null) => None,
+                    None => return Err("context needs proposalId (an EDN id, or null)".into()),
+                    Some(Json::Null) => None,
                     Some(_) => Some(edn_field(action, "proposalId")?),
                 };
                 if let Some(id) = &id {
@@ -364,9 +375,9 @@ impl Resident {
         Ok(vec![self.frame(seq)])
     }
 
-    fn viewport(&mut self, action: &Json) -> Result<(), String> {
+    fn viewport(&self, action: &Json) -> Result<(f64, f64), String> {
         let Some(viewport) = action.get("viewport").filter(|v| !v.is_null()) else {
-            return Ok(());
+            return Ok((self.width, self.height));
         };
         let side = |key: &str| {
             viewport
@@ -375,10 +386,7 @@ impl Resident {
                 .filter(|n| n.is_finite() && *n > 0.0)
                 .ok_or_else(|| format!("viewport {key} must be a positive number"))
         };
-        let (width, height) = (side("width")?, side("height")?);
-        self.width = width;
-        self.height = height;
-        Ok(())
+        Ok((side("width")?, side("height")?))
     }
 
     /// Open the session: the named diagram, else the saved state's, else

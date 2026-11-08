@@ -366,6 +366,71 @@ fn an_edited_diagram_hot_reloads_into_an_unprompted_frame() {
 }
 
 #[test]
+fn a_failed_open_preserves_the_viewport_and_existing_session() {
+    let dir = project("failed open");
+    std::fs::write(dir.join("invalid.edn"), "{broken").unwrap();
+    std::fs::create_dir(dir.join("directory")).unwrap();
+    let mut resident = opened(&dir);
+    let before = resident.ask(2, json!({"action": "viewport"}), "frame");
+    let saved = resident.ask(3, json!({"action": "save"}), "state");
+    for (seq, fields) in [
+        (4, json!({"state": {"schema": "bad", "version": 1}})),
+        (5, json!({"diagram": "invalid.edn"})),
+        (6, json!({"diagram": 42})),
+        (30, json!({"diagram": "directory"})),
+        (
+            8,
+            json!({"state": {"schema": "dsh-uml-viewer/session-state", "version": 1,
+                            "context": {"edn": "{"}}}),
+        ),
+        (9, json!({"viewport": {"width": 0, "height": 222}})),
+        (
+            7,
+            json!({"state": {"schema": "dsh-uml-viewer/session-state", "version": 2}}),
+        ),
+    ] {
+        let mut action = fields;
+        action["action"] = json!("open");
+        if action.get("viewport").is_none() {
+            action["viewport"] = json!({"width": 333, "height": 222});
+        }
+        resident.ask(seq, action, "error");
+        let after = resident.ask(seq + 10, json!({"action": "viewport"}), "frame");
+        assert_eq!(
+            before["frame"], after["frame"],
+            "failed open keeps the rendered view"
+        );
+        let state = resident.ask(seq + 20, json!({"action": "save"}), "state");
+        assert_eq!(
+            saved["state"], state["state"],
+            "failed open keeps session state"
+        );
+    }
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn an_incomplete_context_action_keeps_the_proposal_discussion() {
+    let dir = project("incomplete context");
+    let mut resident = opened(&dir);
+    resident.ask(
+        2,
+        json!({"action": "context", "proposalId": ":p-shop"}),
+        "context",
+    );
+    let before = resident.expect("frame");
+    let saved = resident.ask(3, json!({"action": "save"}), "state");
+    resident.ask(4, json!({"action": "context"}), "error");
+    let after = resident.ask(5, json!({"action": "viewport"}), "frame");
+    assert_eq!(before["frame"], after["frame"]);
+    let state = resident.ask(6, json!({"action": "save"}), "state");
+    assert_eq!(saved["state"], state["state"]);
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn a_malformed_line_or_unknown_action_is_an_error_event_and_the_session_continues() {
     let dir = project("errors");
     let mut resident = opened(&dir);

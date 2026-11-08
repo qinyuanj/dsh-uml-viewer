@@ -173,7 +173,7 @@ impl Session {
         }
         let text = match std::fs::read_to_string(&self.diagram) {
             Ok(text) => text,
-            Err(_) => {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 self.state = ViewState {
                     path: Some(path.clone()),
                     project_root: Some(root),
@@ -183,6 +183,7 @@ impl Session {
                 self.hint = Some(strings::missing_file(&path));
                 return Ok(());
             }
+            Err(error) => return Err(format!("cannot read {path}: {error}")),
         };
         let doc = scene::ir::read_document(&text).map_err(|e| format!("{path}: {e}"))?;
         let mtime = watch::mtime(&self.diagram).ok();
