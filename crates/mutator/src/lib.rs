@@ -37,21 +37,11 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode
     }
     let root = options.scope.project_root();
     let mut files = if options.flag("--changed") {
-        // Source roots narrow the changed selection only when they are given;
-        // the positional text filters and exclusions always apply afterwards.
-        let changed = quality_core::select::changed_files(&root);
-        let roots = options.scope.roots();
-        let narrowed = if roots.is_empty() {
-            changed
-        } else {
-            quality_core::select::under_roots(changed, &roots)
-        };
-        let filters = options.scope.named(&options.positionals).filters;
-        quality_core::select::exclude_files(
-            quality_core::select::apply_filters(narrowed, &filters),
-            &root,
-            &options.scope.exclusions,
-        )
+        // The shared changed selection: source roots narrow it only when they
+        // are given, and the positional filters and exclusions always apply.
+        options
+            .scope
+            .select_changed(&options.positionals, &mut std::io::stderr())
     } else {
         options
             .scope

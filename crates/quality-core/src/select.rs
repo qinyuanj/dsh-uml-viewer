@@ -181,64 +181,6 @@ pub fn under_roots(files: Vec<PathBuf>, roots: &[PathBuf]) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Existing changed files under the project root, as git status reports them.
-pub fn changed_files(root: &Path) -> Vec<PathBuf> {
-    let root = resolve(root);
-    let Some(git) = crate::process::which("git") else {
-        return Vec::new();
-    };
-    let Ok(top) = crate::process::capture(
-        &crate::process::Program::Argv(&[
-            git.to_string_lossy().into_owned(),
-            "rev-parse".into(),
-            "--show-toplevel".into(),
-        ]),
-        &root,
-    ) else {
-        return Vec::new();
-    };
-    if !top.status.success() {
-        return Vec::new();
-    }
-    let top = resolve(Path::new(String::from_utf8_lossy(&top.stdout).trim()));
-    let Ok(output) = crate::process::capture(
-        &crate::process::Program::Argv(&[
-            git.to_string_lossy().into_owned(),
-            "status".into(),
-            "--porcelain".into(),
-            "-z".into(),
-            "--no-renames".into(),
-            "--untracked-files=all".into(),
-        ]),
-        &root,
-    ) else {
-        return Vec::new();
-    };
-    if !output.status.success() {
-        return Vec::new();
-    }
-    sorted_unique(
-        output
-            .stdout
-            .split(|byte| *byte == 0)
-            .filter(|entry| entry.len() >= 4)
-            .filter(|entry| {
-                let text = String::from_utf8_lossy(&entry[3..]);
-                let path = resolve(&top.join(text.as_ref()));
-                path.is_file()
-                    && path.starts_with(&root)
-                    && !path.parent().is_some_and(|parent| {
-                        parent.components().any(|part| {
-                            SKIP_DIRS.contains(&part.as_os_str().to_string_lossy().as_ref())
-                        })
-                    })
-                    && is_source_file(&path)
-            })
-            .map(|entry| resolve(&top.join(String::from_utf8_lossy(&entry[3..]).as_ref())))
-            .collect(),
-    )
-}
-
 /// A project's declared scope: its root, `-s` source roots and `--exclude`
 /// patterns, as given on the command line.
 #[derive(Clone, Debug, Default)]
@@ -361,6 +303,18 @@ impl Scope {
             }
         }
         files
+    }
+
+    /// Git changes narrowed by source roots, text filters and exclusions.
+    /// Existing positional paths do not replace the changed set.
+    pub fn select_changed(&self, positionals: &[String], notes: &mut dyn Write) -> Vec<PathBuf> {
+        let files = crate::changed::changed_files(&self.project_root(), notes)
+            .into_iter()
+            .filter(|path| is_source_file(path))
+            .collect();
+        let selected = self.in_scope(files, &self.roots());
+        let filtered = apply_filters(selected, &self.named(positionals).filters);
+        exclude_files(filtered, &self.project_root(), &self.exclusions)
     }
 
     /// crapper's selection: named paths, or the walk; then text filters,

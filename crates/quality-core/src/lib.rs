@@ -19,6 +19,7 @@
 pub use {chrono, edn, libc, serde_json, sha2, tree_sitter};
 
 pub mod atomic;
+pub mod changed;
 pub mod coverage;
 pub mod functions;
 pub mod grammar;
@@ -28,3 +29,4 @@ pub mod process;
 pub mod runner;
 pub mod select;
 pub mod snapshot;
+pub mod stamp;
