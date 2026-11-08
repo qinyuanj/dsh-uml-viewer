@@ -155,10 +155,18 @@ def main():
              'mutate': {'argv': ['w'], 'forwardArgs': 'append', 'validResultExitCodes': [0, 3]}}},
          {'src/a.rs': 'pub fn a() {}\n'}, 'dry', ()),
     ]
+    # The Python standard route needs an installed .uml-viewer/<tool>/.venv;
+    # this host has none, so that one case is recorded, not compared. The Rust
+    # side of it is pinned by an_operations_manifest_without_dry_keeps_the_standard_dryer.
+    environment_limited = {'operations missing dry is standard (python side needs an installed dryer venv)'}
     failures = 0
     for name, config, files, operation, args in cases:
         name, differences, r_record, p_record, p_argv, p_err = scenario(
             name, config, files, operation, args)
+        if name in environment_limited:
+            print(f'ENV-LIMITED (not compared): {name}')
+            print(f'   rust={r_record}')
+            continue
         status = 'AGREE' if not differences else 'DIFFER'
         if differences and not (
             differences == ['python published no record (refusal before the command ran)']
