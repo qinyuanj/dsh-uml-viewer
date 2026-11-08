@@ -166,21 +166,26 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Coverage {
     } else {
         format!(" --source={}", quality_core::process::shlex_quote(&source))
     };
+    // One command per branch, so the generated script never re-parses an
+    // argument list: no shell word splitting of a test command.
+    let run = format!(
+        "{py} -m coverage run --data-file={data}{source}",
+        data = quote(&data)
+    );
     let tests = if uses_pytest(package) {
         // Mutator never installs tools: without pytest the original's install
         // fallback becomes crapper's unittest fallback.
         format!(
-            "if {py} -c 'import pytest' >/dev/null 2>&1; then tests='-m pytest'; else echo 'pytest is missing in {}. Falling back to unittest.' >&2; tests='-m unittest discover -s .'; fi",
-            package.display()
+            "if {py} -c 'import pytest' >/dev/null 2>&1; then\n  {run} -m pytest\nelse\n  echo 'pytest is missing in {package}. Falling back to unittest.' >&2\n  {run} -m unittest discover -s .\nfi",
+            package = package.display(),
         )
     } else {
-        "tests='-m unittest discover -s .'".to_string()
+        format!("{run} -m unittest discover -s .")
     };
     let script = format!(
         "mkdir -p {directory}\nrm -f -- {report} {data}\n\
          if ! {py} -c 'import coverage' >/dev/null 2>&1; then echo 'coverage is missing in {package}; {interpreter} cannot import it. Python coverage will be N/A.' >&2; exit 0; fi\n\
-         {tests}\n\
-         {py} -m coverage run --data-file={data}{source} $tests\ncode=$?\n\
+         {tests}\ncode=$?\n\
          if [ ! -f {data} ]; then if [ \"$code\" != 0 ]; then echo \"Python coverage exited $code in {package}. Python coverage will be N/A.\" >&2; fi; exit 0; fi\n\
          if ! {py} -m coverage lcov --data-file={data} -o {report}; then echo 'coverage lcov failed in {package}. Python coverage will be N/A.' >&2; exit 0; fi\n\
          if [ \"$code\" != 0 ]; then echo \"Python tests exited $code in {package}. Coverage was still recorded.\" >&2; fi\n",
