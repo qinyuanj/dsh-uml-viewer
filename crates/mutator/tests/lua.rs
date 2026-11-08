@@ -396,7 +396,36 @@ mod linux {
 
     /// A private copy of the committed fixture: the project under test is
     /// never mutated, and nothing is written into this checkout.
-    fn project(name: &str) -> (PathBuf, PathBuf) {
+    /// A private fixture directory that removes itself, so a failing assertion
+    /// cannot leave scratch behind.
+    struct FixtureDirectory(PathBuf);
+
+    impl std::ops::Deref for FixtureDirectory {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for FixtureDirectory {
+        fn drop(&mut self) {
+            if !self.0.starts_with(std::env::temp_dir())
+                || !self
+                    .0
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("lua-mutate-"))
+            {
+                eprintln!("Not removing unexpected fixture path {}", self.0.display());
+                return;
+            }
+            if let Err(error) = std::fs::remove_dir_all(&self.0) {
+                eprintln!("Cannot remove fixture {}: {error}", self.0.display());
+            }
+        }
+    }
+
+    fn project(name: &str) -> (FixtureDirectory, PathBuf) {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let directory = std::env::temp_dir().join(format!(
             "lua-mutate-{name}-{}-{}",
@@ -404,7 +433,10 @@ mod linux {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         copy(&fixtures().join("project"), &directory.join("project"));
-        (directory.clone(), directory.join("project"))
+        (
+            FixtureDirectory(directory.clone()),
+            directory.join("project"),
+        )
     }
 
     fn remove(directory: &Path) {
