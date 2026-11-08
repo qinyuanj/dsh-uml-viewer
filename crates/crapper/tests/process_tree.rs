@@ -26,14 +26,33 @@ fn directory() -> PathBuf {
 #[test]
 fn posix_normal_exit_ends_process_group_and_inherited_pipes() {
     let root = directory();
-    let command = format!("sh -c 'echo $$ > leader.pid; sleep 120 & echo $! > descendant.pid; wait'");
+    let command = "sleep 120 & echo $! > descendant.pid; printf leader-output; printf leader-error >&2; exit 7";
     let start = std::time::Instant::now();
-    let output = capture(&Program::Shell(&command), &root).unwrap();
-    assert!(output.status.success());
+    let output = capture(&Program::Shell(command), &root).unwrap();
+    assert_eq!(Some(7), output.status.code());
+    assert_eq!(b"leader-output", output.stdout.as_slice());
+    assert_eq!(b"leader-error", output.stderr.as_slice());
     assert!(start.elapsed() < std::time::Duration::from_secs(5));
-    let pid: i32 = fs::read_to_string(root.join("descendant.pid")).unwrap().trim().parse().unwrap();
-    unsafe extern "C" { fn kill(pid: i32, signal: i32) -> i32; }
-    assert_ne!(unsafe { kill(pid, 0) }, 0, "descendant survived POSIX process-group cleanup");
+    let pid: i32 = fs::read_to_string(root.join("descendant.pid"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    unsafe extern "C" {
+        fn kill(pid: i32, signal: i32) -> i32;
+    }
+    let gone = unsafe { kill(pid, 0) } != 0;
+    // A reparented descendant can briefly remain a zombie until init reaps it.
+    let zombie = cfg!(target_os = "linux")
+        && fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {
+            stat.split(") ")
+                .nth(1)
+                .is_some_and(|state| state.starts_with('Z'))
+        });
+    assert!(
+        gone || zombie,
+        "descendant survived POSIX process-group cleanup"
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -147,7 +166,12 @@ fn explicit_extensionless_batch_path_uses_its_launcher() {
     let root = directory();
     fs::write(root.join("probe.cmd"), "@exit /b 0\r\n").unwrap();
     let argv = vec![root.join("probe").to_string_lossy().into_owned()];
-    assert!(capture(&Program::Argv(&argv), &root).unwrap().status.success());
+    assert!(
+        capture(&Program::Argv(&argv), &root)
+            .unwrap()
+            .status
+            .success()
+    );
     let _ = fs::remove_dir_all(root);
 }
 
