@@ -16,6 +16,8 @@ pub struct Options {
     pub lines: Option<BTreeSet<usize>>,
     pub timeout_factor: f64,
     pub mutation_warning: i64,
+    /// `--max-workers`: mutants to run at once; absent means every core.
+    pub max_workers: Option<usize>,
 }
 impl Options {
     pub fn flag(&self, name: &str) -> bool {
@@ -104,7 +106,6 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
         "--max-workers",
         "--lines",
     ];
-    let mut workers: Option<i64> = None;
     let mut index = 0;
     while index < args.len() {
         let arg = args[index].as_str();
@@ -121,10 +122,12 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
                 "-s" | "--source-root" => options.scope.source_roots.push(value.clone()),
                 "--exclude" => options.scope.exclusions.push(value.clone()),
                 "--max-workers" => {
-                    workers = python_int(value)
-                        .filter(|number| *number > 0)
-                        .map(Some)
-                        .ok_or("--max-workers requires a positive integer")?;
+                    options.max_workers = Some(
+                        python_int(value)
+                            .filter(|number| *number > 0)
+                            .ok_or("--max-workers requires a positive integer")?
+                            as usize,
+                    );
                 }
                 "--timeout-factor" => {
                     let factor = python_float(value)
@@ -180,11 +183,6 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
     }
     if let Some(error) = options.scope.exclusion_error() {
         return Err(error);
-    }
-    // The single-worker limit of this build is not a usage conflict, so the
-    // original's conflict messages above win.
-    if workers.is_some_and(|workers| workers != 1) {
-        return Err("this Linux mutation build supports --max-workers 1 only".into());
     }
     Ok(options)
 }

@@ -1,5 +1,6 @@
 #![cfg(target_os = "linux")]
 use std::{
+    collections::{BTreeMap, BTreeSet},
     ffi::OsString,
     fs,
     path::{Path, PathBuf},
@@ -7,6 +8,31 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 static NEXT: AtomicUsize = AtomicUsize::new(0);
+/// Every published snapshot under `.metrics/mutate`, by project-relative path.
+fn snapshot_bytes(root: &Path) -> BTreeMap<String, Vec<u8>> {
+    fn walk(base: &Path, directory: &Path, found: &mut BTreeMap<String, Vec<u8>>) {
+        let Ok(entries) = fs::read_dir(directory) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(base, &path, found);
+            } else if path.extension().is_some_and(|ext| ext == "edn") {
+                let key = path
+                    .strip_prefix(base)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+                found.insert(key, fs::read(&path).unwrap());
+            }
+        }
+    }
+    let base = root.join(".metrics/mutate");
+    let mut found = BTreeMap::new();
+    walk(&base, &base, &mut found);
+    found
+}
 struct Fixture {
     directory: PathBuf,
     project: PathBuf,
@@ -79,11 +105,14 @@ impl Fixture {
         git(&root, &["commit", "--quiet", "-m", "baseline"]);
     }
     fn run(&self, extra: &[&str]) -> ExitCode {
+        self.run_many(1, extra)
+    }
+    fn run_many(&self, workers: usize, extra: &[&str]) -> ExitCode {
         let mut args = vec![
             OsString::from("--root"),
             self.root().into_os_string(),
             OsString::from("--max-workers"),
-            OsString::from("1"),
+            OsString::from(workers.to_string()),
         ];
         args.extend(extra.iter().map(OsString::from));
         mutator::run_with_clock(&args, || "2026-11-07T12:00:00+00:00".to_string())
@@ -148,6 +177,99 @@ fn rust_snapshots_match_original_bytes_and_unchanged_differential_keeps_them() {
         !fixture.root().join("target").exists(),
         "all Cargo/test artifacts belong to overlays"
     );
+}
+
+/// Acceptance: with `--max-workers N` for N > 1 every published snapshot is
+/// byte-identical to the single-worker run with the same injected clock. The
+/// comparison covers every file the two runs published, not a sample.
+#[test]
+fn multiple_workers_publish_the_same_bytes_as_one_worker() {
+    let targets = [
+        "--mutate-all",
+        "--timeout-factor",
+        "20",
+        "util/src/lib.rs",
+        "app/src/lib.rs",
+        "app/src/more.rs",
+    ];
+    let single = Fixture::new();
+    assert_eq!(single.run(&targets), ExitCode::SUCCESS);
+    let parallel = Fixture::new();
+    assert_eq!(parallel.run_many(3, &targets), ExitCode::SUCCESS);
+    let expected = snapshot_bytes(&single.root());
+    assert_eq!(expected.len(), 3, "{}", single.root().display());
+    assert_eq!(snapshot_bytes(&parallel.root()), expected);
+    // Both runs are the pinned original's bytes, not merely each other's.
+    let golden = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/mutate/goldens");
+    for (file, bytes) in &expected {
+        assert_eq!(
+            *bytes,
+            fs::read(golden.join(file)).unwrap(),
+            "{file} differs from the original's bytes"
+        );
+    }
+}
+
+/// Ported from the original `test_concurrent_mutants_use_private_workers`:
+/// with two workers, two mutants of one file are alive at the same time.
+#[test]
+fn concurrent_mutants_run_in_parallel_worker_views() {
+    let fixture = Fixture::new();
+    // Two mutation sites and no numeric literal: `(x + x) + x`.
+    fs::write(
+        fixture.root().join("app/src/extra.rs"),
+        "pub fn extra(x: i64) -> i64 { x + x + x }\n",
+    )
+    .unwrap();
+    let barrier = fixture.scratch().join("barrier");
+    for round in ["r1", "r2"] {
+        fs::create_dir_all(barrier.join(round)).unwrap();
+    }
+    // Two rendezvous rounds. In round one each mutant waits for the other;
+    // only a run that really had both alive reaches round two, where they wait
+    // for each other again. A sequential run leaves the first round's mark
+    // behind, but never a round-two mark: the second mutant is killed waiting
+    // there. A stale mark therefore cannot make this pass by accident.
+    let command = format!(
+        "f={b}; \
+         if grep -q 'x - x + x' app/src/extra.rs; then n=inner; \
+         elif grep -q 'x + x - x' app/src/extra.rs; then n=outer; \
+         else exit 0; fi; \
+         wait_for() {{ i=0; \
+           while [ -z \"$(find \"$1\" -type f -not -name \"$n\" | head -1)\" ]; do \
+             i=$((i+1)); [ $i -lt 60 ] || exit 99; sleep 0.02; done; }}; \
+         touch \"$f/r1/$n\"; wait_for \"$f/r1\"; \
+         touch \"$f/r2/$n\"; wait_for \"$f/r2\"; true",
+        b = barrier.display()
+    );
+    assert_eq!(
+        fixture.run_many(
+            2,
+            &[
+                "--no-coverage",
+                "--mutate-all",
+                "--test-command",
+                &command,
+                "app/src/extra.rs"
+            ]
+        ),
+        // Both mutants see the other one and succeed, so both survive.
+        ExitCode::from(3)
+    );
+    let mut ready: Vec<String> = fs::read_dir(barrier.join("r2"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    ready.sort();
+    assert_eq!(
+        ready,
+        ["inner", "outer"],
+        "both mutants must run at once, not one after the other"
+    );
+    let snapshot =
+        fs::read_to_string(fixture.root().join(".metrics/mutate/app/extra.edn")).unwrap();
+    assert!(snapshot.contains(":sites 2"), "{snapshot}");
+    assert!(snapshot.contains(":survived 2"), "{snapshot}");
 }
 
 #[test]
@@ -440,14 +562,16 @@ fn line_filter_keeps_the_carried_outcomes_of_excluded_sites() {
 }
 
 #[test]
-fn command_views_are_private_and_their_artifacts_are_owner_only() {
+fn worker_views_are_private_and_their_artifacts_are_owner_only() {
     let fixture = Fixture::new();
     let recorded = fixture.scratch().join("views.txt");
     let command = format!(
-        "{{ printf 'dir %s\\n' \"$(stat -c %a \"$MUTATOR_VIEW\")\"; \
-         printf 'path %s\\n' \"$MUTATOR_VIEW\"; \
+        "root=$(dirname \"$MUTATOR_VIEW\"); {{ \
+         printf 'root %s %s\n' \"$(stat -c %a \"$root\")\" \"$root\"; \
+         printf 'view %s %s\n' \"$(stat -c %a \"$MUTATOR_VIEW\")\" \"$MUTATOR_VIEW\"; \
          if [ -f \"$MUTATOR_VIEW/mutation\" ]; then \
-           printf 'file %s\\n' \"$(stat -c %a \"$MUTATOR_VIEW/mutation\")\"; fi; }} >> {}",
+           printf 'file %s\n' \"$(stat -c %a \"$MUTATOR_VIEW/mutation\")\"; fi; \
+         }} >> {}",
         recorded.display()
     );
     assert_eq!(
@@ -463,23 +587,34 @@ fn command_views_are_private_and_their_artifacts_are_owner_only() {
     );
     let text = fs::read_to_string(&recorded).unwrap();
     let lines: Vec<&str> = text.lines().collect();
-    let modes = |prefix: &str| -> Vec<&str> {
+    let pairs = |prefix: &str| -> Vec<(String, String)> {
         lines
             .iter()
             .filter_map(|line| line.strip_prefix(prefix))
+            .map(|rest| rest.split_once(' ').unwrap())
+            .map(|(mode, path)| (mode.to_string(), path.to_string()))
             .collect()
     };
-    let directories = modes("dir ");
-    let paths = modes("path ");
-    let files = modes("file ");
-    assert!(directories.len() >= 2, "{text}");
-    assert!(directories.iter().all(|mode| *mode == "700"), "{text}");
-    assert!(files.len() >= 1, "{text}");
-    assert!(files.iter().all(|mode| *mode == "600"), "{text}");
-    for path in paths {
-        let path = Path::new(path);
-        let name = path.file_name().and_then(|name| name.to_str()).unwrap();
-        assert_eq!(path.parent(), Some(std::env::temp_dir().as_path()));
+    let roots = pairs("root ");
+    let views = pairs("view ");
+    let files: Vec<String> = lines
+        .iter()
+        .filter_map(|line| line.strip_prefix("file "))
+        .map(str::to_string)
+        .collect();
+    assert!(views.len() >= 2, "{text}");
+    assert!(views.iter().all(|(mode, _)| mode == "700"), "{text}");
+    assert!(!files.is_empty(), "{text}");
+    assert!(files.iter().all(|mode| mode == "600"), "{text}");
+    // One scratch root for the whole call: private, directly under the temp
+    // directory, with an unpredictable name.
+    let scratch: BTreeSet<&str> = roots.iter().map(|(_, path)| path.as_str()).collect();
+    assert_eq!(scratch.len(), 1, "{text}");
+    for (mode, root) in &roots {
+        assert_eq!(mode, "700", "{text}");
+        let root = Path::new(root);
+        assert_eq!(root.parent(), Some(std::env::temp_dir().as_path()));
+        let name = root.file_name().and_then(|name| name.to_str()).unwrap();
         let tail = name.rsplit('-').next().unwrap();
         assert!(
             name.starts_with("mutator-")
@@ -487,6 +622,25 @@ fn command_views_are_private_and_their_artifacts_are_owner_only() {
                 && tail.chars().all(|c| c.is_ascii_hexdigit()),
             "{name}"
         );
+    }
+    // Slots are named and reused: a worker is not a fresh directory per command.
+    for (_, view) in &views {
+        let view = Path::new(view);
+        let name = view.file_name().and_then(|name| name.to_str()).unwrap();
+        assert!(
+            name.strip_prefix("worker-")
+                .is_some_and(|index| index.parse::<usize>().is_ok()),
+            "{name}"
+        );
+        assert!(
+            scratch.contains(view.parent().unwrap().to_str().unwrap()),
+            "{}",
+            view.display()
+        );
+    }
+    // Nothing the call created survives it.
+    for (_, root) in &roots {
+        assert!(!Path::new(root).exists(), "{root} survived the run");
     }
 }
 

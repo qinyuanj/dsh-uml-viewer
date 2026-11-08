@@ -1,132 +1,72 @@
 //! Every command, including coverage and baseline, gets a disposable overlay.
 //! Mounting over the canonical root in the child namespace preserves absolute
 //! paths and sibling Cargo dependencies without exposing writes to the parent.
-use std::{
-    fs, io,
-    path::{Path, PathBuf},
-    sync::atomic::{AtomicUsize, Ordering},
-    time::Duration,
-};
+#[cfg(target_os = "linux")]
+use crate::interrupts;
+#[cfg(target_os = "linux")]
+use crate::scratch;
+use crate::scratch::Root;
 #[cfg(target_os = "linux")]
 use std::{
+    fs,
     io::Write,
     process::{Command, Stdio},
     time::Instant,
 };
+use std::{
+    io,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
-static NEXT: AtomicUsize = AtomicUsize::new(0);
+/// A command that did not produce a result.
+pub enum Failure {
+    /// A stop signal arrived; the caller's interrupt path cleans up.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    Interrupted,
+    /// The view could not be entered, or the command could not be launched.
+    Message(String),
+}
+
 pub struct View {
     pub directory: PathBuf,
+    // A slot borrows its pool's root, so only the pool removes the tree.
+    _root: Option<Root>,
 }
-pub struct Result {
+pub struct Completed {
     pub code: i32,
     pub elapsed: Duration,
     pub output: String,
 }
 
-#[cfg(unix)]
-fn private_directory(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-    fs::DirBuilder::new().mode(0o700).create(path)
-}
-#[cfg(not(unix))]
-fn private_directory(path: &Path) -> io::Result<()> {
-    fs::create_dir(path)
-}
+/// A command's own overlay layers: a fresh view of the project every time.
 #[cfg(target_os = "linux")]
-fn private_file(path: &Path) -> io::Result<fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)
-}
-
-/// An unpredictable suffix: a per-process random seed plus the clock.
-fn nonce() -> u64 {
-    use std::{
-        collections::hash_map::RandomState,
-        hash::{BuildHasher, Hasher},
-    };
-    let mut hasher = RandomState::new().build_hasher();
-    hasher.write_u32(std::process::id());
-    hasher.write_u128(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_nanos())
-            .unwrap_or_default(),
-    );
-    hasher.finish()
-}
-
-/// Remove a tree without following links, restoring the permissions overlayfs
-/// leaves at zero, and reporting the first failure instead of ignoring it.
-fn force_remove(path: &Path) -> io::Result<()> {
-    let metadata = match fs::symlink_metadata(path) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        result => result?,
-    };
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return match fs::remove_file(path) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            result => result,
-        };
+fn reset_layers(directory: &Path) -> io::Result<()> {
+    for name in ["upper", "work", "mutation", "output"] {
+        scratch::force_remove(&directory.join(name))?;
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        // Overlayfs leaves its work directory without any permissions.
-        if metadata.permissions().mode() & 0o700 != 0o700 {
-            fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-        }
+    for name in ["upper", "work"] {
+        scratch::private_directory(&directory.join(name))?;
     }
-    let mut failure = None;
-    for entry in fs::read_dir(path)? {
-        match entry {
-            Ok(entry) => {
-                if let Err(error) = force_remove(&entry.path()) {
-                    failure = failure.or(Some(error));
-                }
-            }
-            Err(error) => failure = failure.or(Some(error)),
-        }
-    }
-    if let Err(error) = fs::remove_dir(path) {
-        failure = failure.or(Some(error));
-    }
-    failure.map_or(Ok(()), Err)
+    Ok(())
 }
 
 impl View {
     pub fn new(root: &Path) -> io::Result<Self> {
-        let temporary = quality_core::paths::resolve(&std::env::temp_dir());
-        if temporary.starts_with(quality_core::paths::resolve(root)) {
-            return Err(io::Error::other(
-                "the temporary directory is inside the project; point TMPDIR outside it",
-            ));
+        let scratch = Root::new(root)?;
+        let directory = scratch.path().to_path_buf();
+        Ok(Self {
+            directory,
+            _root: Some(scratch),
+        })
+    }
+
+    /// A view of a worker slot whose scratch root another owner removes.
+    pub fn reused(directory: &Path) -> Self {
+        Self {
+            directory: directory.to_path_buf(),
+            _root: None,
         }
-        for _ in 0..16 {
-            let directory = temporary.join(format!(
-                "mutator-{}-{}-{:016x}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed),
-                nonce()
-            ));
-            match private_directory(&directory) {
-                Ok(()) => {
-                    for name in ["upper", "work"] {
-                        private_directory(&directory.join(name))?;
-                    }
-                    return Ok(Self { directory });
-                }
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(error),
-            }
-        }
-        Err(io::Error::other(
-            "cannot create a private mutation scratch directory",
-        ))
     }
 
     #[cfg(target_os = "linux")]
@@ -137,7 +77,7 @@ impl View {
         command: &str,
         mutation: Option<(&Path, &str)>,
         timeout: Option<Duration>,
-    ) -> io::Result<Result> {
+    ) -> Result<Completed, Failure> {
         use std::os::unix::process::CommandExt;
         if root
             .as_os_str()
@@ -145,13 +85,19 @@ impl View {
             .iter()
             .any(|c| b",:\\".contains(c))
         {
-            return Err(io::Error::other(
-                "overlayfs cannot represent this project path (comma, colon or backslash)",
+            return Err(Failure::Message(
+                "overlayfs cannot represent this project path (comma, colon or backslash)".into(),
             ));
         }
+        // A worker slot is reused, so its previous command's view is discarded
+        // before this one: layer bytes never reach the next mutant.
+        reset_layers(&self.directory).map_err(message)?;
         let mutation_path = self.directory.join("mutation");
         let destination = if let Some((path, source)) = mutation {
-            private_file(&mutation_path)?.write_all(source.as_bytes())?;
+            scratch::private_file(&mutation_path)
+                .map_err(message)?
+                .write_all(source.as_bytes())
+                .map_err(message)?;
             path.to_path_buf()
         } else {
             PathBuf::new()
@@ -183,7 +129,7 @@ unset CARGO_BUILD_TARGET_DIR CARGO_ENCODED_RUSTFLAGS LLVM_PROFILE_FILE
 exec /bin/sh -c "$command"
 "#;
         let output_path = self.directory.join("output");
-        let output = private_file(&output_path)?;
+        let output = scratch::private_file(&output_path).map_err(message)?;
         let start = Instant::now();
         let mut view = Command::new("unshare");
         view.args([
@@ -206,7 +152,7 @@ exec /bin/sh -c "$command"
         .arg(mutation_path)
         .arg(destination)
         .stdin(Stdio::null())
-        .stdout(output.try_clone()?)
+        .stdout(output.try_clone().map_err(message)?)
         .stderr(output)
         .process_group(0);
         // A killed uml-viewer takes its unshare parent, the namespace's first
@@ -220,29 +166,32 @@ exec /bin/sh -c "$command"
                 Ok(())
             });
         }
-        let mut child = view.spawn()?;
+        let mut child = view.spawn().map_err(message)?;
         let code = loop {
-            if let Some(status) = child.try_wait()? {
+            if let Some(status) = child.try_wait().map_err(message)? {
                 use std::os::unix::process::ExitStatusExt;
                 break status
                     .code()
                     .unwrap_or_else(|| 128 + status.signal().unwrap_or(0));
             }
+            if interrupts::pending().is_some() {
+                // The command owns its process group; stop it now, so the
+                // interrupt path can remove the scratch it can no longer use.
+                kill_group(&child);
+                let _ = child.wait();
+                return Err(Failure::Interrupted);
+            }
             if timeout.is_some_and(|limit| start.elapsed() >= limit) {
                 // Each command owns a process group; reap descendants on timeout.
-                unsafe {
-                    quality_core::libc::kill(-(child.id() as i32), quality_core::libc::SIGKILL);
-                }
-                child.wait()?;
+                kill_group(&child);
+                child.wait().map_err(message)?;
                 break 124;
             }
             std::thread::sleep(Duration::from_millis(10));
         };
         // A successful shell may leave daemon descendants; the view owns them.
-        unsafe {
-            quality_core::libc::kill(-(child.id() as i32), quality_core::libc::SIGKILL);
-        }
-        Ok(Result {
+        kill_group(&child);
+        Ok(Completed {
             code,
             elapsed: start.elapsed(),
             output: fs::read_to_string(output_path).unwrap_or_default(),
@@ -256,19 +205,21 @@ exec /bin/sh -c "$command"
         _command: &str,
         _mutation: Option<(&Path, &str)>,
         _timeout: Option<Duration>,
-    ) -> io::Result<Result> {
-        Err(io::Error::other(
-            "mutation isolation is currently supported only on Linux",
+    ) -> Result<Completed, Failure> {
+        Err(Failure::Message(
+            "mutation isolation is currently supported only on Linux".into(),
         ))
     }
 }
-impl Drop for View {
-    fn drop(&mut self) {
-        if let Err(error) = force_remove(&self.directory) {
-            eprintln!(
-                "Cannot remove mutation view {}: {error}",
-                self.directory.display()
-            );
-        }
+
+#[cfg(target_os = "linux")]
+fn message(error: io::Error) -> Failure {
+    Failure::Message(error.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn kill_group(child: &std::process::Child) {
+    unsafe {
+        quality_core::libc::kill(-(child.id() as i32), quality_core::libc::SIGKILL);
     }
 }
