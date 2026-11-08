@@ -194,7 +194,8 @@ pub fn discover(source: &str, path: &Path, root: &Path, file_key: &str) -> (Vec<
     } else {
         resolve(&root.join(path))
     };
-    let functions = functions_in_file(Language::Rust, source, &posix(&located), root);
+    let functions = functions_in_file(Language::Rust, source, &posix(&located), root)
+        .expect("Rust function discovery is infallible");
     let mut forms: Vec<Form> = Vec::new();
     let mut grouped: BTreeMap<(String, String), FormParts> = BTreeMap::new();
     let mut owners = Vec::new();

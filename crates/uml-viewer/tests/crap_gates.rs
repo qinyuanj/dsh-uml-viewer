@@ -56,6 +56,21 @@ fn empty_option_and_full_tree_usage_errors_keep_old_output_contract() {
 }
 
 #[test]
+fn malformed_lua_source_fails_and_keeps_the_previous_snapshot() {
+    let p = Project::new();
+    p.write("src/bad.lua", "local function f(\n  if x then\nend\n");
+    p.write(".metrics/crap.edn", "old\n");
+    let result = p.crap(&["--no-coverage"]);
+    assert_eq!(result.status.code(), Some(1), "{result:?}");
+    assert_eq!(stdout(&result), "");
+    assert_eq!(
+        stderr(&result),
+        "Report rendering failed: Lua source does not parse: src/bad.lua\n"
+    );
+    assert_eq!(p.snapshot().as_deref(), Some("old\n"));
+}
+
+#[test]
 fn malformed_go_profile_fails_and_keeps_the_previous_snapshot() {
     // crapper parse_go_profile raises on an unusable segment, so the run
     // exits 1 and the previous snapshot stays; it must not publish N/A.

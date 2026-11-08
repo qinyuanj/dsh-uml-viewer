@@ -75,7 +75,7 @@ pub(crate) fn scan(
         let source = read_source(path)?;
         let file = relative_posix(path, root).expect("source inside project root");
         let tree = Grammar::Rust.parse(&source);
-        let functions = functions_in_file(language, &source, &file, root);
+        let functions = functions_in_file(language, &source, &file, root)?;
         for node in nodes(tree.root_node(), &source) {
             let (nodes, fingerprints) = shape(node, &source);
             let (start, end) = (start_line(node), end_line(node));
