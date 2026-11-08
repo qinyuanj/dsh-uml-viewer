@@ -9,6 +9,13 @@ mod scratch;
 mod sites;
 mod workers;
 
+/// Whether this port mutates `language` yet: Rust only (Go, Java and Clojure
+/// follow with qinyuanj/dsh-uml-viewer#14). Quality dispatch refuses a
+/// selection holding any other language instead of reporting it empty.
+pub fn mutates(language: quality_core::language::Language) -> bool {
+    language == quality_core::language::Language::Rust
+}
+
 pub fn run(args: &[OsString]) -> ExitCode {
     run_with_clock(args, || {
         quality_core::chrono::Local::now()
@@ -71,8 +78,7 @@ fn run_mutation(root: &Path, options: &cli::Options, clock: impl Fn() -> String)
             .select(&options.positionals, &mut std::io::stderr())
     };
     files.retain(|path| {
-        if quality_core::language::language_of(path) != Some(quality_core::language::Language::Rust)
-        {
+        if !quality_core::language::language_of(path).is_some_and(mutates) {
             eprintln!(
                 "Skipping {}; Linux mutation currently supports Rust only.",
                 path.display()

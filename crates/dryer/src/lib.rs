@@ -133,6 +133,12 @@ fn parse(args: &[String]) -> Parsed {
     }
     Parsed::Scan(options)
 }
+/// Whether this port scans `language` yet: Rust (the other languages follow
+/// with qinyuanj/dsh-uml-viewer#7).
+pub fn scans(language: quality_core::language::Language) -> bool {
+    language == quality_core::language::Language::Rust
+}
+
 /// The binary's dry role. It preserves the original argument and exit contract.
 pub fn run(args: &[OsString]) -> ExitCode {
     run_on(platform::Host::current(), platform::windows_build(), args)
@@ -185,7 +191,7 @@ fn run_on(host: platform::Host, build: Option<u32>, args: &[OsString]) -> ExitCo
     if let Some(language) = files
         .iter()
         .filter_map(|path| quality_core::language::language_of(path))
-        .find(|language| *language != quality_core::language::Language::Rust)
+        .find(|language| !scans(*language))
     {
         eprintln!(
             "dryer: language {} is not ported yet (qinyuanj/dsh-uml-viewer#7)",
