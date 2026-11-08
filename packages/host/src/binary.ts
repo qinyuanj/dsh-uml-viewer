@@ -5,9 +5,12 @@ import { fileURLToPath } from 'node:url'
 export interface Config {
   /** Absolute executable, or trusted argv prefix (for dev/test launchers). No shell. */
   binary?: string | readonly string[]
+  /** Override the plugin's own data directory (defaults to `<DSH home>/dsh-uml-viewer`). */
+  home?: string
 }
 
-function packageRoot(): string {
+/** The installed package directory that holds `fonts/`, `lib/` and the manifests. */
+export function packageRoot(): string {
   let dir = path.dirname(fileURLToPath(import.meta.url))
   for (;;) {
     const manifest = path.join(dir, 'package.json')
@@ -18,7 +21,7 @@ function packageRoot(): string {
   }
 }
 
-export function binaryArgv(config: Config, pluginRoot?: string): string[] {
+export function binaryArgv(config: Config, root?: string): string[] {
   const configured = config.binary ?? process.env.UML_VIEWER_BIN
   if (configured !== undefined) {
     const argv = typeof configured === 'string' ? [configured] : [...configured]
@@ -27,10 +30,10 @@ export function binaryArgv(config: Config, pluginRoot?: string): string[] {
     }
     return argv
   }
-  const root = pluginRoot ?? packageRoot()
+  const directory = root ?? packageRoot()
   const name = process.platform === 'win32' ? 'uml-viewer.exe' : 'uml-viewer'
   for (const profile of ['debug', 'release']) {
-    const binary = path.join(root, 'target', profile, name)
+    const binary = path.join(directory, 'target', profile, name)
     if (existsSync(binary)) return [binary]
   }
   throw new Error('No uml-viewer binary: set UML_VIEWER_BIN to an absolute executable or build target/debug/uml-viewer (target/release is also checked)')

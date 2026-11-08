@@ -2,7 +2,7 @@ export type QualityOperation = 'crap' | 'mutate' | 'dry'
 
 /** ADR 0001 version-1 fields. The operation value distinguishes IR from the
  * quality operations, so only the latter can participate in the #20 gate. */
-export interface ToolResultRecord<Operation extends 'ir' | QualityOperation = 'ir' | QualityOperation> {
+export interface ToolResultRecord<Operation extends 'ir' | 'display' | QualityOperation = 'ir' | 'display' | QualityOperation> {
   version: 1
   operation: Operation
   projectRoot: string
@@ -14,7 +14,7 @@ export interface ToolResultRecord<Operation extends 'ir' | QualityOperation = 'i
 }
 
 /** A refusal has no child exit code; output is bounded and truncation is explicit. */
-export interface IrResult extends ToolResultRecord {
+export interface IrResult extends ToolResultRecord<'ir'> {
   operation: 'ir'
   status: 'ok' | 'error' | 'refused'
   reason: string | null
@@ -28,17 +28,29 @@ export interface IrRequest {
   output?: string
 }
 
+/**
+ * Validate one project-relative path argument.
+ * @param field the argument name used in messages.
+ * @param value the model's value.
+ * @returns the same normalized relative path.
+ */
+export function normalizeRelativePath(field: string, value: unknown): string {
+  if (typeof value !== 'string' || !value.trim() || value.includes(String.fromCharCode(0))) {
+    throw new Error(`${field} must be a nonempty path without NUL`)
+  }
+  const parts = value.replaceAll('\\', '/').split('/')
+  if (value.startsWith('/') || /^[a-zA-Z]:/.test(value) || parts.includes('..') || parts.includes('')) {
+    throw new Error(`${field} must be a normalized relative path inside the session cwd`)
+  }
+  return value
+}
+
 export function parseIrRequest(value: unknown): IrRequest {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('IR arguments must be an object')
   const request: IrRequest = {}
   for (const [key, field] of Object.entries(value)) {
     if (key !== 'policy' && key !== 'output') throw new Error(`Unknown IR argument: ${key}`)
-    if (typeof field !== 'string' || !field.trim() || field.includes(String.fromCharCode(0))) throw new Error(`${key} must be a nonempty path without NUL`)
-    const parts = field.replaceAll('\\', '/').split('/')
-    if (field.startsWith('/') || /^[a-zA-Z]:/.test(field) || parts.includes('..') || parts.includes('')) {
-      throw new Error(`${key} must be a normalized relative path inside the session cwd`)
-    }
-    request[key] = field
+    request[key] = normalizeRelativePath(key, field)
   }
   return request
 }
@@ -62,4 +74,73 @@ export const IR_RESULT_SCHEMA = {
     status: { type: 'string', enum: ['ok', 'error', 'refused'] }, reason: { oneOf: [{ type: 'string' }, { type: 'null' }] },
     stdout: { type: 'string' }, stderr: { type: 'string' }, truncated: { type: 'boolean' },
   },
+}
+
+/**
+ * What the panel shows: the diagram the latest successful IR wrote.
+ *
+ * A display is not a child process, so its ADR 0001 record keeps
+ * `exitCode: null` and `validResult` reports whether the panel now shows the
+ * requested diagram.
+ */
+export interface DisplayRequest {
+  path?: string
+}
+
+export interface DisplayResult extends ToolResultRecord<'display'> {
+  operation: 'display'
+  path: string | null
+  status: 'ok' | 'error' | 'refused'
+  reason: string | null
+}
+
+export function parseDisplayRequest(value: unknown): DisplayRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('uml_display arguments must be an object')
+  const request: DisplayRequest = {}
+  for (const [key, field] of Object.entries(value)) {
+    if (key !== 'path') throw new Error(`Unknown uml_display argument: ${key}`)
+    request.path = normalizeRelativePath(key, field)
+  }
+  return request
+}
+
+export const DISPLAY_PARAMETERS = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    path: { type: 'string', description: 'Normalized diagram (IR) path relative to the session cwd, with no .. segments. Omit to show the diagram the latest successful uml_ir wrote.' },
+  },
+} as const
+
+export const DISPLAY_RESULT_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  required: ['version', 'operation', 'projectRoot', 'path', 'exitCode', 'validResult', 'crapScope', 'configured', 'tool', 'status', 'reason'],
+  properties: {
+    version: { type: 'integer', const: 1 }, operation: { type: 'string', const: 'display' }, projectRoot: { type: 'string' },
+    path: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+    exitCode: { type: 'null', const: null }, validResult: { type: 'boolean' },
+    crapScope: { type: 'null', const: null }, configured: { type: 'boolean' }, tool: { type: 'string' },
+    status: { type: 'string', enum: ['ok', 'error', 'refused'] }, reason: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+  },
+}
+
+/**
+ * Check one display record against its schema.
+ * @param value the record the tool returned.
+ * @returns the same record, narrowed.
+ */
+export function validateDisplayResult(value: unknown): DisplayResult {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('display result: must be an object')
+  const source = value as Record<string, unknown>
+  if (source.version !== 1) throw new Error('display result.version: must be 1')
+  if (source.operation !== 'display') throw new Error('display result.operation: must be display')
+  if (!['ok', 'error', 'refused'].includes(source.status as string)) throw new Error('display result.status: must be ok, error or refused')
+  if (typeof source.projectRoot !== 'string') throw new Error('display result.projectRoot: must be a string')
+  if (source.path !== null && typeof source.path !== 'string') throw new Error('display result.path: must be a string or null')
+  if (source.exitCode !== null) throw new Error('display result.exitCode: must be null')
+  if (typeof source.validResult !== 'boolean') throw new Error('display result.validResult: must be a boolean')
+  if (source.crapScope !== null) throw new Error('display result.crapScope: must be null')
+  if (typeof source.configured !== 'boolean') throw new Error('display result.configured: must be a boolean')
+  if (typeof source.tool !== 'string') throw new Error('display result.tool: must be a string')
+  if (source.reason !== null && typeof source.reason !== 'string') throw new Error('display result.reason: must be a string or null')
+  return source as unknown as DisplayResult
 }
