@@ -304,7 +304,10 @@ fn typescript_node_type_stripping_reports_real_coverage_bytes() {
         &fixture("typescript-measured").join("project"),
         &project.root,
     );
-    if !node_tools_available(&project) || !install_c8(&project) {
+    if !node_tools_available(&project)
+        || !node_type_stripping_available(&project)
+        || !install_c8(&project)
+    {
         return;
     }
     let output = project.crap(&[]);
@@ -314,6 +317,17 @@ fn typescript_node_type_stripping_reports_real_coverage_bytes() {
 fn node_tools_available(project: &Project) -> bool {
     available("node", &["--version"], project, "TypeScript")
         && available("npm", &["--version"], project, "TypeScript")
+}
+
+/// Node strips types from `.ts` sources from 22.6 (the flag is unknown before
+/// it), so an older runtime is an unavailable toolchain, not a failed test.
+fn node_type_stripping_available(project: &Project) -> bool {
+    available(
+        "node",
+        &["--experimental-strip-types", "-e", ""],
+        project,
+        "TypeScript type stripping",
+    )
 }
 
 fn install_c8(project: &Project) -> bool {
