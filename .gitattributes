@@ -7,3 +7,5 @@
 *.edn text eol=lf
 *.rs text eol=lf
 fixtures/** text eol=lf
+# sh reads a CR as part of the command; the enabled hook must stay LF.
+.githooks/* text eol=lf
