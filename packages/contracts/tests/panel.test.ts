@@ -22,6 +22,7 @@ describe('panel Remote descriptors', () => {
     expect(watch.namespace).toBe(REMOTE_SERVICE)
     expect(watch.scope).toEqual({ context: 'agent', wire: 'agentId' })
     expect(watch.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup']])
+    expect(watch.parameters[0]!.codec.typeSymbol).toBe('@deepseek-ai/dsh-session/types#SessionId')
     expect(watch.cancellation).toEqual({ parameter: 'signal' })
     const action = descriptors.find(descriptor => descriptor.method === 'action')!
     expect(action.mode).toBeUndefined()

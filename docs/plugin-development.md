@@ -143,6 +143,32 @@ load**; nested bytes and nanosecond mtimes are compared after calls and unload
 on success, failure and refusal. These are plugin seam tests, not a claim that
 the fake confinement provider enforces an OS sandbox.
 
+## Browser acceptance lane
+
+`#22` adds a real Playwright lane under `packages/e2e/`. It boots an isolated
+DSH Web on port 0 with its own scratch home, mock model, workspace registry and
+scratch Chromium, loads this plugin, opens two panels on two projects, and
+asserts the displayed diagrams and the independence of their discussion
+contexts. Run it after `pnpm build` and a real binary build:
+
+```sh
+pnpm e2e:install
+pnpm test:e2e
+```
+
+`UML_VIEWER_BIN`, `DSH_CLI` and `UML_VIEWER_E2E_SCRATCH` select the binary, DSH
+CLI and scratch root. The harness API that `#23`–`#29` should extend, the
+isolation guarantees and the failure artifacts are documented in
+[e2e-harness.md](e2e-harness.md). It never attaches to the live GUI or the
+user's profile.
+
+Mounting the panel in a real browser forced two production changes; the reason
+for each is recorded in the
+[ADR 0013 #22 appendix](adr/0013-repository-migration.md): the visible
+`typertRemote` binding the Gateway requires from a hand-written Remote service,
+and `uml_display` re-applying the session's persisted proposal discussion
+context (`refresh(..., restoreContext)`).
+
 For optional manual loading, use the isolated-instance recipe in the shared
 `EXPLORE-dsh.md` §12: a fresh scratch `DSH_HOME`, `--profile web`, `--port 0` and
 `--no-open`. Install only into that scratch instance. Never use the live GUI,

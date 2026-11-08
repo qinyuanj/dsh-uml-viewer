@@ -38,6 +38,36 @@ jobs:
       - name: Validate dsh-std manifest and resources
         run: pnpm validate:manifest
 
+  panel-e2e:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      # The lane rejects the live GUI; these only point it at CI-owned files.
+      DSH_CLI: ${{ github.workspace }}\.scratch\dsh-cli\node_modules\.bin\dsh.cmd
+      UML_VIEWER_BIN: ${{ github.workspace }}\target\debug\uml-viewer.exe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Rust toolchain pinned by rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - name: Build the plugin and its real resident binary
+        run: |
+          pnpm build
+          cargo build --locked -p uml-viewer
+      - name: Isolated DSH CLI
+        run: npm install --prefix .scratch/dsh-cli --no-save @deepseek-ai/dsh@0.2.2-rc.1
+      - name: Scratch Chromium
+        run: pnpm e2e:install
+      - name: Real panel acceptance
+        run: pnpm test:e2e
+
   windows-crap:
     runs-on: windows-latest
     timeout-minutes: 30
