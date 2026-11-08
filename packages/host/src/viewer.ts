@@ -65,7 +65,7 @@ export class ViewerService {
 
   async action(agent: Agent, action: PanelAction): Promise<PanelAck> {
     try {
-      const event = await this.sessions.refresh(agent, new AbortController().signal, action as unknown as { action: string })
+      const { event } = await this.sessions.refresh(agent, new AbortController().signal, action as unknown as { action: string })
       return event.event === 'error' ? { accepted: false, reason: event.message } : { accepted: true, reason: null }
     } catch (error) {
       return { accepted: false, reason: reasonOf(error) }
