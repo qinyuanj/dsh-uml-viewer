@@ -1,0 +1,2 @@
+dryer: src/app/broken.clj:7: unterminated list
+Wrote <ROOT><SEP>.metrics<SEP>dry.edn

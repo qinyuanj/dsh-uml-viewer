@@ -9,3 +9,6 @@
 fixtures/** text eol=lf
 # sh reads a CR as part of the command; the enabled hook must stay LF.
 .githooks/* text eol=lf
+
+# The packaged Sarasa face is binary; never convert its bytes.
+*.ttf binary

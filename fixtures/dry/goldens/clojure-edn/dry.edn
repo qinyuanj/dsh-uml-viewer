@@ -1,0 +1,56 @@
+{:candidates [
+ {:score 1.0
+  :language "clojure"
+  :left {:file "src/app/conditional.clj", :start-line 3, :end-line 7, :namespace "app.conditional", :name "capped"}
+  :right {:file "src/app/reader.cljc", :start-line 3, :end-line 7, :namespace "app.reader", :name "limit"}
+  :left-nodes 45
+  :right-nodes 45}
+ {:score 1.0
+  :language "clojure"
+  :left {:file "src/app/conditional.clj", :start-line 3, :end-line 7, :namespace "app.conditional", :name "capped"}
+  :right {:file "src/app/reader.cljc", :start-line 15, :end-line 19, :namespace nil, :name nil}
+  :left-nodes 45
+  :right-nodes 45}
+ {:score 1.0
+  :language "clojure"
+  :left {:file "src/app/conditional.clj", :start-line 9, :end-line 12, :namespace "app.conditional", :name "declared"}
+  :right {:file "src/app/reader.cljc", :start-line 9, :end-line 13, :namespace "app.reader", :name "^String"}
+  :left-nodes 46
+  :right-nodes 46}
+ {:score 1.0
+  :language "clojure"
+  :left {:file "src/app/extra.cljd", :start-line 3, :end-line 6, :namespace "app.extra", :name "epsilon"}
+  :right {:file "src/app/left.clj", :start-line 3, :end-line 6, :namespace "app.left", :name "alpha"}
+  :left-nodes 38
+  :right-nodes 38}
+ {:score 1.0
+  :language "clojure"
+  :left {:file "src/app/extra.cljd", :start-line 3, :end-line 6, :namespace "app.extra", :name "epsilon"}
+  :right {:file "src/app/right.clj", :start-line 3, :end-line 6, :namespace "app.right", :name "gamma"}
+  :left-nodes 38
+  :right-nodes 38}
+ {:score 1.0
+  :language "clojure"
+  :left {:file "src/app/fns.clj", :start-line 3, :end-line 6, :namespace nil, :name nil}
+  :right {:file "src/app/more.clj", :start-line 3, :end-line 6, :namespace nil, :name nil}
+  :left-nodes 36
+  :right-nodes 36}
+ {:score 1.0
+  :language "clojure"
+  :left {:file "src/app/left.clj", :start-line 3, :end-line 6, :namespace "app.left", :name "alpha"}
+  :right {:file "src/app/right.clj", :start-line 3, :end-line 6, :namespace "app.right", :name "gamma"}
+  :left-nodes 38
+  :right-nodes 38}
+ {:score 1.0
+  :language "clojure"
+  :left {:file "src/app/left.clj", :start-line 8, :end-line 11, :namespace "app.left", :name "beta"}
+  :right {:file "src/app/right.clj", :start-line 8, :end-line 11, :namespace "app.right", :name "delta"}
+  :left-nodes 36
+  :right-nodes 36}
+ {:score 1.0
+  :language "clojure"
+  :left {:file "src/app/reader.cljc", :start-line 3, :end-line 7, :namespace "app.reader", :name "limit"}
+  :right {:file "src/app/reader.cljc", :start-line 15, :end-line 19, :namespace nil, :name nil}
+  :left-nodes 45
+  :right-nodes 45}
+]}

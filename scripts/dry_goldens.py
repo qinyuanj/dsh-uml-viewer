@@ -44,10 +44,15 @@ def original(checkout: Path, name: str) -> None:
             raise SystemExit(f"{name}: source checkout must be clean")
 
 
-def scenario(path: Path) -> list[str]:
+def scenario(path: Path) -> tuple[str, list[str]]:
+    """The fixture project directory and the literal argv the scenario names."""
+
     lines = path.read_text(encoding="utf-8").splitlines()
-    if not lines or lines[0] != "project rust":
-        raise SystemExit(f"{path}: expected project rust")
+    if not lines or not lines[0].startswith("project "):
+        raise SystemExit(f"{path}: expected `project <fixture directory>`")
+    project = lines[0][len("project ") :]
+    if not (FIXTURES / project).is_dir():
+        raise SystemExit(f"{path}: no fixture project {FIXTURES / project}")
     args = []
     for line in lines[1:]:
         if not line or line.startswith(("#", "git ", "commit ", "modify ", "rename ")):
@@ -55,7 +60,7 @@ def scenario(path: Path) -> list[str]:
         if not line.startswith("arg "):
             raise SystemExit(f"{path}: unknown line {line!r}")
         args.append(line[4:])
-    return args
+    return project, args
 
 
 def setup(root: Path, lines: list[str]) -> None:
@@ -136,12 +141,17 @@ def main() -> int:
             raise SystemExit(f"oracle --help failed: {help_result.stderr!r}")
         publish(FIXTURES / "help.txt", help_result.stdout)
         for path in sorted((FIXTURES / "goldens").glob("*/scenario")):
+            project, args = scenario(path)
             root = Path(scratch) / path.parent.name / "project"
-            shutil.copytree(FIXTURES / "rust", root,
-                            ignore=shutil.ignore_patterns("target", "Cargo.lock"))
+            shutil.copytree(
+                FIXTURES / project,
+                root,
+                ignore=shutil.ignore_patterns("target", "Cargo.lock"),
+            )
             setup(root, path.read_text(encoding="utf-8").splitlines()[1:])
-            result = subprocess.run([*prefix, "--root", str(root), *scenario(path)],
+            result = subprocess.run([*prefix, "--root", str(root), *args],
                                     cwd=root, env=environment, capture_output=True, check=False)
+
             out = path.parent
             snapshot = root / ".metrics" / "dry.edn"
             publish(out / "dry.edn", snapshot.read_bytes() if snapshot.is_file() else None)
