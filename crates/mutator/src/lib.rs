@@ -1,10 +1,13 @@
 //! Differential mutation testing with isolated Linux test runs.
-use std::{ffi::OsString, process::ExitCode};
+use std::{ffi::OsString, path::Path, process::ExitCode};
 mod cli;
 mod engine;
+mod interrupts;
 mod isolation;
 mod metrics;
+mod scratch;
 mod sites;
+mod workers;
 
 pub fn run(args: &[OsString]) -> ExitCode {
     run_with_clock(args, || {
@@ -36,6 +39,26 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode
         return ExitCode::from(1);
     }
     let root = options.scope.project_root();
+    // A run that arrives after a killed one reclaims that run's scratch first.
+    // A live concurrent run's root keeps its owner lock and is left alone.
+    if let Err(error) = scratch::sweep(&root) {
+        eprintln!("Cannot sweep abandoned mutation scratch: {error}");
+    }
+    // From here until the end of the call a stop signal stops the work instead
+    // of killing the process mid-cleanup.
+    let _armed = interrupts::Armed::new();
+    let code = run_mutation(&root, &options, clock);
+    if let Some(signum) = interrupts::pending() {
+        scratch::discard_all();
+        eprintln!(
+            "Interrupted by {}; unfinished files keep their previous snapshots.",
+            interrupts::name(signum)
+        );
+        return ExitCode::from((128 + signum) as u8);
+    }
+    code
+}
+fn run_mutation(root: &Path, options: &cli::Options, clock: impl Fn() -> String) -> ExitCode {
     let mut files = if options.flag("--changed") {
         // The shared changed selection: source roots narrow it only when they
         // are given, and the positional filters and exclusions always apply.
@@ -68,18 +91,18 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode
         return ExitCode::SUCCESS;
     }
     if !options.flag("--scan")
-        && let Err(error) = engine::check_backups(&root)
+        && let Err(error) = engine::check_backups(root)
     {
         eprintln!("{error}");
         return ExitCode::from(2);
     }
     let mut timings = engine::Timings::default();
-    let prepared = match engine::prepare(&root, &options, &files, &mut timings) {
+    let prepared = match engine::prepare(root, options, &files, &mut timings) {
         Ok(value) => value,
         Err(code) => return ExitCode::from(code as u8),
     };
     let started = std::time::Instant::now();
-    let status = engine::mutate(&root, &options, prepared, clock, &mut timings);
+    let status = engine::mutate(root, options, prepared, clock, &mut timings);
     if !options.flag("--scan") {
         timings.add("mutation-run", started.elapsed());
     }
