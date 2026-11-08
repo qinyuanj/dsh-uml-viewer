@@ -114,6 +114,74 @@ fn count_options_take_the_interpreters_digit_limit_and_refuse_beyond_it() {
     );
 }
 
+/// `fixtures/dry/threshold/cases.tsv` escapes non-printable ASCII as `\u{X}`.
+fn decode(encoded: &str) -> String {
+    let mut text = String::new();
+    let mut chars = encoded.chars();
+    while let Some(char) = chars.next() {
+        if char != '\\' {
+            text.push(char);
+            continue;
+        }
+        match chars.next().unwrap() {
+            '\\' => text.push('\\'),
+            'u' => {
+                assert_eq!(Some('{'), chars.next());
+                let hex: String = chars.by_ref().take_while(|c| *c != '}').collect();
+                text.push(char::from_u32(u32::from_str_radix(&hex, 16).unwrap()).unwrap());
+            }
+            other => panic!("unknown escape \\{other}"),
+        }
+    }
+    text
+}
+
+/// Every `--threshold` spelling in the table generated from pinned dryer's
+/// `float()` is accepted or refused by the binary exactly as Python does.
+/// Python's `_take` refuses an empty value or one starting with `-` before
+/// `float()` runs, so those rows expect `requires a value` here.
+#[test]
+fn threshold_accepts_and_refuses_what_pinned_python_float_does() {
+    let project = Project::new();
+    let help =
+        String::from_utf8(include_bytes!("../../../fixtures/dry/help.txt").to_vec()).unwrap();
+    let mut rows = 0;
+    for line in include_str!("../../../fixtures/dry/threshold/cases.tsv")
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+    {
+        let fields: Vec<&str> = line.split('\t').collect();
+        let ["threshold", value, expected] = fields[..] else {
+            panic!("unexpected case line {line:?}");
+        };
+        let value = decode(value);
+        let output = run(&project, &["--threshold", &value]);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if value.is_empty() || value.starts_with('-') {
+            assert_eq!(output.status.code(), Some(1), "{value:?}");
+            assert_eq!(
+                stderr,
+                format!("--threshold requires a value\n\n{help}"),
+                "{value:?}"
+            );
+        } else if expected.starts_with("ok:") {
+            assert_eq!(output.status.code(), Some(0), "{value:?}: {stderr}");
+            assert_eq!(output.stdout, b"No source files to analyze.\n", "{value:?}");
+        } else {
+            assert_eq!(expected, "error:--threshold requires a number");
+            assert_eq!(output.status.code(), Some(1), "{value:?}");
+            assert!(output.stdout.is_empty(), "{value:?}");
+            assert_eq!(
+                stderr,
+                format!("--threshold requires a number\n\n{help}"),
+                "{value:?}"
+            );
+        }
+        rows += 1;
+    }
+    assert_eq!(rows, 104);
+}
+
 /// Native Windows above the minimum build prints no platform diagnostic; the
 /// pinned tests cannot reach a real older build here either.
 #[cfg(windows)]

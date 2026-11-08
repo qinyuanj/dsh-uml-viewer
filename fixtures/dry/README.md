@@ -32,21 +32,27 @@ are passed explicitly so an installed or sibling crapper cannot replace the
 pinned naming/discovery implementation. `PYTHONHASHSEED=0` and UTF-8 output are
 set for the subprocesses. No Rust binary participates in generation.
 
-Two more oracles cover the parts the CLI scenarios cannot enumerate:
+Three more oracles cover the parts the CLI scenarios cannot enumerate:
 
 - `python -I scripts/dry_count_oracle.py` (any CPython 3.11+; captured with
   3.12.10) writes `fixtures/dry/count/{cases,whitespace,limits}.tsv` and the
-  generated digit table `crates/dryer/src/digits.rs`. It starts from the real
+  generated digit table `crates/quality-core/src/digits.rs`. It starts from the real
   `int()` conversion, so accepted spellings (whitespace, signs, underscores,
   every Unicode Nd digit), the 4300-digit limit and the trimmed White_Space set
   are all the interpreter's own answers.
+- `python -I scripts/dry_threshold_oracle.py <dryer-checkout> <crapper-checkout>`
+  writes `fixtures/dry/threshold/cases.tsv` by calling pinned dryer `_number`
+  (CPython `float()`) on 104 spellings, and refuses to write unless pinned
+  crapper `_threshold` gives the same answer on every one. Both Rust tools
+  parse `--threshold` with `quality_core::number::python_float`, which this
+  table checks at both CLI seams.
 - `python -I scripts/dry_platform_oracle.py <dryer-checkout>` writes
   `fixtures/dry/platform/cases.tsv` from importing the pinned
   `dryer.platform`. Run it where the warning path is POSIX, i.e. WSL2 or Linux
   (captured with CPython 3.12.3 under WSL2), because the original formats the
-  host `Path` object. Both scripts verify the checkout hash and refuse a dirty
+  host `Path` object. All three scripts verify the checkout hash and refuse a dirty
   source tree; the status check normalizes CRLF so a Windows checkout is still
-  accepted under WSL git. Both support `--check`.
+  accepted under WSL git. All three support `--check`.
 
 The exact `--help` stdout is saved as `help.txt`, including its original wording
 and final newline. Every `goldens/<scenario>/` contains `scenario`, `stdout`,

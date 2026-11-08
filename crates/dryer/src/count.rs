@@ -8,7 +8,7 @@
 //! value is its own error. The value is only ever compared with line and node
 //! counts, so an accepted count beyond `usize::MAX` saturates.
 
-use crate::digits::DECIMAL_DIGIT_RUNS;
+use quality_core::number::decimal_digit as digit_of;
 
 /// CPython 3.12's default `sys.get_int_max_str_digits()`.
 pub(crate) const MAX_DECIMAL_DIGITS: usize = 4300;
@@ -25,13 +25,6 @@ pub(crate) enum CountError {
 /// narrower than `str.isspace()` (it keeps U+001C..U+001F).
 pub(crate) fn is_space(char: char) -> bool {
     char.is_whitespace()
-}
-
-fn digit_of(char: char) -> Option<u32> {
-    let code = char as u32;
-    DECIMAL_DIGIT_RUNS
-        .iter()
-        .find_map(|(start, end)| (code >= *start && code <= *end).then(|| code - start))
 }
 
 pub(crate) fn parse(value: &str) -> Result<usize, CountError> {
@@ -184,9 +177,9 @@ mod tests {
             .expect("runs fixture")
             .parse()
             .unwrap();
-        assert_eq!(runs, DECIMAL_DIGIT_RUNS.len());
+        assert_eq!(runs, quality_core::digits::DECIMAL_DIGIT_RUNS.len());
         let mut previous = None;
-        for (start, end) in DECIMAL_DIGIT_RUNS {
+        for (start, end) in quality_core::digits::DECIMAL_DIGIT_RUNS {
             assert_eq!(9, end - start, "run {start:04X}-{end:04X}");
             assert!(previous.is_none_or(|last| last < *start));
             for digit in 0..10 {

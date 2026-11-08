@@ -192,6 +192,45 @@ fn usage_errors_name_the_problem_and_print_help_to_stderr() {
     assert_eq!(help, stdout(&output));
 }
 
+/// Both tools share `quality_core::number::python_float`, and the pinned
+/// originals' `_threshold` and `_number` are the same `float()`.
+/// `fixtures/dry/threshold/cases.tsv` holds the originals' answers.
+#[test]
+fn threshold_parses_like_python_float_at_the_crapper_seam() {
+    let help = help();
+    let project = Project::new();
+    for argv in [
+        &["--threshold", "1__0.5"][..],
+        &["--threshold", "_1.5"][..],
+        &["--threshold", "1_"][..],
+        &["--threshold", "+-inf"][..],
+    ] {
+        let output = project.crap(argv);
+        assert_eq!(Some(1), output.status.code(), "{argv:?}");
+        assert_eq!("", stdout(&output));
+        assert_eq!(
+            format!("--threshold requires a number\n\n{help}"),
+            stderr(&output),
+            "{argv:?}"
+        );
+    }
+    // Python's float() reads every Unicode Nd digit and keeps single
+    // underscores between digits; these all parse and reach the scan.
+    project.write("src/lib.rs", "pub fn one() {}\n");
+    let crap = |value: &str| {
+        let output = project.crap(&["--no-coverage", "--threshold", value]);
+        (output.status.code(), stderr(&output))
+    };
+    for value in ["1_0.5", "\u{661}.\u{665}", " 1.5 ", "nan", "infinity", "5."] {
+        let (code, message) = crap(value);
+        assert_eq!(Some(0), code, "{value:?}: {message}");
+        assert!(
+            !message.contains("requires a number"),
+            "{value:?}: {message}"
+        );
+    }
+}
+
 #[test]
 fn help_documents_scope_exits_and_exclusions() {
     let help = help();

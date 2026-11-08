@@ -4,7 +4,6 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 mod count;
-mod digits;
 mod normalize;
 mod platform;
 mod report;
@@ -72,30 +71,9 @@ fn parse(args: &[String]) -> Parsed {
                                 options.scope.root = value.into();
                                 Ok(())
                             }
-                            "--threshold" => match value.trim().to_ascii_lowercase() {
-                                v if matches!(v.as_str(), "nan" | "+nan" | "-nan") => {
-                                    options.threshold = f64::NAN;
-                                    Ok(())
-                                }
-                                v if matches!(
-                                    v.as_str(),
-                                    "inf" | "+inf" | "infinity" | "+infinity"
-                                ) =>
-                                {
-                                    options.threshold = f64::INFINITY;
-                                    Ok(())
-                                }
-                                v if matches!(v.as_str(), "-inf" | "-infinity") => {
-                                    options.threshold = f64::NEG_INFINITY;
-                                    Ok(())
-                                }
-                                v => v
-                                    .trim()
-                                    .replace('_', "")
-                                    .parse()
-                                    .map(|v| options.threshold = v)
-                                    .map_err(|_| "--threshold requires a number".to_string()),
-                            },
+                            "--threshold" => quality_core::number::python_float(value)
+                                .map(|v| options.threshold = v)
+                                .ok_or_else(|| "--threshold requires a number".to_string()),
                             "--min-lines" | "--min-nodes" => match count::parse(value) {
                                 Ok(v) => {
                                     if args[i] == "--min-lines" {
