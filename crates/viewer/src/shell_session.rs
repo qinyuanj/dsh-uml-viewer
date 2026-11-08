@@ -1,8 +1,10 @@
-//! The viewer session (#161): the window-free part of the viewer. It holds
-//! the view state and consumes `to-viewer.edn` mail, and answers each
-//! event with the repaint and GUI-cache requests the eframe shell carries
-//! out. It reads and writes the real project files, so it is not pure; its
-//! only host seam is the [`CompanionLink`], and the clock is an input.
+//! The egui window's session (#161, #17): the viewer session
+//! (`viewer_session::Session`, which knows no companion) plus what only the
+//! window still does until the companion is removed (#18): the companion
+//! link, the `to-viewer.edn` / `to-agent.edn` mail, the process identity,
+//! the restart exit and the normal close. It answers each event with the
+//! repaint and GUI-cache requests the eframe shell carries out; the clock is
+//! an input.
 //!
 //! Not the session snapshot (`session`, what a restart restores) and not
 //! the Herdr session.
@@ -15,22 +17,23 @@ use companion::mailbox::Mailbox;
 use edn::Value;
 use edn::record::{get, local_name};
 use scene::Rect;
-use scene::document::{self, ViewState};
+use scene::document::ViewState;
 use scene::events::{self, Dims};
 use scene::hit;
+use viewer_session::{Session, Start};
 
 use crate::clock;
 /// The clock the session takes as its input; the shell reads it.
 pub(crate) use crate::clock::Now;
 use crate::commands::{self, Command};
 use crate::driver::ViewRecord;
-use crate::mail::{self, DisplayBoundary};
+use crate::mail;
 use crate::session;
 /// The window chrome a session snapshot saves beside the view.
 pub(crate) use crate::session::{Chrome, WINDOW_MIN, window_size};
-use crate::{
-    detail, identity, inspector, mail_watch, mailbox, metrics, project_files, strings, watch,
-};
+use crate::{identity, mail_watch, mailbox, project_files};
+/// Canvas input and the hot-reload cadence are the viewer session's.
+pub(crate) use viewer_session::{Canvas, POLL_INTERVAL};
 
 /// What the session needs from the companion helper: poll its events, stop
 /// it (keeping the companion or not), wake it for a delivery id, and tell
@@ -98,8 +101,8 @@ impl Launch {
         } else {
             None
         };
-        let default = default_diagram(&project_root);
-        let diagram = canonical(&session::path(
+        let default = viewer_session::default_diagram(&project_root);
+        let diagram = project_files::canonical(&session::path(
             explicit.as_deref(),
             snapshot.as_ref(),
             &default,
@@ -117,41 +120,18 @@ impl Launch {
         };
         (launch, chrome)
     }
-}
 
-/// Default diagram (port of `session_file.default_diagram`): the generated
-/// `diagram.edn`, the project-named example, then any example, else
-/// `diagram.edn`.
-fn default_diagram(root: &Path) -> PathBuf {
-    let candidates = [
-        root.join("diagram.edn"),
-        root.join("examples")
-            .join(
-                root.file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
-            )
-            .with_extension("edn"),
-        root.join("examples/uml-viewer.edn"),
-    ];
-    for candidate in &candidates {
-        if candidate.is_file() {
-            return candidate.clone();
+    /// How the viewer session opens: a companion launch waits for
+    /// `:display`, a restart restores the snapshot, else a fresh fit.
+    fn start(&self) -> Start {
+        if self.backend && !self.restart {
+            Start::Waiting
+        } else if self.restart {
+            Start::Restore(self.snapshot.clone())
+        } else {
+            Start::Fresh
         }
     }
-    if let Ok(entries) = std::fs::read_dir(root.join("examples"))
-        && let Some(found) = entries
-            .flatten()
-            .map(|e| e.path())
-            .find(|p| p.extension().is_some_and(|e| e == "edn"))
-    {
-        return found;
-    }
-    candidates[0].clone()
-}
-
-fn canonical(path: &Path) -> PathBuf {
-    project_files::canonical(path)
 }
 
 /// Something the shell hands the session.
@@ -187,58 +167,6 @@ pub(crate) enum Event {
     Notice(String),
 }
 
-/// Canvas input in view units (points from the canvas origin), from real
-/// input and driver replay alike.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Canvas {
-    Press(f64, f64),
-    DoublePress(f64, f64),
-    /// A right-button press: select what it hits for the element menu.
-    SecondaryPress(f64, f64),
-    Move(f64, f64),
-    /// The pointer moved with the button down.
-    Drag(f64, f64),
-    Release(f64, f64),
-    /// The pointer left the canvas (or went over a captured area).
-    Leave,
-    /// A press and release at one point (driver replay).
-    Click(f64, f64),
-    /// Press, drag and release in one step (driver replay).
-    DragTo {
-        from: [f64; 2],
-        to: [f64; 2],
-    },
-    /// Wheel notches; the modifiers travel in the dims.
-    Wheel {
-        dx: f64,
-        dy: f64,
-    },
-    /// A canvas key; `r` also forces a reload on the next tick.
-    Key(String),
-    /// The wheel over the class card scrolls its rows.
-    ScrollCard {
-        rows: Vec<detail::Row>,
-        delta: f64,
-        view_h: f64,
-    },
-    /// The frame's fit checkpoint: fit once when a fit is pending.
-    Fit,
-    /// Set the zoom (keeping the window centre) and/or centre a world point
-    /// (the driver's `:view`).
-    View {
-        zoom: Option<f64>,
-        center: Option<[f64; 2]>,
-    },
-    /// The bench's unclamped camera: world centre and zoom; no fit.
-    Camera {
-        cx: f64,
-        cy: f64,
-        zoom: f64,
-    },
-    /// The shell owns the camera (the bench): drop a pending fit.
-    HoldCamera,
-}
-
 /// How long a normal close waits for the helper to settle.
 pub(crate) const NORMAL_CLOSE_DEADLINE: Duration = Duration::from_secs(5);
 
@@ -258,9 +186,6 @@ pub(crate) enum Action {
     /// A right-click menu operation on the selection: mail it to the agent.
     Mail(String),
 }
-
-/// The hot-reload and mail cadence.
-pub(crate) const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// Whether the shell should draw another frame.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -283,11 +208,8 @@ pub(crate) struct Effects {
 }
 
 pub(crate) struct ViewerSession {
-    state: ViewState,
-    project_root: PathBuf,
-    diagram: PathBuf,
-    hint: Option<String>,
-    status: Option<String>,
+    /// The view, actions and hot reload: no companion in there.
+    core: Session,
     link: Box<dyn CompanionLink>,
     /// The latest helper or mailbox line; copied to `status` on a mail poll.
     link_status: Option<String>,
@@ -299,9 +221,6 @@ pub(crate) struct ViewerSession {
     agent: Option<CodingAgent>,
     /// The identity was recorded (at startup, or once the helper was ready).
     identity_recorded: bool,
-    /// When the IR and metrics stamps were last polled; `None` is due.
-    last_poll: Option<Instant>,
-    force_refresh: bool,
     /// `:quit-for-restart` already asked the helper to stop with `keep`.
     restart_stop: bool,
     /// A normal close stops the helper; the viewer exits at this deadline.
@@ -316,31 +235,26 @@ impl ViewerSession {
         launch: Launch,
         start_link: impl FnOnce() -> Box<dyn CompanionLink>,
     ) -> Result<ViewerSession, String> {
-        let mut session = ViewerSession {
-            state: ViewState::default(),
-            inbox: Mailbox::inbox(&launch.project_root),
-            project_root: launch.project_root,
-            diagram: launch.diagram,
-            hint: None,
-            status: None,
-            link: Box::new(NoLink),
-            link_status: None,
-            mail_watch: mail_watch::Watch::new(),
+        let start = launch.start();
+        let inbox = Mailbox::inbox(&launch.project_root);
+        let core = Session::open(launch.project_root, launch.diagram, start)?;
+        let link = start_link();
+        let mut mail_watch = mail_watch::Watch::new();
+        mail_watch.baseline(core.project_root());
+        // The identity waits for `Event::Started` (or, with a companion, its
+        // ready): a refused or invalid startup never overwrites an existing one.
+        Ok(ViewerSession {
+            core,
+            link_status: link.launch_status(),
+            link,
+            inbox,
+            mail_watch,
             backend: launch.backend,
             agent: launch.agent,
             identity_recorded: false,
-            last_poll: None,
-            force_refresh: false,
             restart_stop: false,
             close_deadline: None,
-        };
-        session.load_initial(launch.restart, launch.backend, launch.snapshot.as_ref())?;
-        session.link = start_link();
-        session.link_status = session.link.launch_status();
-        session.mail_watch.baseline(&session.project_root);
-        // The identity waits for `Event::Started` (or, with a companion, its
-        // ready): a refused or invalid startup never overwrites an existing one.
-        Ok(session)
+        })
     }
 
     /// Open with the production companion link: the real worker on a
@@ -358,6 +272,10 @@ impl ViewerSession {
         })
     }
 
+    fn project_root(&self) -> &Path {
+        self.core.project_root()
+    }
+
     /// Apply one event at `now`.
     pub(crate) fn process(&mut self, event: Event, now: Now) -> Effects {
         match event {
@@ -370,27 +288,21 @@ impl ViewerSession {
             Event::Action(action, dims) => self.apply(action, &dims, now),
             Event::MailDue => self.poll_mail(),
             Event::Tick => {
-                let due = self
-                    .last_poll
-                    .is_none_or(|at| now.at.saturating_duration_since(at) >= POLL_INTERVAL);
-                if self.force_refresh || due {
-                    self.force_refresh = false;
-                    self.last_poll = Some(now.at);
-                    self.reload();
-                }
                 // The frame that ran this tick draws the result; a reload
                 // never asks for another one.
+                self.core.tick(now.at);
                 Effects::default()
             }
             Event::RestartExit(chrome) => self.restart_exit(&chrome),
             Event::NormalClose => self.begin_normal_close(now),
             Event::NormalCloseCheckpoint => self.normal_close_checkpoint(now),
             Event::Canvas(input, dims) => {
-                self.canvas(input, dims);
+                // The frame that carried the input draws its result.
+                self.core.canvas(input, dims);
                 Effects::default()
             }
             Event::Notice(line) => {
-                self.status = Some(line);
+                self.core.set_status(Some(line));
                 Effects {
                     repaint: Repaint::Now,
                     ..Effects::default()
@@ -419,7 +331,7 @@ impl ViewerSession {
     /// replacement viewer binds the companion that is actually there, then
     /// save the snapshot and exit 0.
     fn restart_exit(&mut self, chrome: &Chrome) -> Effects {
-        if !self.state.quit_for_restart && !self.restart_stop {
+        if !self.core.state().quit_for_restart && !self.restart_stop {
             return Effects::default();
         }
         if !self.restart_stop {
@@ -433,77 +345,14 @@ impl ViewerSession {
                 ..Effects::default()
             };
         }
-        let snapshot = session::snapshot(&self.state, chrome);
-        if let Err(error) = session::save(&self.project_root, &snapshot) {
+        let snapshot = session::snapshot(self.core.state(), chrome);
+        if let Err(error) = session::save(self.project_root(), &snapshot) {
             eprintln!("uml viewer: could not save the session: {error}");
         }
         Effects {
             close: Some(0),
             ..Effects::default()
         }
-    }
-
-    /// Dispatch canvas input to the scene core. The frame that carried the
-    /// input draws its result, so it asks for no repaint.
-    fn canvas(&mut self, input: Canvas, mut dims: Dims) {
-        let s = &self.state;
-        if input == Canvas::Fit && !s.fit_pending {
-            return;
-        }
-        self.state = match input {
-            Canvas::Press(x, y) => events::on_left_press(s, x, y),
-            Canvas::DoublePress(x, y) => events::on_double_press(s, x, y),
-            Canvas::SecondaryPress(x, y) => events::on_secondary_press(s, x, y),
-            Canvas::Move(x, y) => events::on_move(s, x, y),
-            Canvas::Drag(x, y) => events::on_drag(s, x, y),
-            Canvas::Release(x, y) => events::on_release(s, x, y),
-            Canvas::Leave => events::on_leave(s),
-            Canvas::Click(x, y) => events::on_release(&events::on_left_press(s, x, y), x, y),
-            Canvas::DragTo { from, to } => {
-                let pressed = events::on_left_press(s, from[0], from[1]);
-                let dragged = events::on_drag(&pressed, to[0], to[1]);
-                events::on_release(&dragged, to[0], to[1])
-            }
-            Canvas::Wheel { dx, dy } => events::on_wheel(s, dx, dy, &dims),
-            Canvas::Key(key) => {
-                if key == "r" {
-                    self.force_refresh = true;
-                }
-                dims.raw_key = Some(key.clone());
-                events::on_key(s, Some(&Value::String(key)), &dims)
-            }
-            Canvas::ScrollCard {
-                rows,
-                delta,
-                view_h,
-            } => inspector::scroll_rows(s, &rows, delta, view_h),
-            Canvas::Fit => events::settle(s, &dims),
-            Canvas::View { zoom, center } => {
-                let mut next = s.clone();
-                if let Some(zoom) = zoom {
-                    // Keep the view centre fixed, like ctrl+wheel at the middle.
-                    let factor = zoom / next.zoom.max(1e-6);
-                    let (cx, cy) = (dims.window_w / 2.0, dims.window_h / 2.0);
-                    next = events::zoom_at(&next, factor, cx, cy);
-                    next.fit_pending = false;
-                }
-                if let Some(point) = center {
-                    centre_on(&mut next, point, &dims);
-                }
-                next
-            }
-            Canvas::Camera { cx, cy, zoom } => {
-                let mut next = s.clone();
-                next.zoom = zoom;
-                centre_on(&mut next, [cx, cy], &dims);
-                next.fit_pending = false;
-                next
-            }
-            Canvas::HoldCamera => ViewState {
-                fit_pending: false,
-                ..s.clone()
-            },
-        };
     }
 
     /// A normal close asks the helper to stop without keeping the companion;
@@ -542,120 +391,91 @@ impl ViewerSession {
     }
 
     /// Apply one front-end action. Every action redraws; proposal writeback
-    /// also invalidates the GUI caches.
+    /// also invalidates the GUI caches. The viewer session applies it; the
+    /// mail-only parts (the chosen context, regen and the element menu) go
+    /// to the companion here.
     fn apply(&mut self, action: Action, dims: &Dims, now: Now) -> Effects {
-        let outbox = Mailbox::outbox(&self.project_root);
-        let mut effects = Effects {
-            repaint: Repaint::Now,
-            ..Effects::default()
-        };
-        let state = &self.state;
-        match action {
-            Action::Choose(id) => {
-                let choice = inspector::choose(state, id.as_ref());
-                self.state = choice.state;
-                let extra: Vec<(Value, Value)> = match &choice.context {
-                    Value::Map(entries) => entries.clone(),
-                    _ => Vec::new(),
-                };
-                if let Err(error) = outbox.append("context", &extra) {
-                    eprintln!("uml viewer: could not send the context: {error}");
-                }
-                self.state.discussion_context = Some(choice.context);
-            }
-            Action::NewProposal => {
-                let name = clock::proposal_name(now.epoch);
-                self.state =
-                    events::add_proposal(state, now.epoch, &name, Some(&project_files::Files));
-                effects.invalidate_gui = true;
-            }
-            Action::Declutter => self.state = events::cycle_declutter(state),
+        let outbox = Mailbox::outbox(self.project_root());
+        let core_action = match action {
+            Action::Choose(id) => viewer_session::Action::Choose(id),
+            Action::NewProposal => viewer_session::Action::NewProposal {
+                epoch: now.epoch,
+                name: clock::proposal_name(now.epoch),
+            },
+            Action::Declutter => viewer_session::Action::Declutter,
+            Action::Rename(id, name) => viewer_session::Action::Rename(id, name),
+            Action::Delete(id) => viewer_session::Action::Delete(id),
+            Action::CloseCard => viewer_session::Action::CloseCard,
+            Action::Locate(id) => viewer_session::Action::Locate(id),
             Action::Regen => {
-                // The durable queue is authoritative; the wake tells the
-                // agent there is something to consume. Without a helper the
-                // request still waits in the queue (#142).
-                self.status = Some(match outbox.append("regen", &[]) {
-                    Ok(cmd) => {
-                        let id = companion::record::get_i64(&cmd, "id").unwrap_or(0);
-                        if self.link.wake(id).is_ok() {
-                            "Regen requested.".into()
-                        } else {
-                            format!(
-                                "Regen queued; {} session not attached.",
-                                companion::worker::agent_status_name(
-                                    &self.project_root.to_string_lossy(),
-                                    self.agent,
-                                )
-                            )
-                        }
-                    }
-                    Err(_) => "Regen failed.".into(),
-                });
-                self.mail_watch.baseline(&self.project_root);
+                self.regen(&outbox);
+                return redraw();
             }
-            Action::Rename(id, name) => {
-                self.state =
-                    events::rename_proposal(state, Some(&id), &name, Some(&project_files::Files));
-                effects.invalidate_gui = true;
-            }
-            Action::Delete(id) => {
-                self.state = events::delete_proposal(state, Some(&id), Some(&project_files::Files));
-                effects.invalidate_gui = true;
-            }
-            Action::CloseCard => self.state = events::close_detail(state),
-            Action::Locate(id) => self.state = events::locate(state, &id, dims),
             Action::Mail(op) => {
-                // The right-click menu writes the exact `to-agent.edn`
-                // command and wakes the companion for that delivery.
-                let (op, extra) = mailbox::menu_mail(state, state.selected.as_ref(), &op);
-                match outbox.append(&op, &extra) {
-                    Ok(cmd) => {
-                        let id = companion::record::get_i64(&cmd, "id").unwrap_or(0);
-                        if let Err(error) = self.link.wake(id) {
-                            eprintln!("uml viewer: could not wake the companion: {error}");
-                        }
-                    }
-                    Err(error) => self.status = Some(format!("Mail failed: {error}")),
-                }
-                self.mail_watch.baseline(&self.project_root);
+                self.menu_mail(&outbox, &op);
+                return redraw();
+            }
+        };
+        let outcome = self.core.act(core_action, dims);
+        if let Some(context) = outcome.context {
+            let extra: Vec<(Value, Value)> = match context {
+                Value::Map(entries) => entries,
+                _ => Vec::new(),
+            };
+            if let Err(error) = outbox.append("context", &extra) {
+                eprintln!("uml viewer: could not send the context: {error}");
             }
         }
-        effects
+        Effects {
+            invalidate_gui: outcome.invalidate_gui,
+            ..redraw()
+        }
     }
 
-    /// Poll the IR and metrics stamps; reload when either changed.
-    fn reload(&mut self) {
-        // A companion launch shows the empty canvas until :display (#142).
-        if self.state.waiting {
-            return;
-        }
-        let path_text = self.diagram.to_string_lossy().into_owned();
-        let Ok(mtime) = watch::mtime(&self.diagram) else {
-            self.hint = Some(strings::missing_file(&path_text));
-            return;
+    /// The durable queue is authoritative; the wake tells the agent there
+    /// is something to consume. Without a helper the request still waits in
+    /// the queue (#142).
+    fn regen(&mut self, outbox: &Mailbox) {
+        let status = match outbox.append("regen", &[]) {
+            Ok(cmd) => {
+                let id = companion::record::get_i64(&cmd, "id").unwrap_or(0);
+                if self.link.wake(id).is_ok() {
+                    "Regen requested.".into()
+                } else {
+                    format!(
+                        "Regen queued; {} session not attached.",
+                        companion::worker::agent_status_name(
+                            &self.project_root().to_string_lossy(),
+                            self.agent,
+                        )
+                    )
+                }
+            }
+            Err(_) => "Regen failed.".into(),
         };
-        let (snapshots, stamp) = metrics::snapshot(&self.project_root);
-        let current_mtime = Some(Value::String(mtime));
-        if current_mtime == self.state.mtime && Some(stamp.clone()) == self.state.metrics_stamp {
-            return;
+        self.core.set_status(Some(status));
+        self.mail_watch.baseline(self.core.project_root());
+    }
+
+    /// The right-click menu writes the exact `to-agent.edn` command and
+    /// wakes the companion for that delivery.
+    fn menu_mail(&mut self, outbox: &Mailbox, op: &str) {
+        let state = self.core.state();
+        let (op, extra) = mailbox::menu_mail(state, state.selected.as_ref(), op);
+        match outbox.append(&op, &extra) {
+            Ok(cmd) => {
+                let id = companion::record::get_i64(&cmd, "id").unwrap_or(0);
+                if let Err(error) = self.link.wake(id) {
+                    eprintln!("uml viewer: could not wake the companion: {error}");
+                }
+            }
+            Err(error) => self.core.set_status(Some(format!("Mail failed: {error}"))),
         }
-        let Ok(text) = std::fs::read_to_string(&self.diagram) else {
-            self.hint = Some(strings::missing_file(&path_text));
-            return;
-        };
-        let (next, _, rejected) =
-            document::reload(&self.state, &text, current_mtime, &snapshots, Some(stamp));
-        if let Some(reason) = rejected {
-            eprintln!("Document reload rejected: {reason}");
-        }
-        if next.document.is_some() {
-            self.hint = None;
-        }
-        self.state = next;
+        self.mail_watch.baseline(self.core.project_root());
     }
 
     pub(crate) fn state(&self) -> &ViewState {
-        &self.state
+        self.core.state()
     }
 
     /// What the mail driver observes: the cursor, whether the canvas still
@@ -663,7 +483,7 @@ impl ViewerSession {
     /// context.
     pub(crate) fn mail_record(&self) -> Value {
         let kw = Value::keyword;
-        let s = &self.state;
+        let s = self.state();
         let title = s.document.as_ref().and_then(|d| get(d, "title"));
         let context = s
             .discussion_context
@@ -680,13 +500,13 @@ impl ViewerSession {
 
     /// The restart snapshot this session would save with `chrome`.
     pub(crate) fn session_record(&self, chrome: &Chrome) -> Value {
-        session::snapshot(&self.state, chrome)
+        session::snapshot(self.state(), chrome)
     }
 
     /// One diagnosis line for the class's quality rendering.
     pub(crate) fn quality_line(&self, id: &str) -> Option<String> {
         let target = Value::keyword(id);
-        commands::commands(&self.state.scene, None, None)
+        commands::commands(&self.state().scene, None, None)
             .into_iter()
             .find_map(|c| match c {
                 Command::Class {
@@ -714,7 +534,7 @@ impl ViewerSession {
     /// is a screen point whose world position it carries. The search box is
     /// the shell's, so its part is left at the default for the shell to fill.
     pub(crate) fn view_record(&self, anchor: Option<[f64; 2]>) -> ViewRecord {
-        let s = &self.state;
+        let s = self.state();
         let name = |v: &Value| local_name(v).unwrap_or_default().to_owned();
         ViewRecord {
             focus: s.focus.iter().map(name).collect(),
@@ -737,7 +557,7 @@ impl ViewerSession {
 
     /// Does the view equal a fresh fit of the canvas `dims` describe?
     pub(crate) fn is_fitted(&self, dims: &Dims) -> bool {
-        let s = &self.state;
+        let s = self.state();
         let fitted = events::fit(s, dims);
         let near = |a: f64, b: f64| (a - b).abs() < 1e-6;
         !s.fit_pending
@@ -749,15 +569,15 @@ impl ViewerSession {
     /// No scene element under this screen point (the GUI's areas are the
     /// shell's to add).
     pub(crate) fn is_blank(&self, x: f64, y: f64) -> bool {
-        let (wx, wy) = events::world_xy(&self.state, x, y);
-        hit::at(&self.state.scene, wx, wy).is_none()
+        let (wx, wy) = events::world_xy(self.state(), x, y);
+        hit::at(&self.state().scene, wx, wy).is_none()
     }
 
     /// The screen point a few units inside a rendered class box (Lua
     /// `on_class`). The compiled scene prefixes ids per section (`d0-`);
     /// the authored IR id the driver names resolves through the suffix.
     pub(crate) fn class_point(&self, id: &str) -> Result<(f64, f64), String> {
-        let s = &self.state;
+        let s = self.state();
         let wanted = Value::keyword(id);
         let suffix = format!("-{id}");
         let class = hit::class_by_id(&s.scene, &wanted)
@@ -778,12 +598,12 @@ impl ViewerSession {
 
     /// The canvas hint (a missing diagram), if any.
     pub(crate) fn hint(&self) -> Option<&str> {
-        self.hint.as_deref()
+        self.core.hint()
     }
 
     /// The status line, if any.
     pub(crate) fn status(&self) -> Option<&str> {
-        self.status.as_deref()
+        self.core.status()
     }
 
     /// Poll the helper; `true` when it reached ready on this poll.
@@ -800,62 +620,10 @@ impl ViewerSession {
         if self.identity_recorded {
             return;
         }
-        if let Err(error) = identity::record(&self.project_root) {
+        if let Err(error) = identity::record(self.project_root()) {
             eprintln!("uml viewer: could not record the process identity: {error}");
         }
         self.identity_recorded = true;
-    }
-
-    fn load_initial(
-        &mut self,
-        restart: bool,
-        backend: bool,
-        snapshot: Option<&Value>,
-    ) -> Result<(), String> {
-        let (snapshots, stamp) = metrics::snapshot(&self.project_root);
-        let path = self.diagram.to_string_lossy().into_owned();
-        let root = self.project_root.to_string_lossy().into_owned();
-        if backend && !restart {
-            let mut state = document::waiting_state(Some(path), 0);
-            state.project_root = Some(root);
-            state.revision = 1;
-            self.state = state;
-            return Ok(());
-        }
-        let text = match std::fs::read_to_string(&self.diagram) {
-            Ok(text) => text,
-            Err(_) => {
-                self.state = ViewState {
-                    path: Some(path.clone()),
-                    project_root: Some(root),
-                    revision: 1,
-                    ..ViewState::default()
-                };
-                self.hint = Some(strings::missing_file(&path));
-                return Ok(());
-            }
-        };
-        let doc = scene::ir::read_document(&text).map_err(|e| format!("{path}: {e}"))?;
-        let mtime = watch::mtime(&self.diagram).ok();
-        let mut state = document::new_state(
-            doc,
-            mtime.map(Value::String),
-            None,
-            Some(&session::view_options()),
-            &snapshots,
-            Some(stamp),
-        );
-        state.path = Some(path);
-        state.project_root = Some(root);
-        if restart {
-            if let Some(snapshot) = snapshot {
-                state = session::restore(&state, snapshot);
-            }
-        } else {
-            state.fit_pending = true;
-        }
-        self.state = state;
-        Ok(())
     }
 
     /// The mail loop: consume worker events, then the `to-viewer.edn`
@@ -863,7 +631,7 @@ impl ViewerSession {
     /// so an idle viewer stays idle (#142).
     fn poll_mail(&mut self) -> Effects {
         let mut effects = Effects::default();
-        let found = self.mail_watch.poll(&self.project_root);
+        let found = self.mail_watch.poll(self.core.project_root());
         let mut changed = false;
         if found.worker {
             let ready = self.poll_link();
@@ -879,12 +647,12 @@ impl ViewerSession {
                 changed = true;
             }
             // The pop rewrote the file this watcher reads.
-            self.mail_watch.baseline(&self.project_root);
+            self.mail_watch.baseline(self.core.project_root());
         }
         if let Some(status) = self.link_status.clone()
-            && self.status.as_deref() != Some(status.as_str())
+            && self.core.status() != Some(status.as_str())
         {
-            self.status = Some(status);
+            self.core.set_status(Some(status));
             changed = true;
         }
         if changed {
@@ -896,7 +664,6 @@ impl ViewerSession {
     /// Take and apply every queued command, oldest first; each is popped
     /// only after it was applied, so the durable queue stays authoritative.
     fn consume(&mut self) -> bool {
-        let boundary = DisplayBoundary::new(&self.project_root);
         let mut consumed = false;
         loop {
             let command = match self.inbox.take() {
@@ -907,31 +674,26 @@ impl ViewerSession {
                     break;
                 }
             };
-            let next = document::apply_mail(&self.state, &command, &boundary);
-            let path_changed = next.path != self.state.path;
-            self.state = next;
-            if let Some(path) = self.state.path.clone() {
-                self.diagram = PathBuf::from(path);
-            }
-            if path_changed {
-                self.hint = None;
-            }
+            self.core.apply_command(&command);
             consumed = true;
         }
         consumed
     }
 }
 
-/// Centre the window on the world point at the current zoom: the camera is
-/// the top-left world point.
-fn centre_on(state: &mut ViewState, [x, y]: [f64; 2], dims: &Dims) {
-    state.cam_x = x - dims.window_w / (2.0 * state.zoom);
-    state.cam_y = y - dims.window_h / (2.0 * state.zoom);
+/// Every action redraws.
+fn redraw() -> Effects {
+    Effects {
+        repaint: Repaint::Now,
+        ..Effects::default()
+    }
 }
 
-/// The link before `open` starts the real one.
+/// A link with no helper: settled, every wake and stop succeeds.
+#[cfg(test)]
 struct NoLink;
 
+#[cfg(test)]
 impl CompanionLink for NoLink {
     fn launch_status(&self) -> Option<String> {
         None

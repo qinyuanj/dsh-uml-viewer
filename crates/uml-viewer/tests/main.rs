@@ -10,6 +10,7 @@ mod dispatch;
 mod dry;
 mod dry_goldens;
 mod quality_selection;
+mod resident;
 mod scene_cli;
 
 use std::ffi::OsStr;

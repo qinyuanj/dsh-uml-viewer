@@ -207,6 +207,14 @@ def prepare_dpi_window(project):
         ' :edges [{:from :a :to :b :kind :dependency}]}')
 
 
+def prepare_standalone(project):
+    # No `.uml-viewer/` mail, ownership or Herdr state: the window alone.
+    write_text(
+        project / 'diagram.edn',
+        '{:title "Standalone" :packages [{:label "P" :classes'
+        ' [{:id :target :ns "app.target"}]}]}')
+
+
 def prepare_mail(project):
     write_text(project / '.uml-viewer/to-viewer.edn', '{:next-id 1 :queue []}')
     (project / '.metrics').mkdir(parents=True, exist_ok=True)
@@ -230,6 +238,7 @@ FIXTURES = {
     'font_parity': prepare_font_parity,
     'dpi_window': prepare_dpi_window,
     'mail': prepare_mail,
+    'standalone': prepare_standalone,
     'companion_worker': prepare_companion_worker,
     'session': prepare_session,
 }
@@ -429,6 +438,7 @@ DRIVERS = {
     'source_window': {'seconds': 20, 'evidence': ['source-window.txt', 'source-window.png']},
     'review_fixes': {'seconds': 30, 'evidence': []},
     'mail': {'seconds': 20, 'evidence': []},
+    'standalone': {'seconds': 20, 'evidence': ['standalone-pass.txt']},
     'metrics': {'seconds': 20, 'evidence': ['metrics-pass.txt', 'scene-1.edn', 'scene-2.edn']},
     'lod_shots': {'seconds': 30, 'evidence': ['lod-blocks.png', 'lod-frames.png',
                                               'lod-full.png', 'renderer.txt']},
