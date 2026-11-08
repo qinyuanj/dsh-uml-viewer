@@ -1,5 +1,7 @@
 //! Native report formats used by Go, Java and Cloverage.
-use crate::coverage::{Lines, Records, candidates, coverage_percent, normalize_path, report_texts};
+use crate::coverage::{
+    Lines, Records, SuffixIndex, candidates, coverage_percent, normalize_path, report_texts,
+};
 use crate::functions::Function;
 use crate::language::Language;
 use crate::paths::posix;
@@ -17,23 +19,27 @@ fn suffix_match(path: &str, suffix: &str) -> bool {
 }
 /// Profile source → (start line, end line, statements, executions).
 type GoProfile = Vec<(String, Vec<(usize, usize, u64, u64)>)>;
-#[derive(Default)]
 pub(super) struct Reports {
     go: GoProfile,
     java: Vec<(String, String, usize, u64, u64)>,
-    pub forms: Records,
+    forms: SuffixIndex,
 }
+
+impl Default for Reports {
+    fn default() -> Self {
+        Reports {
+            go: GoProfile::new(),
+            java: Vec::new(),
+            forms: SuffixIndex::new(&Records::default()),
+        }
+    }
+}
+
 impl Reports {
+    /// crapper `_SuffixIndex.get` for Cloverage HTML: an exact report key
+    /// wins, then the earliest record ending with a candidate.
     pub fn forms_percent(&self, path: &str) -> Option<&Lines> {
-        let candidates = candidates(path);
-        self.forms
-            .iter()
-            .find(|(key, _)| {
-                candidates
-                    .iter()
-                    .any(|candidate| suffix_match(key, candidate))
-            })
-            .map(|(_, lines)| lines)
+        self.forms.get(path)
     }
     pub fn percent(&self, f: &Function) -> Option<f64> {
         match f.language {
@@ -146,6 +152,7 @@ impl Reports {
     }
     pub fn load(root: &Path) -> Self {
         let mut reports = Self::default();
+        let mut forms = Records::default();
         for text in report_texts(
             root,
             &[
@@ -207,8 +214,9 @@ impl Reports {
                 }
             }
             let key = posix(&path.strip_prefix(&coverage).unwrap().with_extension(""));
-            reports.forms.insert(key, lines);
+            forms.insert(key, lines);
         }
+        reports.forms = SuffixIndex::new(&forms);
         reports
     }
 }

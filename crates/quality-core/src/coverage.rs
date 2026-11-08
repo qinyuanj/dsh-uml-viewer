@@ -328,16 +328,17 @@ fn io_message(error: &std::io::Error, path: &Path) -> String {
     }
 }
 
-/// Legacy exact-then-suffix matching: the first report record, in report
-/// order, whose path ends with any candidate name of the source.
-struct SuffixIndex {
+/// Legacy exact-then-suffix matching: an exact normalized key first, else the
+/// first report record, in report order, whose path ends with any candidate
+/// name of the source.
+pub(super) struct SuffixIndex {
     normalized: HashMap<String, usize>,
     lines: Vec<Lines>,
     suffixes: HashMap<Vec<String>, usize>,
 }
 
 impl SuffixIndex {
-    fn new(records: &Records) -> SuffixIndex {
+    pub(super) fn new(records: &Records) -> SuffixIndex {
         let mut index = SuffixIndex {
             normalized: HashMap::new(),
             lines: Vec::new(),
@@ -365,7 +366,7 @@ impl SuffixIndex {
         index
     }
 
-    fn get(&self, source_path: &str) -> Option<&Lines> {
+    pub(super) fn get(&self, source_path: &str) -> Option<&Lines> {
         if self.lines.is_empty() {
             return None;
         }
