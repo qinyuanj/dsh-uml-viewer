@@ -7,7 +7,10 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 static NEXT: AtomicUsize = AtomicUsize::new(0);
-struct Fixture(PathBuf);
+struct Fixture {
+    directory: PathBuf,
+    project: PathBuf,
+}
 fn copy(from: &Path, to: &Path) {
     fs::create_dir_all(to).unwrap();
     for entry in fs::read_dir(from).unwrap() {
@@ -36,23 +39,38 @@ fn git(root: &Path, args: &[&str]) {
     assert!(status.success(), "git {args:?}");
 }
 impl Fixture {
-    fn new() -> Self {
-        let path = std::env::temp_dir().join(format!(
+    fn create(relative: &str) -> Self {
+        let directory = std::env::temp_dir().join(format!(
             "mutator-acceptance-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
+        let copy_to = if relative.is_empty() {
+            directory.clone()
+        } else {
+            directory.join(relative)
+        };
         copy(
             &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/mutate/rust"),
-            &path,
+            &copy_to,
         );
-        Self(path)
+        Self {
+            project: copy_to.join("project"),
+            directory,
+        }
+    }
+    fn new() -> Self {
+        Self::create("")
+    }
+    /// A project whose absolute path contains a skipped directory name.
+    fn under_skip_named_directory() -> Self {
+        Self::create("build")
     }
     fn root(&self) -> PathBuf {
-        self.0.join("project")
+        self.project.clone()
     }
     fn scratch(&self) -> &Path {
-        &self.0
+        &self.directory
     }
     fn commit_baseline(&self) {
         let root = self.root();
@@ -73,20 +91,26 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        let temporary = std::env::temp_dir();
         let name = self
-            .0
+            .directory
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or_default();
         // Never remove a path this fixture did not create.
-        if self.0.parent() != Some(temporary.as_path()) || !name.starts_with("mutator-acceptance-")
+        if !self.directory.starts_with(std::env::temp_dir())
+            || !name.starts_with("mutator-acceptance-")
         {
-            eprintln!("Not removing unexpected fixture path {}", self.0.display());
+            eprintln!(
+                "Not removing unexpected fixture path {}",
+                self.directory.display()
+            );
             return;
         }
-        if let Err(error) = fs::remove_dir_all(&self.0) {
-            eprintln!("Cannot remove fixture {}: {error}", self.0.display());
+        if let Err(error) = fs::remove_dir_all(&self.directory) {
+            eprintln!(
+                "Cannot remove fixture {}: {error}",
+                self.directory.display()
+            );
         }
     }
 }
@@ -353,4 +377,27 @@ fn stale_backups_refuse_the_run_before_any_test_executes() {
         ExitCode::from(3)
     );
     assert!(marker.exists());
+}
+
+#[test]
+fn changed_selection_keeps_files_below_a_skip_named_directory() {
+    // The shared changed walk compares project-relative components, so a
+    // project below ".../build/..." is not mistaken for build output.
+    let fixture = Fixture::under_skip_named_directory();
+    fixture.commit_baseline();
+    fs::write(
+        fixture.root().join("app/src/extra.rs"),
+        "pub fn extra(x: i64) -> i64 {\n    x + x\n}\n",
+    )
+    .unwrap();
+    assert_eq!(
+        fixture.run(&["--changed", "--no-coverage", "--test-command", "true"]),
+        ExitCode::from(3)
+    );
+    assert!(
+        fixture
+            .root()
+            .join(".metrics/mutate/app/extra.edn")
+            .is_file()
+    );
 }
