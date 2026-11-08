@@ -62,10 +62,17 @@ fn changed_selects_existing_git_changes_inside_scope_with_filters_and_exclusions
     assert_eq!(p.names(), ["untracked"]);
     // Python ignores an existing path positional with --changed; only a
     // missing native-separator spelling becomes a (nonmatching) text filter.
-    let native = if cfg!(windows) { "src\\edit.rs" } else { "src/edit.rs" };
+    let native = if cfg!(windows) {
+        "src\\edit.rs"
+    } else {
+        "src/edit.rs"
+    };
     let result = p.crap(&["--changed", "--no-coverage", native]);
     assert_eq!(result.status.code(), Some(0), "{}", stderr(&result));
-    assert_eq!(p.names(), ["edited", "excluded", "outside", "rename", "untracked"]);
+    assert_eq!(
+        p.names(),
+        ["edited", "excluded", "outside", "rename", "untracked"]
+    );
 }
 
 #[test]

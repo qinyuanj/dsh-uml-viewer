@@ -4,7 +4,7 @@
 
 use super::Program;
 use std::ffi::{OsStr, OsString};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, Read};
 use std::mem::size_of;
 use std::os::windows::ffi::OsStrExt;
@@ -81,27 +81,157 @@ fn comspec() -> OsString {
     })
 }
 
-fn prepare(program: &Program, cwd: &Path) -> io::Result<(OsString, Vec<u16>)> {
+struct Prepared {
+    exe: OsString,
+    line: Vec<u16>,
+    environment: Option<Vec<u16>>,
+}
+
+fn prepare(program: &Program, cwd: &Path) -> io::Result<Prepared> {
     match program {
         Program::Shell(text) => {
             let exe = comspec();
             let mut line = quote(&exe);
             line.extend(OsStr::new(&format!(" /d /v:off /s /c \"{text}\"")).encode_wide());
-            Ok((exe, line))
+            Ok(Prepared {
+                exe,
+                line,
+                environment: None,
+            })
         }
         Program::Argv(argv) => {
             let (first, rest) = argv
                 .split_first()
                 .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty argv"))?;
-            let exe = resolve(first, cwd);
-            let mut line = quote(exe.as_os_str());
+            let launcher = resolve(first, cwd);
+            if let Some((exe, args)) = node_entry(&launcher, rest) {
+                let line = args.iter().fold(quote(&exe), |mut line, arg| {
+                    line.push(b' ' as u16);
+                    line.extend(quote(OsStr::new(arg)));
+                    line
+                });
+                return Ok(Prepared {
+                    exe,
+                    line,
+                    environment: None,
+                });
+            }
+            if launcher.extension().is_some_and(|ext| {
+                ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat")
+            }) {
+                return batch(&launcher, rest);
+            }
+            let exe = launcher.into_os_string();
+            let mut line = quote(&exe);
             for arg in rest {
                 line.push(b' ' as u16);
                 line.extend(quote(OsStr::new(arg)));
             }
-            Ok((exe.into_os_string(), line))
+            Ok(Prepared {
+                exe,
+                line,
+                environment: None,
+            })
         }
     }
+}
+
+fn node_entry(launcher: &Path, args: &[String]) -> Option<(OsString, Vec<String>)> {
+    let stem = launcher.file_stem()?.to_str()?.to_ascii_lowercase();
+    let parent = launcher.parent()?;
+    let entry = if stem == "npm" || stem == "npx" {
+        parent
+            .join("node_modules/npm/bin")
+            .join(format!("{stem}-cli.js"))
+    } else if stem == "vitest" && parent.file_name().is_some_and(|name| name == ".bin") {
+        let package = parent.parent()?.join("vitest");
+        let text = fs::read_to_string(package.join("package.json")).ok()?;
+        let manifest: serde_json::Value = serde_json::from_str(&text).ok()?;
+        let bin = manifest.get("bin")?;
+        let entry = bin.as_str().or_else(|| bin.get("vitest")?.as_str())?;
+        package.join(entry)
+    } else {
+        return None;
+    };
+    entry.is_file().then(|| {
+        let node = parent.join("node.exe");
+        let node = if node.is_file() {
+            node
+        } else {
+            super::which("node").unwrap_or_else(|| PathBuf::from("node"))
+        };
+        (
+            node.into_os_string(),
+            std::iter::once(entry.to_string_lossy().into_owned())
+                .chain(args.iter().cloned())
+                .collect(),
+        )
+    })
+}
+
+fn batch(launcher: &Path, args: &[String]) -> io::Result<Prepared> {
+    let exe = comspec();
+    let prefix = format!("CRAPPER_ARG_{}_", std::process::id());
+    let mut variables: Vec<(OsString, OsString)> = Vec::new();
+    let mut line = quote(&exe);
+    line.extend(OsStr::new(" /d /v:off /s /c \"").encode_wide());
+    for (index, arg) in std::iter::once(&launcher.to_string_lossy().into_owned())
+        .chain(args.iter())
+        .enumerate()
+    {
+        if arg.contains(['\0', '\r', '\n']) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Windows batch arguments cannot contain NUL or newlines",
+            ));
+        }
+        // cmd keeps doubled quotes quoted; MSVCRT sees them as literal quotes.
+        let mut quoted = String::new();
+        let mut slashes = 0;
+        for ch in arg.chars() {
+            if ch == '\\' {
+                slashes += 1;
+                continue;
+            }
+            if ch == '\"' {
+                quoted.push_str(&"\\".repeat(slashes * 2));
+                quoted.push_str("\"\"");
+            } else {
+                quoted.push_str(&"\\".repeat(slashes));
+                quoted.push(ch);
+            }
+            slashes = 0;
+        }
+        quoted.push_str(&"\\".repeat(slashes * 2));
+        let name = format!("{prefix}{index}");
+        variables.push((name.clone().into(), format!("\"{quoted}\"").into()));
+        line.extend(format!("%{name}% ").encode_utf16());
+    }
+    line.extend(OsStr::new("\"").encode_wide());
+    Ok(Prepared {
+        exe,
+        line,
+        environment: Some(environment(variables)),
+    })
+}
+
+fn environment(added: Vec<(OsString, OsString)>) -> Vec<u16> {
+    let mut vars: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+    vars.extend(added);
+    vars.sort_by(|a, b| {
+        a.0.to_string_lossy()
+            .to_lowercase()
+            .cmp(&b.0.to_string_lossy().to_lowercase())
+    });
+    let mut result = Vec::new();
+    for (key, value) in vars {
+        result.extend(key.encode_wide());
+        result.push(b'=' as u16);
+        result.extend(value.encode_wide());
+        result.push(0);
+    }
+    result.push(0);
+    result
 }
 
 fn resolve(name: &str, cwd: &Path) -> PathBuf {
@@ -172,32 +302,44 @@ fn pipe() -> io::Result<(File, OwnedHandle)> {
 struct Attributes {
     // Word allocation gives the opaque list native pointer alignment.
     storage: Vec<usize>,
+    initialized: bool,
 }
 impl Attributes {
-    fn new(handles: &[HANDLE]) -> io::Result<Self> {
+    fn new(handles: &[HANDLE], jobs: &[HANDLE]) -> io::Result<Self> {
         let mut bytes = 0;
         unsafe {
-            InitializeProcThreadAttributeList(null_mut(), 1, 0, &mut bytes);
+            InitializeProcThreadAttributeList(null_mut(), 2, 0, &mut bytes);
         }
         if bytes == 0 {
             return Err(io::Error::last_os_error());
         }
         let mut attributes = Self {
             storage: vec![0; bytes.div_ceil(size_of::<usize>())],
+            initialized: false,
         };
         unsafe {
             checked(InitializeProcThreadAttributeList(
                 attributes.ptr(),
-                1,
+                2,
                 0,
                 &mut bytes,
             ))?;
+            attributes.initialized = true;
             checked(UpdateProcThreadAttribute(
                 attributes.ptr(),
                 0,
                 PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
                 handles.as_ptr().cast(),
                 std::mem::size_of_val(handles),
+                null_mut(),
+                null(),
+            ))?;
+            checked(UpdateProcThreadAttribute(
+                attributes.ptr(),
+                0,
+                PROC_THREAD_ATTRIBUTE_JOB_LIST as usize,
+                jobs.as_ptr().cast(),
+                std::mem::size_of_val(jobs),
                 null_mut(),
                 null(),
             ))?;
@@ -210,8 +352,10 @@ impl Attributes {
 }
 impl Drop for Attributes {
     fn drop(&mut self) {
-        unsafe {
-            DeleteProcThreadAttributeList(self.ptr());
+        if self.initialized {
+            unsafe {
+                DeleteProcThreadAttributeList(self.ptr());
+            }
         }
     }
 }
@@ -263,7 +407,11 @@ fn finish(reader: Option<std::thread::JoinHandle<io::Result<Vec<u8>>>>) -> io::R
 }
 
 pub(super) fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Result<Output> {
-    let (exe, mut line) = prepare(program, cwd)?;
+    let Prepared {
+        exe,
+        mut line,
+        environment,
+    } = prepare(program, cwd)?;
     if line.contains(&0) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -297,7 +445,10 @@ pub(super) fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Resul
         stdout.as_raw_handle(),
         stderr.as_raw_handle(),
     ];
-    let mut attributes = Attributes::new(&handles)?;
+    // Assign the job atomically during creation (Windows 10 documented
+    // PROC_THREAD_ATTRIBUTE_JOB_LIST), before the primary thread is resumed.
+    let jobs = [job.as_raw_handle()];
+    let mut attributes = Attributes::new(&handles, &jobs)?;
     let mut startup = STARTUPINFOEXW::default();
     startup.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
     startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
@@ -313,8 +464,18 @@ pub(super) fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Resul
             null(),
             null(),
             1,
-            CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT,
-            null(),
+            CREATE_SUSPENDED
+                | EXTENDED_STARTUPINFO_PRESENT
+                | if environment.is_some() {
+                    CREATE_UNICODE_ENVIRONMENT
+                } else {
+                    0
+                },
+            environment
+                .as_ref()
+                .map_or(null(), |env| env.as_ptr())
+                .cast_mut()
+                .cast(),
             cwd.as_ptr(),
             &startup.StartupInfo,
             &mut info,

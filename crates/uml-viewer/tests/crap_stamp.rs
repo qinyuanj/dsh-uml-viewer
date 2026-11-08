@@ -9,12 +9,21 @@ const STAMP: &str = "target/coverage/crapper-stamp.json";
 fn fresh_custom_report_does_not_assign_a_siblings_suffix_coverage() {
     let p = project();
     p.write("other/a.rs", "pub fn other() {}\n");
-    p.write("report-input", "SF:other/a.rs\nDA:1,1\nLF:1\nLH:1\nend_of_record\n");
-    let result = p.crap(&["-s", "a.rs", "--coverage-command", &command(), "--threshold", "8"]);
+    p.write(
+        "report-input",
+        "SF:other/a.rs\nDA:1,1\nLF:1\nLH:1\nend_of_record\n",
+    );
+    let result = p.crap(&[
+        "-s",
+        "a.rs",
+        "--coverage-command",
+        &command(),
+        "--threshold",
+        "8",
+    ]);
     assert_eq!(result.status.code(), Some(3), "{}", stderr(&result));
     assert!(p.snapshot().unwrap().contains(":coverage nil, :crap nil"));
 }
-
 
 // The test executable is a portable, Rust-only coverage fixture command.
 // Tests invoke this exact test in a fresh process at the scratch project root.

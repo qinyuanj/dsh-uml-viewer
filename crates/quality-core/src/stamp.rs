@@ -32,7 +32,10 @@ fn ascii_json(text: &str, escape_ascii: bool) -> String {
     for ch in text.chars() {
         if ch.is_ascii() {
             match ch {
-                '"' | '\\' if escape_ascii => { out.push('\\'); out.push(ch); }
+                '"' | '\\' if escape_ascii => {
+                    out.push('\\');
+                    out.push(ch);
+                }
                 '\n' if escape_ascii => out.push_str("\\n"),
                 '\r' if escape_ascii => out.push_str("\\r"),
                 '\t' if escape_ascii => out.push_str("\\t"),
@@ -165,7 +168,10 @@ pub fn record(
             result => result,
         }
     } else {
-        let bytes = ascii_json(&(serde_json::to_string_pretty(&data).expect("stamp JSON") + "\n"), false);
+        let bytes = ascii_json(
+            &(serde_json::to_string_pretty(&data).expect("stamp JSON") + "\n"),
+            false,
+        );
         crate::atomic::write_bytes(&stamp_path(root), bytes.as_bytes())
     };
     if let Err(error) = result {

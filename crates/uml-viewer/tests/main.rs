@@ -6,6 +6,7 @@
 
 mod crap;
 mod crap_changed;
+mod crap_gates;
 mod crap_goldens;
 mod crap_process;
 mod crap_stamp;

@@ -63,6 +63,13 @@ fn main() {
         thread::sleep(Duration::from_secs(120));
         return;
     }
+    if mode == "rev-parse" || mode == "status" {
+        let child = Command::new(env::current_exe().unwrap()).arg("sleep").stdin(Stdio::null()).spawn().unwrap();
+        fs::write(format!("captured-{mode}.pid"), child.id().to_string()).unwrap();
+        if mode == "rev-parse" { println!("{}", env::current_dir().unwrap().display()); }
+        else { print!("?? src/a.rs\0"); }
+        return;
+    }
     let child = Command::new(env::current_exe().unwrap()).arg("sleep")
         .stdin(Stdio::null()).spawn().unwrap();
     fs::write("grandchild.pid", child.id().to_string()).unwrap();
@@ -92,10 +99,16 @@ fn launch(project: &Project, mode: &str) -> Cli {
     let stdout = fs::File::create(project.root.join("cli.stdout")).unwrap();
     let stderr = fs::File::create(project.root.join("cli.stderr")).unwrap();
     Cli(Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
-        .arg("crap").arg("--root").arg(&project.root)
-        .arg("--coverage-command").arg(command)
+        .arg("crap")
+        .arg("--root")
+        .arg(&project.root)
+        .arg("--coverage-command")
+        .arg(command)
         .current_dir(&project.root)
-        .stdout(stdout).stderr(stderr).spawn().unwrap())
+        .stdout(stdout)
+        .stderr(stderr)
+        .spawn()
+        .unwrap())
 }
 
 fn pid(path: &Path) -> u32 {
@@ -144,6 +157,58 @@ fn normal_coverage_shell_exit_ends_descendants_and_preserves_streams() {
     );
     assert!(stderr.contains("leader stderr"));
     assert!(project.snapshot().is_some());
+}
+
+#[test]
+fn captured_git_returns_after_leader_exit_and_ends_pipe_holding_descendants() {
+    let project = Project::new();
+    project.write("src/a.rs", "pub fn value() -> i32 { 42 }\n");
+    let source = project.write("helper/git.rs", HELPER);
+    let git = project.root.join("helper/git.exe");
+    let status = Command::new("rustc")
+        .arg("--edition=2024")
+        .arg(&source)
+        .arg("-o")
+        .arg(&git)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let path = std::env::join_paths(std::iter::once(git.parent().unwrap().to_path_buf()).chain(
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+    ))
+    .unwrap();
+    let stdout = fs::File::create(project.root.join("cli.stdout")).unwrap();
+    let stderr = fs::File::create(project.root.join("cli.stderr")).unwrap();
+    let mut cli = Cli(Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
+        .arg("crap")
+        .arg("--root")
+        .arg(&project.root)
+        .args(["--changed", "--no-coverage", "-s", "src"])
+        .env("PATH", path)
+        .current_dir(&project.root)
+        .stdout(stdout)
+        .stderr(stderr)
+        .spawn()
+        .unwrap());
+    let start = Instant::now();
+    while cli.0.try_wait().unwrap().is_none() {
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "captured Git waited for descendant pipe EOF"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let result = cli.0.wait().unwrap();
+    for mode in ["rev-parse", "status"] {
+        let child = Descendant::open(pid(&project.root.join(format!("captured-{mode}.pid"))));
+        assert!(child.ended(), "captured Git descendant survived");
+    }
+    assert!(
+        result.success(),
+        "{}",
+        fs::read_to_string(project.root.join("cli.stderr")).unwrap()
+    );
+    assert_eq!(project.names(), vec!["value"]);
 }
 
 #[test]

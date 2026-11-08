@@ -107,33 +107,78 @@ fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Result<std::proc
     process_windows::execute(program, cwd, capture)
 }
 
-#[cfg(not(windows))]
+#[cfg(unix)]
 #[allow(clippy::disallowed_methods)] // the quality tools' one process boundary
 fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Result<std::process::Output> {
-    let mut command = command(program, cwd)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // Closing this process boundary also ends the command's descendants
-        // after its leader exits. Do not replace the process group on failure.
-        unsafe {
-            command.pre_exec(|| {
-                if libc::setpgid(0, 0) == -1 {
-                    Err(io::Error::last_os_error())
-                } else {
-                    Ok(())
-                }
-            });
+    use std::io::Read;
+    use std::os::unix::process::CommandExt;
+    use std::process::{Child, Stdio};
+    struct Group(Child);
+    impl Drop for Group {
+        fn drop(&mut self) {
+            // The group is created in the child before exec. Keep its identity
+            // until wait returns; descendants can still hold captured pipes.
+            unsafe {
+                libc::kill(-(self.0.id() as i32), libc::SIGKILL);
+            }
+            let _ = self.0.wait();
         }
     }
-    if capture {
-        command.output()
-    } else {
-        command.status().map(|status| std::process::Output {
-            status,
-            stdout: Vec::new(),
-            stderr: Vec::new(),
+    fn reader<T: Read + Send + 'static>(
+        pipe: Option<T>,
+    ) -> Option<std::thread::JoinHandle<io::Result<Vec<u8>>>> {
+        pipe.map(|mut pipe| {
+            std::thread::spawn(move || {
+                let mut out = Vec::new();
+                pipe.read_to_end(&mut out)?;
+                Ok(out)
+            })
         })
+    }
+    fn finish(reader: Option<std::thread::JoinHandle<io::Result<Vec<u8>>>>) -> io::Result<Vec<u8>> {
+        reader.map_or_else(
+            || Ok(Vec::new()),
+            |reader| {
+                reader
+                    .join()
+                    .map_err(|_| io::Error::other("process output reader panicked"))?
+            },
+        )
+    }
+    let mut command = command(program, cwd)?;
+    command.process_group(0);
+    if capture {
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+    }
+    let mut group = Group(command.spawn()?);
+    let stdout = reader(group.0.stdout.take());
+    let stderr = reader(group.0.stderr.take());
+    let status = group.0.wait();
+    drop(group);
+    let out = finish(stdout);
+    let err = finish(stderr);
+    Ok(std::process::Output {
+        status: status?,
+        stdout: out?,
+        stderr: err?,
+    })
+}
+
+#[cfg(not(any(windows, unix)))]
+fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Result<std::process::Output> {
+    if capture {
+        command(program, cwd)?.output()
+    } else {
+        command(program, cwd)?
+            .status()
+            .map(|status| std::process::Output {
+                status,
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+            })
     }
 }
 
