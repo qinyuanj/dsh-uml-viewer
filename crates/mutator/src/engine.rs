@@ -1,7 +1,7 @@
 use crate::{
     cli::Options,
     interrupts,
-    isolation::{Failure, View},
+    isolation::{self, Failure, View},
     lua::{self, Index},
     metrics::{self, Decision},
     sites::{self, Form, Site},
@@ -152,14 +152,35 @@ fn execute(
     };
     let result = run.map_err(|failure| match failure {
         Failure::Interrupted => Failure::Interrupted,
-        Failure::Message(error) => Failure::Message(format!(
-            "Cannot enter user+mount namespace overlay: {error}"
-        )),
+        Failure::Unavailable(text) => Failure::Unavailable(text),
+        Failure::Message(error) => {
+            Failure::Message(format!("Cannot enter the mutation isolation view: {error}"))
+        }
     })?;
     if !result.output.is_empty() {
         eprint!("{}", result.output);
     }
     Ok((result.code, result.elapsed))
+}
+
+/// `os.path.relpath`: `path` as seen from `base`, both absolute.
+fn relative_from(base: &Path, path: &Path) -> Option<PathBuf> {
+    let base: Vec<_> = base.components().collect();
+    let path: Vec<_> = path.components().collect();
+    let common = base
+        .iter()
+        .zip(&path)
+        .take_while(|(left, right)| left == right)
+        .count();
+    if common == 0 {
+        return None;
+    }
+    let mut relative = PathBuf::new();
+    for _ in common..base.len() {
+        relative.push("..");
+    }
+    relative.extend(path[common..].iter());
+    Some(relative)
 }
 
 fn quote(path: &Path) -> String {
@@ -240,11 +261,16 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
         let Some(command) = command else {
             return Ok(coverage);
         };
+        // Stale reports are removed before the command, in the host shell's
+        // own spelling; a fresh copy has an empty coverage directory anyway.
+        let removal = if cfg!(windows) {
+            "del /f /q coverage\\lcov.info coverage\\luacov.stats.out luacov.stats.out 2>nul & "
+        } else {
+            "rm -f coverage/lcov.info coverage/luacov.stats.out luacov.stats.out\n"
+        };
         let job = (
             root.to_path_buf(),
-            format!(
-                "rm -f coverage/lcov.info coverage/luacov.stats.out luacov.stats.out\n{command}"
-            ),
+            format!("{removal}{command}"),
             PathBuf::from("coverage/lcov.info"),
         );
         let view = View::new(root).map_err(|error| {
@@ -262,7 +288,7 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
             eprintln!("Coverage command exited {}.", result.code);
             return Err(2);
         }
-        let report = view.directory.join("upper").join(&job.2);
+        let report = isolation::report_path(&view, &job.2);
         let fresh = quality_core::coverage::read_fresh_lcov(&report, root).map_err(|error| {
             eprintln!("Required LCOV report invalid or unavailable: {error}");
             2
@@ -288,11 +314,25 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
             .map(|module| {
                 let report = quality_core::runner::coverage_report(root, &module, "rust");
                 let relative = report.strip_prefix(root).unwrap_or(&report).to_path_buf();
-                let command = format!(
-                    "mkdir -p {}\ncargo llvm-cov --lcov --output-path {}",
-                    quote(report.parent().unwrap()),
-                    quote(&report)
-                );
+                // Windows runs this in a copy of the project: the report path
+                // must be relative to the command's own directory, or it would
+                // name the real project and write there.
+                let command = if cfg!(windows) {
+                    let parent = relative_from(&module, report.parent().unwrap())
+                        .unwrap_or_else(|| report.parent().unwrap().to_path_buf());
+                    let report = relative_from(&module, &report).unwrap_or_else(|| report.clone());
+                    format!(
+                        "mkdir \"{}\" 2>nul & cargo llvm-cov --lcov --output-path \"{}\"",
+                        parent.display(),
+                        report.display()
+                    )
+                } else {
+                    format!(
+                        "mkdir -p {}\ncargo llvm-cov --lcov --output-path {}",
+                        quote(report.parent().unwrap()),
+                        quote(&report)
+                    )
+                };
                 (module, command, relative)
             })
             .collect();
@@ -306,7 +346,7 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
                 .map_err(|failure| match failure {
                     // The interrupt path reports and cleans up; no exit here.
                     Failure::Interrupted => 2,
-                    Failure::Message(error) => {
+                    Failure::Message(error) | Failure::Unavailable(error) => {
                         eprintln!("Isolation unavailable: {error}");
                         1
                     }
@@ -316,7 +356,7 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
             eprintln!("Coverage command exited {}.", result.code);
             return Err(2);
         }
-        let report = view.directory.join("upper").join(class);
+        let report = isolation::report_path(&view, &class);
         let text = fs::read_to_string(report).map_err(|error| {
             eprintln!("Coverage report unavailable: {error}");
             2
@@ -531,6 +571,19 @@ pub fn prepare(
     Ok(prepared)
 }
 
+/// A pristine run that could not happen is not a test result: an isolation
+/// refusal exits 1 before anything is decided, as the original does.
+fn baseline_exit(item: &Prepared, command: &Command, error: Failure) -> i32 {
+    match error {
+        Failure::Unavailable(message) => {
+            eprintln!("{message}");
+            1
+        }
+        Failure::Interrupted => 2,
+        Failure::Message(tail) => failure(item, command, &tail),
+    }
+}
+
 fn failure(item: &Prepared, command: &Command, tail: &str) -> i32 {
     let mut message = format!("Baseline failed for {}: {}", item.key, command.display());
     if !tail.is_empty() {
@@ -551,7 +604,7 @@ fn lua_plans(
     command: &Command,
     timeout: f64,
     factor: f64,
-    pristine: &mut dyn FnMut(&Command) -> Result<f64, String>,
+    pristine: &mut dyn FnMut(&Command) -> Result<f64, Failure>,
 ) -> (BTreeMap<String, (Command, f64)>, Command, f64) {
     let mut plans = BTreeMap::new();
     let mut subsets: BTreeMap<Vec<String>, Option<(Command, f64)>> = BTreeMap::new();
@@ -621,7 +674,7 @@ fn pristine(
     cwd: &Path,
     build: bool,
     timeout: Option<Duration>,
-) -> Result<f64, String> {
+) -> Result<f64, Failure> {
     let key = (command.clone(), cwd.to_path_buf());
     if !baselines.contains_key(&key) {
         let started = std::time::Instant::now();
@@ -647,10 +700,11 @@ fn pristine(
     }
     match baselines.get(&key) {
         Some(Ok((0, duration))) => Ok(duration.as_secs_f64()),
-        Some(Ok((code, _))) => Err(format!("exit {code}")),
-        Some(Err(Failure::Message(error))) => Err(error.clone()),
-        Some(Err(Failure::Interrupted)) => Err("interrupted".into()),
-        None => Err("no pristine run".into()),
+        Some(Ok((code, _))) => Err(Failure::Message(format!("exit {code}"))),
+        Some(Err(Failure::Unavailable(error))) => Err(Failure::Unavailable(error.clone())),
+        Some(Err(Failure::Message(error))) => Err(Failure::Message(error.clone())),
+        Some(Err(Failure::Interrupted)) => Err(Failure::Interrupted),
+        None => Err(Failure::Message("no pristine run".into())),
     }
 }
 
@@ -728,7 +782,7 @@ fn publish(
         &item.forms,
         &item.outcomes,
         &clock(),
-        "namespace-view",
+        isolation::level(),
     ) {
         return Err(Failure::Message(format!(
             "Cannot publish mutation snapshot: {error}"
@@ -775,6 +829,9 @@ struct Queued {
     changed: bool,
     survived: bool,
     failed: bool,
+    /// An isolation refusal is not a test result: the call exits 1, keeping the
+    /// snapshots of the files that already finished.
+    unavailable: Option<String>,
 }
 
 /// Run every full-suite Lua file of the call on one shared worker queue.
@@ -817,7 +874,16 @@ fn mutate_queued(
             workers, root, timings, baselines, &command, &run_cwd, false, None,
         ) {
             Ok(seconds) => seconds,
-            Err(tail) => {
+            Err(Failure::Unavailable(message)) => {
+                // An isolation refusal stops the run: exit 1, keep finished snapshots.
+                result.unavailable.get_or_insert(message);
+                continue;
+            }
+            Err(Failure::Interrupted) => {
+                result.failed = true;
+                continue;
+            }
+            Err(Failure::Message(tail)) => {
                 // A baseline failure stays with its file; the others still run.
                 result.failed = true;
                 failure(&item, &command, &tail);
@@ -904,6 +970,10 @@ fn mutate_queued(
             }
         }
         Err(Failure::Interrupted) => result.failed = true,
+        Err(Failure::Unavailable(error)) => {
+            eprintln!("{error}");
+            result.unavailable.get_or_insert(error);
+        }
         Err(Failure::Message(error)) => {
             eprintln!("{error}");
             result.failed = true;
@@ -1033,6 +1103,10 @@ pub fn mutate(
                 survived_any |= published.survived;
             }
             Err(Failure::Interrupted) => return 2,
+            Err(Failure::Unavailable(error)) => {
+                eprintln!("{error}");
+                return 1;
+            }
             Err(Failure::Message(error)) => {
                 eprintln!("{error}");
                 return 2;
@@ -1092,7 +1166,7 @@ pub fn mutate(
             let mut baseline = |command: &Command,
                                 build: bool,
                                 timeout: Option<Duration>|
-             -> Result<f64, String> {
+             -> Result<f64, Failure> {
                 pristine(
                     workers,
                     root,
@@ -1107,7 +1181,7 @@ pub fn mutate(
             let build = !standard_lua && options.value("--test-command").is_none();
             let seconds = match baseline(&command, build, None) {
                 Ok(seconds) => seconds,
-                Err(tail) => return failure(&item, &command, &tail),
+                Err(error) => return baseline_exit(&item, &command, error),
             };
             let timeout = (seconds * options.timeout_factor).max(2.0);
             let mut plans: Option<BTreeMap<String, (Command, f64)>> = None;
@@ -1147,12 +1221,12 @@ pub fn mutate(
             // With one worker the pristine plan check is the cached baseline;
             // the selected-specs union subset still gets its own pristine run
             // before any mutant can earn a kill.
-            if let Err(tail) = baseline(
+            if let Err(error) = baseline(
                 &check_command,
                 false,
                 Some(Duration::from_secs_f64(check_timeout)),
             ) {
-                return failure(&item, &check_command, &tail);
+                return baseline_exit(&item, &check_command, error);
             }
             let count = workers::worker_count(selected.len(), options.max_workers);
             let source = &item.source;
@@ -1181,6 +1255,10 @@ pub fn mutate(
                     eprintln!("{error}");
                     return 2;
                 }
+                Err(Failure::Unavailable(error)) => {
+                    eprintln!("{error}");
+                    return 1;
+                }
             };
             if let Some((full, full_timeout)) = confirmation {
                 let survivors: Vec<&Site> = selected
@@ -1194,10 +1272,10 @@ pub fn mutate(
                     })
                     .collect();
                 if !survivors.is_empty() {
-                    if let Err(tail) =
+                    if let Err(error) =
                         baseline(&full, false, Some(Duration::from_secs_f64(full_timeout)))
                     {
-                        return failure(&item, &full, &tail);
+                        return baseline_exit(&item, &full, error);
                     }
                     for site in survivors {
                         let mutated = sites::apply_site(&item.source, site);
@@ -1215,6 +1293,10 @@ pub fn mutate(
                             Err(Failure::Message(error)) => {
                                 eprintln!("{error}");
                                 return 2;
+                            }
+                            Err(Failure::Unavailable(error)) => {
+                                eprintln!("{error}");
+                                return 1;
                             }
                         };
                         outcomes.insert(
@@ -1234,11 +1316,21 @@ pub fn mutate(
                 survived_any |= published.survived;
             }
             Err(Failure::Interrupted) => return 2,
+            Err(Failure::Unavailable(error)) => {
+                eprintln!("{error}");
+                return 1;
+            }
             Err(Failure::Message(error)) => {
                 eprintln!("{error}");
                 return 2;
             }
         }
+    }
+    if let Some(queued) = &queued
+        && let Some(message) = &queued.unavailable
+    {
+        eprintln!("{message}");
+        return 1;
     }
     if queued.is_some_and(|queued| queued.failed) {
         return 2;

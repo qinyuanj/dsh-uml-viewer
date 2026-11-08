@@ -24,6 +24,10 @@ pub enum Failure {
     /// A stop signal arrived; the caller's interrupt path cleans up.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Interrupted,
+    /// This host cannot give the command its isolation: never run weaker.
+    /// The original reports this with exit 1, before any test result counts.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Unavailable(String),
     /// The view could not be entered, or the command could not be launched.
     Message(String),
 }
@@ -32,7 +36,9 @@ impl std::fmt::Display for Failure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Failure::Interrupted => formatter.write_str("interrupted"),
-            Failure::Message(message) => formatter.write_str(message),
+            Failure::Unavailable(message) | Failure::Message(message) => {
+                formatter.write_str(message)
+            }
         }
     }
 }
@@ -237,7 +243,18 @@ exec "$@"
             output: fs::read_to_string(output_path).unwrap_or_default(),
         })
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    pub fn run(
+        &self,
+        root: &Path,
+        cwd: &Path,
+        command: &str,
+        mutation: Option<(&Path, &str)>,
+        timeout: Option<Duration>,
+    ) -> Result<Completed, Failure> {
+        crate::copies::Slot::reused(&self.directory).run(root, cwd, command, mutation, timeout)
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     pub fn run(
         &self,
         _root: &Path,
@@ -247,11 +264,23 @@ exec "$@"
         _timeout: Option<Duration>,
     ) -> Result<Completed, Failure> {
         Err(Failure::Message(
-            "mutation isolation is currently supported only on Linux".into(),
+            "mutation isolation is not supported on this platform".into(),
         ))
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    pub fn run_argv(
+        &self,
+        root: &Path,
+        cwd: &Path,
+        argv: &[String],
+        mutation: Option<(&Path, &str)>,
+        timeout: Option<Duration>,
+    ) -> Result<Completed, Failure> {
+        crate::copies::Slot::reused(&self.directory).run_argv(root, cwd, argv, mutation, timeout)
+    }
+
+    #[cfg(not(any(target_os = "linux", windows)))]
     pub fn run_argv(
         &self,
         _root: &Path,
@@ -261,9 +290,38 @@ exec "$@"
         _timeout: Option<Duration>,
     ) -> Result<Completed, Failure> {
         Err(Failure::Message(
-            "mutation isolation is currently supported only on Linux".into(),
+            "mutation isolation is not supported on this platform".into(),
         ))
     }
+}
+
+/// The isolation level a snapshot records, as the original's `level`.
+pub fn level() -> &'static str {
+    if cfg!(windows) {
+        "copy"
+    } else {
+        "namespace-view"
+    }
+}
+
+/// The original's `Isolation: ...` line, naming the real mechanism.
+#[cfg(windows)]
+pub fn describe() -> &'static str {
+    crate::copies::describe()
+}
+
+#[cfg(not(windows))]
+pub fn describe() -> &'static str {
+    "namespace views (a private overlayfs view per command)"
+}
+
+/// A report a command wrote inside its own view, never in the project.
+pub fn report_path(view: &View, relative: &Path) -> PathBuf {
+    #[cfg(windows)]
+    let base = crate::copies::Slot::reused(&view.directory).project_root();
+    #[cfg(not(windows))]
+    let base = view.directory.join("upper");
+    base.join(relative)
 }
 
 #[cfg(target_os = "linux")]

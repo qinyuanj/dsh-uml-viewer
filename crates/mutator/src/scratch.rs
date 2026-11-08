@@ -83,6 +83,10 @@ impl Drop for Root {
 /// A private owner file inside `directory`, locked for this process's life.
 fn claim(directory: &Path) -> io::Result<fs::File> {
     let owner = private_file(&directory.join("owner"))?;
+    #[cfg(windows)]
+    {
+        windows_lock(&owner, true)?;
+    }
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::io::AsRawFd;
@@ -175,7 +179,78 @@ fn abandoned(directory: &Path) -> bool {
     locked == 0
 }
 
-#[cfg(not(target_os = "linux"))]
+/// Windows: the owner file holds an exclusive `LockFileEx` byte-range lock
+/// for the process's life, so a lock that can be taken means the owner died.
+#[cfg(windows)]
+fn abandoned(directory: &Path) -> bool {
+    let Ok(owner) = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(directory.join("owner"))
+    else {
+        return false;
+    };
+    // Can we take the owner's lock? Then nobody holds it any more.
+    if windows_lock(&owner, true).is_err() {
+        return false;
+    }
+    let _ = windows_lock(&owner, false);
+    true
+}
+
+#[cfg(windows)]
+fn windows_lock(owner: &fs::File, unlock: bool) -> io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    #[repr(C)]
+    struct Overlapped {
+        internal: usize,
+        internal_high: usize,
+        offset: u32,
+        offset_high: u32,
+        event: *mut std::ffi::c_void,
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn LockFileEx(
+            file: *mut std::ffi::c_void,
+            flags: u32,
+            reserved: u32,
+            low: u32,
+            high: u32,
+            overlapped: *mut Overlapped,
+        ) -> i32;
+        fn UnlockFileEx(
+            file: *mut std::ffi::c_void,
+            reserved: u32,
+            low: u32,
+            high: u32,
+            overlapped: *mut Overlapped,
+        ) -> i32;
+    }
+    let mut overlapped = Overlapped {
+        internal: 0,
+        internal_high: 0,
+        offset: 0,
+        offset_high: 0,
+        event: std::ptr::null_mut(),
+    };
+    let handle = owner.as_raw_handle();
+    // LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY
+    let result = unsafe {
+        if unlock {
+            LockFileEx(handle, 0x0000_0002 | 0x0000_0001, 0, 1, 0, &mut overlapped)
+        } else {
+            UnlockFileEx(handle, 0, 1, 0, &mut overlapped)
+        }
+    };
+    if result == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
 fn abandoned(_directory: &Path) -> bool {
     false
 }

@@ -609,6 +609,9 @@ fn an_unported_language_is_an_explicit_error_record() {
 }
 
 #[cfg(not(target_os = "linux"))]
+/// Windows runs mutation in project copies and macOS refuses it with a reason;
+/// on Windows this is therefore not the platform refusal record.
+#[cfg(not(windows))]
 #[test]
 fn mutation_off_linux_is_an_explicit_error_record() {
     let project = Project::new();
@@ -619,10 +622,10 @@ fn mutation_off_linux_is_an_explicit_error_record() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(record["validResult"], false);
     assert_eq!(record["tool"], "mutator");
+    let stderr = stderr(&output);
     assert!(
-        stderr(&output).contains("only on Linux"),
-        "{}",
-        stderr(&output)
+        stderr.contains("not supported on macOS") || stderr.contains("not supported on"),
+        "{stderr}"
     );
     assert!(!project.root.join(".metrics").exists());
 }
