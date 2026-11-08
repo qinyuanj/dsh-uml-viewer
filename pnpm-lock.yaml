@@ -177,6 +177,22 @@ importers:
         specifier: 0.28.2
         version: 0.28.2
 
+  packages/client:
+    dependencies:
+      '@dsh-uml-viewer/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      '@types/node':
+        specifier: 24.10.1
+        version: 24.10.1
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 5.1.0
+        version: 5.1.0(@types/node@24.10.1)(vite@8.3.6(@types/node@24.10.1)(esbuild@0.28.2))
+
   packages/contracts:
     devDependencies:
       '@types/node':

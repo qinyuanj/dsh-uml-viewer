@@ -120,6 +120,17 @@ fn normalize(stderr: &[u8], root: &Path) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
+/// `lua-project` is the original dryer's own committed fixture and golden
+/// (dryer `tests/fixtures/lua_project*` at b3f72ad): the capture pipeline must
+/// reproduce a snapshot the Python repository published, not only one it made.
+#[test]
+fn the_original_lua_fixture_golden_is_reproduced_exactly() {
+    assert_eq!(
+        fs::read(repo().join("fixtures/dry/goldens/lua-project/dry.edn")).unwrap(),
+        fs::read(repo().join("fixtures/dry/lua_project-original.edn")).unwrap()
+    );
+}
+
 #[test]
 fn every_scenario_matches_the_pinned_python_dryer_byte_for_byte() {
     let goldens = repo().join("fixtures/dry/goldens");
@@ -129,6 +140,29 @@ fn every_scenario_matches_the_pinned_python_dryer_byte_for_byte() {
         .filter(|p| p.join("scenario").is_file())
         .collect();
     scenarios.sort();
+    let names: Vec<String> = scenarios
+        .iter()
+        .map(|dir| dir.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    // Exact: 25 Rust scenarios from #6 (arguments, counts, thresholds,
+    // platform and `--changed`) plus the twelve #7 language scenarios
+    // (python x3, typescript x2, lua x2, go, java, clojure x2 and the
+    // seven-language `multi-languages`). A dropped or added scenario fails.
+    assert_eq!(names.len(), 37, "scenarios: {names:?}");
+    // The only intended empty selections. A new scenario whose fixtures moved
+    // away would otherwise pass by printing the empty-selection sentence.
+    let empty: Vec<&String> = names
+        .iter()
+        .filter(|name| {
+            fs::read_to_string(goldens.join(name).join("stdout")).unwrap()
+                == "No source files to analyze.\n"
+        })
+        .collect();
+    assert_eq!(
+        empty,
+        vec!["changed-empty", "changed-scoped", "empty-selection"],
+        "empty selections: {empty:?}"
+    );
     for scenario in scenarios {
         let project = Project::new();
         let argv = args(&project, &scenario.join("scenario"));

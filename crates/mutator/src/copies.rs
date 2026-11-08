@@ -123,6 +123,30 @@ impl Slot {
         mutation: Option<(&Path, &str)>,
         timeout: Option<Duration>,
     ) -> Result<Completed, Failure> {
+        self.run_program(&Program::Shell(command), root, cwd, mutation, timeout)
+    }
+
+    /// An argv command reaches the shared MSVCRT quoting of the process
+    /// boundary instead of a shell string, as the original's argv plans do.
+    pub fn run_argv(
+        &self,
+        root: &Path,
+        cwd: &Path,
+        argv: &[String],
+        mutation: Option<(&Path, &str)>,
+        timeout: Option<Duration>,
+    ) -> Result<Completed, Failure> {
+        self.run_program(&Program::Argv(argv), root, cwd, mutation, timeout)
+    }
+
+    fn run_program(
+        &self,
+        program: &Program,
+        root: &Path,
+        cwd: &Path,
+        mutation: Option<(&Path, &str)>,
+        timeout: Option<Duration>,
+    ) -> Result<Completed, Failure> {
         self.copy(root, mutation).map_err(|error| {
             let text = error.to_string();
             if text.starts_with("Copy isolation cannot freeze") {
@@ -171,8 +195,7 @@ impl Slot {
         ));
         let started = Instant::now();
         let running =
-            process::start_supervised(&Program::Shell(command), &cwd, &environment, &output)
-                .map_err(message)?;
+            process::start_supervised(program, &cwd, &environment, &output).map_err(message)?;
         drop(output);
         let code = match process::supervise(running, timeout, || interrupts::pending().is_some())
             .map_err(message)?

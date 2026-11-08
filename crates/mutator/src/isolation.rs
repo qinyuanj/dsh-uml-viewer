@@ -32,6 +32,17 @@ pub enum Failure {
     Message(String),
 }
 
+impl std::fmt::Display for Failure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Failure::Interrupted => formatter.write_str("interrupted"),
+            Failure::Unavailable(message) | Failure::Message(message) => {
+                formatter.write_str(message)
+            }
+        }
+    }
+}
+
 pub struct View {
     pub directory: PathBuf,
     // A slot borrows its pool's root, so only the pool removes the tree.
@@ -87,6 +98,32 @@ impl View {
         mutation: Option<(&Path, &str)>,
         timeout: Option<Duration>,
     ) -> Result<Completed, Failure> {
+        self.run_argv(
+            root,
+            cwd,
+            &["/bin/sh".into(), "-c".into(), command.into()],
+            mutation,
+            timeout,
+        )
+    }
+
+    /// Run an argument vector as-is, without a shell: a spec file name with a
+    /// space or a quote reaches the command as one argument, like the
+    /// original's argv-list commands.
+    #[cfg(target_os = "linux")]
+    // The Linux namespace view launcher is the quality tools' own adapter for
+    // this one command kind: it owns PR_SET_PDEATHSIG, the per-command process
+    // group and the file-redirected streams that the generic capture API in
+    // quality_core::process cannot express.
+    #[allow(clippy::disallowed_methods)]
+    pub fn run_argv(
+        &self,
+        root: &Path,
+        cwd: &Path,
+        argv: &[String],
+        mutation: Option<(&Path, &str)>,
+        timeout: Option<Duration>,
+    ) -> Result<Completed, Failure> {
         use std::os::unix::process::CommandExt;
         if root
             .as_os_str()
@@ -116,9 +153,9 @@ impl View {
 root=$1
 layers=$2
 cwd=$3
-command=$4
-mutation=$5
-destination=$6
+mutation=$4
+destination=$5
+shift 5
 mount --make-rprivate /
 mount -t overlay overlay -o "userxattr,lowerdir=$root,upperdir=$layers/upper,workdir=$layers/work" "$root"
 if [ -n "$destination" ]; then cp -- "$mutation" "$destination"; fi
@@ -135,7 +172,7 @@ mkdir -p "$home/tmp" "$home/.cache"
 export HOME="$home" XDG_CACHE_HOME="$home/.cache" TMPDIR="$home/tmp"
 export CARGO_TARGET_DIR="$root/target/mutator-build"
 unset CARGO_BUILD_TARGET_DIR CARGO_ENCODED_RUSTFLAGS LLVM_PROFILE_FILE
-exec /bin/sh -c "$command"
+exec "$@"
 "#;
         let output_path = self.directory.join("output");
         let output = scratch::private_file(&output_path).map_err(message)?;
@@ -157,9 +194,9 @@ exec /bin/sh -c "$command"
         .arg(root)
         .arg(&self.directory)
         .arg(cwd)
-        .arg(command)
         .arg(mutation_path)
         .arg(destination)
+        .args(argv)
         .stdin(Stdio::null())
         .stdout(output.try_clone().map_err(message)?)
         .stderr(output)
@@ -223,6 +260,32 @@ exec /bin/sh -c "$command"
         _root: &Path,
         _cwd: &Path,
         _command: &str,
+        _mutation: Option<(&Path, &str)>,
+        _timeout: Option<Duration>,
+    ) -> Result<Completed, Failure> {
+        Err(Failure::Message(
+            "mutation isolation is not supported on this platform".into(),
+        ))
+    }
+
+    #[cfg(windows)]
+    pub fn run_argv(
+        &self,
+        root: &Path,
+        cwd: &Path,
+        argv: &[String],
+        mutation: Option<(&Path, &str)>,
+        timeout: Option<Duration>,
+    ) -> Result<Completed, Failure> {
+        crate::copies::Slot::reused(&self.directory).run_argv(root, cwd, argv, mutation, timeout)
+    }
+
+    #[cfg(not(any(target_os = "linux", windows)))]
+    pub fn run_argv(
+        &self,
+        _root: &Path,
+        _cwd: &Path,
+        _argv: &[String],
         _mutation: Option<(&Path, &str)>,
         _timeout: Option<Duration>,
     ) -> Result<Completed, Failure> {

@@ -95,7 +95,7 @@ pub fn digest(source: &str, start: usize, end: usize) -> String {
         .collect();
     hash(&selected.join("\n"))
 }
-fn private(source: &str, start: usize, end: usize) -> bool {
+fn private(language: Language, source: &str, start: usize, end: usize) -> bool {
     let selected = lines(source)
         .into_iter()
         .skip(start.saturating_sub(1))
@@ -110,9 +110,15 @@ fn private(source: &str, start: usize, end: usize) -> bool {
         header = rest.trim_start();
     }
     // Python checks pub\s: pub(crate) deliberately remains private.
-    !header
-        .strip_prefix("pub")
-        .is_some_and(|rest| rest.starts_with(char::is_whitespace))
+    match language {
+        // A Lua function is private only when its declaration is `local`.
+        Language::Lua => header
+            .strip_prefix("local")
+            .is_some_and(|rest| rest.starts_with(char::is_whitespace)),
+        _ => !header
+            .strip_prefix("pub")
+            .is_some_and(|rest| rest.starts_with(char::is_whitespace)),
+    }
 }
 /// Compact identity JSON, including Python json.dumps' default ensure_ascii.
 pub fn mutation_id(
@@ -153,53 +159,85 @@ pub fn mutation_file(id: &str) -> Option<String> {
 pub fn mutation_namespace(id: &str) -> Option<String> {
     mutation_field(id, 1)
 }
-fn replacement(token: &str, parent: &str) -> Option<(&'static str, &'static str)> {
+/// Python `sites.py` operator rules for the languages this port discovers.
+fn replacement(
+    language: Language,
+    token: &str,
+    parent: &str,
+) -> Option<(&'static str, &'static str)> {
     if parent == "binary_expression" {
-        return Some(match token {
-            "+" => ("-", "arithmetic"),
-            "-" => ("+", "arithmetic"),
-            "*" => ("/", "arithmetic"),
-            "/" => ("*", "arithmetic"),
-            "%" => ("*", "arithmetic"),
-            ">" => (">=", "comparison"),
-            ">=" => (">", "comparison"),
-            "<" => ("<=", "comparison"),
-            "<=" => ("<", "comparison"),
-            "==" => ("!=", "equality"),
-            "!=" => ("==", "equality"),
-            "&&" => ("||", "logical"),
-            "||" => ("&&", "logical"),
-            "^" | "&" => ("|", "bitwise"),
-            "|" => ("&", "bitwise"),
-            "<<" => (">>", "bitwise"),
-            ">>" => ("<<", "bitwise"),
-            _ => return None,
+        return Some(match language {
+            // Lua spells inequality `~=`; `//` becomes `/` one way, and `..`,
+            // `#`, `%`, `^` and the bitwise operators are never rewritten.
+            Language::Lua => match token {
+                "+" => ("-", "arithmetic"),
+                "-" => ("+", "arithmetic"),
+                "*" => ("/", "arithmetic"),
+                "/" => ("*", "arithmetic"),
+                "//" => ("/", "arithmetic"),
+                ">" => (">=", "comparison"),
+                ">=" => (">", "comparison"),
+                "<" => ("<=", "comparison"),
+                "<=" => ("<", "comparison"),
+                "==" => ("~=", "equality"),
+                "~=" => ("==", "equality"),
+                "and" => ("or", "logical"),
+                "or" => ("and", "logical"),
+                _ => return None,
+            },
+            _ => match token {
+                "+" => ("-", "arithmetic"),
+                "-" => ("+", "arithmetic"),
+                "*" => ("/", "arithmetic"),
+                "/" => ("*", "arithmetic"),
+                "%" => ("*", "arithmetic"),
+                ">" => (">=", "comparison"),
+                ">=" => (">", "comparison"),
+                "<" => ("<=", "comparison"),
+                "<=" => ("<", "comparison"),
+                "==" => ("!=", "equality"),
+                "!=" => ("==", "equality"),
+                "&&" => ("||", "logical"),
+                "||" => ("&&", "logical"),
+                "^" | "&" => ("|", "bitwise"),
+                "|" => ("&", "bitwise"),
+                "<<" => (">>", "bitwise"),
+                ">>" => ("<<", "bitwise"),
+                _ => return None,
+            },
         });
     }
-    if parent == "unary_expression" && matches!(token, "!" | "-") {
+    // `not` is Lua's spelling of the deleted unary operator.
+    if parent == "unary_expression" && matches!(token, "!" | "not" | "-") {
         return Some(("", "unary"));
     }
     None
 }
 type FormParts = (usize, Vec<(usize, usize, String)>);
 
-/// Rust sites in source order and forms in first-line order. Test code is excluded
-/// by shared function discovery; private forms retain their defn-/ IDs.
+/// Mutation sites in source order and forms in first-line order. Test code is
+/// excluded by shared function discovery; private forms retain their defn-/ IDs.
 pub fn discover(source: &str, path: &Path, root: &Path, file_key: &str) -> (Vec<Site>, Vec<Form>) {
-    if language_of(path) != Some(Language::Rust) {
+    let Some(language) = language_of(path) else {
         return (Vec::new(), Vec::new());
-    }
+    };
+    let grammar = match language {
+        Language::Rust => Grammar::Rust,
+        Language::Lua => Grammar::Lua,
+        _ => return (Vec::new(), Vec::new()),
+    };
     let located = if path.is_absolute() {
         resolve(path)
     } else {
         resolve(&root.join(path))
     };
-    let functions = functions_in_file(Language::Rust, source, &posix(&located), root);
+    // The original resolves both sides before naming the module.
+    let functions = functions_in_file(language, source, &posix(&located), &resolve(root));
     let mut forms: Vec<Form> = Vec::new();
     let mut grouped: BTreeMap<(String, String), FormParts> = BTreeMap::new();
     let mut owners = Vec::new();
     for function in &functions {
-        let private = private(source, function.start_line, function.end_line);
+        let private = private(language, source, function.start_line, function.end_line);
         let id = format!(
             "{}/{}",
             if private { "defn-" } else { "defn" },
@@ -252,7 +290,7 @@ pub fn discover(source: &str, path: &Path, root: &Path, file_key: &str) -> (Vec<
                 .collect::<String>(),
         );
     }
-    let tree = Grammar::Rust.parse(source);
+    let tree = grammar.parse(source);
     let mut found = Vec::new();
     for node in preorder(tree.root_node()) {
         if node.child_count() != 0 {
@@ -260,11 +298,11 @@ pub fn discover(source: &str, path: &Path, root: &Path, file_key: &str) -> (Vec<
         }
         let token = text(source, node);
         let parent = node.parent().map_or("", |node| node.kind());
-        let changed = replacement(token, parent).or_else(|| match (node.kind(), token) {
+        let changed = replacement(language, token, parent).or_else(|| match (node.kind(), token) {
             ("true", "true") => Some(("false", "boolean")),
             ("false", "false") => Some(("true", "boolean")),
-            ("integer_literal", "0") => Some(("1", "constant")),
-            ("integer_literal", "1") => Some(("0", "constant")),
+            ("integer_literal" | "number", "0") => Some(("1", "constant")),
+            ("integer_literal" | "number", "1") => Some(("0", "constant")),
             _ => None,
         });
         let Some((mutant, category)) = changed else {

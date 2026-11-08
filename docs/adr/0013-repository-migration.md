@@ -109,3 +109,24 @@ resident` 长驻：stdin 收动作，stdout 发场景帧与事件，均为逐行
 - **客户端在 TypeScript 里重写下钻与依赖链**：同一逻辑两份实现，迟早分叉。
 - **会话状态仍写 `.uml-viewer/session.edn`**：与“项目内只留 policy、提案与 `.metrics/`”
   （ADR 0011）冲突，也无法区分同一项目的多个会话。
+
+## 附录（2026-11-09，#21 落地）：客户端只用宿主注入的 React
+
+ADR 0011 说面板由宿主注入 `dsh-client-ui-primitives`。实际落地时
+`DSH` 的 `practices.md` 明确禁止 `require('dsh-client-ui-primitives')`：
+它不是稳定 API，只是模块表里的冻结项。因此 #21 的面板：
+
+- 只从平台模块表取 **React 18**（`require('react')`），构建产物里不带
+  React、`react-dom` 或 `dsh-client-ui-primitives`（`packages/client/tests/build.test.ts`
+  在产物上断言）；`dsh.client.external` 为空。
+- 复制所需的骨架标记与类名，样式用宿主主题 token（`--dsw-alias-*`）写成
+  普通 CSS；Canvas 2D 不能读 `var()`，所以每次重绘用 `getComputedStyle`
+  读一次 token 快照，并在 `body[data-ds-dark-theme]` 变化时重绘。
+- 质量色与违规关系色的**色相固定**，只随亮/暗改变明度：两套字面色板
+  （`DARK_HUES`/`LIGHT_HUES`）按 HLS 只动 L，中间等级按 `frame::theme` 的
+  sRGB 线性混合插值，色相偏差个位数度。
+
+代价是面板不能复用宿主组件的行为（焦点、键盘、无障碍），换来的是不依赖
+未公开 API；若 DSH 将来公开 primitives，应优先改用公开组件。其余部分（
+右侧栏 tab、`main` 页、Remote `watch`/`action`、会话绑定）仍按 ADR 0011
+的宿主接缝实现。

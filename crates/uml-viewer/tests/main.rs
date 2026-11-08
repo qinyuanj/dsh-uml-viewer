@@ -15,6 +15,7 @@ mod crap_stamp;
 mod dispatch;
 mod dry;
 mod dry_goldens;
+mod dry_languages;
 mod mutate;
 mod mutate_windows;
 mod quality_selection;
@@ -36,6 +37,16 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    binary_env(args, &[])
+}
+
+/// The same run with extra environment variables, such as the Lua shard pin
+/// that makes the coverage shard count observable in a test.
+pub fn binary_env<I, S>(args: I, environment: &[(&str, &str)]) -> Output
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
     static SERIAL: AtomicU64 = AtomicU64::new(0);
     let scratch = std::env::temp_dir().join(format!(
         "uml-viewer-bin-{}-{}",
@@ -48,6 +59,7 @@ where
         .current_dir(&scratch)
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")
+        .envs(environment.iter().copied())
         .output()
         .unwrap();
     let _ = fs::remove_dir_all(&scratch);

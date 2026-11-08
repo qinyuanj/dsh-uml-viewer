@@ -1,0 +1,8 @@
+project multi
+arg --threshold
+arg 0.0
+arg --min-lines
+arg 1
+arg --min-nodes
+arg 1
+arg --edn
