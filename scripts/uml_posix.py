@@ -48,8 +48,42 @@ PY7ZR = 'py7zr==1.1.4'
 
 
 def run(argv, **kwargs):
+    """Every synchronous launch: a literal argv, never a shell.
+
+    This and `spawn` are the only launches in the production scripts
+    (scripts/test_process_boundary.py)."""
     kwargs.setdefault('check', True)
     return subprocess.run([str(x) for x in argv], **kwargs)
+
+
+def detached():
+    """Popen options that keep the viewer alive after its caller is gone.
+
+    POSIX: its own session. Windows ignores `start_new_session`: the viewer
+    gets its own process group and a hidden console of its own (closing the
+    caller's window does not end it, and a console-control close can still
+    reach it), and breaks away from a job the caller runs in, such as the
+    companion's bounded run. A job that forbids breakaway refuses the flag;
+    see `spawn`.
+    """
+    if not WINDOWS:
+        return {'start_new_session': True}
+    return {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+            | subprocess.CREATE_BREAKAWAY_FROM_JOB}
+
+
+def spawn(argv, **options):
+    """The detached launch: `run`'s literal argv, without waiting."""
+    options.update(detached())
+    try:
+        return subprocess.Popen(argv, **options)
+    except PermissionError:
+        if not WINDOWS:
+            raise
+        # ERROR_ACCESS_DENIED: the caller's job forbids breakaway; the viewer
+        # then stays in it, as the companion's detached spawn does.
+        options['creationflags'] &= ~subprocess.CREATE_BREAKAWAY_FROM_JOB
+        return subprocess.Popen(argv, **options)
 
 
 def platform_refusal(system, machine, release, build):
@@ -164,7 +198,7 @@ def cargo_command():
         raise ValueError('需要 Rust 工具链（cargo）：用 rustup 安装（https://rustup.rs），'
                          '或设置 UML_CARGO_EXECUTABLE。所需版本见工具仓库的 rust-toolchain.toml。')
     try:
-        result = subprocess.run([executable, '--version'], capture_output=True, text=True)
+        result = run([executable, '--version'], check=False, capture_output=True, text=True)
     except OSError as error:
         raise ValueError(f'cargo 不可执行：{executable}（{error}）') from error
     if result.returncode != 0 or not re.match(r'cargo \d+\.\d+\.\d+', result.stdout):
@@ -191,8 +225,8 @@ def check_rust_toolchain(cargo, tool_root):
     runs inside the checkout; a plain distro cargo must match on its own.
     """
     channel = rust_channel(tool_root)
-    result = subprocess.run([cargo, '--version'], cwd=tool_root,
-                            capture_output=True, text=True)
+    result = run([cargo, '--version'], check=False, cwd=tool_root,
+                 capture_output=True, text=True)
     match = re.match(r'cargo (\d+\.\d+\.\d+)', result.stdout or '')
     if result.returncode != 0 or not match:
         raise ValueError(f'无法确认 Rust 工具链（rust-toolchain.toml 要求 {channel}）：'
@@ -219,7 +253,7 @@ def x11_library_present():
     if any((Path(directory) / name).exists() for directory in
            ('/usr/lib/x86_64-linux-gnu', '/usr/lib/aarch64-linux-gnu', '/usr/lib')):
         return True
-    result = subprocess.run(['ldconfig', '-p'], capture_output=True, text=True)
+    result = run(['ldconfig', '-p'], check=False, capture_output=True, text=True)
     return name in result.stdout
 
 
@@ -392,8 +426,8 @@ def extractor(directory):
     the host interpreter when it already has the module avoids creating a venv
     for nothing.
     """
-    probe = subprocess.run([sys.executable, '-I', '-c', 'import py7zr'],
-                           capture_output=True, text=True)
+    probe = run([sys.executable, '-I', '-c', 'import py7zr'], check=False,
+                capture_output=True, text=True)
     if probe.returncode == 0:
         return sys.executable
     override = os.environ.get('UML_VIEWER_FONT_EXTRACTOR')
@@ -422,9 +456,9 @@ def curl_download(curl, url, archive, timeout):
     `timeout` seconds, is curl exit 28.
     """
     seconds = str(max(1, round(timeout)))
-    result = subprocess.run([curl, '-fsSL', '--connect-timeout', seconds, '--speed-limit', '1',
-                             '--speed-time', seconds, '-o', str(archive), url],
-                            capture_output=True, text=True, encoding='utf-8', errors='replace')
+    result = run([curl, '-fsSL', '--connect-timeout', seconds, '--speed-limit', '1',
+                  '--speed-time', seconds, '-o', str(archive), url], check=False,
+                 capture_output=True, text=True, encoding='utf-8', errors='replace')
     if result.returncode == 28:
         raise stalled(url, timeout)
     if result.returncode:
@@ -785,9 +819,9 @@ def command(root, args):
             if not policy.is_file():
                 raise ValueError('没有 policy；请创建 policy.edn 或 examples/*.policy.edn。')
             args = ['ir', str(policy.relative_to(root)), *args[1:]]
-        return native_exit(subprocess.call([*runtime_argv(tool_root), *args], cwd=root))
+        return native_exit(run([*runtime_argv(tool_root), *args], cwd=root, check=False).returncode)
     if args and args[0] == 'scene':
-        return native_exit(subprocess.call([*runtime_argv(tool_root), *args], cwd=root))
+        return native_exit(run([*runtime_argv(tool_root), *args], cwd=root, check=False).returncode)
     if args and args[0] in ('crap', 'mutate', 'dry'):
         # 质量分发实现与安装器共用入口，独立模块保留协议边界。
         from uml_quality import dispatch

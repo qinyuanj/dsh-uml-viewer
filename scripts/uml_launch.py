@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 
-from uml_posix import RUNTIME, atomic_write, proc_identity, runtime_argv
+from uml_posix import RUNTIME, atomic_write, proc_identity, run, runtime_argv, spawn
 
 LAUNCHER = 'viewer-process.json'
 IDENTITY = 'viewer-process-identity.json'
@@ -73,8 +73,8 @@ def verify_previous(state, root, restart):
 
 def preflight(prefix, root, viewer_args):
     """只读 Herdr 选择；失败时不启动 viewer。prefix 来自 runtime_argv。"""
-    result = subprocess.run([*prefix, 'companion-preflight', str(root), *viewer_args],
-                            capture_output=True, text=True, encoding='utf-8')
+    result = run([*prefix, 'companion-preflight', str(root), *viewer_args], check=False,
+                 capture_output=True, text=True, encoding='utf-8')
     if result.returncode != 0:
         raise ValueError((result.stderr or 'companion preflight failed without diagnostic.').strip())
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
@@ -86,35 +86,6 @@ def preflight(prefix, root, viewer_args):
 # llvmpipe. The launcher sets defaults only; user values win. macOS keeps
 # wgpu's native Metal backend and Windows its native DX12 backend (ADR 0010).
 RENDER_DEFAULTS = {} if platform.system() in ('Darwin', 'Windows') else {'GALLIUM_DRIVER': 'd3d12', 'WGPU_BACKEND': 'gl'}
-
-
-def detached():
-    """Popen options that keep the viewer alive after its caller is gone.
-
-    POSIX: its own session. Windows ignores `start_new_session`: the viewer
-    gets its own process group and a hidden console of its own (closing the
-    caller's window does not end it, and a console-control close can still
-    reach it), and breaks away from a job the caller runs in, such as the
-    companion's bounded run. A job that forbids breakaway refuses the flag;
-    see `spawn`.
-    """
-    if os.name != 'nt':
-        return {'start_new_session': True}
-    return {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
-            | subprocess.CREATE_BREAKAWAY_FROM_JOB}
-
-
-def spawn(argv, **options):
-    options.update(detached())
-    try:
-        return subprocess.Popen(argv, **options)
-    except PermissionError:
-        if os.name != 'nt':
-            raise
-        # ERROR_ACCESS_DENIED: the caller's job forbids breakaway; the viewer
-        # then stays in it, as the companion's detached spawn does.
-        options['creationflags'] &= ~subprocess.CREATE_BREAKAWAY_FROM_JOB
-        return subprocess.Popen(argv, **options)
 
 
 def viewer_env(environ):

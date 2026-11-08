@@ -212,8 +212,8 @@ class WindowsEntries(unittest.TestCase):
             self.assertEqual((chosen / 'herdr.exe').resolve(), uml_posix.select_herdr())
 
     def test_the_viewer_gets_its_own_group_hidden_console_and_leaves_the_job(self):
-        from uml_launch import RENDER_DEFAULTS, detached
-        flags = detached()['creationflags']
+        from uml_launch import RENDER_DEFAULTS
+        flags = uml_posix.detached()['creationflags']
         for flag in (subprocess.CREATE_NEW_PROCESS_GROUP, subprocess.CREATE_NO_WINDOW,
                      subprocess.CREATE_BREAKAWAY_FROM_JOB):
             self.assertTrue(flags & flag, hex(flag))

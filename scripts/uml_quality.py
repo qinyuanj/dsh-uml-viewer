@@ -5,7 +5,7 @@ import re
 import subprocess
 import sys
 
-from uml_posix import VENV_PYTHON, WINDOWS, atomic_write, native_exit
+from uml_posix import VENV_PYTHON, WINDOWS, atomic_write, native_exit, run
 
 # Entries that re-parse their arguments or need another interpreter. A
 # configured quality command must be a native executable: on POSIX that also
@@ -171,8 +171,8 @@ def targets(root, forward, roots, exclusions):
 def takes_scope(python, tool, root):
     """旧版 mutator/dryer 没有 --exclude，也不会把点名路径和 --changed 限制在 -s 之内。"""
     try:
-        result = subprocess.run([str(python), '-m', tool, '--help'], cwd=root,
-                                capture_output=True, text=True, timeout=60)
+        result = run([python, '-m', tool, '--help'], check=False, cwd=root,
+                     capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError):
         return False
     return result.returncode == 0 and '--exclude' in result.stdout
@@ -219,7 +219,7 @@ def dispatch(root, operation, forward):
     valid = True
     code = 0
     for argv in commands:
-        actual = subprocess.call(argv, cwd=root)
+        actual = run(argv, check=False, cwd=root).returncode
         actual = native_exit(actual) if actual >= 0 else 128 - actual
         valid = valid and actual in codes
         if actual or not code:

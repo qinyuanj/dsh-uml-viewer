@@ -24,6 +24,8 @@ import subprocess
 import sys
 
 REPO = Path(__file__).resolve().parents[1]
+# Static source rules: seconds, no build, so they run first.
+FAST_SUITES = ['test_process_boundary.py']
 
 
 def interpreter(command):
@@ -77,7 +79,9 @@ def main():
     if os.name == 'nt':
         # `uml.cmd`, junction dev installs and `.exe` naming.
         suites.insert(1, 'test_windows_entries.py')
-    checks = [('cargo build --release --locked + cargo test --workspace --locked', cargo_suite)]
+    checks = [(f'{name} (python -I scripts/{name})', lambda name=name: python_suite(name))
+              for name in FAST_SUITES]
+    checks += [('cargo build --release --locked + cargo test --workspace --locked', cargo_suite)]
     checks += [(f'{name} (python -I scripts/{name})', lambda name=name: python_suite(name))
                for name in suites]
     if arguments.native:
