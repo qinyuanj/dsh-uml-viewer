@@ -796,7 +796,7 @@ mod tests {
     #[test]
     fn a_timeout_ends_the_whole_job_of_that_call_and_nothing_else() {
         let grandchild_pid = temp_path("grandchild");
-        let bystander = std::process::Command::new(python())
+        let mut bystander = std::process::Command::new(python())
             .args(["-c", "import time;time.sleep(30)"])
             .spawn()
             .unwrap();
@@ -818,7 +818,9 @@ mod tests {
         }
         assert_eq!(None, identity(pid).unwrap(), "grandchild survived");
         let alive = identity(bystander.id() as i32).unwrap();
-        terminate(bystander.id() as i32);
+        // End and reap the bystander through its own handle.
+        let _ = bystander.kill();
+        let _ = bystander.wait();
         assert!(alive.is_some(), "a process outside the job was ended");
     }
 
