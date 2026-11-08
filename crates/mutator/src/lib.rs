@@ -38,7 +38,7 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode
     if let Some(refusal) = platform_refusal(
         std::env::consts::OS,
         if cfg!(windows) {
-            platform::host().build
+            quality_core::platform::windows_build().unwrap_or(0)
         } else {
             0
         },
@@ -46,13 +46,11 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode
         eprintln!("{refusal}");
         return ExitCode::from(1);
     }
-    if cfg!(target_os = "linux") {
-        let shown = quality_core::paths::posix(&options.scope.project_root());
-        if shown.starts_with("/mnt/") {
-            eprintln!(
-                "{shown} is on a Windows drive. Under WSL2, clone the project under ~/ for speed and working symlinks."
-            );
-        }
+    if let Some(warning) = quality_core::platform::warning(
+        quality_core::platform::Host::current(),
+        &options.scope.project_root(),
+    ) {
+        eprintln!("{warning}");
     }
     let root = options.scope.project_root();
     // A run that arrives after a killed one reclaims that run's scratch first.
@@ -83,23 +81,28 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode
 /// traceback. This port says so on one line instead; exit 1 is the original's
 /// isolation-refusal code, and `crap`/`dry` are unaffected.
 fn platform_refusal(os: &str, build: u32) -> Option<String> {
-    match os {
-        "macos" => Some(
+    if os == "macos" {
+        return Some(
             "Mutation testing is not supported on macOS: mutator runs every mutant in a \
              private overlay view on Linux or in a per-worker project copy on native \
              Windows, and neither mechanism exists on macOS. Mutator never runs a weaker \
              isolation. CRAP and dry work on this machine."
                 .into(),
-        ),
-        "linux" => None,
-        "windows" if build >= platform::MINIMUM_WINDOWS_BUILD => None,
-        "windows" => Some(format!(
-            "mutator needs Windows 10 22H2 (build {}) or later; this is build {build}. \
-             Update Windows, or run mutator inside WSL2.",
-            platform::MINIMUM_WINDOWS_BUILD
-        )),
-        other => Some(format!("Mutation testing is not supported on {other}.")),
+        );
     }
+    let host = if os == "windows" {
+        quality_core::platform::Host::Windows
+    } else {
+        quality_core::platform::Host::Unix
+    };
+    if os != "windows" && os != "linux" {
+        return Some(format!("Mutation testing is not supported on {os}."));
+    }
+    quality_core::platform::refusal(
+        quality_core::platform::Tool::Mutator,
+        host,
+        (os == "windows").then_some(build),
+    )
 }
 
 fn run_mutation(root: &Path, options: &cli::Options, clock: impl Fn() -> String) -> ExitCode {

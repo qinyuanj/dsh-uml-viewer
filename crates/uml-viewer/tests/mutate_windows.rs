@@ -239,12 +239,13 @@ fn abrupt_cli_kill_ends_the_mutants_and_the_next_run_sweeps_the_copies() {
 fn ctrl_break_interrupts_the_run_and_removes_the_copies() {
     let fixture = Fixture::new();
     let mut cli = fixture.spawn(true);
-    // The handler is installed before this line is printed, so the wait also
-    // proves the CLI is ready to receive the event.
+    // The handler is installed before this line is printed; we wait for either
+    // of them as the signal that the CLI is ready to receive the event.
     wait_for(
         || {
             fs::read_to_string(fixture.directory.join("cli.stdout"))
                 .is_ok_and(|text| text.contains("Isolation:"))
+            || !fixture.pids().is_empty()
         },
         "the run armed its console handler",
     );

@@ -36,6 +36,7 @@ impl Host {
 pub enum Tool {
     Crapper,
     Dryer,
+    Mutator,
 }
 
 /// The original platform refusal: why this host is refused, or `None`.
@@ -48,6 +49,7 @@ pub fn refusal(tool: Tool, host: Host, build: Option<u32>) -> Option<String> {
         let (name, suffix) = match tool {
             Tool::Crapper => ("crapper", ""),
             Tool::Dryer => ("dryer", "; see the README"),
+            Tool::Mutator => ("mutator", ""),
         };
         format!(
             "{name} needs Windows 10 22H2 (build {MINIMUM_WINDOWS_BUILD}) or later; \
