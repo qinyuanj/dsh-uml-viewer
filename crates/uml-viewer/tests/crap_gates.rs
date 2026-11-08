@@ -1,6 +1,5 @@
 //! Existing CRAP gates remain in the native Windows CI filter.
 use super::crap::{Project, stderr, stdout};
-use std::fs;
 
 #[test]
 fn full_tree_empty_custom_coverage_and_snapshot_publication_gate() {
@@ -33,10 +32,22 @@ fn empty_option_and_full_tree_usage_errors_keep_old_output_contract() {
     let p = Project::new();
     p.write("a.rs", "pub fn a() {}\n");
     for (args, message) in [
-        (vec!["--full-tree", "a.rs"], "--full-tree cannot be combined with path arguments"),
-        (vec!["--full-tree", "--changed"], "--full-tree cannot be combined with --changed"),
-        (vec!["--full-tree", "--use-existing-coverage"], "--full-tree cannot be combined with --use-existing-coverage"),
-        (vec!["--no-coverage", "--coverage-command", "true"], "--no-coverage cannot be combined with --coverage-command"),
+        (
+            vec!["--full-tree", "a.rs"],
+            "--full-tree cannot be combined with path arguments",
+        ),
+        (
+            vec!["--full-tree", "--changed"],
+            "--full-tree cannot be combined with --changed",
+        ),
+        (
+            vec!["--full-tree", "--use-existing-coverage"],
+            "--full-tree cannot be combined with --use-existing-coverage",
+        ),
+        (
+            vec!["--no-coverage", "--coverage-command", "true"],
+            "--no-coverage cannot be combined with --coverage-command",
+        ),
     ] {
         let result = p.crap(&args);
         assert_eq!(result.status.code(), Some(1));

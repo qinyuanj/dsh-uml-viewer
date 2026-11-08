@@ -27,26 +27,11 @@ pub fn stamp_path(root: &Path) -> PathBuf {
 }
 
 // Python json.dumps defaults to ensure_ascii=True, including surrogate pairs.
-fn ascii_json(text: &str, escape_ascii: bool) -> String {
+fn ascii_json(text: &str) -> String {
     let mut out = String::new();
     for ch in text.chars() {
-        if ch.is_ascii() {
-            match ch {
-                '"' | '\\' if escape_ascii => {
-                    out.push('\\');
-                    out.push(ch);
-                }
-                '\n' if escape_ascii => out.push_str("\\n"),
-                '\r' if escape_ascii => out.push_str("\\r"),
-                '\t' if escape_ascii => out.push_str("\\t"),
-                '\u{08}' if escape_ascii => out.push_str("\\b"),
-                '\u{0c}' if escape_ascii => out.push_str("\\f"),
-                c if c.is_control() && escape_ascii => {
-                    use std::fmt::Write;
-                    let _ = write!(out, "\\u{:04x}", c as u32);
-                }
-                _ => out.push(ch),
-            }
+        if ch.is_ascii() && ch != '\u{7f}' {
+            out.push(ch);
         } else {
             let mut units = [0; 2];
             for unit in ch.encode_utf16(&mut units) {
@@ -101,7 +86,7 @@ pub fn fingerprint(root: &Path) -> String {
     rows.sort();
     let mut digest = Sha256::new();
     for (path, size, nanos) in rows {
-        let path = ascii_json(&serde_json::to_string(&path).expect("JSON string"), true);
+        let path = ascii_json(&serde_json::to_string(&path).expect("JSON string"));
         digest.update(format!("[{path}, {size}, {nanos}]\n"));
     }
     format!("{:x}", digest.finalize())
@@ -168,10 +153,7 @@ pub fn record(
             result => result,
         }
     } else {
-        let bytes = ascii_json(
-            &(serde_json::to_string_pretty(&data).expect("stamp JSON") + "\n"),
-            false,
-        );
+        let bytes = ascii_json(&(serde_json::to_string_pretty(&data).expect("stamp JSON") + "\n"));
         crate::atomic::write_bytes(&stamp_path(root), bytes.as_bytes())
     };
     if let Err(error) = result {

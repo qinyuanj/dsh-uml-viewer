@@ -6,6 +6,27 @@ use std::process::Output;
 const STAMP: &str = "target/coverage/crapper-stamp.json";
 
 #[test]
+fn stamp_fingerprint_matches_pinned_python_json_rows() {
+    let p = project();
+    let time = std::time::UNIX_EPOCH + std::time::Duration::from_nanos(12_340_000_000);
+    fs::File::options()
+        .write(true)
+        .open(p.root.join("a.rs"))
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(time))
+        .unwrap();
+    let result = run(&p);
+    assert_eq!(result.status.code(), Some(0), "{}", stderr(&result));
+    let text = fs::read_to_string(p.root.join(STAMP)).unwrap();
+    // Python 4068857 stamp.fingerprint: sha256(json.dumps(["a.rs", 14,
+    // 12340000000]) + "\\n"), independently generated with hashlib.
+    assert!(
+        text.contains("4b0277cfb14e0550ba5c3aa75372ac66e109b076783d3467382501d66f717784"),
+        "{text}"
+    );
+}
+
+#[test]
 fn fresh_custom_report_does_not_assign_a_siblings_suffix_coverage() {
     let p = project();
     p.write("other/a.rs", "pub fn other() {}\n");

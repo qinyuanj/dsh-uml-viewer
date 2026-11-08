@@ -484,10 +484,6 @@ pub(super) fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Resul
     let process = Process(owned(info.hProcess)?);
     let thread = owned(info.hThread)?;
     unsafe {
-        checked(AssignProcessToJobObject(
-            job.as_raw_handle(),
-            process.0.as_raw_handle(),
-        ))?;
         if ResumeThread(thread.as_raw_handle()) == u32::MAX {
             return Err(io::Error::last_os_error());
         }
