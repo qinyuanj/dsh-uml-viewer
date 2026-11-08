@@ -382,6 +382,7 @@ mod linux {
         "2026-11-07T12:00:00+00:00".into()
     }
 
+    #[cfg_attr(not(windows), allow(dead_code))]
     fn run(args: &[&str]) -> ExitCode {
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
         mutator::run_with_clock(&args, fixed_clock)
