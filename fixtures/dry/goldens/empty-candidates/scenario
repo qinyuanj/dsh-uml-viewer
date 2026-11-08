@@ -1,0 +1,4 @@
+project rust
+arg --min-nodes
+arg 100000
+arg --edn

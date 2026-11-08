@@ -105,11 +105,11 @@ fn every_scenario_matches_the_python_crapper_byte_for_byte() {
         .iter()
         .map(|dir| dir.file_name().unwrap().to_string_lossy().into_owned())
         .collect();
-    // Exact: 28 base scenarios (24 from #5 and four fixtures from #4) and 64
-    // behavior groups. A dropped scenario,
+    // Exact: 29 base scenarios (24 from #5, four fixtures from #4 and #6's
+    // Unicode-digit threshold) and 64 behavior groups. A dropped scenario,
     // or a behavior group whose fixtures exist but whose scenario does not,
     // must fail. The helper-only string-blanking case has no CLI output.
-    assert_eq!(names.len(), 92, "scenarios: {names:?}");
+    assert_eq!(names.len(), 93, "scenarios: {names:?}");
     let mut sourced: Vec<String> = Vec::new();
     for language in ["go", "java", "clojure"] {
         let base = repo()

@@ -1,0 +1,124 @@
+Usage: mutator [options] [path-or-filter ...]
+
+Discover mutation sites in Clojure, Java, Go, TypeScript, Rust, Python, and Lua,
+run the project's tests against each one, and write `.metrics/mutate` for
+uml-viewer. Namespaces and function names are the ones crapper writes into
+`.metrics/crap.edn`.
+
+A form id is `defn/<name>` or, for a private operation, `defn-/<name>`.
+uml-viewer joins that name to the operation and joins `:namespace` to the
+class.
+
+Options:
+  -h, --help                    Print this help and exit.
+  --root <path>                 Project root. Metrics are written here.
+                                Default: the current directory.
+  -s, --source-root <path>      Walk this tree instead of the project root.
+                                May be repeated. Path arguments and --changed
+                                are narrowed to the files under a source root.
+  --changed                     Mutate added, modified, and untracked source
+                                files from git status, including files in a
+                                new directory. Paths are taken under --root,
+                                which may be a subdirectory of the repository.
+                                With --source-root, only those under a root.
+  --exclude <glob>              Leave out this project-relative path or glob.
+                                May be repeated. Applies to every selection.
+  --scan                        List mutation sites. Do not run tests or
+                                write metrics.
+  --mutate-all                  Run every covered site, including ones the
+                                last snapshot already killed.
+  --since-last-run              Run survivors and sites in new or rewritten
+                                functions. This is the default when a snapshot
+                                exists.
+  --lines <n,n,...>             Run only mutations on these source lines.
+  --no-coverage                 Treat every site as covered.
+  --use-existing-coverage       Read coverage already on disk without
+                                checking it. Same as --reuse-coverage.
+  --reuse-coverage              Read coverage already on disk. --select-specs
+                                recollects a missing or invalid Lua spec index.
+  --coverage-command <cmd>      Run this command instead of the per-language
+                                coverage tools, then read the reports it wrote.
+  --test-command <cmd>          Run this command for the baseline and every
+                                mutant. The working directory is the project
+                                root. Cannot be combined with --busted-task.
+  --busted-task <name>          Select a named task in .busted for Lua tests
+                                and spec-file coverage (for example, fast).
+                                Other languages are unchanged.
+                                Cannot be combined with --test-command; put
+                                --run <name> in your custom command instead.
+  --timeout-factor <number>     Mutant timeout, as a multiple of the baseline
+                                duration. Default: 10. The timeout is at least
+                                2 seconds.
+  --mutation-warning <number>   Warn when a file selects more covered sites
+                                than this. Default: 50.
+  --max-workers <number>        Run at most this many mutants at once.
+                                Default: one per core. The run uses the
+                                smaller of this limit, the cores, and the
+                                number of selected sites.
+  --select-specs                Opt into Lua spec-file selection. Requires tests
+                                whose behavior is independent of other spec files;
+                                shared state can change mutation outcomes.
+  --full-suite                  Run all tests for every mutant (the default).
+                                Cannot be combined with --select-specs.
+  --paranoid-workers            Run the pristine worker check in every worker
+                                instead of once per command. The other workers
+                                are always compared structurally.
+  --timings                     Print phase totals and mean mutant duration.
+  --verbose                     Print each test command, each mutant, and each
+                                site's run decision.
+
+Arguments:
+  path              File or directory to mutate. Test paths are skipped. With
+                    --source-root, a named file outside every root is dropped:
+                    "Skipping <path>; it is outside the source roots" on stderr.
+  filter            When the argument is not a path, only source files whose
+                    path contains this text are mutated.
+
+With no paths, source files under the project root are mutated. Directories
+named test, tests, spec, specs, vendor, node_modules, and target are skipped.
+
+--exclude patterns are anchored at the project root and use either separator.
+`*` and `?` match within one directory name, `**` matches any number of whole
+directories, and a match on a directory excludes everything in it. A leading
+./ and a trailing / are ignored; matching is case-sensitive. An absolute
+pattern or one containing .. is a usage error. A named file that is excluded
+is dropped with "Skipping excluded <path>" on stderr.
+
+The default, once a snapshot exists, reruns survivors and sites in functions
+whose text changed. Killed mutants in unchanged functions are kept.
+
+Selected mutants of one file run at the same time, one worker per core unless
+--max-workers says otherwise. Full-suite Lua files share one worker queue, so
+mutants of the next file start while the current file finishes; each file's
+snapshot is written when its own mutants are done. Each mutant runs in
+its own overlay view mounted under target/mutation-workers; what its tests
+write is discarded with the view, so the project tree is left unchanged. Rust workers keep their Cargo build output in
+target/mutation-workers/cargo-slot-<n>/target across runs; cargo clean
+removes it. mutator never writes to a project source. A non-scan run
+refuses to start while target/mutator-backup/ holds files from an older
+version, and leaves them and the sources for you to compare. A source
+edited or deleted during a run is kept as it is and gets no snapshot.
+
+Exit codes:
+  0  every executed mutant was killed, or there was nothing to run
+  1  usage error
+  2  baseline tests failed, or the run could not start
+  3  at least one mutant survived
+  4  a source changed during the run; its snapshot was not written
+
+Coverage, when it is produced, uses the same commands as crapper:
+  Clojure      clj -M:cov --lcov
+  Java         Maven JaCoCo
+  Go           go test ./... -coverprofile=...
+  TypeScript   npm run coverage, Vitest, or c8
+  Rust         cargo llvm-cov or cargo tarpaulin
+  Python       coverage.py LCOV
+  Lua          busted -c with luacov, then luacov -r lcov
+
+A site on a line the report does not mark as hit is uncovered and is not run.
+
+Before generating coverage, mutator reads target/coverage/crapper-stamp.json.
+A language whose reports crapper produced for these files, with the same
+--coverage-command, from the tree as it is now, is reused, and the run prints
+"Reusing <languages> coverage from crapper's last run." Only the other
+languages are regenerated. The baseline test run still happens.

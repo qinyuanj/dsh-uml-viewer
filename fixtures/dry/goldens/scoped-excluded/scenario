@@ -1,0 +1,9 @@
+project rust
+arg -s
+arg src
+arg --exclude
+arg src/calls.rs
+arg src/lib.rs
+arg src/calls.rs
+arg tests/explicit.rs
+arg --edn

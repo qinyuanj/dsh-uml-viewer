@@ -1,0 +1,207 @@
+DUPLICATE score=1.00
+  src/calls.rs:3-7
+  src/calls.rs:9-13
+
+DUPLICATE score=1.00
+  src/calls.rs:27-31
+  src/calls.rs:33-37
+
+DUPLICATE score=1.00
+  src/calls.rs:39-43
+  src/calls.rs:45-49
+
+DUPLICATE score=1.00
+  src/calls.rs:39-43
+  src/calls.rs:51-55
+
+DUPLICATE score=1.00
+  src/calls.rs:45-49
+  src/calls.rs:51-55
+
+DUPLICATE score=1.00
+  src/calls.rs:57-65
+  src/calls.rs:67-75
+
+DUPLICATE score=1.00
+  src/extraction.rs:12-19
+  src/extraction.rs:22-29
+
+DUPLICATE score=1.00
+  src/extraction.rs:12-19
+  src/extraction.rs:32-39
+
+DUPLICATE score=1.00
+  src/extraction.rs:12-19
+  src/extraction.rs:43-50
+
+DUPLICATE score=1.00
+  src/extraction.rs:12-19
+  src/extraction.rs:55-62
+
+DUPLICATE score=1.00
+  src/extraction.rs:12-19
+  src/extraction.rs:68-75
+
+DUPLICATE score=1.00
+  src/extraction.rs:12-19
+  src/lib.rs:6-13
+
+DUPLICATE score=1.00
+  src/extraction.rs:12-19
+  src/lib.rs:16-23
+
+DUPLICATE score=1.00
+  src/extraction.rs:12-19
+  src/lib.rs:34-41
+
+DUPLICATE score=1.00
+  src/extraction.rs:22-29
+  src/extraction.rs:32-39
+
+DUPLICATE score=1.00
+  src/extraction.rs:22-29
+  src/extraction.rs:43-50
+
+DUPLICATE score=1.00
+  src/extraction.rs:22-29
+  src/extraction.rs:55-62
+
+DUPLICATE score=1.00
+  src/extraction.rs:22-29
+  src/extraction.rs:68-75
+
+DUPLICATE score=1.00
+  src/extraction.rs:22-29
+  src/lib.rs:6-13
+
+DUPLICATE score=1.00
+  src/extraction.rs:22-29
+  src/lib.rs:16-23
+
+DUPLICATE score=1.00
+  src/extraction.rs:22-29
+  src/lib.rs:34-41
+
+DUPLICATE score=1.00
+  src/extraction.rs:32-39
+  src/extraction.rs:43-50
+
+DUPLICATE score=1.00
+  src/extraction.rs:32-39
+  src/extraction.rs:55-62
+
+DUPLICATE score=1.00
+  src/extraction.rs:32-39
+  src/extraction.rs:68-75
+
+DUPLICATE score=1.00
+  src/extraction.rs:32-39
+  src/lib.rs:6-13
+
+DUPLICATE score=1.00
+  src/extraction.rs:32-39
+  src/lib.rs:16-23
+
+DUPLICATE score=1.00
+  src/extraction.rs:32-39
+  src/lib.rs:34-41
+
+DUPLICATE score=1.00
+  src/extraction.rs:43-50
+  src/extraction.rs:55-62
+
+DUPLICATE score=1.00
+  src/extraction.rs:43-50
+  src/extraction.rs:68-75
+
+DUPLICATE score=1.00
+  src/extraction.rs:43-50
+  src/lib.rs:6-13
+
+DUPLICATE score=1.00
+  src/extraction.rs:43-50
+  src/lib.rs:16-23
+
+DUPLICATE score=1.00
+  src/extraction.rs:43-50
+  src/lib.rs:34-41
+
+DUPLICATE score=1.00
+  src/extraction.rs:55-62
+  src/extraction.rs:68-75
+
+DUPLICATE score=1.00
+  src/extraction.rs:55-62
+  src/lib.rs:6-13
+
+DUPLICATE score=1.00
+  src/extraction.rs:55-62
+  src/lib.rs:16-23
+
+DUPLICATE score=1.00
+  src/extraction.rs:55-62
+  src/lib.rs:34-41
+
+DUPLICATE score=1.00
+  src/extraction.rs:68-75
+  src/lib.rs:6-13
+
+DUPLICATE score=1.00
+  src/extraction.rs:68-75
+  src/lib.rs:16-23
+
+DUPLICATE score=1.00
+  src/extraction.rs:68-75
+  src/lib.rs:34-41
+
+DUPLICATE score=1.00
+  src/lib.rs:6-13
+  src/lib.rs:16-23
+
+DUPLICATE score=1.00
+  src/lib.rs:6-13
+  src/lib.rs:34-41
+
+DUPLICATE score=1.00
+  src/lib.rs:16-23
+  src/lib.rs:34-41
+
+DUPLICATE score=1.00
+  src/lib.rs:45-52
+  src/lib.rs:54-61
+
+DUPLICATE score=0.85
+  src/extraction.rs:12-19
+  src/extraction.rs:66-77
+
+DUPLICATE score=0.85
+  src/extraction.rs:22-29
+  src/extraction.rs:66-77
+
+DUPLICATE score=0.85
+  src/extraction.rs:32-39
+  src/extraction.rs:66-77
+
+DUPLICATE score=0.85
+  src/extraction.rs:43-50
+  src/extraction.rs:66-77
+
+DUPLICATE score=0.85
+  src/extraction.rs:55-62
+  src/extraction.rs:66-77
+
+DUPLICATE score=0.85
+  src/extraction.rs:66-77
+  src/extraction.rs:68-75
+
+DUPLICATE score=0.85
+  src/extraction.rs:66-77
+  src/lib.rs:6-13
+
+DUPLICATE score=0.85
+  src/extraction.rs:66-77
+  src/lib.rs:16-23
+
+DUPLICATE score=0.85
+  src/extraction.rs:66-77
+  src/lib.rs:34-41

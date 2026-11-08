@@ -1,0 +1,73 @@
+{
+  "references": {
+    "mutator": "f772a8329fba3f2f81bfca0a81abfa3210af9f4a",
+    "crapper": "4068857bc44e6383cf4a5e4d0b5c1111b49ce0b4"
+  },
+  "clock": "2026-11-07T12:00:00+00:00",
+  "isolation": "namespace-view",
+  "targets": [
+    "util/src/lib.rs",
+    "app/src/lib.rs",
+    "app/src/more.rs"
+  ],
+  "arguments": [
+    "--root",
+    "<native-/tmp-parent>/project",
+    "--max-workers",
+    "1",
+    "--timeout-factor",
+    "20",
+    "util/src/lib.rs",
+    "app/src/lib.rs",
+    "app/src/more.rs"
+  ],
+  "first_run": {
+    "prepend": [
+      "--mutate-all"
+    ],
+    "exit": 0,
+    "killed": 3,
+    "survived": 0,
+    "uncovered": 0
+  },
+  "unchanged_rerun": {
+    "exit": 0,
+    "executed": 0,
+    "reused": 3,
+    "identical_snapshot_bytes": true
+  },
+  "differential_zero_site_rerun": {
+    "function_added": "\npub fn no_sites() {}\n",
+    "command": "grep -q 'x + x' app/src/lib.rs",
+    "exit": 0,
+    "executed": 0,
+    "reused": 1,
+    "identical_snapshot_bytes": false,
+    "snapshot": "app-no-sites.edn",
+    "bytes": 601,
+    "sha256": "49a18a35b755671f972712523d78187064c2924b3121273f920c0df458ac5433"
+  },
+  "original_tests": {
+    "passed": 4,
+    "files": [
+      "test_snapshot_bytes.py",
+      "test_rust_slots_cargo.py"
+    ]
+  },
+  "original_manifest_source_test_bytes_unchanged": true,
+  "reference_worktrees_clean": true,
+  "snapshots": {
+    "app.edn": {
+      "bytes": 406,
+      "sha256": "919be95f1a4856e91619a060d4bfc062554cc5aee45447444248ea13d47cc095"
+    },
+    "app/more.edn": {
+      "bytes": 419,
+      "sha256": "713568c32383e59f2f0b7569903cd570aa353984562b1cd4f4403f0fe5e7575e"
+    },
+    "util.edn": {
+      "bytes": 412,
+      "sha256": "31190035242fa75d52f3ee27f0c6f431189198236bc4a5174f2bcd6bd66fe8c8"
+    }
+  }
+}

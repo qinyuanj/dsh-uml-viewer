@@ -8,6 +8,12 @@ publish.workspace = true
 # Shared by crapper, mutator and dryer (ADR 0012): source selection, the
 # tree-sitter language table, coverage reports and runners, atomic writes.
 [dependencies]
+edn = { path = "../edn" }
+chrono = "0.4"
+libc = "0.2"
+# Pinned to the grammar the Python tools parse with (tree-sitter-language-pack
+# 1.21.0 ships tree-sitter-rust 0.24.2 regenerated at ABI 14); a full node walk
+# is byte-identical across the workspace and the cargo registry sources.
 # tree-sitter-language-pack 1.21.0 sources/language_definitions.json pins
 # Python at this untagged upstream revision and regenerates its parser. The
 # generated C, rather than the released 0.25.0 crate, has the oracle's 275
@@ -30,6 +36,3 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage)"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Threading"] }
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"

@@ -9,6 +9,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+/// Syntax node shared by tools without a direct tree-sitter dependency.
 pub use tree_sitter::Node;
 use tree_sitter::{Parser, Tree};
 

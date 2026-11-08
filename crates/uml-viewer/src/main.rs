@@ -37,6 +37,16 @@ const ROLES: &[(&str, &str, Entry)] = &[
         "score every function with the CRAP metric, .metrics/crap.edn",
         |_, args| crapper::run(args),
     ),
+    (
+        "mutate",
+        "differential mutation testing, isolated Linux test runs",
+        |_, args| mutator::run(args),
+    ),
+    (
+        "dry",
+        "find duplicate structures, .metrics/dry.edn",
+        |_, args| dryer::run(args),
+    ),
     ("companion-worker", "Herdr companion worker", |_, args| {
         companion::run_worker(args)
     }),

@@ -14,14 +14,21 @@
 //! - [`atomic`]: atomic snapshot publication.
 //! - [`snapshot`]: the `.metrics` EDN writer (number format, key order).
 //! - [`paths`]: Python-compatible `resolve` / `as_posix`.
+//! - [`number`]: Python `float()` for number options; [`digits`] is the
+//!   Unicode decimal digit table it shares with dryer's `int()` counts.
+
+// Shared syntax, serialization and OS primitives for quality tool crates.
+pub use {chrono, edn, libc, serde_json, sha2, tree_sitter};
 
 pub mod atomic;
 pub mod changed;
 pub mod coverage;
 mod coverage_reports;
+pub mod digits;
 pub mod functions;
 pub mod grammar;
 pub mod language;
+pub mod number;
 pub mod paths;
 pub mod process;
 pub mod runner;

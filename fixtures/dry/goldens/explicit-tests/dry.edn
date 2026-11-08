@@ -1,0 +1,8 @@
+{:candidates [
+ {:score 1.0
+  :language "rust"
+  :left {:file "tests/explicit.rs", :start-line 3, :end-line 10, :namespace nil, :name nil}
+  :right {:file "tests/explicit.rs", :start-line 12, :end-line 19, :namespace nil, :name nil}
+  :left-nodes 58
+  :right-nodes 58}
+]}
