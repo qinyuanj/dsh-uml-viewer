@@ -92,7 +92,7 @@ mutator itself, as in the original tool.
 ## Not ported yet
 
 An operation whose tool does not read a selected language is refused with an
-error record, never an empty success: mutator reads Rust only (Go/Java/Clojure
+error record, never an empty success: mutator reads Rust and Lua (Go/Java/Clojure
 follow with #14); crapper and dryer read all seven (#7). Mutation also
 refuses off Linux (`Mutation isolation is currently supported only on Linux`).
 A project that declares its own `operations` command is responsible for what

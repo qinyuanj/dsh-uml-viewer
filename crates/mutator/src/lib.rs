@@ -4,16 +4,20 @@ mod cli;
 mod engine;
 mod interrupts;
 mod isolation;
+pub mod lua;
 mod metrics;
 mod scratch;
-mod sites;
+pub mod sites;
 mod workers;
 
-/// Whether this port mutates `language` yet: Rust only (Go, Java and Clojure
-/// follow with qinyuanj/dsh-uml-viewer#14). Quality dispatch refuses a
-/// selection holding any other language instead of reporting it empty.
+/// Whether this port mutates `language` yet: Rust and Lua (Go, Java and
+/// Clojure follow with qinyuanj/dsh-uml-viewer#14). Quality dispatch refuses
+/// a selection holding any other language instead of reporting it empty.
 pub fn mutates(language: quality_core::language::Language) -> bool {
-    language == quality_core::language::Language::Rust
+    matches!(
+        language,
+        quality_core::language::Language::Rust | quality_core::language::Language::Lua
+    )
 }
 
 pub fn run(args: &[OsString]) -> ExitCode {
@@ -78,9 +82,12 @@ fn run_mutation(root: &Path, options: &cli::Options, clock: impl Fn() -> String)
             .select(&options.positionals, &mut std::io::stderr())
     };
     files.retain(|path| {
-        if !quality_core::language::language_of(path).is_some_and(mutates) {
+        if !matches!(
+            quality_core::language::language_of(path),
+            Some(quality_core::language::Language::Rust | quality_core::language::Language::Lua)
+        ) {
             eprintln!(
-                "Skipping {}; Linux mutation currently supports Rust only.",
+                "Skipping {}; this Linux mutation build mutates Rust and Lua sources.",
                 path.display()
             );
             return false;

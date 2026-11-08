@@ -2,6 +2,7 @@ use crate::{
     cli::Options,
     interrupts,
     isolation::{Failure, View},
+    lua::{self, Index},
     metrics::{self, Decision},
     sites::{self, Form, Site},
     workers::{self, Workers},
@@ -9,10 +10,11 @@ use crate::{
 use quality_core::{
     coverage::{Records, parse_lcov},
     grammar::read_source,
+    language::{Language, language_of},
     runner::{modules_with, nearest},
 };
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
     time::Duration,
@@ -45,6 +47,56 @@ impl Timings {
             .collect()
     }
 }
+
+/// A test command: the original's shell string, or the Lua suite's argv, so a
+/// spec file name with a space or a quote stays one argument.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Command {
+    Shell(String),
+    Argv(Vec<String>),
+}
+impl Command {
+    /// The command as the original echoes it.
+    fn display(&self) -> String {
+        match self {
+            Command::Shell(command) => command.clone(),
+            Command::Argv(argv) => argv
+                .iter()
+                .map(|argument| {
+                    if !argument.is_empty()
+                        && argument
+                            .chars()
+                            .all(|ch| ch.is_ascii_alphanumeric() || "-_./=:@,+".contains(ch))
+                    {
+                        argument.clone()
+                    } else {
+                        format!("'{}'", argument.replace('\'', "'\\''"))
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" "),
+        }
+    }
+    /// `[*command, *tail]` for both command shapes.
+    fn extend(&self, tail: &[String]) -> Self {
+        match self {
+            Command::Shell(command) => {
+                let mut joined = command.clone();
+                for argument in tail {
+                    joined.push(' ');
+                    joined.push_str(argument);
+                }
+                Command::Shell(joined)
+            }
+            Command::Argv(argv) => {
+                let mut extended = argv.clone();
+                extended.extend(tail.iter().cloned());
+                Command::Argv(extended)
+            }
+        }
+    }
+}
+
 pub struct Prepared {
     pub file: PathBuf,
     pub key: String,
@@ -55,40 +107,65 @@ pub struct Prepared {
     pub decisions: BTreeMap<String, Decision>,
     pub outcomes: BTreeMap<String, String>,
     pub covered: BTreeMap<String, bool>,
+    /// The module's Lua spec index, when this file has one.
+    pub index: Option<Index>,
 }
-fn plan(root: &Path, options: &Options, source: &Path) -> (String, PathBuf) {
+
+/// The test command and the directory it runs in.
+fn plan(root: &Path, options: &Options, source: &Path) -> (Command, PathBuf) {
     if let Some(command) = options.value("--test-command") {
-        return (command.to_string(), root.to_path_buf());
+        return (Command::Shell(command.to_string()), root.to_path_buf());
+    }
+    if language_of(source) == Some(Language::Lua) {
+        let module = lua_module(root, source);
+        return (
+            Command::Argv(lua::plan(&module, options.value("--busted-task"))),
+            module,
+        );
     }
     (
-        "cargo test".into(),
+        Command::Shell("cargo test".into()),
         nearest(source, "Cargo.toml", root).unwrap_or_else(|| root.to_path_buf()),
     )
 }
+
+/// The Lua module directory a source belongs to: the nearest ancestor with a
+/// `.busted` file or a rockspec, or the project root.
+fn lua_module(root: &Path, source: &Path) -> PathBuf {
+    quality_core::runners::lua::modules(root, &[source.to_path_buf()])
+        .into_keys()
+        .next()
+        .unwrap_or_else(|| root.to_path_buf())
+}
+
 fn execute(
     view: &View,
     root: &Path,
     cwd: &Path,
-    command: &str,
+    command: &Command,
     site: Option<(&Path, &str)>,
     timeout: Option<Duration>,
 ) -> Result<(i32, Duration), Failure> {
-    let result = view
-        .run(root, cwd, command, site, timeout)
-        .map_err(|failure| match failure {
-            Failure::Interrupted => Failure::Interrupted,
-            Failure::Message(error) => Failure::Message(format!(
-                "Cannot enter user+mount namespace overlay: {error}"
-            )),
-        })?;
+    let run = match command {
+        Command::Shell(text) => view.run(root, cwd, text, site, timeout),
+        Command::Argv(argv) => view.run_argv(root, cwd, argv, site, timeout),
+    };
+    let result = run.map_err(|failure| match failure {
+        Failure::Interrupted => Failure::Interrupted,
+        Failure::Message(error) => Failure::Message(format!(
+            "Cannot enter user+mount namespace overlay: {error}"
+        )),
+    })?;
     if !result.output.is_empty() {
         eprint!("{}", result.output);
     }
     Ok((result.code, result.elapsed))
 }
+
 fn quote(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
 }
+
 fn collect_reports(directory: &Path, records: &mut Records) {
     let Ok(entries) = fs::read_dir(directory) else {
         return;
@@ -105,46 +182,121 @@ fn collect_reports(directory: &Path, records: &mut Records) {
         }
     }
 }
-fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Records, i32> {
-    let mut records = Records::default();
-    if options.flag("--use-existing-coverage") || options.flag("--reuse-coverage") {
-        collect_reports(&root.join("coverage"), &mut records);
-        collect_reports(&root.join("target/coverage"), &mut records);
-        return Ok(records);
+
+/// Everything one run's selection reads: the LCOV records of the languages
+/// that report through LCOV, and the Lua spec index per module.
+#[derive(Default)]
+struct Coverage {
+    records: Records,
+    indexes: BTreeMap<PathBuf, Index>,
+}
+
+fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverage, i32> {
+    let mut coverage = Coverage::default();
+    let reuse = options.flag("--use-existing-coverage") || options.flag("--reuse-coverage");
+    let standard =
+        options.value("--test-command").is_none() && options.value("--coverage-command").is_none();
+    if standard && !reuse {
+        // Lua suites report through their own instrumented collection.
+        let lua_files: Vec<PathBuf> = files
+            .iter()
+            .filter(|file| language_of(file) == Some(Language::Lua))
+            .cloned()
+            .collect();
+        for (module, sources) in quality_core::runners::lua::modules(root, &lua_files) {
+            let started = std::time::Instant::now();
+            let view = View::new(root).map_err(|error| {
+                eprintln!("Cannot create a mutation view: {error}");
+                1
+            })?;
+            let index = lua::collect(
+                &view,
+                &lua::Request {
+                    root,
+                    module: &module,
+                    sources: &sources,
+                    busted_task: options.value("--busted-task"),
+                    shards: None,
+                },
+            )
+            .map_err(|error| {
+                eprintln!("{error}");
+                2
+            })?;
+            eprintln!(
+                "timing lua-coverage: {:.1}s",
+                started.elapsed().as_secs_f64()
+            );
+            coverage.indexes.insert(module, index);
+        }
     }
-    let jobs = if let Some(command) = options.value("--coverage-command") {
-        vec![(
+    if reuse {
+        collect_reports(&root.join("coverage"), &mut coverage.records);
+        collect_reports(&root.join("target/coverage"), &mut coverage.records);
+        return Ok(coverage);
+    }
+    if !standard {
+        let command = options.value("--coverage-command");
+        let Some(command) = command else {
+            return Ok(coverage);
+        };
+        let job = (
             root.to_path_buf(),
             format!(
                 "rm -f coverage/lcov.info coverage/luacov.stats.out luacov.stats.out\n{command}"
             ),
             PathBuf::from("coverage/lcov.info"),
-        )]
-    } else {
-        if quality_core::process::which("cargo-llvm-cov").is_none() {
-            eprintln!("cargo-llvm-cov is required; mutation does not install tools.");
+        );
+        let view = View::new(root).map_err(|error| {
+            eprintln!("{error}");
+            2
+        })?;
+        let result = view
+            .run(root, &job.0, &job.1, None, None)
+            .map_err(|error| {
+                eprintln!("Isolation unavailable: {error}");
+                1
+            })?;
+        eprint!("{}", result.output);
+        if result.code != 0 {
+            eprintln!("Coverage command exited {}.", result.code);
             return Err(2);
         }
-        modules_with(
-            files,
-            quality_core::language::Language::Rust,
-            "Cargo.toml",
-            root,
-        )
-        .into_iter()
-        .map(|module| {
-            let report = quality_core::runner::coverage_report(root, &module, "rust");
-            let relative = report.strip_prefix(root).unwrap().to_path_buf();
-            let command = format!(
-                "mkdir -p {}\ncargo llvm-cov --lcov --output-path {}",
-                quote(report.parent().unwrap()),
-                quote(&report)
-            );
-            (module, command, relative)
-        })
-        .collect()
-    };
-    for (cwd, command, report) in jobs {
+        let report = view.directory.join("upper").join(&job.2);
+        let fresh = quality_core::coverage::read_fresh_lcov(&report, root).map_err(|error| {
+            eprintln!("Required LCOV report invalid or unavailable: {error}");
+            2
+        })?;
+        coverage.records.update(fresh);
+        return Ok(coverage);
+    }
+    let rust_files: Vec<PathBuf> = files
+        .iter()
+        .filter(|file| language_of(file) == Some(Language::Rust))
+        .cloned()
+        .collect();
+    if rust_files.is_empty() {
+        return Ok(coverage);
+    }
+    if quality_core::process::which("cargo-llvm-cov").is_none() {
+        eprintln!("cargo-llvm-cov is required; mutation does not install tools.");
+        return Err(2);
+    }
+    let jobs: Vec<(PathBuf, String, PathBuf)> =
+        modules_with(&rust_files, Language::Rust, "Cargo.toml", root)
+            .into_iter()
+            .map(|module| {
+                let report = quality_core::runner::coverage_report(root, &module, "rust");
+                let relative = report.strip_prefix(root).unwrap_or(&report).to_path_buf();
+                let command = format!(
+                    "mkdir -p {}\ncargo llvm-cov --lcov --output-path {}",
+                    quote(report.parent().unwrap()),
+                    quote(&report)
+                );
+                (module, command, relative)
+            })
+            .collect();
+    for (cwd, command, class) in jobs {
         let view = View::new(root).map_err(|error| {
             eprintln!("{error}");
             2
@@ -164,42 +316,60 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Records
             eprintln!("Coverage command exited {}.", result.code);
             return Err(2);
         }
-        let report = view.directory.join("upper").join(report);
-        if options.value("--coverage-command").is_some() {
-            let fresh =
-                quality_core::coverage::read_fresh_lcov(&report, root).map_err(|error| {
-                    eprintln!("Required LCOV report invalid or unavailable: {error}");
-                    2
-                })?;
-            records.update(fresh);
-        } else {
-            let text = fs::read_to_string(report).map_err(|error| {
-                eprintln!("Coverage report unavailable: {error}");
-                2
-            })?;
-            records.update(parse_lcov(&text));
-        }
+        let report = view.directory.join("upper").join(class);
+        let text = fs::read_to_string(report).map_err(|error| {
+            eprintln!("Coverage report unavailable: {error}");
+            2
+        })?;
+        coverage.records.update(parse_lcov(&text));
     }
-    Ok(records)
+    Ok(coverage)
 }
-fn coverage_hit(records: &Records, root: &Path, file: &str, line: usize) -> bool {
+
+/// The lines a report records a hit for, or None when the file is absent.
+fn record_lines(records: &Records, root: &Path, file: &str) -> Option<BTreeSet<usize>> {
     let absolute = quality_core::paths::posix(&root.join(file));
-    let candidates = [file, &absolute];
+    let candidates = [file, absolute.as_str()];
     for candidate in candidates {
         for (source, lines) in records.iter() {
             if quality_core::coverage::normalize_path(source) == candidate {
-                return lines.get(&(line as u64)).is_some_and(|(hit, _)| *hit > 0);
+                return Some(hits(lines));
             }
         }
     }
     for (source, lines) in records.iter() {
         let key = quality_core::coverage::normalize_path(source);
         if key.ends_with(&format!("/{file}")) || file.ends_with(&format!("/{key}")) {
-            return lines.get(&(line as u64)).is_some_and(|(hit, _)| *hit > 0);
+            return Some(hits(lines));
         }
     }
-    false
+    None
 }
+
+fn hits(lines: &quality_core::coverage::Lines) -> BTreeSet<usize> {
+    lines
+        .iter()
+        .filter(|(_, (covered, _))| *covered > 0)
+        .map(|(number, _)| *number as usize)
+        .collect()
+}
+
+/// The lines this file's tests hit: the Lua index where one exists, else the
+/// LCOV records. None means the file has no coverage data at all.
+fn covered_lines(
+    coverage: &Coverage,
+    root: &Path,
+    file: &Path,
+    key: &str,
+) -> Option<BTreeSet<usize>> {
+    if language_of(file) == Some(Language::Lua)
+        && let Some(index) = coverage.indexes.get(&lua_module(root, file))
+    {
+        return index.hits(file).cloned();
+    }
+    record_lines(&coverage.records, root, key)
+}
+
 /// Python's `reused_run` contract: the file still owns sites, its form digests
 /// are exactly the recorded ones and no site was selected, treating every site
 /// as covered. Anything else takes the normal path so the snapshot is
@@ -226,6 +396,7 @@ fn backups_hold_files(directory: &Path) -> bool {
         }
     })
 }
+
 /// Refuse to run while an older mutator's backups are present. Mutants only
 /// touch overlay views, so such a backup can only come from a run that still
 /// mutated the project; it records no bytes that run last wrote, so nothing is
@@ -240,6 +411,31 @@ pub fn check_backups(root: &Path) -> Result<(), String> {
     }
     Ok(())
 }
+
+fn decide(item: &mut Prepared, lines: Option<&BTreeSet<usize>>, root: &Path, options: &Options) {
+    let ignore = options.flag("--no-coverage");
+    item.covered = item
+        .sites
+        .iter()
+        .map(|site| {
+            (
+                site.mutation_id.clone(),
+                ignore || lines.is_some_and(|lines| lines.contains(&site.line)),
+            )
+        })
+        .collect();
+    let history = metrics::load_history(root, &item.key);
+    item.decisions = metrics::decide(
+        &item.sites,
+        &item.covered,
+        &history,
+        &item.forms,
+        options.flag("--mutate-all"),
+        options.lines.as_ref(),
+    );
+    item.outcomes = metrics::carry_forward(&item.sites, &item.covered, &history, &item.forms);
+}
+
 pub fn prepare(
     root: &Path,
     options: &Options,
@@ -278,6 +474,7 @@ pub fn prepare(
             decisions,
             outcomes: BTreeMap::new(),
             covered,
+            index: None,
         });
     }
     if options.flag("--scan") {
@@ -287,38 +484,32 @@ pub fn prepare(
     if prepared.iter().all(|item| reusable(root, item)) {
         return Ok(prepared);
     }
-    let records = if options.flag("--no-coverage") {
-        Records::default()
+    let coverage = if options.flag("--no-coverage") {
+        // The original never collects coverage for a --no-coverage run.
+        Coverage::default()
     } else {
         let started = std::time::Instant::now();
-        let records = coverage(root, options, files)?;
+        let coverage = coverage(root, options, files)?;
         timings.add("coverage", started.elapsed());
-        records
+        coverage
     };
     for item in &mut prepared {
-        let history = metrics::load_history(root, &item.key);
-        item.covered = item
-            .sites
-            .iter()
-            .map(|site| {
-                (
-                    site.mutation_id.clone(),
-                    options.flag("--no-coverage")
-                        || coverage_hit(&records, root, &item.key, site.line),
-                )
-            })
-            .collect();
-        item.decisions = metrics::decide(
-            &item.sites,
-            &item.covered,
-            &history,
-            &item.forms,
-            options.flag("--mutate-all"),
-            options.lines.as_ref(),
-        );
-        // Outcomes of sites this run does not execute survive, including the
-        // covered sites a --lines filter excludes.
-        item.outcomes = metrics::carry_forward(&item.sites, &item.covered, &history, &item.forms);
+        let lua = language_of(&item.file) == Some(Language::Lua);
+        if lua {
+            item.index = coverage.indexes.get(&lua_module(root, &item.file)).cloned();
+        }
+        let lines = if options.flag("--no-coverage") {
+            None
+        } else {
+            covered_lines(&coverage, root, &item.file, &item.key)
+        };
+        if !options.flag("--no-coverage") && lines.is_none() {
+            eprintln!(
+                "No coverage data for {}; its sites are uncovered. Pass --no-coverage to run them anyway.",
+                item.key
+            );
+        }
+        decide(item, lines.as_ref(), root, options);
         let selected = item
             .decisions
             .values()
@@ -333,6 +524,73 @@ pub fn prepare(
     }
     Ok(prepared)
 }
+
+fn failure(item: &Prepared, command: &Command, tail: &str) -> i32 {
+    let mut message = format!("Baseline failed for {}: {}", item.key, command.display());
+    if !tail.is_empty() {
+        message.push('\n');
+        message.push_str(tail);
+    }
+    eprintln!("{message}");
+    2
+}
+
+/// `--select-specs`: run only the specs that cover a mutant, and fall back to
+/// the full suite when an attribution is missing or its subset does not pass.
+/// `pristine` runs a subset's pristine check and reports its seconds.
+fn lua_plans(
+    item: &Prepared,
+    index: &Index,
+    selected: &[Site],
+    command: &Command,
+    timeout: f64,
+    factor: f64,
+    pristine: &mut dyn FnMut(&Command) -> Result<f64, String>,
+) -> (BTreeMap<String, (Command, f64)>, Command, f64) {
+    let mut plans = BTreeMap::new();
+    let mut subsets: BTreeMap<Vec<String>, Option<(Command, f64)>> = BTreeMap::new();
+    let mut passed: BTreeMap<Vec<String>, f64> = BTreeMap::new();
+    let mut union: BTreeSet<String> = BTreeSet::new();
+    let mut full_suite = false;
+    for site in selected {
+        let specs = index.select(&item.file, site.line).unwrap_or_default();
+        if !specs.is_empty() && !subsets.contains_key(&specs) {
+            let selected_command = command.extend(&specs);
+            let entry = match pristine(&selected_command) {
+                Ok(seconds) => {
+                    passed.insert(specs.clone(), seconds);
+                    Some((
+                        selected_command,
+                        (index.seconds_for(&specs) * factor)
+                            .max(seconds * factor)
+                            .max(2.0),
+                    ))
+                }
+                Err(_) => None,
+            };
+            subsets.insert(specs.clone(), entry);
+        }
+        match subsets.get(&specs) {
+            Some(Some(plan)) => {
+                union.extend(specs);
+                plans.insert(site.mutation_id.clone(), plan.clone());
+            }
+            _ => {
+                plans.insert(site.mutation_id.clone(), (command.clone(), timeout));
+                full_suite = true;
+            }
+        }
+    }
+    if full_suite {
+        return (plans, Command::Argv(index.command.clone()), timeout);
+    }
+    let specs: Vec<String> = union.into_iter().collect();
+    let check_timeout = (index.seconds_for(&specs) * factor)
+        .max(passed.values().sum::<f64>() * factor)
+        .max(2.0);
+    (plans, command.extend(&specs), check_timeout)
+}
+
 pub fn mutate(
     root: &Path,
     options: &Options,
@@ -403,7 +661,8 @@ pub fn mutate(
         println!("No mutations selected; keeping the previous snapshots.");
         return 0;
     }
-    let mut baselines = BTreeMap::new();
+    let mut baselines: BTreeMap<(Command, PathBuf), Result<(i32, Duration), Failure>> =
+        BTreeMap::new();
     let mut status = 0;
     let mut survived_any = false;
     // One pool for the whole call: its slots are the workers every target
@@ -432,81 +691,203 @@ pub fn mutate(
     };
     for mut item in prepared {
         let (command, cwd) = plan(root, options, &item.file);
-        let selected = item.decisions.values().any(|d| d.action == "executed");
-        if selected {
+        let selected: Vec<Site> = item
+            .sites
+            .iter()
+            .filter(|site| {
+                item.decisions
+                    .get(&site.mutation_id)
+                    .is_some_and(|decision| decision.action == "executed")
+            })
+            .cloned()
+            .collect();
+        if !selected.is_empty() {
             if interrupts::pending().is_some() {
                 return 2;
             }
             let workers = pool.as_ref().expect("a selected site needs a worker");
+            // `language == "lua" and not test_command`: the generated Busted
+            // command, with or without a coverage index.
+            let standard_lua = language_of(&item.file) == Some(Language::Lua)
+                && options.value("--test-command").is_none();
+            let mut command = command;
+            if standard_lua && let Some(index) = &item.index {
+                command = Command::Argv(index.command.clone());
+                if index.fresh {
+                    // The fresh coverage run already proved the pristine suite
+                    // passes; its duration is the timeout base (ADR 0001).
+                    baselines
+                        .entry((command.clone(), index.directory.clone()))
+                        .or_insert(Ok((0, Duration::from_secs_f64(index.seconds))));
+                }
+            }
+            let run_cwd = if standard_lua {
+                item.index
+                    .as_ref()
+                    .map_or_else(|| cwd.clone(), |index| index.directory.clone())
+            } else {
+                cwd.clone()
+            };
             // One pristine run per command and working directory, shared by
             // every target file in this call.
-            let baseline = baselines
-                .entry((command.clone(), cwd.clone()))
-                .or_insert_with(|| {
+            let mut pristine = |command: &Command,
+                                build: bool,
+                                timeout: Option<Duration>|
+             -> Result<f64, String> {
+                let key = (command.clone(), run_cwd.clone());
+                if !baselines.contains_key(&key) {
                     let started = std::time::Instant::now();
                     let check = workers.view(0);
-                    let result = if options.value("--test-command").is_none() {
-                        let built = execute(&check, root, &cwd, "cargo test --no-run", None, None)?;
-                        if built.0 != 0 {
-                            Ok(built)
-                        } else {
-                            execute(&check, root, &cwd, &command, None, None)
+                    let result = (|| {
+                        if build {
+                            let built = execute(
+                                &check,
+                                root,
+                                &run_cwd,
+                                &Command::Shell("cargo test --no-run".into()),
+                                None,
+                                None,
+                            )?;
+                            if built.0 != 0 {
+                                return Ok(built);
+                            }
                         }
-                    } else {
-                        execute(&check, root, &cwd, &command, None, None)
-                    };
+                        execute(&check, root, &run_cwd, command, None, timeout)
+                    })();
                     timings.add("baseline", started.elapsed());
-                    result
-                });
-            let (code, duration) = match baseline {
-                Ok(value) => *value,
+                    baselines.insert(key.clone(), result);
+                }
+                match baselines.get(&key) {
+                    Some(Ok((0, duration))) => Ok(duration.as_secs_f64()),
+                    Some(Ok((code, _))) => Err(format!("exit {code}")),
+                    Some(Err(Failure::Message(error))) => Err(error.clone()),
+                    Some(Err(Failure::Interrupted)) => Err("interrupted".into()),
+                    None => Err("no pristine run".into()),
+                }
+            };
+            let build = !standard_lua && options.value("--test-command").is_none();
+            let seconds = match pristine(&command, build, None) {
+                Ok(seconds) => seconds,
+                Err(tail) => return failure(&item, &command, &tail),
+            };
+            let timeout = (seconds * options.timeout_factor).max(2.0);
+            let mut plans: Option<BTreeMap<String, (Command, f64)>> = None;
+            let mut check_command = command.clone();
+            let mut check_timeout = timeout;
+            let mut confirmation: Option<(Command, f64)> = None;
+            let mut run_command = command.clone();
+            if standard_lua {
+                if options.flag("--select-specs")
+                    && let Some(index) = &item.index
+                {
+                    run_command = command.extend(&["--no-keep-going".to_string()]);
+                    let (found, check, check_seconds) = lua_plans(
+                        &item,
+                        index,
+                        &selected,
+                        &run_command,
+                        timeout,
+                        options.timeout_factor,
+                        &mut |plan: &Command| pristine(plan, false, None),
+                    );
+                    plans = Some(found);
+                    check_command = check;
+                    check_timeout = check_seconds;
+                    confirmation = Some((run_command.clone(), timeout));
+                } else {
+                    let mut tail = vec!["--no-keep-going".to_string()];
+                    if let Some(index) = &item.index {
+                        let lines: Vec<usize> = selected.iter().map(|site| site.line).collect();
+                        tail.extend(index.covering_first(&item.file, &lines));
+                    }
+                    run_command = command.extend(&tail);
+                }
+            }
+            // With one worker the pristine plan check is the cached baseline;
+            // the selected-specs union subset still gets its own pristine run
+            // before any mutant can earn a kill.
+            if let Err(tail) = pristine(
+                &check_command,
+                false,
+                Some(Duration::from_secs_f64(check_timeout)),
+            ) {
+                return failure(&item, &check_command, &tail);
+            }
+            let count = workers::worker_count(selected.len(), options.max_workers);
+            let source = &item.source;
+            let file = &item.file;
+            let outcomes = workers.run_selected(count, &selected, |view, site| {
+                let (site_command, site_timeout) = plans
+                    .as_ref()
+                    .and_then(|plans| plans.get(&site.mutation_id))
+                    .cloned()
+                    .unwrap_or_else(|| (run_command.clone(), timeout));
+                let mutated = sites::apply_site(source, site);
+                execute(
+                    view,
+                    root,
+                    &run_cwd,
+                    &site_command,
+                    Some((file, &mutated)),
+                    Some(Duration::from_secs_f64(site_timeout)),
+                )
+                .map(|(code, _)| code)
+            });
+            let mut outcomes = match outcomes {
+                Ok(outcomes) => outcomes,
                 Err(Failure::Interrupted) => return 2,
                 Err(Failure::Message(error)) => {
                     eprintln!("{error}");
                     return 2;
                 }
             };
-            if code != 0 {
-                eprintln!("Baseline tests failed (exit {code}).");
-                return 2;
-            }
-            let timeout =
-                Duration::from_secs_f64((duration.as_secs_f64() * options.timeout_factor).max(2.0));
-            let sites: Vec<Site> = item
-                .sites
-                .iter()
-                .filter(|site| item.decisions[&site.mutation_id].action == "executed")
-                .cloned()
-                .collect();
-            let count = workers::worker_count(sites.len(), options.max_workers);
-            let source = &item.source;
-            let file = &item.file;
-            let outcomes = workers.run_selected(count, &sites, |view, site| {
-                let mutated = sites::apply_site(source, site);
-                execute(
-                    view,
-                    root,
-                    &cwd,
-                    &command,
-                    Some((file, &mutated)),
-                    Some(timeout),
-                )
-                .map(|(code, _)| code)
-            });
-            match outcomes {
-                Ok(outcomes) => {
-                    for (mutation_id, outcome) in outcomes {
-                        if outcome == "survived" {
-                            survived_any = true;
-                        }
-                        item.outcomes.insert(mutation_id, outcome);
+            if let Some((full, full_timeout)) = confirmation {
+                let survivors: Vec<&Site> = selected
+                    .iter()
+                    .filter(|site| {
+                        outcomes.get(&site.mutation_id).map(String::as_str) == Some("survived")
+                            && plans
+                                .as_ref()
+                                .and_then(|plans| plans.get(&site.mutation_id))
+                                .is_none_or(|(command, _)| command != &full)
+                    })
+                    .collect();
+                if !survivors.is_empty() {
+                    if let Err(tail) =
+                        pristine(&full, false, Some(Duration::from_secs_f64(full_timeout)))
+                    {
+                        return failure(&item, &full, &tail);
+                    }
+                    for site in survivors {
+                        let mutated = sites::apply_site(&item.source, site);
+                        let result = execute(
+                            &workers.view(0),
+                            root,
+                            &run_cwd,
+                            &full,
+                            Some((&item.file, &mutated)),
+                            Some(Duration::from_secs_f64(full_timeout)),
+                        );
+                        let code = match result {
+                            Ok((code, _)) => code,
+                            Err(Failure::Interrupted) => return 2,
+                            Err(Failure::Message(error)) => {
+                                eprintln!("{error}");
+                                return 2;
+                            }
+                        };
+                        outcomes.insert(
+                            site.mutation_id.clone(),
+                            if code == 0 { "survived" } else { "killed" }.to_string(),
+                        );
                     }
                 }
-                Err(Failure::Interrupted) => return 2,
-                Err(Failure::Message(error)) => {
-                    eprintln!("{error}");
-                    return 2;
+            }
+            for (mutation_id, outcome) in outcomes {
+                if outcome == "survived" {
+                    survived_any = true;
                 }
+                item.outcomes.insert(mutation_id, outcome);
             }
         }
         let changed = fs::read(&item.file).ok() != Some(item.raw)
