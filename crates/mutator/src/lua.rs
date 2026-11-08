@@ -11,6 +11,7 @@
 //! stats, the LCOV report and the shard publications — lives in the
 //! disposable view scratch, so the production project is never a write target.
 use crate::isolation::View;
+use crate::sites::Site;
 use quality_core::coverage::{Records, read_fresh_lcov};
 use quality_core::paths::{relative_posix, resolve};
 use quality_core::process::{Program, capture, which};
@@ -416,6 +417,17 @@ pub fn search_paths(module: &Path) -> Option<(String, String)> {
         }
     }
     Some((path.join(";"), cpath.join(";")))
+}
+
+/// The original's Lua scheduling (`engine._prepare`): the sites that survived
+/// the previous run go first, and each group keeps its discovery order. Only
+/// the order of execution changes — the selection and the published bytes do
+/// not — so a slow surviving mutant starts before a fresh kill can idle a
+/// worker.
+pub fn survivors_first(sites: &mut [Site], outcomes: &BTreeMap<String, String>) {
+    sites.sort_by_key(|site| {
+        outcomes.get(&site.mutation_id).map(String::as_str) != Some("survived")
+    });
 }
 
 /// The full-suite command: Busted in process on Lua 5.4, module paths pinned.

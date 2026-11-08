@@ -650,11 +650,343 @@ fn lua_plans(
     (plans, command.extend(&specs), check_timeout)
 }
 
+/// What one file's publication reported.
+#[derive(Default)]
+struct Published {
+    changed: bool,
+    survived: bool,
+}
+
+/// One call's pristine-run cache: the original's `baselines`, keyed by the
+/// command and the working directory it runs in.
+type Baselines = BTreeMap<(Command, PathBuf), Result<(i32, Duration), Failure>>;
+
+/// One pristine run per command and working directory, shared by every target
+/// file in this call. The pool's first slot runs it; every worker's view is
+/// built the same way, so a per-worker repeat would only repeat the same run.
+#[allow(clippy::too_many_arguments)]
+fn pristine(
+    workers: &Workers,
+    root: &Path,
+    timings: &mut Timings,
+    baselines: &mut Baselines,
+    command: &Command,
+    cwd: &Path,
+    build: bool,
+    timeout: Option<Duration>,
+) -> Result<f64, Failure> {
+    let key = (command.clone(), cwd.to_path_buf());
+    if !baselines.contains_key(&key) {
+        let started = std::time::Instant::now();
+        let check = workers.view(0);
+        let result = (|| {
+            if build {
+                let built = execute(
+                    &check,
+                    root,
+                    cwd,
+                    &Command::Shell("cargo test --no-run".into()),
+                    None,
+                    None,
+                )?;
+                if built.0 != 0 {
+                    return Ok(built);
+                }
+            }
+            execute(&check, root, cwd, command, None, timeout)
+        })();
+        timings.add("baseline", started.elapsed());
+        baselines.insert(key.clone(), result);
+    }
+    match baselines.get(&key) {
+        Some(Ok((0, duration))) => Ok(duration.as_secs_f64()),
+        Some(Ok((code, _))) => Err(Failure::Message(format!("exit {code}"))),
+        Some(Err(Failure::Unavailable(error))) => Err(Failure::Unavailable(error.clone())),
+        Some(Err(Failure::Message(error))) => Err(Failure::Message(error.clone())),
+        Some(Err(Failure::Interrupted)) => Err(Failure::Interrupted),
+        None => Err(Failure::Message("no pristine run".into())),
+    }
+}
+
+/// The sites a file's decisions execute, in the order the engine scheduled
+/// them.
+fn selected_sites(item: &Prepared) -> Vec<Site> {
+    item.sites
+        .iter()
+        .filter(|site| {
+            item.decisions
+                .get(&site.mutation_id)
+                .is_some_and(|decision| decision.action == "executed")
+        })
+        .cloned()
+        .collect()
+}
+
+fn executed_count(item: &Prepared) -> usize {
+    item.decisions
+        .values()
+        .filter(|decision| decision.action == "executed")
+        .count()
+}
+
+/// Write one file's snapshot from its outcomes and report its console line.
+/// A source edited or deleted during the run keeps its previous snapshot and
+/// makes the call exit 4, exactly as the original's `_source_change` does.
+fn publish(
+    root: &Path,
+    options: &Options,
+    clock: &(impl Fn() -> String + Sync),
+    mut item: Prepared,
+) -> Result<Published, Failure> {
+    let changed = fs::read(&item.file).ok() != Some(item.raw.clone())
+        || read_source(&item.file).ok() != Some(item.source.clone());
+    if changed {
+        eprintln!("Source changed during mutation: {}", item.key);
+        return Ok(Published {
+            changed: true,
+            survived: false,
+        });
+    }
+    if options.flag("--verbose") {
+        for site in &item.sites {
+            let decision = &item.decisions[&site.mutation_id];
+            let result = item
+                .outcomes
+                .get(&site.mutation_id)
+                .map_or("none", String::as_str);
+            println!(
+                "{}:{} {}/{} {} {} reason={} previous={} result={result} id={}",
+                site.file,
+                site.line,
+                site.namespace,
+                site.name,
+                site.description(),
+                decision.action,
+                decision.reason,
+                decision.previous,
+                site.mutation_id
+            );
+        }
+    }
+    metrics::tally_forms(
+        &mut item.forms,
+        &item.sites,
+        &item.covered,
+        &item.outcomes,
+        options.lines.as_ref(),
+    );
+    let survived = item.forms.iter().any(|form| form.survived > 0);
+    if let Err(error) = metrics::write_results(
+        root,
+        &item.key,
+        &item.forms,
+        &item.outcomes,
+        &clock(),
+        isolation::level(),
+    ) {
+        return Err(Failure::Message(format!(
+            "Cannot publish mutation snapshot: {error}"
+        )));
+    }
+    println!(
+        "{}: executed={} reused={}",
+        item.key,
+        executed_count(&item),
+        item.decisions
+            .values()
+            .filter(|decision| decision.action == "reused")
+            .count()
+    );
+    Ok(Published {
+        changed: false,
+        survived,
+    })
+}
+
+/// A worker panicking must not turn the others' results into a poisoned lock.
+fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// One queued file's mutants and the command that judges them. Commands differ
+/// per file (covering specs first), so every item carries its own, as the
+/// original's `QueuedFile` does.
+struct Job {
+    key: String,
+    file: PathBuf,
+    source: String,
+    command: Command,
+    cwd: PathBuf,
+    timeout: f64,
+    sites: Vec<Site>,
+}
+
+/// What the queued files of one call reported.
+#[derive(Default)]
+struct Queued {
+    changed: bool,
+    survived: bool,
+    failed: bool,
+    /// An isolation refusal is not a test result: the call exits 1, keeping the
+    /// snapshots of the files that already finished.
+    unavailable: Option<String>,
+}
+
+/// Run every full-suite Lua file of the call on one shared worker queue.
+///
+/// This is the original's `mutate_queued`: each file's baseline is checked
+/// before any mutant runs and a baseline failure stays with its file, every
+/// worker takes the next mutant from any file, and each file's snapshot is
+/// published as soon as its own last mutant finishes. A worker failure keeps
+/// the completed files' snapshots and fails the rest; an interrupt keeps the
+/// finished files and leaves the unfinished ones with their previous
+/// snapshots.
+fn mutate_queued(
+    root: &Path,
+    options: &Options,
+    files: Vec<Prepared>,
+    workers: &Workers,
+    baselines: &mut Baselines,
+    clock: &(impl Fn() -> String + Sync),
+    timings: &mut Timings,
+) -> Queued {
+    let mut jobs: Vec<Job> = Vec::new();
+    let mut items: Vec<Option<Prepared>> = Vec::new();
+    let mut result = Queued::default();
+    for item in files {
+        let (base, cwd) = plan(root, options, &item.file);
+        let mut command = base;
+        let mut run_cwd = cwd;
+        if let Some(index) = &item.index {
+            command = Command::Argv(index.command.clone());
+            run_cwd = index.directory.clone();
+            if index.fresh {
+                // The fresh coverage run already proved the pristine suite
+                // passes; its duration is the timeout base (ADR 0001).
+                baselines
+                    .entry((command.clone(), index.directory.clone()))
+                    .or_insert(Ok((0, Duration::from_secs_f64(index.seconds))));
+            }
+        }
+        let seconds = match pristine(
+            workers, root, timings, baselines, &command, &run_cwd, false, None,
+        ) {
+            Ok(seconds) => seconds,
+            Err(Failure::Unavailable(message)) => {
+                // An isolation refusal stops the run: exit 1, keep finished snapshots.
+                result.unavailable.get_or_insert(message);
+                continue;
+            }
+            Err(Failure::Interrupted) => {
+                result.failed = true;
+                continue;
+            }
+            Err(Failure::Message(tail)) => {
+                // A baseline failure stays with its file; the others still run.
+                result.failed = true;
+                failure(&item, &command, &tail);
+                continue;
+            }
+        };
+        let timeout = (seconds * options.timeout_factor).max(2.0);
+        let mut selected = selected_sites(&item);
+        // The original's Lua scheduling: previous survivors first.
+        lua::survivors_first(&mut selected, &item.outcomes);
+        let mut tail = vec!["--no-keep-going".to_string()];
+        if let Some(index) = &item.index {
+            let lines: Vec<usize> = selected.iter().map(|site| site.line).collect();
+            tail.extend(index.covering_first(&item.file, &lines));
+        }
+        let command = command.extend(&tail);
+        jobs.push(Job {
+            key: item.key.clone(),
+            file: item.file.clone(),
+            source: item.source.clone(),
+            command,
+            cwd: run_cwd,
+            timeout,
+            sites: selected,
+        });
+        items.push(Some(item));
+    }
+    if jobs.is_empty() {
+        return result;
+    }
+    let total: usize = jobs.iter().map(|job| job.sites.len()).sum();
+    let count = workers::worker_count(total, options.max_workers).clamp(1, workers.len());
+    let order: Vec<&[Site]> = jobs.iter().map(|job| job.sites.as_slice()).collect();
+    let lookup: BTreeMap<&str, usize> = jobs
+        .iter()
+        .enumerate()
+        .map(|(index, job)| (job.key.as_str(), index))
+        .collect();
+    let flags = std::sync::Mutex::new(Queued::default());
+    let items = std::sync::Mutex::new(items);
+    let run = crate::queue::run_queue(
+        count,
+        &order,
+        |slot, site| {
+            let job = &jobs[lookup[site.file.as_str()]];
+            let mutated = sites::apply_site(&job.source, site);
+            let view = workers.view(slot);
+            execute(
+                &view,
+                root,
+                &job.cwd,
+                &job.command,
+                Some((&job.file, &mutated)),
+                Some(Duration::from_secs_f64(job.timeout)),
+            )
+            .map(|(code, _)| code != 0)
+        },
+        |index, outcomes| {
+            let item = lock(&items)[index]
+                .take()
+                .expect("a queued file publishes once");
+            let mut item = item;
+            item.outcomes.extend(
+                outcomes
+                    .iter()
+                    .map(|(id, outcome)| (id.clone(), outcome.clone())),
+            );
+            let published = publish(root, options, clock, item)?;
+            let mut flags = lock(&flags);
+            flags.changed |= published.changed;
+            flags.survived |= published.survived;
+            Ok(())
+        },
+    );
+    {
+        let flags = lock(&flags);
+        result.changed |= flags.changed;
+        result.survived |= flags.survived;
+    }
+    match run {
+        Ok(()) => {
+            if interrupts::pending().is_some() {
+                result.failed = true;
+            }
+        }
+        Err(Failure::Interrupted) => result.failed = true,
+        Err(Failure::Unavailable(error)) => {
+            eprintln!("{error}");
+            result.unavailable.get_or_insert(error);
+        }
+        Err(Failure::Message(error)) => {
+            eprintln!("{error}");
+            result.failed = true;
+        }
+    }
+    result
+}
+
 pub fn mutate(
     root: &Path,
     options: &Options,
     prepared: Vec<Prepared>,
-    clock: impl Fn() -> String,
+    clock: impl Fn() -> String + Sync,
     timings: &mut Timings,
 ) -> i32 {
     if options.flag("--scan") {
@@ -720,23 +1052,34 @@ pub fn mutate(
         println!("No mutations selected; keeping the previous snapshots.");
         return 0;
     }
-    let mut baselines: BTreeMap<(Command, PathBuf), Result<(i32, Duration), Failure>> =
-        BTreeMap::new();
-    let mut status = 0;
-    let mut survived_any = false;
+    let shares_queue = |item: &Prepared| {
+        crate::shares_queue(
+            &item.file,
+            options.value("--test-command"),
+            options.flag("--select-specs"),
+        )
+    };
+    let mut no_sites = Vec::new();
+    let mut queue = Vec::new();
+    let mut single = Vec::new();
+    let mut queued_sites = 0;
+    let mut single_sites = 0;
+    for item in prepared {
+        let count = executed_count(&item);
+        if count == 0 {
+            no_sites.push(item);
+        } else if shares_queue(&item) {
+            queued_sites += count;
+            queue.push(item);
+        } else {
+            single_sites = single_sites.max(count);
+            single.push(item);
+        }
+    }
     // One pool for the whole call: its slots are the workers every target
     // file's mutants reuse, and dropping it removes them.
-    let selected_counts: Vec<usize> = prepared
-        .iter()
-        .map(|item| {
-            item.decisions
-                .values()
-                .filter(|decision| decision.action == "executed")
-                .count()
-        })
-        .collect();
     let limit = workers::worker_count(usize::MAX, options.max_workers);
-    let pool_size = limit.min(selected_counts.iter().copied().max().unwrap_or(0));
+    let pool_size = limit.min(queued_sites.max(single_sites));
     let pool = if pool_size == 0 {
         None
     } else {
@@ -748,18 +1091,49 @@ pub fn mutate(
             }
         }
     };
-    for mut item in prepared {
+    let mut baselines = Baselines::new();
+    let mut changed_any = false;
+    let mut survived_any = false;
+    // A file with nothing to run still republishes its snapshot, as the
+    // original does while it prepares the files.
+    for item in no_sites {
+        match publish(root, options, &clock, item) {
+            Ok(published) => {
+                changed_any |= published.changed;
+                survived_any |= published.survived;
+            }
+            Err(Failure::Interrupted) => return 2,
+            Err(Failure::Unavailable(error)) => {
+                eprintln!("{error}");
+                return 1;
+            }
+            Err(Failure::Message(error)) => {
+                eprintln!("{error}");
+                return 2;
+            }
+        }
+    }
+    let queued = if queue.is_empty() {
+        None
+    } else {
+        let workers = pool.as_ref().expect("selected queued sites need workers");
+        Some(mutate_queued(
+            root,
+            options,
+            queue,
+            workers,
+            &mut baselines,
+            &clock,
+            timings,
+        ))
+    };
+    if let Some(queued) = &queued {
+        changed_any |= queued.changed;
+        survived_any |= queued.survived;
+    }
+    for mut item in single {
         let (command, cwd) = plan(root, options, &item.file);
-        let selected: Vec<Site> = item
-            .sites
-            .iter()
-            .filter(|site| {
-                item.decisions
-                    .get(&site.mutation_id)
-                    .is_some_and(|decision| decision.action == "executed")
-            })
-            .cloned()
-            .collect();
+        let mut selected = selected_sites(&item);
         if !selected.is_empty() {
             if interrupts::pending().is_some() {
                 return 2;
@@ -787,48 +1161,25 @@ pub fn mutate(
             } else {
                 cwd.clone()
             };
-            // One pristine run per command and working directory, shared by
-            // every target file in this call.
-            let mut pristine = |command: &Command,
+            // One pristine run per command and working directory, shared by every
+            // target file in this call.
+            let mut baseline = |command: &Command,
                                 build: bool,
                                 timeout: Option<Duration>|
              -> Result<f64, Failure> {
-                let key = (command.clone(), run_cwd.clone());
-                if !baselines.contains_key(&key) {
-                    let started = std::time::Instant::now();
-                    let check = workers.view(0);
-                    let result = (|| {
-                        if build {
-                            let built = execute(
-                                &check,
-                                root,
-                                &run_cwd,
-                                &Command::Shell("cargo test --no-run".into()),
-                                None,
-                                None,
-                            )?;
-                            if built.0 != 0 {
-                                return Ok(built);
-                            }
-                        }
-                        execute(&check, root, &run_cwd, command, None, timeout)
-                    })();
-                    timings.add("baseline", started.elapsed());
-                    baselines.insert(key.clone(), result);
-                }
-                match baselines.get(&key) {
-                    Some(Ok((0, duration))) => Ok(duration.as_secs_f64()),
-                    Some(Ok((code, _))) => Err(Failure::Message(format!("exit {code}"))),
-                    Some(Err(Failure::Unavailable(error))) => {
-                        Err(Failure::Unavailable(error.clone()))
-                    }
-                    Some(Err(Failure::Message(error))) => Err(Failure::Message(error.clone())),
-                    Some(Err(Failure::Interrupted)) => Err(Failure::Interrupted),
-                    None => Err(Failure::Message("no pristine run".into())),
-                }
+                pristine(
+                    workers,
+                    root,
+                    timings,
+                    &mut baselines,
+                    command,
+                    &run_cwd,
+                    build,
+                    timeout,
+                )
             };
             let build = !standard_lua && options.value("--test-command").is_none();
-            let seconds = match pristine(&command, build, None) {
+            let seconds = match baseline(&command, build, None) {
                 Ok(seconds) => seconds,
                 Err(error) => return baseline_exit(&item, &command, error),
             };
@@ -839,6 +1190,8 @@ pub fn mutate(
             let mut confirmation: Option<(Command, f64)> = None;
             let mut run_command = command.clone();
             if standard_lua {
+                // The original's Lua scheduling: previous survivors first.
+                lua::survivors_first(&mut selected, &item.outcomes);
                 if options.flag("--select-specs")
                     && let Some(index) = &item.index
                 {
@@ -850,7 +1203,7 @@ pub fn mutate(
                         &run_command,
                         timeout,
                         options.timeout_factor,
-                        &mut |plan: &Command| pristine(plan, false, None),
+                        &mut |plan: &Command| baseline(plan, false, None),
                     );
                     plans = Some(found);
                     check_command = check;
@@ -868,7 +1221,7 @@ pub fn mutate(
             // With one worker the pristine plan check is the cached baseline;
             // the selected-specs union subset still gets its own pristine run
             // before any mutant can earn a kill.
-            if let Err(error) = pristine(
+            if let Err(error) = baseline(
                 &check_command,
                 false,
                 Some(Duration::from_secs_f64(check_timeout)),
@@ -920,7 +1273,7 @@ pub fn mutate(
                     .collect();
                 if !survivors.is_empty() {
                     if let Err(error) =
-                        pristine(&full, false, Some(Duration::from_secs_f64(full_timeout)))
+                        baseline(&full, false, Some(Duration::from_secs_f64(full_timeout)))
                     {
                         return baseline_exit(&item, &full, error);
                     }
@@ -954,76 +1307,35 @@ pub fn mutate(
                 }
             }
             for (mutation_id, outcome) in outcomes {
-                if outcome == "survived" {
-                    survived_any = true;
-                }
                 item.outcomes.insert(mutation_id, outcome);
             }
         }
-        let changed = fs::read(&item.file).ok() != Some(item.raw)
-            || read_source(&item.file).ok() != Some(item.source);
-        if changed {
-            eprintln!("Source changed during mutation: {}", item.key);
-            status = 4;
-            continue;
-        }
-        if options.flag("--verbose") {
-            for site in &item.sites {
-                let decision = &item.decisions[&site.mutation_id];
-                let result = item
-                    .outcomes
-                    .get(&site.mutation_id)
-                    .map_or("none", String::as_str);
-                println!(
-                    "{}:{} {}/{} {} {} reason={} previous={} result={result} id={}",
-                    site.file,
-                    site.line,
-                    site.namespace,
-                    site.name,
-                    site.description(),
-                    decision.action,
-                    decision.reason,
-                    decision.previous,
-                    site.mutation_id
-                );
+        match publish(root, options, &clock, item) {
+            Ok(published) => {
+                changed_any |= published.changed;
+                survived_any |= published.survived;
+            }
+            Err(Failure::Interrupted) => return 2,
+            Err(Failure::Unavailable(error)) => {
+                eprintln!("{error}");
+                return 1;
+            }
+            Err(Failure::Message(error)) => {
+                eprintln!("{error}");
+                return 2;
             }
         }
-        metrics::tally_forms(
-            &mut item.forms,
-            &item.sites,
-            &item.covered,
-            &item.outcomes,
-            options.lines.as_ref(),
-        );
-        for form in &item.forms {
-            if form.survived > 0 {
-                survived_any = true;
-            }
-        }
-        if let Err(error) = metrics::write_results(
-            root,
-            &item.key,
-            &item.forms,
-            &item.outcomes,
-            &clock(),
-            isolation::level(),
-        ) {
-            eprintln!("Cannot publish mutation snapshot: {error}");
-            return 2;
-        }
-        let executed = item
-            .decisions
-            .values()
-            .filter(|d| d.action == "executed")
-            .count();
-        let reused = item
-            .decisions
-            .values()
-            .filter(|d| d.action == "reused")
-            .count();
-        println!("{}: executed={executed} reused={reused}", item.key);
     }
-    if status == 4 {
+    if let Some(queued) = &queued
+        && let Some(message) = &queued.unavailable
+    {
+        eprintln!("{message}");
+        return 1;
+    }
+    if queued.is_some_and(|queued| queued.failed) {
+        return 2;
+    }
+    if changed_any {
         4
     } else if survived_any {
         3
