@@ -847,7 +847,9 @@ fn the_committed_contract_samples_are_the_binary_output() {
         eprintln!("SKIP: no python on PATH; the samples need a native fake tool");
         return;
     };
-    let samples = include_str!("../../../fixtures/quality/records.jsonl");
+    // The file may be checked out with CRLF; the record line itself has no CR.
+    let samples = include_str!("../../../fixtures/quality/records.jsonl").replace('\r', "");
+    let samples = samples.as_str();
     let expected: Vec<serde_json::Value> = samples
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
@@ -921,7 +923,7 @@ fn named_directories_and_files_reach_one_mutation_call_in_order() {
     let project = Project::new();
     let root = mutation_project(
         &project,
-        r#"["--max-workers","1","--no-coverage","--scan"]"#,
+        r#"["--no-coverage","--scan"]"#,
     );
     let output = quality_at(
         &project.base,
@@ -959,7 +961,7 @@ fn changed_mutation_selects_the_changed_files_inside_the_declared_scope() {
     let project = Project::new();
     let root = mutation_project(
         &project,
-        r#"["--max-workers","1","--no-coverage","--scan"]"#,
+        r#"["--no-coverage","--scan"]"#,
     );
     let git = |args: &[&str]| {
         let output = Command::new("git")

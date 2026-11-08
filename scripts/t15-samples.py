@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory() as scratch:
 for item in records:
     item['projectRoot'] = item['projectRoot'].replace(str(root.resolve()), '/project')
     assert item['projectRoot'] == '/project', item
-lines = [json.dumps(item, sort_keys=True) for item in records]
+lines = [json.dumps(item, sort_keys=True, separators=(',', ':')) for item in records]
 destination.parent.mkdir(parents=True, exist_ok=True)
-destination.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+destination.write_bytes(('\n'.join(lines) + '\n').encode())
 print('\n'.join(lines))
