@@ -1,0 +1,6 @@
+# A custom coverage command's fresh LCOV never measures Go: the statement
+# profile is the only Go source, so every function stays N/A.
+project go
+file reports/go/custom.lcov fixture.lcov
+arg --coverage-command
+arg {COPY_FRESH_LCOV}
