@@ -74,10 +74,16 @@ fn run_mutation(root: &Path, options: &cli::Options, clock: impl Fn() -> String)
             .select(&options.positionals, &mut std::io::stderr())
     };
     files.retain(|path| {
-        if quality_core::language::language_of(path) != Some(quality_core::language::Language::Rust)
-        {
+        if !matches!(
+            quality_core::language::language_of(path),
+            Some(
+                quality_core::language::Language::Rust
+                    | quality_core::language::Language::Python
+                    | quality_core::language::Language::TypeScript
+            )
+        ) {
             eprintln!(
-                "Skipping {}; Linux mutation currently supports Rust only.",
+                "Skipping {}; this Linux mutation build mutates Rust, Python and TypeScript sources.",
                 path.display()
             );
             return false;

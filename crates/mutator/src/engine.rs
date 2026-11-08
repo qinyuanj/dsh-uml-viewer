@@ -1,14 +1,18 @@
 use crate::{
     cli::Options,
     interrupts,
-    isolation::{Failure, View},
+    isolation::{Completed, Failure, View},
     metrics::{self, Decision},
-    sites::{self, Form, Site},
+    python, sites,
+    sites::{Form, Site},
+    typescript,
     workers::{self, Workers},
 };
 use quality_core::{
     coverage::{Records, parse_lcov},
     grammar::read_source,
+    language::{Language, language_of},
+    process::shlex_quote,
     runner::{modules_with, nearest},
 };
 use std::{
@@ -56,25 +60,62 @@ pub struct Prepared {
     pub outcomes: BTreeMap<String, String>,
     pub covered: BTreeMap<String, bool>,
 }
-fn plan(root: &Path, options: &Options, source: &Path) -> (String, PathBuf) {
-    if let Some(command) = options.value("--test-command") {
-        return (command.to_string(), root.to_path_buf());
+/// `runner.Command`: a user override stays a shell string; every generated
+/// command is an argument vector, so a package path is one argument.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Command {
+    Shell(String),
+    Argv(Vec<String>),
+}
+impl Command {
+    /// The view runs `/bin/sh -c`; an argument vector is quoted with shlex, as
+    /// the original's `display_command` renders it.
+    fn script(&self) -> String {
+        match self {
+            Command::Shell(command) => command.clone(),
+            Command::Argv(argv) => argv
+                .iter()
+                .map(|arg| shlex_quote(arg))
+                .collect::<Vec<_>>()
+                .join(" "),
+        }
     }
-    (
-        "cargo test".into(),
-        nearest(source, "Cargo.toml", root).unwrap_or_else(|| root.to_path_buf()),
-    )
+    /// `build_command`: only a generated `cargo test` has a compile step.
+    fn build(&self) -> Option<Command> {
+        match self {
+            Command::Argv(argv) if argv.starts_with(&["cargo".into(), "test".into()]) => {
+                let mut build = vec!["cargo".into(), "test".into(), "--no-run".into()];
+                build.extend(argv.iter().skip(2).cloned());
+                Some(Command::Argv(build))
+            }
+            _ => None,
+        }
+    }
+}
+fn plan(root: &Path, options: &Options, source: &Path) -> (Command, PathBuf) {
+    if let Some(command) = options.value("--test-command") {
+        return (Command::Shell(command.to_string()), root.to_path_buf());
+    }
+    let (argv, cwd) = match language_of(source) {
+        Some(Language::Python) => python::test_plan(root, source),
+        Some(Language::TypeScript) => typescript::test_plan(root, source),
+        _ => (
+            vec!["cargo".into(), "test".into()],
+            nearest(source, "Cargo.toml", root).unwrap_or_else(|| root.to_path_buf()),
+        ),
+    };
+    (Command::Argv(argv), cwd)
 }
 fn execute(
     view: &View,
     root: &Path,
     cwd: &Path,
-    command: &str,
+    command: &Command,
     site: Option<(&Path, &str)>,
     timeout: Option<Duration>,
-) -> Result<(i32, Duration), Failure> {
+) -> Result<Completed, Failure> {
     let result = view
-        .run(root, cwd, command, site, timeout)
+        .run(root, cwd, &command.script(), site, timeout)
         .map_err(|failure| match failure {
             Failure::Interrupted => Failure::Interrupted,
             Failure::Message(error) => Failure::Message(format!(
@@ -84,7 +125,7 @@ fn execute(
     if !result.output.is_empty() {
         eprint!("{}", result.output);
     }
-    Ok((result.code, result.elapsed))
+    Ok(result)
 }
 fn quote(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
@@ -121,28 +162,23 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Records
             PathBuf::from("coverage/lcov.info"),
         )]
     } else {
-        if quality_core::process::which("cargo-llvm-cov").is_none() {
+        let rust = modules_with(files, Language::Rust, "Cargo.toml", root);
+        if !rust.is_empty() && quality_core::process::which("cargo-llvm-cov").is_none() {
             eprintln!("cargo-llvm-cov is required; mutation does not install tools.");
             return Err(2);
         }
-        modules_with(
-            files,
-            quality_core::language::Language::Rust,
-            "Cargo.toml",
-            root,
-        )
-        .into_iter()
-        .map(|module| {
-            let report = quality_core::runner::coverage_report(root, &module, "rust");
-            let relative = report.strip_prefix(root).unwrap().to_path_buf();
-            let command = format!(
-                "mkdir -p {}\ncargo llvm-cov --lcov --output-path {}",
-                quote(report.parent().unwrap()),
-                quote(&report)
-            );
-            (module, command, relative)
-        })
-        .collect()
+        rust.into_iter()
+            .map(|module| {
+                let report = quality_core::runner::coverage_report(root, &module, "rust");
+                let relative = report.strip_prefix(root).unwrap().to_path_buf();
+                let command = format!(
+                    "mkdir -p {}\ncargo llvm-cov --lcov --output-path {}",
+                    quote(report.parent().unwrap()),
+                    quote(&report)
+                );
+                (module, command, relative)
+            })
+            .collect::<Vec<(PathBuf, String, PathBuf)>>()
     };
     for (cwd, command, report) in jobs {
         let view = View::new(root).map_err(|error| {
@@ -180,25 +216,99 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Records
             records.update(parse_lcov(&text));
         }
     }
+    python_coverage(root, files, &mut records)?;
+    typescript_coverage(root, files, &mut records)?;
     Ok(records)
 }
-fn coverage_hit(records: &Records, root: &Path, file: &str, line: usize) -> bool {
+
+/// One generated command in a package's own overlay view.
+fn step(view: &View, root: &Path, cwd: &Path, argv: &str) -> Result<Completed, i32> {
+    let command = Command::Shell(argv.to_string());
+    view.run(root, cwd, &command.script(), None, None)
+        .map_err(|failure| match failure {
+            Failure::Interrupted => 2,
+            Failure::Message(error) => {
+                eprintln!("Isolation unavailable: {error}");
+                1
+            }
+        })
+        .inspect(|result| eprint!("{}", result.output))
+}
+
+/// Read a report from the view's upper layer, anchored as crapper's runner
+/// anchors it, and merge it into the records.
+fn merge_report(records: &mut Records, view: &View, report: &Path, package: &Path, anchor: bool) {
+    let path = view.directory.join("upper").join(report);
+    let Ok(text) = fs::read_to_string(&path) else {
+        return;
+    };
+    let text = if anchor {
+        quality_core::runners::typescript::anchor_text(&text, package)
+    } else {
+        text
+    };
+    records.update(parse_lcov(&text));
+}
+
+/// `runners._python_coverage` per package, inside views. A missing module or a
+/// failed run leaves that language uncovered, as the original's N/A does.
+fn python_coverage(root: &Path, files: &[PathBuf], records: &mut Records) -> Result<(), i32> {
+    for package in python::coverage_roots(root, files) {
+        let coverage = python::coverage(root, &package, files);
+        let view = View::new(root).map_err(|error| {
+            eprintln!("{error}");
+            2
+        })?;
+        step(&view, root, &package, &coverage.script)?;
+        merge_report(records, &view, &coverage.report, &package, true);
+    }
+    Ok(())
+}
+
+/// `runners._typescript_coverage` per package, inside views.
+fn typescript_coverage(root: &Path, files: &[PathBuf], records: &mut Records) -> Result<(), i32> {
+    for package in typescript::coverage_roots(root, files) {
+        let Some(coverage) = typescript::coverage(root, &package, files) else {
+            eprintln!(
+                "No package.json test script in {}; skipping TypeScript coverage.",
+                package.display()
+            );
+            continue;
+        };
+        let view = View::new(root).map_err(|error| {
+            eprintln!("{error}");
+            2
+        })?;
+        step(&view, root, &package, &coverage.script)?;
+        merge_report(records, &view, &coverage.report, &package, !coverage.custom);
+    }
+    Ok(())
+}
+fn file_lines<'a>(
+    records: &'a Records,
+    root: &Path,
+    file: &str,
+) -> Option<&'a quality_core::coverage::Lines> {
     let absolute = quality_core::paths::posix(&root.join(file));
     let candidates = [file, &absolute];
     for candidate in candidates {
         for (source, lines) in records.iter() {
             if quality_core::coverage::normalize_path(source) == candidate {
-                return lines.get(&(line as u64)).is_some_and(|(hit, _)| *hit > 0);
+                return Some(lines);
             }
         }
     }
     for (source, lines) in records.iter() {
         let key = quality_core::coverage::normalize_path(source);
         if key.ends_with(&format!("/{file}")) || file.ends_with(&format!("/{key}")) {
-            return lines.get(&(line as u64)).is_some_and(|(hit, _)| *hit > 0);
+            return Some(lines);
         }
     }
-    false
+    None
+}
+fn coverage_hit(records: &Records, root: &Path, file: &str, line: usize) -> bool {
+    file_lines(records, root, file)
+        .is_some_and(|lines| lines.get(&(line as u64)).is_some_and(|(hit, _)| *hit > 0))
 }
 /// Python's `reused_run` contract: the file still owns sites, its form digests
 /// are exactly the recorded ones and no site was selected, treating every site
@@ -308,6 +418,16 @@ pub fn prepare(
                 )
             })
             .collect();
+        // `_warn_uncovered`: a file absent from every report has no coverage.
+        if !options.flag("--no-coverage")
+            && !item.sites.is_empty()
+            && file_lines(&records, root, &item.key).is_none()
+        {
+            eprintln!(
+                "No coverage data for {}; its sites are uncovered. Pass --no-coverage to run them anyway.",
+                item.key
+            );
+        }
         item.decisions = metrics::decide(
             &item.sites,
             &item.covered,
@@ -445,9 +565,9 @@ pub fn mutate(
                 .or_insert_with(|| {
                     let started = std::time::Instant::now();
                     let check = workers.view(0);
-                    let result = if options.value("--test-command").is_none() {
-                        let built = execute(&check, root, &cwd, "cargo test --no-run", None, None)?;
-                        if built.0 != 0 {
+                    let result = if let Some(build) = command.build() {
+                        let built = execute(&check, root, &cwd, &build, None, None)?;
+                        if built.code != 0 {
                             Ok(built)
                         } else {
                             execute(&check, root, &cwd, &command, None, None)
@@ -458,15 +578,20 @@ pub fn mutate(
                     timings.add("baseline", started.elapsed());
                     result
                 });
-            let (code, duration) = match baseline {
-                Ok(value) => *value,
+            let (code, duration, output) = match baseline {
+                Ok(value) => (value.code, value.elapsed, value.output.clone()),
                 Err(Failure::Interrupted) => return 2,
                 Err(Failure::Message(error)) => {
                     eprintln!("{error}");
                     return 2;
                 }
             };
-            if code != 0 {
+            // unittest before 3.12 exits 0 when discovery finds nothing;
+            // every mutant would then survive a suite that tests nothing.
+            let no_tests = output
+                .lines()
+                .any(|line| line.starts_with("Ran 0 tests in "));
+            if code != 0 || no_tests {
                 eprintln!("Baseline tests failed (exit {code}).");
                 return 2;
             }
@@ -491,7 +616,7 @@ pub fn mutate(
                     Some((file, &mutated)),
                     Some(timeout),
                 )
-                .map(|(code, _)| code)
+                .map(|completed| completed.code)
             });
             match outcomes {
                 Ok(outcomes) => {
