@@ -35,7 +35,9 @@ The diagram is already on screen.
   change, not the clone in `.uml-viewer/uml-viewer/`. The viewer on
   screen may be another project's; its working directory names it:
   `for p in $(pgrep -f '[u]ml-viewer viewer'); do readlink /proc/$p/cwd; done`
-  (macOS: `lsof -a -d cwd -Fn -p $p`).
+  (macOS: `lsof -a -d cwd -Fn -p $p`; native Windows: the viewer is this
+  project's when a `uml-viewer` pid from `Get-Process uml-viewer` equals the
+  `pid` in `.uml-viewer/viewer-process.json`).
 - Mail files are queues `{:next-id n :queue [cmd …]}`. Pop the head of
   `:queue` as you handle it (rewrite the file). Oldest first.
 - Right-click quality mail uses public `./uml crap` / `./uml mutate` dispatch
@@ -81,8 +83,9 @@ The diagram is already on screen.
   times (1, 2, 4 seconds) through the durable controller; normal or unknown
   exits stop recovery. Other Claude sessions stay up.
 - Herdr is the sole companion backend on every supported platform.
-  The delivery targets are **WSL2 + Ubuntu 24.04 + WSLg** and **macOS**
-  (ADR 0007).
+  The delivery targets are **WSL2 + Ubuntu 24.04 + WSLg**, **macOS**
+  (ADR 0007) and **native Windows 10 build 19045+ / Windows 11** (ADR 0010),
+  whose entries are `uml.cmd` and `get-uml-viewer.cmd`.
   Legacy tmux/psmux or unmarked ownership is retained and refused; before
   migration read `docs/herdr-backend-contract.md` §9.
 - Installer prerequisites are the Rust toolchain pinned by
@@ -123,4 +126,4 @@ GALLIUM_DRIVER=llvmpipe LIBGL_ALWAYS_SOFTWARE=1 WGPU_BACKEND=gl \
   target/release/uml-viewer viewer /tmp/diagram.edn
 ```
 
-The binary selects the WSLg `d3d12` Gallium driver when `GALLIUM_DRIVER` is unset, so set `llvmpipe` before a launch on this display. Sarasa is provisioned at `.uml-viewer/fonts/SarasaMonoSC-Regular.ttf`. Herdr 0.9.5 (protocol 22) is on `PATH`; companion attach still belongs on WSL with Windows Terminal. `cargo fmt --all -- --check` and `cargo test --workspace --locked` are the checks that run here. Leave the viewer stopped until a turn is demonstrating the GUI.
+The binary selects the WSLg `d3d12` Gallium driver when `GALLIUM_DRIVER` is unset, so set `llvmpipe` before a launch on this display. Sarasa is provisioned at `.uml-viewer/fonts/SarasaMonoSC-Regular.ttf`. Herdr 0.9.5 (protocol 22) is on `PATH`; companion attach opens Windows Terminal, so it runs on WSL or native Windows, not on this host. `cargo fmt --all -- --check` and `cargo test --workspace --locked` are the checks that run here. Leave the viewer stopped until a turn is demonstrating the GUI.
