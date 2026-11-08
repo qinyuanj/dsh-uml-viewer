@@ -96,8 +96,9 @@ one argv, because mutator shares one coverage run and baseline across them.
 Quality calls in one session are queued FIFO. Each completed quality result
 (including a refusal or malformed argument) becomes that session's latest
 quality outcome; while it has `validResult: false`, `uml_ir` refuses before
-spawning and names the failing operation. No quality call leaves IR available.
-Only a later successful quality call clears the refusal. The `uml_display`
+spawning and names the failing operation. With no quality call in the session,
+IR remains available for requests that need no refresh. Only a later successful
+quality call clears the refusal. The `uml_display`
 gate is independent: it still requires the latest `uml_ir` in the session to
 have succeeded, and any later refused, malformed or failed `uml_ir` revokes it.
 

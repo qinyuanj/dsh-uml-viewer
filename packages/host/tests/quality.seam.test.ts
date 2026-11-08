@@ -101,10 +101,11 @@ async function setup(options: {
     agents[id] = { id, session: { id }, ctx: { systemPrompt: prompts[id] } } as unknown as Agent
   }
   let spawns = 0
+  let mode = options.mode ?? 'danger-full-access'
   const definitions = new Map<string, ToolDefinition>()
   const services: HostServices = {
     tools: { register(def) { definitions.set(def.name, def); return () => { definitions.delete(def.name) } } },
-    sandboxPolicy: { resolve: ({ session }) => ({ mode: options.mode ?? 'danger-full-access', workspaceRoot: projects[session.id]! }) },
+    sandboxPolicy: { resolve: ({ session }) => ({ mode, workspaceRoot: projects[session.id]! }) },
     workingDirectory: { get: session => projects[session.id]!, ensure: async agent => projects[agent.session.id]! },
     subprocess: { spawn(spec) { spawns += 1; return localSubprocess(spec) } },
     sandbox: { confine: async argv => ({ argv: [...argv], enforcement: 'full' }) },
@@ -122,7 +123,8 @@ async function setup(options: {
       agent: agents[session], signal: signal ?? new AbortController().signal,
     } as ToolRunContext)
   }
-  return { home, projects, definitions, services, ctx, fiber, tool, spawnCount: () => spawns, agents }
+  return { home, projects, definitions, services, ctx, fiber, tool, spawnCount: () => spawns, agents,
+    setMode(value: typeof mode) { mode = value } }
 }
 
 async function events(root: string): Promise<{ event: string; argv: string[]; cwd: string }[]> {
@@ -177,6 +179,30 @@ it.each([
   const { tool } = await setup({ quality: config })
   expect(await tool(operation === 'crap' ? 'uml_crap' : 'uml_mutate', args)).toMatchObject({
     operation, exitCode, validResult: valid, reason: null,
+  })
+})
+
+it('returns a configured-operation record field for field', async () => {
+  const { tool, projects } = await setup({
+    quality: { exitCode: 0, configured: true, tool: 'configured', crapScope: 'targets' },
+  })
+  expect(await tool('uml_crap', { targets: ['src/a.rs'] })).toEqual({
+    version: 1, operation: 'crap', projectRoot: projects['session-a'], exitCode: 0,
+    validResult: true, crapScope: 'targets', configured: true, tool: 'configured', reason: null,
+  })
+})
+
+it('returns a binary refusal record and blocks IR with its reason', async () => {
+  const reason = 'uml-quality.json: unsupported language'
+  const { tool } = await setup({
+    quality: { exitCode: 1, validResult: false, reason },
+  })
+  expect(await tool('uml_dry', {})).toMatchObject({
+    operation: 'dry', exitCode: 1, validResult: false, reason,
+  })
+  expect(await tool('uml_ir', {})).toMatchObject({
+    status: 'refused', validResult: false,
+    reason: expect.stringMatching(new RegExp(`latest quality call.*${reason}`)),
   })
 })
 
@@ -247,6 +273,22 @@ it('refuses each quality tool in a read-only sandbox without spawning', async ()
   }
   expect(spawnCount()).toBe(0)
   expect(existsSync(path.join(projects['session-a']!, 'quality-events.jsonl'))).toBe(false)
+})
+
+it('refuses in read-only even after a writable call created quality data', async () => {
+  const { tool, projects, spawnCount, setMode } = await setup()
+  expect(await tool('uml_crap', {})).toMatchObject({ validResult: true })
+  const before = (await events(projects['session-a']!)).length
+  const spawns = spawnCount()
+  setMode('read-only')
+  for (const [name, args] of [
+    ['uml_crap', {}], ['uml_mutate', { targets: ['src/a.rs'] }], ['uml_dry', {}],
+  ] as const) {
+    expect(await tool(name, args)).toMatchObject({ exitCode: null, validResult: false,
+      reason: expect.stringMatching(/read-only/) })
+  }
+  expect(spawnCount()).toBe(spawns)
+  expect(await events(projects['session-a']!)).toHaveLength(before)
 })
 
 it('serializes overlapping quality calls in one session FIFO', async () => {
