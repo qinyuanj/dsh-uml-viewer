@@ -1,0 +1,44 @@
+{:candidates [
+ {:score 1.0
+  :language "clojure"
+  :left {:file "src/left.clj", :start-line 3, :end-line 4, :namespace "demo.left", :name "total"}
+  :right {:file "src/right.clj", :start-line 3, :end-line 4, :namespace "demo.right", :name "sum"}
+  :left-nodes 16
+  :right-nodes 16}
+ {:score 1.0
+  :language "go"
+  :left {:file "src/left.go", :start-line 3, :end-line 5, :namespace "demo", :name "total"}
+  :right {:file "src/right.go", :start-line 3, :end-line 5, :namespace "demo", :name "sum"}
+  :left-nodes 31
+  :right-nodes 31}
+ {:score 1.0
+  :language "java"
+  :left {:file "src/Left.java", :start-line 4, :end-line 6, :namespace "demo.Left", :name "total"}
+  :right {:file "src/Right.java", :start-line 4, :end-line 6, :namespace "demo.Right", :name "sum"}
+  :left-nodes 33
+  :right-nodes 33}
+ {:score 1.0
+  :language "lua"
+  :left {:file "src/left.lua", :start-line 1, :end-line 3, :namespace "left", :name "M.total"}
+  :right {:file "src/right.lua", :start-line 1, :end-line 3, :namespace "right", :name "M.sum"}
+  :left-nodes 24
+  :right-nodes 24}
+ {:score 1.0
+  :language "python"
+  :left {:file "src/left.py", :start-line 1, :end-line 2, :namespace "left", :name "total"}
+  :right {:file "src/right.py", :start-line 1, :end-line 2, :namespace "right", :name "sum"}
+  :left-nodes 19
+  :right-nodes 19}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/left.rs", :start-line 1, :end-line 3, :namespace "crate::left", :name "total"}
+  :right {:file "src/right.rs", :start-line 1, :end-line 3, :namespace "crate::right", :name "sum"}
+  :left-nodes 47
+  :right-nodes 47}
+ {:score 1.0
+  :language "typescript"
+  :left {:file "src/left.ts", :start-line 1, :end-line 3, :namespace "left", :name "total"}
+  :right {:file "src/right.ts", :start-line 1, :end-line 3, :namespace "right", :name "sum"}
+  :left-nodes 33
+  :right-nodes 33}
+]}

@@ -1,17 +1,19 @@
 //! Python dryer's normalized tree and structural fingerprint set.
 use quality_core::grammar::{Node, children, text};
+use quality_core::language::Language;
 use quality_core::snapshot::string;
 use std::collections::HashSet;
 
-#[derive(Clone)]
-enum Form {
+/// A normalized subtree: `K`, a name string or a list in dryer's `shape.py`.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Normalized {
     Keyword(String),
     Name(String),
-    Vector(Vec<Form>),
+    Vector(Vec<Normalized>),
 }
 
-impl Form {
-    fn printed(&self) -> String {
+impl Normalized {
+    pub(crate) fn printed(&self) -> String {
         match self {
             Self::Keyword(s) => format!(":{s}"),
             Self::Name(s) => string(s),
@@ -19,14 +21,14 @@ impl Form {
                 "[{}]",
                 items
                     .iter()
-                    .map(Form::printed)
+                    .map(Normalized::printed)
                     .collect::<Vec<_>>()
                     .join(" ")
             ),
         }
     }
 
-    fn collect(&self, found: &mut HashSet<String>) -> usize {
+    pub(crate) fn collect(&self, found: &mut HashSet<String>) -> usize {
         found.insert(self.printed());
         1 + match self {
             Self::Vector(items) => items.iter().map(|item| item.collect(found)).sum(),
@@ -35,13 +37,13 @@ impl Form {
     }
 }
 
-fn keyword(name: &str) -> Form {
-    Form::Keyword(name.to_string())
+fn keyword(name: &str) -> Normalized {
+    Normalized::Keyword(name.to_string())
 }
-fn symbol(source: &str, node: Node) -> Form {
-    Form::Vector(vec![
+fn symbol(source: &str, node: Node) -> Normalized {
+    Normalized::Vector(vec![
         keyword("symbol"),
-        Form::Name(text(source, node).to_string()),
+        Normalized::Name(text(source, node).to_string()),
     ])
 }
 fn identifier(kind: &str) -> bool {
@@ -77,7 +79,12 @@ fn path(kind: &str) -> bool {
 fn type_args(kind: &str) -> bool {
     matches!(kind, "type_arguments" | "type_parameters")
 }
-fn operator(kind: &str) -> bool {
+/// Lua's `~=`, `//`, `..` and `#` are operators only in Lua
+/// (`_LANGUAGE_OPERATORS`); Rust and Python spell other tokens the same way.
+fn operator(kind: &str, language: Option<Language>) -> bool {
+    if language == Some(Language::Lua) && matches!(kind, "~=" | "//" | ".." | "#") {
+        return true;
+    }
     matches!(
         kind,
         "+" | "-"
@@ -167,15 +174,25 @@ fn literal(node: Node) -> bool {
 fn named(node: Node) -> Vec<Node> {
     children(node).into_iter().filter(Node::is_named).collect()
 }
-fn extend<'a>(out: &mut Vec<Form>, nodes: impl IntoIterator<Item = Node<'a>>, source: &str) {
+fn extend<'a>(
+    out: &mut Vec<Normalized>,
+    nodes: impl IntoIterator<Item = Node<'a>>,
+    source: &str,
+    language: Option<Language>,
+) {
     out.extend(
         nodes
             .into_iter()
-            .filter_map(|n| normalize(n, source, false)),
+            .filter_map(|n| normalize(n, source, false, language)),
     );
 }
 
-fn normalize(node: Node, source: &str, head: bool) -> Option<Form> {
+fn normalize(
+    node: Node,
+    source: &str,
+    head: bool,
+    language: Option<Language>,
+) -> Option<Normalized> {
     let kind = node.kind();
     if matches!(
         kind,
@@ -183,10 +200,10 @@ fn normalize(node: Node, source: &str, head: bool) -> Option<Form> {
     ) {
         return None;
     }
-    if operator(kind) {
-        return Some(Form::Vector(vec![
+    if operator(kind, language) {
+        return Some(Normalized::Vector(vec![
             keyword("symbol"),
-            Form::Name(kind.to_string()),
+            Normalized::Name(kind.to_string()),
         ]));
     }
     if !node.is_named() {
@@ -204,7 +221,7 @@ fn normalize(node: Node, source: &str, head: bool) -> Option<Form> {
     }
     let kids = named(node);
     if kind == "parenthesized_expression" && kids.len() == 1 {
-        return normalize(kids[0], source, head);
+        return normalize(kids[0], source, head, language);
     }
     if matches!(
         kind,
@@ -227,33 +244,34 @@ fn normalize(node: Node, source: &str, head: bool) -> Option<Form> {
             .filter(|n| !type_args(n.kind()))
             .collect();
         if let Some((callee, receivers)) = rest.split_last() {
-            extend(&mut out, receivers.iter().copied(), source);
-            out.push(normalize_callee(*callee, source));
+            extend(&mut out, receivers.iter().copied(), source, language);
+            out.push(normalize_callee(*callee, source, language));
         }
         extend(
             &mut out,
             incoming.iter().copied().filter(|n| type_args(n.kind())),
             source,
+            language,
         );
         if let Some(args) = kids.get(split) {
-            extend(&mut out, [*args], source);
+            extend(&mut out, [*args], source, language);
         }
-        return Some(Form::Vector(out));
+        return Some(Normalized::Vector(out));
     }
     if attribute(kind) {
-        return Some(normalize_attribute(node, source, head));
+        return Some(normalize_attribute(node, source, head, language));
     }
     let mut out = vec![keyword(kind)];
-    extend(&mut out, children(node), source);
-    Some(Form::Vector(out))
+    extend(&mut out, children(node), source, language);
+    Some(Normalized::Vector(out))
 }
 
-fn normalize_callee(node: Node, source: &str) -> Form {
+fn normalize_callee(node: Node, source: &str, language: Option<Language>) -> Normalized {
     if identifier(node.kind()) {
         return symbol(source, node);
     }
     if attribute(node.kind()) {
-        return normalize_attribute(node, source, true);
+        return normalize_attribute(node, source, true, language);
     }
     if path(node.kind()) {
         let mut out = vec![keyword(node.kind())];
@@ -261,31 +279,56 @@ fn normalize_callee(node: Node, source: &str) -> Form {
             if identifier(child.kind()) {
                 out.push(symbol(source, child));
             } else if path(child.kind()) {
-                out.push(normalize_callee(child, source));
+                out.push(normalize_callee(child, source, language));
             } else {
-                extend(&mut out, [child], source);
+                extend(&mut out, [child], source, language);
             }
         }
-        return Form::Vector(out);
+        return Normalized::Vector(out);
     }
     // A named callee always normalizes to a form for Rust's grammar.
-    normalize(node, source, true).unwrap_or_else(|| keyword("symbol"))
+    normalize(node, source, true, language).unwrap_or_else(|| keyword("symbol"))
 }
-fn normalize_attribute(node: Node, source: &str, head: bool) -> Form {
+fn normalize_attribute(
+    node: Node,
+    source: &str,
+    head: bool,
+    language: Option<Language>,
+) -> Normalized {
     let mut out = vec![keyword(node.kind())];
     if let Some((name, objects)) = named(node).split_last() {
-        extend(&mut out, objects.iter().copied(), source);
+        extend(&mut out, objects.iter().copied(), source, language);
         if head {
-            out.push(normalize_callee(*name, source));
+            out.push(normalize_callee(*name, source, language));
         } else {
-            extend(&mut out, [*name], source);
+            extend(&mut out, [*name], source, language);
         }
     }
-    Form::Vector(out)
+    Normalized::Vector(out)
 }
 
-pub(crate) fn shape(node: Node, source: &str) -> (usize, HashSet<String>) {
+/// `(node_count, fingerprints)` for `node` in `language`; the Lua-only
+/// operators count as operators only for Lua.
+/// `dryer.astnorm.normalize`: the normalized tree, or `None` when the node
+/// is only punctuation.
+#[cfg(test)]
+pub(crate) fn normalized(
+    node: Node,
+    source: &str,
+    language: Option<Language>,
+) -> Option<Normalized> {
+    normalize(node, source, false, language)
+}
+
+/// `(node_count, fingerprints)` of the normalized tree; `None` for a node
+/// that normalizes to nothing.
+pub(crate) fn normalized_shape(
+    node: Node,
+    source: &str,
+    language: Option<Language>,
+) -> Option<(usize, HashSet<String>)> {
+    let form = normalize(node, source, false, language)?;
     let mut found = HashSet::new();
-    let count = normalize(node, source, false).map_or(0, |form| form.collect(&mut found));
-    (count, found)
+    let count = form.collect(&mut found);
+    Some((count, found))
 }

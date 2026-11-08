@@ -1,0 +1,20 @@
+{:candidates [
+ {:score 1.0
+  :language "lua"
+  :left {:file "src/pick/pick.lua", :start-line 3, :end-line 5, :namespace "pick.pick", :name "between"}
+  :right {:file "src/pick/twin.lua", :start-line 3, :end-line 5, :namespace "pick.twin", :name "bounded"}
+  :left-nodes 33
+  :right-nodes 33}
+ {:score 1.0
+  :language "lua"
+  :left {:file "src/pick/pick.lua", :start-line 14, :end-line 19, :namespace "pick.pick", :name "M.untested"}
+  :right {:file "src/pick/twin.lua", :start-line 14, :end-line 19, :namespace "pick.twin", :name "M.checked"}
+  :left-nodes 22
+  :right-nodes 22}
+ {:score 1.0
+  :language "lua"
+  :left {:file "src/pick/pick.lua", :start-line 21, :end-line 27, :namespace "pick.pick", :name "M.spec"}
+  :right {:file "src/pick/twin.lua", :start-line 21, :end-line 27, :namespace "pick.twin", :name "M.counted"}
+  :left-nodes 74
+  :right-nodes 74}
+]}

@@ -1,0 +1,14 @@
+{:candidates [
+ {:score 1.0
+  :language "java"
+  :left {:file "src/demo/Left.java", :start-line 4, :end-line 8, :namespace "demo.Left", :name "total"}
+  :right {:file "src/demo/Right.java", :start-line 8, :end-line 12, :namespace "demo.Right", :name "sum"}
+  :left-nodes 74
+  :right-nodes 74}
+ {:score 1.0
+  :language "java"
+  :left {:file "src/demo/Left.java", :start-line 10, :end-line 18, :namespace "demo.Left", :name "run"}
+  :right {:file "src/demo/Right.java", :start-line 14, :end-line 22, :namespace "demo.Right", :name "walk"}
+  :left-nodes 60
+  :right-nodes 60}
+]}
