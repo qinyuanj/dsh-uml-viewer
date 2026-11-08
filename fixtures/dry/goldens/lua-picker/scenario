@@ -1,0 +1,6 @@
+project lua
+arg --edn
+arg --min-lines
+arg 1
+arg --min-nodes
+arg 1

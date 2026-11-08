@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 pub const HELP: &str = "\
-Usage: uml-viewer crap [options] [path-or-filter ...]
+Usage: crapper [options] [path-or-filter ...]
 
 Detect the language of each source file and score it with the CRAP metric
 CRAP = CC² × (1 − coverage)³ + CC. Writes .metrics/crap.edn for uml-viewer

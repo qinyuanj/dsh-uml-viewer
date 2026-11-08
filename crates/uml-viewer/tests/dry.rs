@@ -18,7 +18,7 @@ fn run(project: &Project, args: &[&str]) -> Output {
 }
 
 #[test]
-fn help_is_the_original_and_non_rust_selection_is_explicitly_refused() {
+fn help_is_the_original_and_every_language_is_scanned() {
     let project = Project::new();
     let output = run(&project, &["--help"]);
     assert_eq!(output.status.code(), Some(0));
@@ -27,16 +27,21 @@ fn help_is_the_original_and_non_rust_selection_is_explicitly_refused() {
         include_bytes!("../../../fixtures/dry/help.txt")
     );
     assert!(output.stderr.is_empty());
+    // test_exclude_is_in_the_help / test_help_says_source_roots_narrow_paths_and_changed
+    let help = String::from_utf8(output.stdout).unwrap();
+    assert!(help.contains("--exclude <glob>"));
+    assert!(help.contains("outside the source roots"));
 
+    // All seven languages are ported (#6 Rust, #7 the other six).
     project.write("src/other.py", "def duplicate():\n    return 1\n");
-    let output = run(&project, &[]);
-    assert_eq!(output.status.code(), Some(1));
-    assert!(
-        String::from_utf8(output.stderr)
-            .unwrap()
-            .contains("python is not ported yet")
+    project.write("src/other.lua", "function M.one()\n  return 1\nend\n");
+    let output = run(&project, &["--edn"]);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(output.stdout, b"{:candidates []}\n");
+    assert_eq!(
+        fs::read(project.root.join(".metrics/dry.edn")).unwrap(),
+        output.stdout
     );
-    assert!(!project.root.join(".metrics/dry.edn").exists());
 }
 
 #[test]
@@ -57,6 +62,12 @@ fn original_argument_and_exit_contract() {
             "--min-nodes requires an integer",
         ),
         (&["--format", "csv"][..], 2, "Unknown format: csv\n"),
+        (&["--exclude"][..], 1, "--exclude requires a value"),
+        (
+            &["--min-lines", "--min-nodes", "1"][..],
+            1,
+            "--min-lines requires a value",
+        ),
         (
             &["--exclude", "../outside"][..],
             1,

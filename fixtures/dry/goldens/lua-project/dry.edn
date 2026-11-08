@@ -1,0 +1,8 @@
+{:candidates [
+ {:score 1.0
+  :language "lua"
+  :left {:file "src/calc/init.lua", :start-line 14, :end-line 20, :namespace "calc", :name "M.total"}
+  :right {:file "src/calc/stats.lua", :start-line 5, :end-line 11, :namespace "calc.stats", :name "M.sum_clamped"}
+  :left-nodes 78
+  :right-nodes 78}
+]}

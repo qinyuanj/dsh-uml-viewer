@@ -1,0 +1,271 @@
+{
+  "nested/lib/mathx.lua": [
+    {
+      "category": "equality",
+      "end": 53,
+      "file": "nested/lib/mathx.lua",
+      "form_id": "defn/M.is_even",
+      "line": 4,
+      "mutant": "~=",
+      "mutation_id": "[\"nested/lib/mathx.lua\",\"nested.lib.mathx\",\"defn/M.is_even\",51,53,\"==\",\"~=\"]",
+      "name": "M.is_even",
+      "namespace": "nested.lib.mathx",
+      "original": "==",
+      "start": 51
+    },
+    {
+      "category": "constant",
+      "end": 55,
+      "file": "nested/lib/mathx.lua",
+      "form_id": "defn/M.is_even",
+      "line": 4,
+      "mutant": "1",
+      "mutation_id": "[\"nested/lib/mathx.lua\",\"nested.lib.mathx\",\"defn/M.is_even\",54,55,\"0\",\"1\"]",
+      "name": "M.is_even",
+      "namespace": "nested.lib.mathx",
+      "original": "0",
+      "start": 54
+    },
+    {
+      "category": "arithmetic",
+      "end": 94,
+      "file": "nested/lib/mathx.lua",
+      "form_id": "defn/M.halve",
+      "line": 8,
+      "mutant": "/",
+      "mutation_id": "[\"nested/lib/mathx.lua\",\"nested.lib.mathx\",\"defn/M.halve\",92,94,\"//\",\"/\"]",
+      "name": "M.halve",
+      "namespace": "nested.lib.mathx",
+      "original": "//",
+      "start": 92
+    }
+  ],
+  "nested/lib/mathx.lua #digests": [
+    [
+      [
+        "nested.lib.mathx",
+        "defn/M.halve"
+      ],
+      "e27d0b9f29cf33922987968b8da816d53861a24bf0336bf222cde36be702cad3"
+    ],
+    [
+      [
+        "nested.lib.mathx",
+        "defn/M.is_even"
+      ],
+      "36513555574cbd57c2c80aa02731d6174314da5c3a5d63850fc871d9436787b2"
+    ]
+  ],
+  "src/calc.lua": [
+    {
+      "category": "arithmetic",
+      "end": 44,
+      "file": "src/calc.lua",
+      "form_id": "defn/M.add",
+      "line": 4,
+      "mutant": "-",
+      "mutation_id": "[\"src/calc.lua\",\"calc\",\"defn/M.add\",43,44,\"+\",\"-\"]",
+      "name": "M.add",
+      "namespace": "calc",
+      "original": "+",
+      "start": 43
+    },
+    {
+      "category": "constant",
+      "end": 46,
+      "file": "src/calc.lua",
+      "form_id": "defn/M.add",
+      "line": 4,
+      "mutant": "0",
+      "mutation_id": "[\"src/calc.lua\",\"calc\",\"defn/M.add\",45,46,\"1\",\"0\"]",
+      "name": "M.add",
+      "namespace": "calc",
+      "original": "1",
+      "start": 45
+    },
+    {
+      "category": "arithmetic",
+      "end": 85,
+      "file": "src/calc.lua",
+      "form_id": "defn/M.double",
+      "line": 8,
+      "mutant": "/",
+      "mutation_id": "[\"src/calc.lua\",\"calc\",\"defn/M.double\",84,85,\"*\",\"/\"]",
+      "name": "M.double",
+      "namespace": "calc",
+      "original": "*",
+      "start": 84
+    },
+    {
+      "category": "equality",
+      "end": 122,
+      "file": "src/calc.lua",
+      "form_id": "defn/M.check",
+      "line": 12,
+      "mutant": "==",
+      "mutation_id": "[\"src/calc.lua\",\"calc\",\"defn/M.check\",120,122,\"~=\",\"==\"]",
+      "name": "M.check",
+      "namespace": "calc",
+      "original": "~=",
+      "start": 120
+    },
+    {
+      "category": "constant",
+      "end": 124,
+      "file": "src/calc.lua",
+      "form_id": "defn/M.check",
+      "line": 12,
+      "mutant": "1",
+      "mutation_id": "[\"src/calc.lua\",\"calc\",\"defn/M.check\",123,124,\"0\",\"1\"]",
+      "name": "M.check",
+      "namespace": "calc",
+      "original": "0",
+      "start": 123
+    },
+    {
+      "category": "logical",
+      "end": 128,
+      "file": "src/calc.lua",
+      "form_id": "defn/M.check",
+      "line": 12,
+      "mutant": "or",
+      "mutation_id": "[\"src/calc.lua\",\"calc\",\"defn/M.check\",125,128,\"and\",\"or\"]",
+      "name": "M.check",
+      "namespace": "calc",
+      "original": "and",
+      "start": 125
+    },
+    {
+      "category": "comparison",
+      "end": 132,
+      "file": "src/calc.lua",
+      "form_id": "defn/M.check",
+      "line": 12,
+      "mutant": ">=",
+      "mutation_id": "[\"src/calc.lua\",\"calc\",\"defn/M.check\",131,132,\">\",\">=\"]",
+      "name": "M.check",
+      "namespace": "calc",
+      "original": ">",
+      "start": 131
+    },
+    {
+      "category": "constant",
+      "end": 134,
+      "file": "src/calc.lua",
+      "form_id": "defn/M.check",
+      "line": 12,
+      "mutant": "0",
+      "mutation_id": "[\"src/calc.lua\",\"calc\",\"defn/M.check\",133,134,\"1\",\"0\"]",
+      "name": "M.check",
+      "namespace": "calc",
+      "original": "1",
+      "start": 133
+    },
+    {
+      "category": "unary",
+      "end": 154,
+      "file": "src/calc.lua",
+      "form_id": "defn/M.check",
+      "line": 13,
+      "mutant": "",
+      "mutation_id": "[\"src/calc.lua\",\"calc\",\"defn/M.check\",151,154,\"not\",\"\"]",
+      "name": "M.check",
+      "namespace": "calc",
+      "original": "not",
+      "start": 151
+    },
+    {
+      "category": "boolean",
+      "end": 160,
+      "file": "src/calc.lua",
+      "form_id": "defn/M.check",
+      "line": 13,
+      "mutant": "true",
+      "mutation_id": "[\"src/calc.lua\",\"calc\",\"defn/M.check\",155,160,\"false\",\"true\"]",
+      "name": "M.check",
+      "namespace": "calc",
+      "original": "false",
+      "start": 155
+    },
+    {
+      "category": "arithmetic",
+      "end": 180,
+      "file": "src/calc.lua",
+      "form_id": "defn/M.check",
+      "line": 15,
+      "mutant": "/",
+      "mutation_id": "[\"src/calc.lua\",\"calc\",\"defn/M.check\",178,180,\"//\",\"/\"]",
+      "name": "M.check",
+      "namespace": "calc",
+      "original": "//",
+      "start": 178
+    },
+    {
+      "category": "arithmetic",
+      "end": 225,
+      "file": "src/calc.lua",
+      "form_id": "defn-/hidden",
+      "line": 19,
+      "mutant": "+",
+      "mutation_id": "[\"src/calc.lua\",\"calc\",\"defn-/hidden\",224,225,\"-\",\"+\"]",
+      "name": "hidden",
+      "namespace": "calc",
+      "original": "-",
+      "start": 224
+    }
+  ],
+  "src/calc.lua #digests": [
+    [
+      [
+        "calc",
+        "defn-/hidden"
+      ],
+      "f1a45b1498ebe8d60380d14a5f23308f677d3bad3705c5c4472c413d23ff327d"
+    ],
+    [
+      [
+        "calc",
+        "defn/M.add"
+      ],
+      "5e004804d82947b00e52bae80dce497384151ec8e281bffe0c7d69f957e2c2d7"
+    ],
+    [
+      [
+        "calc",
+        "defn/M.check"
+      ],
+      "27388808c0a520b6bcc02479d2c22ea0332c4f85704bcedcf38d2990c752f3b2"
+    ],
+    [
+      [
+        "calc",
+        "defn/M.double"
+      ],
+      "1ea8ffae2a711595f90a160e41e4a7f07262fd5288ff80e427b34eb44e5d47bb"
+    ]
+  ],
+  "src/odd name.lua": [
+    {
+      "category": "arithmetic",
+      "end": 46,
+      "file": "src/odd name.lua",
+      "form_id": "defn/M.scale",
+      "line": 4,
+      "mutant": "/",
+      "mutation_id": "[\"src/odd name.lua\",\"odd name\",\"defn/M.scale\",45,46,\"*\",\"/\"]",
+      "name": "M.scale",
+      "namespace": "odd name",
+      "original": "*",
+      "start": 45
+    }
+  ],
+  "src/odd name.lua #digests": [
+    [
+      [
+        "odd name",
+        "defn/M.scale"
+      ],
+      "62d87ec06cb3c0da4574322f778df74ac837aa7611492d0a2e2268b2a7f1af43"
+    ]
+  ]
+}

@@ -4,6 +4,7 @@ mod cli;
 mod engine;
 mod interrupts;
 mod isolation;
+pub mod lua;
 mod metrics;
 mod operators;
 mod python;
@@ -78,12 +79,13 @@ fn run_mutation(root: &Path, options: &cli::Options, clock: impl Fn() -> String)
             quality_core::language::language_of(path),
             Some(
                 quality_core::language::Language::Rust
+                    | quality_core::language::Language::Lua
                     | quality_core::language::Language::Python
                     | quality_core::language::Language::TypeScript
             )
         ) {
             eprintln!(
-                "Skipping {}; this Linux mutation build mutates Rust, Python and TypeScript sources.",
+                "Skipping {}; this Linux mutation build mutates Rust, Lua, Python and TypeScript sources.",
                 path.display()
             );
             return false;

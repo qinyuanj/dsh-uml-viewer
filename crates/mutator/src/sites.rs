@@ -112,24 +112,21 @@ fn header(source: &str, start: usize, end: usize) -> String {
     }
     header.to_string()
 }
-fn private(source: &str, start: usize, end: usize) -> bool {
-    // Python checks pub\s: pub(crate) deliberately remains private.
-    !header(source, start, end)
-        .strip_prefix("pub")
-        .is_some_and(|rest| rest.starts_with(char::is_whitespace))
-}
-/// `is_private` for the languages kept in their own modules.
-fn language_private(
-    language: Language,
-    name: &str,
-    source: &str,
-    start: usize,
-    end: usize,
-) -> bool {
+/// `is_private` per language: Python and TypeScript keep their own rules in
+/// their modules; Rust and Lua read the declaration's header.
+fn private(language: Language, name: &str, source: &str, start: usize, end: usize) -> bool {
+    let header = header(source, start, end);
     match language {
         Language::Python => crate::python::private(name),
-        Language::TypeScript => crate::typescript::private(name, &header(source, start, end)),
-        _ => private(source, start, end),
+        Language::TypeScript => crate::typescript::private(name, &header),
+        // A Lua function is private only when its declaration is `local`.
+        Language::Lua => header
+            .strip_prefix("local")
+            .is_some_and(|rest| rest.starts_with(char::is_whitespace)),
+        // Python checks pub\s: pub(crate) deliberately remains private.
+        _ => !header
+            .strip_prefix("pub")
+            .is_some_and(|rest| rest.starts_with(char::is_whitespace)),
     }
 }
 /// Compact identity JSON, including Python json.dumps' default ensure_ascii.
@@ -171,60 +168,115 @@ pub fn mutation_file(id: &str) -> Option<String> {
 pub fn mutation_namespace(id: &str) -> Option<String> {
     mutation_field(id, 1)
 }
-fn replacement(token: &str, parent: &str) -> Option<(&'static str, &'static str)> {
+/// Python `sites.py` operator rules for the languages this port discovers.
+fn replacement(
+    language: Language,
+    token: &str,
+    parent: &str,
+) -> Option<(&'static str, &'static str)> {
     if parent == "binary_expression" {
-        return Some(match token {
-            "+" => ("-", "arithmetic"),
-            "-" => ("+", "arithmetic"),
-            "*" => ("/", "arithmetic"),
-            "/" => ("*", "arithmetic"),
-            "%" => ("*", "arithmetic"),
-            ">" => (">=", "comparison"),
-            ">=" => (">", "comparison"),
-            "<" => ("<=", "comparison"),
-            "<=" => ("<", "comparison"),
-            "==" => ("!=", "equality"),
-            "!=" => ("==", "equality"),
-            "&&" => ("||", "logical"),
-            "||" => ("&&", "logical"),
-            "^" | "&" => ("|", "bitwise"),
-            "|" => ("&", "bitwise"),
-            "<<" => (">>", "bitwise"),
-            ">>" => ("<<", "bitwise"),
-            _ => return None,
+        return Some(match language {
+            // Lua spells inequality `~=`; `//` becomes `/` one way, and `..`,
+            // `#`, `%`, `^` and the bitwise operators are never rewritten.
+            Language::Lua => match token {
+                "+" => ("-", "arithmetic"),
+                "-" => ("+", "arithmetic"),
+                "*" => ("/", "arithmetic"),
+                "/" => ("*", "arithmetic"),
+                "//" => ("/", "arithmetic"),
+                ">" => (">=", "comparison"),
+                ">=" => (">", "comparison"),
+                "<" => ("<=", "comparison"),
+                "<=" => ("<", "comparison"),
+                "==" => ("~=", "equality"),
+                "~=" => ("==", "equality"),
+                "and" => ("or", "logical"),
+                "or" => ("and", "logical"),
+                _ => return None,
+            },
+            _ => match token {
+                "+" => ("-", "arithmetic"),
+                "-" => ("+", "arithmetic"),
+                "*" => ("/", "arithmetic"),
+                "/" => ("*", "arithmetic"),
+                "%" => ("*", "arithmetic"),
+                ">" => (">=", "comparison"),
+                ">=" => (">", "comparison"),
+                "<" => ("<=", "comparison"),
+                "<=" => ("<", "comparison"),
+                "==" => ("!=", "equality"),
+                "!=" => ("==", "equality"),
+                "&&" => ("||", "logical"),
+                "||" => ("&&", "logical"),
+                "^" | "&" => ("|", "bitwise"),
+                "|" => ("&", "bitwise"),
+                "<<" => (">>", "bitwise"),
+                ">>" => ("<<", "bitwise"),
+                _ => return None,
+            },
         });
     }
-    if parent == "unary_expression" && matches!(token, "!" | "-") {
+    // `not` is Lua's spelling of the deleted unary operator.
+    if parent == "unary_expression" && matches!(token, "!" | "not" | "-") {
         return Some(("", "unary"));
     }
     None
 }
+/// One leaf's site: Python and TypeScript keep their rules in their own
+/// modules; Rust and Lua share the table above plus the literal swaps.
+fn leaf_site(
+    language: Language,
+    node: quality_core::grammar::Node,
+    token: &str,
+    parent: &str,
+) -> Option<(String, &'static str)> {
+    match language {
+        Language::Python => crate::python::site(node, token),
+        Language::TypeScript => crate::typescript::site(node, token),
+        _ => replacement(language, token, parent)
+            .or_else(|| match (node.kind(), token) {
+                ("true", "true") => Some(("false", "boolean")),
+                ("false", "false") => Some(("true", "boolean")),
+                ("integer_literal" | "number", "0") => Some(("1", "constant")),
+                ("integer_literal" | "number", "1") => Some(("0", "constant")),
+                _ => None,
+            })
+            .map(|(mutant, category)| (mutant.to_string(), category)),
+    }
+}
 type FormParts = (usize, Vec<(usize, usize, String)>);
 
-/// Rust sites in source order and forms in first-line order. Test code is excluded
-/// by shared function discovery; private forms retain their defn-/ IDs.
-pub fn discover(source: &str, path: &Path, root: &Path, file_key: &str) -> (Vec<Site>, Vec<Form>) {
+/// Mutation sites in source order and forms in first-line order. Test code is
+/// excluded by shared function discovery; private forms retain their defn-/ IDs.
+pub fn discover(
+    source: &str,
+    path: &Path,
+    root: &Path,
+    file_key: &str,
+) -> std::io::Result<(Vec<Site>, Vec<Form>)> {
     let Some(language) = language_of(path) else {
-        return (Vec::new(), Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     };
     let grammar = match language {
         Language::Rust => Grammar::Rust,
+        Language::Lua => Grammar::Lua,
         Language::Python => Grammar::Python,
         Language::TypeScript => crate::typescript::grammar(path),
-        _ => return (Vec::new(), Vec::new()),
+        _ => return Ok((Vec::new(), Vec::new())),
     };
     let located = if path.is_absolute() {
         resolve(path)
     } else {
         resolve(&root.join(path))
     };
-    // The original resolves both sides before naming the module.
-    let functions = functions_in_file(language, source, &posix(&located), &resolve(root));
+    // The original resolves both sides before naming the module. Malformed Lua
+    // is an input error for the caller to report, never a panic.
+    let functions = functions_in_file(language, source, &posix(&located), &resolve(root))?;
     let mut forms: Vec<Form> = Vec::new();
     let mut grouped: BTreeMap<(String, String), FormParts> = BTreeMap::new();
     let mut owners = Vec::new();
     for function in &functions {
-        let private = language_private(
+        let private = private(
             language,
             &function.name,
             source,
@@ -291,19 +343,7 @@ pub fn discover(source: &str, path: &Path, root: &Path, file_key: &str) -> (Vec<
         }
         let token = text(source, node);
         let parent = node.parent().map_or("", |node| node.kind());
-        let changed = match language {
-            Language::Python => crate::python::site(node, token),
-            Language::TypeScript => crate::typescript::site(node, token),
-            _ => replacement(token, parent)
-                .or_else(|| match (node.kind(), token) {
-                    ("true", "true") => Some(("false", "boolean")),
-                    ("false", "false") => Some(("true", "boolean")),
-                    ("integer_literal", "0") => Some(("1", "constant")),
-                    ("integer_literal", "1") => Some(("0", "constant")),
-                    _ => None,
-                })
-                .map(|(mutant, category)| (mutant.to_string(), category)),
-        };
+        let changed = leaf_site(language, node, token, parent);
         let Some((mutant, category)) = changed else {
             continue;
         };
@@ -343,7 +383,7 @@ pub fn discover(source: &str, path: &Path, root: &Path, file_key: &str) -> (Vec<
     }
     found.sort_by_key(|site| (site.line, site.start, site.end));
     forms.sort_by_key(|form| form.line);
-    (found, forms)
+    Ok((found, forms))
 }
 /// Replace the site's UTF-8 byte span.
 pub fn apply_site(source: &str, site: &Site) -> String {

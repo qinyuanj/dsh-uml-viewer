@@ -1,9 +1,9 @@
 # Plugin host development
 
-Ticket dsh-uml-viewer#19 adds the host skeleton and `uml_ir`. The quality tools
-and their gates follow in #20; the Web panel, Remote stream and `uml_display`
-follow in #21. This checkout is a development package, marked private until the
-release packaging tickets assemble the main and platform packages.
+Ticket dsh-uml-viewer#19 added the host skeleton and `uml_ir`; #21 adds the Web
+panel, the typed Remote stream and `uml_display`. The quality tools and their
+gates follow in #20. This checkout is a development package, marked private until
+the release packaging tickets assemble the main and platform packages.
 
 Use Node 24 (or Node 22.19+) and the pnpm version pinned in `package.json`:
 
@@ -14,9 +14,16 @@ pnpm test
 pnpm build
 ```
 
-The root is the main package `dsh-uml-viewer`. `packages/host` and
-`packages/contracts` are private workspace packages, bundled into
-`lib/host.js` by `scripts/build-plugin.mjs`. Cordis is supplied by DSH at runtime.
+The root is the main package `dsh-uml-viewer`. `packages/host`,
+`packages/client` and `packages/contracts` are private workspace packages, bundled
+by `scripts/build-plugin.mjs` into `lib/host.js` (ESM, Cordis supplied by DSH at
+runtime) and `lib/client.js` (the browser closure-factory bundle registered as
+`window.__ModuleLoader__.load`). The client bundle requires `react` from the
+host's platform module table and bundles nothing else that DSH provides: the
+built artifact must not contain React, `react-dom` or
+`dsh-client-ui-primitives` (`packages/client/tests/build.test.ts` asserts this on
+the output). The packaged Sarasa face under `fonts/` is served by the plugin's
+own host route because the `/plugins/<pkg>/assets/*` route only serves images.
 The build runs without dependency lifecycle scripts; esbuild uses its platform
 optional dependency. CI runs tsc, unit tests, the Cordis seam tests and the host
 build on Windows, Linux and macOS alongside the existing Rust checks.
@@ -98,21 +105,34 @@ The host's `dsh.ts` is a narrow structural boundary to the inspected DSH
 0.2.2-rc.1 services; `process.ts` owns confinement and bounded subprocess
 execution; `runner.ts` composes IR arguments and the tool result;
 `binary.ts` owns executable location; `policy.ts` owns default policy selection;
-`index.ts` owns the tool definition and effect lifetime. #20 can extend the
+`index.ts` owns the tool definitions and effect lifetime. #20 can extend the
 runner with operation-specific args/result parsing and per-session
-serialization, then wrap the IR handler with quality gating. #21 can add the
-resident owner, session projection of tool-result events, panel Remote and
-`uml_display` gating. Gate state must derive from the session log so it survives
-resume/fork; a process-local last-result map is not authoritative.
+serialization, then wrap the IR handler with quality gating.
+
+`gate.ts` holds the `uml_display` gate: a per-session record of this plugin's
+own `uml_ir` outcomes, written by the `uml_ir` tool and read by `uml_display`.
+It is deliberately conservative — it is **process-local**, so after a host
+restart or a session fork the first `uml_display` is refused until `uml_ir` runs
+again in that session; it never reports someone else's success. The session log
+carries rendered tool content only (no structured tool value), so folding it
+cannot reconstruct the gate; a future ticket that needs cross-restart gating
+should extend the host seam with a structured result, not parse text.
+`resident.ts` owns one `uml-viewer resident` child per session, `viewer.ts` the
+typed Remote, `prompt.ts` the companion prompt section that lives exactly as
+long as that session's panel stream, and `state.ts` the persisted per-session
+view state under the plugin home.
 
 ## Manifests and verification
 
 DSH reads `package.json`'s `dsh.bundle.patch`, runtime export and `engines.dsh`.
 `dsh-plugin.json` is the informational community manifest, not an authorization
 mechanism. The patch inserts exactly one row named like the package. The
-manifest lists `uml_ir` as implemented and records the four follow-on tools as
-planned; #21 adds the client facet/export and `dsh.client` metadata when a real
-client bundle exists. English/Chinese inventory text and original SVG artwork
+manifest lists `uml_ir` and `uml_display` as implemented and records the three
+quality tools as planned. The browser half is declared where DSH reads it:
+`package.json` `dsh.client` (`platform: "web"`, `immediately: true`, the right
+sidebar as its only activation-order dependency, no `external` requests) plus the
+`"./client"` export. `dsh-std` 0.15 has no `facets.client` key, so the
+informational manifest stays host-only and explains the split in its notes. English/Chinese inventory text and original SVG artwork
 are included. No live profile was installed or changed for this ticket.
 
 The seam tests load the host into a real Cordis 4.1 Context, provide controlled

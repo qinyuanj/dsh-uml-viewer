@@ -1,0 +1,9 @@
+return {
+  default = {
+    lpath = "src/?.lua;src/?/init.lua",
+  },
+  -- A named task is a test filter: only `spec/add_spec.lua` runs.
+  first = {
+    ROOT = { "spec/add_spec.lua" },
+  },
+}

@@ -1,0 +1,23 @@
+DUPLICATE score=1.00
+  src/app/carts.py:2-5
+  src/app/orders.py:8-11
+
+DUPLICATE score=1.00
+  src/app/carts.py:8-11
+  src/app/orders.py:1-4
+
+DUPLICATE score=0.86
+  src/app/carts.py:2-5
+  src/app/carts.py:8-11
+
+DUPLICATE score=0.86
+  src/app/carts.py:2-5
+  src/app/orders.py:1-4
+
+DUPLICATE score=0.86
+  src/app/carts.py:8-11
+  src/app/orders.py:8-11
+
+DUPLICATE score=0.86
+  src/app/orders.py:1-4
+  src/app/orders.py:8-11

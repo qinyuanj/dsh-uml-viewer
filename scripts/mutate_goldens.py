@@ -43,9 +43,158 @@ def git(ref: Path, *args: str) -> str:
                                     "-C", str(ref), *args], text=True).strip()
 
 
+LUA_TARGETS = ["src/calc.lua", "src/odd name.lua", "nested/lib/mathx.lua"]
+
+
+def _deps(refs: Path, scratch: Path, *, redirect_home: bool = True) -> None:
+    """Pinned Python dependencies and import paths, all inside native scratch.
+
+    The Lua case keeps the caller's HOME: LuaRocks resolves busted and cluacov
+    from `~/.luarocks`, and the pinned interpreter is probed with that HOME.
+    """
+
+    os.environ.update(PYTHONDONTWRITEBYTECODE="1", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
+                      PIP_NO_CACHE_DIR="1", PIP_DISABLE_PIP_VERSION_CHECK="1")
+    if redirect_home:
+        os.environ.update(HOME=str(scratch / "home"), XDG_CACHE_HOME=str(scratch / "cache"))
+    (scratch / "home").mkdir()
+    deps = scratch / "deps"
+    subprocess.run([sys.executable, "-m", "pip", "install", "--target", str(deps),
+                    "tree-sitter==0.26.0", "tree-sitter-language-pack==1.21.0", "pytest==9.2.0"],
+                   check=True)
+    paths = [str(deps), str(refs / "mutator/src"), str(refs / "crapper/src"),
+             str(refs / "mutator/tests")]
+    os.environ["PYTHONPATH"] = os.pathsep.join(paths)
+    sys.path[:0] = paths
+    sys.dont_write_bytecode = True
+
+
+def lua_oracle(refs: Path, output: Path) -> None:
+    """The Lua case: site oracle, fixed-clock snapshots and the reuse rerun.
+
+    The fixture project is copied to native /tmp first; the checked-in fixture is
+    never mutated. Snapshots and the site table are written back for the Rust
+    parity tests.
+    """
+
+    for requirement in ("lua5.4", "busted"):
+        assert shutil.which(requirement), f"{requirement} is required for the Lua oracle"
+    scratch = Path(tempfile.mkdtemp(prefix="spec203-t11-python.", dir="/tmp")).resolve()
+    print(f"Native scratch: {scratch}", flush=True)
+    assert scratch.parent == Path("/tmp") and scratch.name.startswith("spec203-t11-python.")
+    try:
+        _deps(refs, scratch, redirect_home=False)
+        from mutator import isolation
+        isolation.current().enter()
+        from mutator.cli import run
+        from mutator.functions import form_digests, sites_in_file
+        import mutator.metrics
+        from test_snapshot_bytes import FixedTime
+
+        mutator.metrics.datetime = FixedTime
+        fixture = output / "lua" / "project"
+        assert not (fixture / ".metrics").exists(), "the fixture must not carry snapshots"
+        root = scratch / "project"
+        shutil.copytree(fixture, root)
+        before = {p.relative_to(root).as_posix(): p.read_bytes()
+                  for p in root.rglob("*") if p.is_file()}
+        args = ["--root", str(root), "--max-workers", "1", "--timeout-factor", "20", *LUA_TARGETS]
+        logs = []
+        codes = []
+        for flags in (["--mutate-all", *args], args):
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                result = run(flags)
+            print(stdout.getvalue(), end="")
+            print(stderr.getvalue(), end="", file=sys.stderr)
+            # The fixture deliberately holds one survivor (`//` to `/` is the
+            # same function on even input), so exit 3 is the expected outcome.
+            assert result in (0, 3), result
+            codes.append(result)
+            logs.append(stdout.getvalue() + stderr.getvalue())
+            current = {p.relative_to(root / ".metrics/mutate").as_posix(): p.read_bytes()
+                       for p in (root / ".metrics/mutate").rglob("*.edn")}
+            if len(logs) == 1:
+                snapshots = current
+            else:
+                assert current == snapshots, "unchanged rerun rewrote snapshot bytes"
+        assert codes[0] == codes[1], codes
+        assert set(snapshots) == {"calc.edn", "nested.lib.mathx.edn", "odd name.edn"}, snapshots
+        sites = {}
+        for target in LUA_TARGETS:
+            path = root / target
+            source = path.read_text(encoding="utf-8")
+            sites[target] = [vars(site) for site in sites_in_file(source, path, root, target)]
+            sites[target + " #digests"] = sorted(
+                [list(key), value] for key, value in form_digests(source, path, root).items())
+        for name, data in before.items():
+            assert (root / name).read_bytes() == data, f"the oracle mutated {name}"
+        # A named .busted task is a test filter: only its specs run, so the
+        # functions no spec covers stay uncovered. The nested module has no
+        # such task, so this case targets the root module only.
+        task_root = scratch / "task"
+        shutil.copytree(fixture, task_root)
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = run(["--root", str(task_root), "--max-workers", "1", "--timeout-factor", "20",
+                        "--mutate-all", "--busted-task", "first", "src/calc.lua"])
+        print(stdout.getvalue(), end="")
+        print(stderr.getvalue(), end="", file=sys.stderr)
+        assert code == 0, code
+        task_snapshot = (task_root / ".metrics/mutate/calc.edn").read_bytes()
+        assert b":killed 2" in task_snapshot and b":uncovered 1" in task_snapshot
+        assert not (task_root / ".metrics/mutate/odd name.edn").exists()
+        assert (task_root / "src/calc.lua").read_bytes() == before["src/calc.lua"]
+        (output / "lua/goldens/task").mkdir(parents=True, exist_ok=True)
+        (output / "lua/goldens/task/calc.edn").write_bytes(task_snapshot)
+        for name, data in before.items():
+            destination = output / "lua" / "project" / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(data)
+        for name, data in snapshots.items():
+            destination = output / "lua" / "goldens" / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(data)
+        (output / "lua" / "sites.json").write_text(
+            json.dumps(sites, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        evidence = {
+            "references": PINS,
+            "clock": "2026-11-07T12:00:00+00:00",
+            "isolation": "namespace-view",
+            "targets": LUA_TARGETS,
+            "arguments": ["--root", "<native-/tmp-parent>/project", "--max-workers", "1",
+                          "--timeout-factor", "20", *LUA_TARGETS],
+            "first_run": {"prepend": ["--mutate-all"], "exit": codes[0]},
+            "unchanged_rerun": {"exit": codes[1], "identical_snapshot_bytes": True},
+            "source_bytes_unchanged": True,
+            "named_task": {
+                "arguments": ["--busted-task", "first", "src/calc.lua"],
+                "exit": code,
+                "snapshot": "task/calc.edn",
+                "bytes": len(task_snapshot),
+                "sha256": hashlib.sha256(task_snapshot).hexdigest(),
+            },
+            "snapshots": {name: {"bytes": len(data),
+                                 "sha256": hashlib.sha256(data).hexdigest()}
+                          for name, data in sorted(snapshots.items())},
+            "console": logs,
+        }
+        (output / "lua" / "evidence.json").write_text(
+            json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+        print("LUA_SOURCE_UNCHANGED=yes LUA_SNAPSHOT_UNCHANGED=yes")
+        print(json.dumps(evidence["snapshots"], indent=2))
+    finally:
+        print(f"Cleanup verified native scratch: {scratch}", flush=True)
+        assert scratch.resolve() == scratch and scratch.parent == Path("/tmp")
+        assert scratch.name.startswith("spec203-t11-python.")
+        shutil.rmtree(scratch)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--references", required=True, type=Path)
+    parser.add_argument("--lua", action="store_true",
+                        help="regenerate only the Lua fixture site table and goldens")
     options = parser.parse_args()
     if sys.platform != "linux":
         parser.error("run inside native Linux/WSL, not Windows or MSYS")
@@ -54,6 +203,9 @@ def main() -> None:
     for name, revision in PINS.items():
         assert git(refs / name, "rev-parse", "HEAD") == revision, name
         assert not git(refs / name, "status", "--porcelain"), name
+    if options.lua:
+        lua_oracle(refs, output)
+        return
     subprocess.run(["cargo", "llvm-cov", "--version"], check=True)
     components = subprocess.check_output(["rustup", "component", "list", "--installed"], text=True)
     assert "llvm-tools-" in components
@@ -61,17 +213,7 @@ def main() -> None:
     print(f"Native scratch: {scratch}", flush=True)
     assert scratch.parent == Path("/tmp") and scratch.name.startswith("spec203-t8-python.")
     try:
-        os.environ.update(HOME=str(scratch / "home"), XDG_CACHE_HOME=str(scratch / "cache"),
-                          PYTHONDONTWRITEBYTECODE="1", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
-                          PIP_NO_CACHE_DIR="1", PIP_DISABLE_PIP_VERSION_CHECK="1")
-        (scratch / "home").mkdir()
-        deps = scratch / "deps"
-        subprocess.run([sys.executable, "-m", "pip", "install", "--target", str(deps),
-                        "tree-sitter==0.26.0", "tree-sitter-language-pack==1.21.0", "pytest==9.2.0"], check=True)
-        paths = [str(deps), str(refs / "mutator/src"), str(refs / "crapper/src"), str(refs / "mutator/tests")]
-        os.environ["PYTHONPATH"] = os.pathsep.join(paths)
-        sys.path[:0] = paths
-        sys.dont_write_bytecode = True
+        _deps(refs, scratch)
         subprocess.run([sys.executable, "-m", "pytest", "-q", "-s", "-p", "no:cacheprovider",
                         "--basetemp", str(scratch / "pytest"),
                         str(refs / "mutator/tests/test_snapshot_bytes.py"),

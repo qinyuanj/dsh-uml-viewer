@@ -1,0 +1,7 @@
+DUPLICATE score=1.00
+  src/board/board.go:3-7
+  src/panel/panel.go:3-7
+
+DUPLICATE score=1.00
+  src/board/board.go:9-13
+  src/panel/panel.go:9-13
