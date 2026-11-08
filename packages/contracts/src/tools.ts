@@ -81,8 +81,7 @@ export const IR_RESULT_SCHEMA = {
  *
  * A display is not a child process, so its ADR 0001 record keeps
  * `exitCode: null` and `validResult` reports whether the panel now shows the
- * requested diagram (`deferred` says the panel was closed and will apply it
- * when the session's panel stream opens).
+ * requested diagram.
  */
 export interface DisplayRequest {
   path?: string
@@ -93,7 +92,6 @@ export interface DisplayResult extends ToolResultRecord<'display'> {
   path: string | null
   status: 'ok' | 'error' | 'refused'
   reason: string | null
-  deferred: boolean
 }
 
 export function parseDisplayRequest(value: unknown): DisplayRequest {
@@ -115,14 +113,13 @@ export const DISPLAY_PARAMETERS = {
 
 export const DISPLAY_RESULT_SCHEMA = {
   type: 'object', additionalProperties: false,
-  required: ['version', 'operation', 'projectRoot', 'path', 'exitCode', 'validResult', 'crapScope', 'configured', 'tool', 'status', 'reason', 'deferred'],
+  required: ['version', 'operation', 'projectRoot', 'path', 'exitCode', 'validResult', 'crapScope', 'configured', 'tool', 'status', 'reason'],
   properties: {
     version: { type: 'integer', const: 1 }, operation: { type: 'string', const: 'display' }, projectRoot: { type: 'string' },
     path: { oneOf: [{ type: 'string' }, { type: 'null' }] },
     exitCode: { type: 'null', const: null }, validResult: { type: 'boolean' },
     crapScope: { type: 'null', const: null }, configured: { type: 'boolean' }, tool: { type: 'string' },
     status: { type: 'string', enum: ['ok', 'error', 'refused'] }, reason: { oneOf: [{ type: 'string' }, { type: 'null' }] },
-    deferred: { type: 'boolean' },
   },
 }
 
@@ -145,6 +142,5 @@ export function validateDisplayResult(value: unknown): DisplayResult {
   if (typeof source.configured !== 'boolean') throw new Error('display result.configured: must be a boolean')
   if (typeof source.tool !== 'string') throw new Error('display result.tool: must be a string')
   if (source.reason !== null && typeof source.reason !== 'string') throw new Error('display result.reason: must be a string or null')
-  if (typeof source.deferred !== 'boolean') throw new Error('display result.deferred: must be a boolean')
   return source as unknown as DisplayResult
 }

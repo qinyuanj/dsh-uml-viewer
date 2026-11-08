@@ -80,7 +80,7 @@ describe('uml_display contract', () => {
 
   it('returns a version-1 record with the ADR 0001 fields', () => {
     const record = { version: 1, operation: 'display', projectRoot: 'D:/p', path: 'diagram.edn', exitCode: null,
-      validResult: true, crapScope: null, configured: false, tool: 'uml-viewer', status: 'ok', reason: null, deferred: false }
+      validResult: true, crapScope: null, configured: false, tool: 'uml-viewer', status: 'ok', reason: null }
     expect(validateDisplayResult(record)).toEqual(record)
     expect(DISPLAY_RESULT_SCHEMA.properties.operation).toMatchObject({ const: 'display' })
     expect(() => validateDisplayResult({ ...record, status: 'applied' })).toThrow(/status/)
