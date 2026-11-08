@@ -1,7 +1,9 @@
 # The guardrails on every push and pull request: formatting, clippy with
 # warnings denied, and scripts/check.py (cargo build --release, cargo test
-# --workspace, the static source rules and the POSIX entry suites). The
-# quality gate (./uml crap / mutate) and real-window drivers stay manual.
+# --workspace and the static source rules). The runner is native Linux, which
+# the public entry refuses (ADR 0007), so check.py lists the entry suites as
+# skipped here; they run on WSL2, macOS and native Windows. The quality gate
+# (./uml crap / mutate) and real-window drivers stay manual.
 name: ci
 
 on:

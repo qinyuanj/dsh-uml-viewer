@@ -80,8 +80,28 @@ def native_checks(timeout):
             for name in sorted(DRIVERS)]
 
 
-def selected_checks(native, native_timeout):
-    """Fast source rules, the cargo build and tests, then the entry suites."""
+def host_refusal():
+    """Why this host is not a delivered platform (uml_posix.host), else None."""
+    sys.path.insert(0, str(REPO / 'scripts'))
+    import uml_posix
+    try:
+        uml_posix.host()
+    except ValueError as refusal:
+        return str(refusal)
+    return None
+
+
+def skipped(reason):
+    return lambda: ('skipped', 0, reason)
+
+
+def selected_checks(native, native_timeout, refusal=None):
+    """Fast source rules, the cargo build and tests, then the entry suites.
+
+    The entry suites drive the public entry, which refuses an undelivered host
+    (e.g. native Linux on a CI runner, ADR 0007); there they are listed as
+    skipped with that reason instead of failing on the refusal.
+    """
     suites = ['test_posix_entries.py', 'test_posix_restart_entries.py']
     if os.name == 'nt':
         # `uml.cmd`, junction dev installs and `.exe` naming.
@@ -93,7 +113,10 @@ def selected_checks(native, native_timeout):
         suites.append('test_posix_codex_companion.py')
     checks = python_checks(FAST_SUITES)
     checks += [('cargo build --release --locked + cargo test --workspace --locked', cargo_suite)]
-    checks += python_checks(suites)
+    if refusal:
+        checks += [(f'{name} (undelivered host)', skipped(refusal)) for name in suites]
+    else:
+        checks += python_checks(suites)
     if native:
         checks += native_checks(native_timeout)
     return checks
@@ -115,7 +138,8 @@ def main():
     parser.add_argument('--native', action='store_true', help='also run the real-window drivers')
     parser.add_argument('--native-timeout', type=int, default=300)
     arguments = parser.parse_args()
-    return summarize(run_checks(selected_checks(arguments.native, arguments.native_timeout)))
+    return summarize(run_checks(selected_checks(arguments.native, arguments.native_timeout,
+                                                host_refusal())))
 
 
 def summarize(results):
