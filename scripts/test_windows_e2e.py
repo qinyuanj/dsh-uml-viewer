@@ -107,6 +107,16 @@ def exe_changed(exe, pinned):
             'the results mix two binaries. Rerun with an exe nothing else rebuilds.')
 
 
+def record_exe_change(exe, pinned, result):
+    """Fail `result` when the exe changed; printed even while another failure
+    is already propagating. Returns the failure text or None."""
+    changed = exe_changed(exe, pinned)
+    if changed:
+        print('FAIL ' + changed, flush=True)
+        result.update({'ok': False, 'exe-changed': changed})
+    return changed
+
+
 def inventory(env):
     result = run(['herdr', 'session', 'list', '--json'], env)
     assert result.returncode == 0, result.stderr
@@ -429,12 +439,7 @@ def main():
     finally:
         for project in reversed(projects):
             project.cleanup()
-        changed = exe_changed(exe, pinned)
-        if changed:
-            # Printed even when another failure is already propagating.
-            print('FAIL ' + changed, flush=True)
-            result['ok'] = False
-            result['exe-changed'] = changed
+        changed = record_exe_change(exe, pinned, result)
         (evidence / 'result.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
         print('evidence: ' + str(evidence), flush=True)
         if result['ok']:

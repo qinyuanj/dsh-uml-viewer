@@ -788,41 +788,58 @@ def refuse_coding_agent_outside_lifecycle(args):
                          f'{rest[0]} 不接受该选项。')
 
 
+USAGE = ('usage: uml [--runtime rust] [--backend herdr] [--coding-agent claude|codex]\n'
+         '           [--restart | ir | scene | crap | mutate | dry] [args]\n'
+         '  rust 是唯一运行时；love 与 JVM 已移除。\n'
+         '  --coding-agent 只用于 fresh/restart 生命周期，缺省 claude；Codex 用 CODEX_BIN 或 PATH 上的 codex。')
+
+
+def names_policy(values):
+    """Whether `ir` arguments name a policy: `--policy`, or a positional."""
+    has_policy = '--policy' in values
+    index = 0
+    while index < len(values):
+        if values[index] in ('--root', '--output', '--policy'):
+            index += 2
+        else:
+            has_policy = has_policy or not values[index].startswith('--')
+            index += 1
+    return has_policy
+
+
+def default_policy(root):
+    """examples/<project>.policy.edn, else the first examples policy, else policy.edn."""
+    preferred = root / 'examples' / (root.name + '.policy.edn')
+    choices = sorted((root / 'examples').glob('*.policy.edn'))
+    policy = preferred if preferred.is_file() else choices[0] if choices else root / 'policy.edn'
+    if not policy.is_file():
+        raise ValueError('没有 policy；请创建 policy.edn 或 examples/*.policy.edn。')
+    return policy
+
+
+def with_policy(root, args):
+    """An `ir` call that names no policy gets the project's default one."""
+    if args[0] != 'ir' or names_policy(args[1:]):
+        return args
+    return ['ir', str(default_policy(root).relative_to(root)), *args[1:]]
+
+
 def command(root, args):
     root = root.resolve()
     os.chdir(root)
     if args in (['--help'], ['-h']):
-        print('usage: uml [--runtime rust] [--backend herdr] [--coding-agent claude|codex]\n'
-              '           [--restart | ir | scene | crap | mutate | dry] [args]\n'
-              '  rust 是唯一运行时；love 与 JVM 已移除。\n'
-              '  --coding-agent 只用于 fresh/restart 生命周期，缺省 claude；Codex 用 CODEX_BIN 或 PATH 上的 codex。')
+        print(USAGE)
         return 0
     host()
     args = take_runtime(args)
     refuse_coding_agent_outside_lifecycle(args)
     # Empty means unset, as in the sh entry and the installer.
     tool_root = Path(os.environ.get('UML_VIEWER_TOOL_ROOT') or root / '.uml-viewer/uml-viewer').resolve()
-    if args and args[0] == 'ir':
-        values = args[1:]
-        has_policy = '--policy' in values
-        index = 0
-        while index < len(values):
-            if values[index] in ('--root', '--output', '--policy'):
-                index += 2
-            else:
-                has_policy = has_policy or not values[index].startswith('--')
-                index += 1
-        if not has_policy:
-            preferred = root / 'examples' / (root.name + '.policy.edn')
-            choices = sorted((root / 'examples').glob('*.policy.edn'))
-            policy = preferred if preferred.is_file() else choices[0] if choices else root / 'policy.edn'
-            if not policy.is_file():
-                raise ValueError('没有 policy；请创建 policy.edn 或 examples/*.policy.edn。')
-            args = ['ir', str(policy.relative_to(root)), *args[1:]]
-        return native_exit(run([*runtime_argv(tool_root), *args], cwd=root, check=False).returncode)
-    if args and args[0] == 'scene':
-        return native_exit(run([*runtime_argv(tool_root), *args], cwd=root, check=False).returncode)
-    if args and args[0] in ('crap', 'mutate', 'dry'):
+    head = args[0] if args else None
+    if head in ('ir', 'scene'):
+        argv = [*runtime_argv(tool_root), *with_policy(root, args)]
+        return native_exit(run(argv, cwd=root, check=False).returncode)
+    if head in ('crap', 'mutate', 'dry'):
         # 质量分发实现与安装器共用入口，独立模块保留协议边界。
         from uml_quality import dispatch
         return dispatch(root, args[0], args[1:])

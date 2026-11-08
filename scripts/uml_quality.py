@@ -195,6 +195,29 @@ def standard_command(root, operation, standard, roots, forward):
     return argv + scope + options + extra + selection, None
 
 
+def override_command(override, operation, forward):
+    """A declared operation: its argv, valid exit codes and crap scope."""
+    argv = override['argv'] + (forward if override['forwardArgs'] == 'append' else [])
+    if argv[0].lower().endswith(SCRIPT_WRAPPERS):
+        raise ValueError('Windows 质量命令需要原生 .exe 入口，拒绝 .ps1/.bat/.cmd' if WINDOWS
+                         else 'POSIX 质量命令需要原生可执行入口')
+    return argv, override['validResultExitCodes'], override.get('scope') if operation == 'crap' else None
+
+
+def standard_tool_command(root, operation, standard, roots, forward):
+    """A standard tool's argv and crap scope; declared scope cannot be overridden."""
+    if standard and any(x in ('--root', '--source-root', '-s', '--exclude') for x in forward):
+        raise ValueError('业务 scope 已由 standardTools 声明，不能用 refresh 参数覆盖')
+    return standard_command(root, operation, standard, roots, forward)
+
+
+def publish(path, record):
+    try:
+        atomic_write(path, json.dumps(record) + '\n')
+    except OSError as error:
+        print(f'uml: 无法发布质量结果记录：{error}', file=sys.stderr)
+
+
 def dispatch(root, operation, forward):
     result_path = root / '.uml-viewer/quality-result.json'
     result_path.unlink(missing_ok=True)
@@ -204,33 +227,12 @@ def dispatch(root, operation, forward):
     tool, codes = TOOLS[operation]
     override = config.get('operations', {}).get(operation)
     if override:
-        argv = override['argv'] + (forward if override['forwardArgs'] == 'append' else [])
-        if argv[0].lower().endswith(SCRIPT_WRAPPERS):
-            raise ValueError('Windows 质量命令需要原生 .exe 入口，拒绝 .ps1/.bat/.cmd' if WINDOWS
-                             else 'POSIX 质量命令需要原生可执行入口')
-        commands = [argv]
-        codes = override['validResultExitCodes']
-        scope_name = override.get('scope') if operation == 'crap' else None
+        argv, codes, scope_name = override_command(override, operation, forward)
     else:
-        if standard and any(x in ('--root', '--source-root', '-s', '--exclude') for x in forward):
-            raise ValueError('业务 scope 已由 standardTools 声明，不能用 refresh 参数覆盖')
-        argv, scope_name = standard_command(root, operation, standard, roots, forward)
-        commands = [argv]
-    valid = True
-    code = 0
-    for argv in commands:
-        actual = run(argv, check=False, cwd=root).returncode
-        actual = native_exit(actual) if actual >= 0 else 128 - actual
-        valid = valid and actual in codes
-        if actual or not code:
-            code = actual
-        if actual not in codes:
-            break
-    record = {'version': 1, 'operation': operation, 'projectRoot': str(root), 'exitCode': code,
-              'validResult': valid, 'crapScope': scope_name, 'configured': bool(override),
-              'tool': 'configured' if override else tool}
-    try:
-        atomic_write(result_path, json.dumps(record) + '\n')
-    except OSError as error:
-        print(f'uml: 无法发布质量结果记录：{error}', file=sys.stderr)
+        argv, scope_name = standard_tool_command(root, operation, standard, roots, forward)
+    actual = run(argv, check=False, cwd=root).returncode
+    code = native_exit(actual) if actual >= 0 else 128 - actual
+    publish(result_path, {'version': 1, 'operation': operation, 'projectRoot': str(root),
+                          'exitCode': code, 'validResult': code in codes, 'crapScope': scope_name,
+                          'configured': bool(override), 'tool': 'configured' if override else tool})
     return code

@@ -68,36 +68,53 @@ def native_driver(name, timeout):
     return ('executed' if code == 0 else 'failed'), code, output
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--native', action='store_true', help='also run the real-window drivers')
-    parser.add_argument('--native-timeout', type=int, default=300)
-    arguments = parser.parse_args()
+def python_checks(names):
+    return [(f'{name} (python -I scripts/{name})', lambda name=name: python_suite(name))
+            for name in names]
 
+
+def native_checks(timeout):
+    sys.path.insert(0, str(REPO / 'scripts'))
+    from run_viewer_driver import DRIVERS
+    return [(f'native {name}', lambda name=name: native_driver(name, timeout))
+            for name in sorted(DRIVERS)]
+
+
+def selected_checks(native, native_timeout):
+    """Fast source rules, the cargo build and tests, then the entry suites."""
     suites = ['test_posix_entries.py', 'test_posix_restart_entries.py',
               'test_posix_codex_companion.py']
     if os.name == 'nt':
         # `uml.cmd`, junction dev installs and `.exe` naming.
         suites.insert(1, 'test_windows_entries.py')
-    checks = [(f'{name} (python -I scripts/{name})', lambda name=name: python_suite(name))
-              for name in FAST_SUITES]
+    checks = python_checks(FAST_SUITES)
     checks += [('cargo build --release --locked + cargo test --workspace --locked', cargo_suite)]
-    checks += [(f'{name} (python -I scripts/{name})', lambda name=name: python_suite(name))
-               for name in suites]
-    if arguments.native:
-        sys.path.insert(0, str(REPO / 'scripts'))
-        from run_viewer_driver import DRIVERS
-        for name in sorted(DRIVERS):
-            checks.append((f'native {name}',
-                           lambda name=name: native_driver(name, arguments.native_timeout)))
+    checks += python_checks(suites)
+    if native:
+        checks += native_checks(native_timeout)
+    return checks
 
+
+def run_checks(checks):
+    """Each check in order, stopping after the first failure."""
     results = []
     for label, check in checks:
         status, code, output = check()
         results.append((label, status, code, output))
         if status == 'failed':
             break
+    return results
 
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--native', action='store_true', help='also run the real-window drivers')
+    parser.add_argument('--native-timeout', type=int, default=300)
+    arguments = parser.parse_args()
+    return summarize(run_checks(selected_checks(arguments.native, arguments.native_timeout)))
+
+
+def summarize(results):
     counts = {'executed': 0, 'skipped': 0, 'failed': 0}
     for label, status, code, output in results:
         counts[status] = counts.get(status, 0) + 1
