@@ -1,7 +1,7 @@
 use crate::{
     cli::Options,
     interrupts,
-    isolation::{Failure, View},
+    isolation::{self, Failure, View},
     metrics::{self, Decision},
     sites::{self, Form, Site},
     workers::{self, Workers},
@@ -77,9 +77,9 @@ fn execute(
         .run(root, cwd, command, site, timeout)
         .map_err(|failure| match failure {
             Failure::Interrupted => Failure::Interrupted,
-            Failure::Message(error) => Failure::Message(format!(
-                "Cannot enter user+mount namespace overlay: {error}"
-            )),
+            Failure::Message(error) => {
+                Failure::Message(format!("Cannot enter the mutation isolation view: {error}"))
+            }
         })?;
     if !result.output.is_empty() {
         eprint!("{}", result.output);
@@ -112,12 +112,17 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Records
         collect_reports(&root.join("target/coverage"), &mut records);
         return Ok(records);
     }
+    // Stale reports are removed before the command, in the host shell's own
+    // spelling; a fresh copy has an empty coverage directory anyway.
+    let removal = if cfg!(windows) {
+        "del /f /q coverage\\lcov.info coverage\\luacov.stats.out luacov.stats.out 2>nul & "
+    } else {
+        "rm -f coverage/lcov.info coverage/luacov.stats.out luacov.stats.out\n"
+    };
     let jobs = if let Some(command) = options.value("--coverage-command") {
         vec![(
             root.to_path_buf(),
-            format!(
-                "rm -f coverage/lcov.info coverage/luacov.stats.out luacov.stats.out\n{command}"
-            ),
+            format!("{removal}{command}"),
             PathBuf::from("coverage/lcov.info"),
         )]
     } else {
@@ -135,11 +140,19 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Records
         .map(|module| {
             let report = quality_core::runner::coverage_report(root, &module, "rust");
             let relative = report.strip_prefix(root).unwrap().to_path_buf();
-            let command = format!(
-                "mkdir -p {}\ncargo llvm-cov --lcov --output-path {}",
-                quote(report.parent().unwrap()),
-                quote(&report)
-            );
+            let command = if cfg!(windows) {
+                format!(
+                    "mkdir {} 2>nul & cargo llvm-cov --lcov --output-path {}",
+                    report.parent().unwrap().display(),
+                    report.display()
+                )
+            } else {
+                format!(
+                    "mkdir -p {}\ncargo llvm-cov --lcov --output-path {}",
+                    quote(report.parent().unwrap()),
+                    quote(&report)
+                )
+            };
             (module, command, relative)
         })
         .collect()
@@ -164,7 +177,7 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Records
             eprintln!("Coverage command exited {}.", result.code);
             return Err(2);
         }
-        let report = view.directory.join("upper").join(report);
+        let report = isolation::report_path(&view, &report);
         if options.value("--coverage-command").is_some() {
             let fresh =
                 quality_core::coverage::read_fresh_lcov(&report, root).map_err(|error| {
@@ -555,7 +568,7 @@ pub fn mutate(
             &item.forms,
             &item.outcomes,
             &clock(),
-            "namespace-view",
+            isolation::level(),
         ) {
             eprintln!("Cannot publish mutation snapshot: {error}");
             return 2;

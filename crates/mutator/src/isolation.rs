@@ -202,7 +202,18 @@ exec /bin/sh -c "$command"
             output: fs::read_to_string(output_path).unwrap_or_default(),
         })
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    pub fn run(
+        &self,
+        root: &Path,
+        cwd: &Path,
+        command: &str,
+        mutation: Option<(&Path, &str)>,
+        timeout: Option<Duration>,
+    ) -> Result<Completed, Failure> {
+        crate::copies::Slot::reused(&self.directory).run(root, cwd, command, mutation, timeout)
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     pub fn run(
         &self,
         _root: &Path,
@@ -212,9 +223,37 @@ exec /bin/sh -c "$command"
         _timeout: Option<Duration>,
     ) -> Result<Completed, Failure> {
         Err(Failure::Message(
-            "mutation isolation is currently supported only on Linux".into(),
+            "mutation isolation is not supported on this platform".into(),
         ))
     }
+}
+
+/// The isolation level a snapshot records, as the original's `level`.
+pub fn level() -> &'static str {
+    if cfg!(windows) {
+        "copy"
+    } else {
+        "namespace-view"
+    }
+}
+
+/// The original's `Isolation: ...` line, naming the real mechanism.
+pub fn describe() -> &'static str {
+    if cfg!(windows) {
+        crate::copies::describe()
+    } else {
+        "namespace views (a private overlayfs view per command)"
+    }
+}
+
+/// A report a command wrote inside its own view, never in the project.
+pub fn report_path(view: &View, relative: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        return crate::copies::report(&crate::copies::Slot::reused(&view.directory), relative);
+    }
+    #[cfg(not(windows))]
+    view.directory.join("upper").join(relative)
 }
 
 #[cfg(target_os = "linux")]

@@ -13,6 +13,7 @@ use std::os::windows::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Output};
 use std::ptr::{null, null_mut};
+use std::time::Duration;
 use windows_sys::Win32::Foundation::*;
 use windows_sys::Win32::System::Console::*;
 use windows_sys::Win32::System::JobObjects::*;
@@ -406,12 +407,104 @@ fn finish(reader: Option<std::thread::JoinHandle<io::Result<Vec<u8>>>>) -> io::R
     }
 }
 
-pub(super) fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Result<Output> {
-    let Prepared {
-        exe,
-        mut line,
+/// One command supervised until it ends, a timeout expires or a stop arrives.
+///
+/// The same creation path as [`execute`]: suspended `CreateProcessW` with the
+/// kill-on-close job in `PROC_THREAD_ATTRIBUTE_JOB_LIST`. The job is the only
+/// thing that can reach descendants, so a timeout, a stop, a returned error or
+/// an abruptly killed caller all end the whole tree.
+pub(super) struct Running {
+    process: Process,
+    job: OwnedHandle,
+    // The inherited ends stay alive until the command has been reaped.
+    handles: [OwnedHandle; 3],
+    attributes: Attributes,
+    // Captured pipes are read only after the job has ended every writer.
+    out: Option<File>,
+    err: Option<File>,
+}
+pub(super) enum Ended {
+    /// The command's own exit code. A Windows exit code is unsigned; a
+    /// negative value here is the shell's own spelling, never a signal.
+    Exited(i32),
+    /// The supervisor asked the job to stop: `reason` is `timeout` or `stop`.
+    Killed(&'static str),
+}
+pub(super) fn start(
+    program: &Program,
+    cwd: &Path,
+    environment: &[(OsString, OsString)],
+    output: &File,
+) -> io::Result<Running> {
+    let prepared = prepare(program, cwd)?;
+    spawn_prepared(
+        prepared,
+        cwd,
         environment,
-    } = prepare(program, cwd)?;
+        Streams::File(output.try_clone()?),
+    )
+}
+pub(super) fn supervise(
+    running: Running,
+    elapsed: impl Fn() -> Duration,
+    timeout: Option<Duration>,
+    stop: impl Fn() -> bool,
+) -> io::Result<Ended> {
+    let Running {
+        process,
+        job,
+        handles,
+        attributes,
+        out: _,
+        err: _,
+    } = running;
+    let ended = loop {
+        match unsafe { WaitForSingleObject(process.0.as_raw_handle(), 25) } {
+            WAIT_OBJECT_0 => {
+                let mut code = 0;
+                unsafe {
+                    checked(GetExitCodeProcess(process.0.as_raw_handle(), &mut code))?;
+                }
+                break Ended::Exited(code as i32);
+            }
+            WAIT_TIMEOUT => {}
+            _ => return Err(io::Error::last_os_error()),
+        }
+        let reason = if stop() {
+            Some("stop")
+        } else if timeout.is_some_and(|limit| elapsed() >= limit) {
+            Some("timeout")
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            unsafe {
+                checked(TerminateJobObject(job.as_raw_handle(), 124))?;
+            }
+            unsafe {
+                WaitForSingleObject(process.0.as_raw_handle(), INFINITE);
+            }
+            break Ended::Killed(reason);
+        }
+    };
+    // A normally exiting leader can leave daemon descendants; the job owns
+    // them. Closing it before the output readers finish also ends the writers.
+    drop(job);
+    drop(handles);
+    drop(attributes);
+    drop(process);
+    Ok(ended)
+}
+
+/// The suspended creation both entries share. `streams` decides between
+/// captured pipes, inherited terminal handles and one redirected output file.
+fn spawn(
+    exe: OsString,
+    mut line: Vec<u16>,
+    cwd: &Path,
+    environment: Option<Vec<u16>>,
+    streams: Streams,
+) -> io::Result<Running> {
     if line.contains(&0) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -422,23 +515,28 @@ pub(super) fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Resul
     let exe = wide(&exe)?;
     let cwd = wide(cwd.as_os_str())?;
     let job = job()?;
-    let stdin = if capture {
-        let file = File::open("NUL")?;
-        duplicate(file.as_raw_handle())?
-    } else {
-        inherited(STD_INPUT_HANDLE)?
+    let stdin = match streams {
+        Streams::Capture | Streams::File(_) => {
+            let file = File::open("NUL")?;
+            duplicate(file.as_raw_handle())?
+        }
+        Streams::Inherit => inherited(STD_INPUT_HANDLE)?,
     };
-    let (out_reader, stdout) = if capture {
-        let (read, write) = pipe()?;
-        (Some(read), write)
-    } else {
-        (None, inherited(STD_OUTPUT_HANDLE)?)
+    let (out_reader, stdout) = match streams {
+        Streams::Capture => {
+            let (read, write) = pipe()?;
+            (Some(read), write)
+        }
+        Streams::File(ref file) => (None, duplicate(file.as_raw_handle())?),
+        Streams::Inherit => (None, inherited(STD_OUTPUT_HANDLE)?),
     };
-    let (err_reader, stderr) = if capture {
-        let (read, write) = pipe()?;
-        (Some(read), write)
-    } else {
-        (None, inherited(STD_ERROR_HANDLE)?)
+    let (err_reader, stderr) = match streams {
+        Streams::Capture => {
+            let (read, write) = pipe()?;
+            (Some(read), write)
+        }
+        Streams::File(ref file) => (None, duplicate(file.as_raw_handle())?),
+        Streams::Inherit => (None, inherited(STD_ERROR_HANDLE)?),
     };
     let handles = [
         stdin.as_raw_handle(),
@@ -489,10 +587,60 @@ pub(super) fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Resul
         }
     }
     drop(thread);
-    drop(attributes);
-    drop((stdin, stdout, stderr));
-    let stdout = reader(out_reader);
-    let stderr = reader(err_reader);
+    Ok(Running {
+        process,
+        job,
+        handles: [stdin, stdout, stderr],
+        attributes,
+        out: out_reader,
+        err: err_reader,
+    })
+}
+
+fn spawn_prepared(
+    prepared: Prepared,
+    cwd: &Path,
+    added: &[(OsString, OsString)],
+    streams: Streams,
+) -> io::Result<Running> {
+    let Prepared {
+        exe,
+        line,
+        environment,
+    } = prepared;
+    // Batch's literal-argument variables and the caller's own overrides.
+    let mut environment = environment;
+    if !added.is_empty() {
+        environment = Some(self::environment(added.to_vec()));
+    }
+    spawn(exe, line, cwd, environment, streams)
+}
+enum Streams {
+    Capture,
+    Inherit,
+    File(File),
+}
+
+pub(super) fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Result<Output> {
+    let prepared = prepare(program, cwd)?;
+    let running = spawn_prepared(
+        prepared,
+        cwd,
+        &[],
+        if capture {
+            Streams::Capture
+        } else {
+            Streams::Inherit
+        },
+    )?;
+    let Running {
+        process,
+        job,
+        handles,
+        attributes,
+        out,
+        err,
+    } = running;
     let waited = unsafe { WaitForSingleObject(process.0.as_raw_handle(), INFINITE) };
     // Closing the only job handle ends descendants even if the leader exited
     // normally. Do this before reading EOF: descendants can inherit the pipes.
@@ -504,8 +652,10 @@ pub(super) fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Resul
     unsafe {
         checked(GetExitCodeProcess(process.0.as_raw_handle(), &mut code))?;
     }
-    let out = finish(stdout);
-    let err = finish(stderr);
+    drop(handles);
+    drop(attributes);
+    let out = finish(reader(out));
+    let err = finish(reader(err));
     Ok(Output {
         status: ExitStatus::from_raw(code),
         stdout: out?,

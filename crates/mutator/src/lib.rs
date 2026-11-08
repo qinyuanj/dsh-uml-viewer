@@ -1,6 +1,8 @@
 //! Differential mutation testing with isolated Linux test runs.
 use std::{ffi::OsString, path::Path, process::ExitCode};
 mod cli;
+#[cfg(windows)]
+mod copies;
 mod engine;
 mod interrupts;
 mod isolation;
@@ -32,11 +34,37 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode
             return ExitCode::from(1);
         }
     };
-    if !cfg!(target_os = "linux") {
+    if cfg!(target_os = "macos") {
         eprintln!(
-            "Mutation isolation is currently supported only on Linux; Windows and macOS are not supported by this build."
+            "Mutation testing is not supported on macOS: mutator's isolation is a private \
+             overlay view on Linux and a per-worker project copy on native Windows; neither \
+             exists on macOS, and mutator never runs a weaker isolation. CRAP and dry work \
+             on this machine."
         );
         return ExitCode::from(1);
+    }
+    if !cfg!(any(target_os = "linux", windows)) {
+        eprintln!("Mutation testing is not supported on this platform.");
+        return ExitCode::from(1);
+    }
+    if cfg!(windows) {
+        let build = platform::host().build;
+        if build < platform::MINIMUM_WINDOWS_BUILD {
+            eprintln!(
+                "mutator needs Windows 10 22H2 (build {}) or later; this is build {build}. \
+                 Update Windows, or run mutator inside WSL2.",
+                platform::MINIMUM_WINDOWS_BUILD
+            );
+            return ExitCode::from(1);
+        }
+    }
+    if cfg!(target_os = "linux") {
+        let shown = quality_core::paths::posix(&options.scope.project_root());
+        if shown.starts_with("/mnt/") {
+            eprintln!(
+                "{shown} is on a Windows drive. Under WSL2, clone the project under ~/ for speed and working symlinks."
+            );
+        }
     }
     let root = options.scope.project_root();
     // A run that arrives after a killed one reclaims that run's scratch first.
@@ -47,6 +75,7 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode
     // From here until the end of the call a stop signal stops the work instead
     // of killing the process mid-cleanup.
     let _armed = interrupts::Armed::new();
+    println!("Isolation: {}", isolation::describe());
     let code = run_mutation(&root, &options, clock);
     if let Some(signum) = interrupts::pending() {
         scratch::discard_all();
