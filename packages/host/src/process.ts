@@ -5,9 +5,11 @@ import type { HostServices, Policy, ConfinedArgv } from './dsh.js'
 export type CommandError = { status: 'refused' | 'error'; reason: string }
 export type CommandOutcome = CommandError | {
   exitCode: number | null
+  signal: string | null
   stdout: string
   stderr: string
   truncated: boolean
+  outputError: string | null
 }
 
 export async function confinedCommand(services: HostServices, argv: string[], policy: Policy, signal: AbortSignal): Promise<{ argv?: string[]; confined?: ConfinedArgv; error?: CommandError }> {
@@ -48,8 +50,12 @@ export async function spawnCommand(services: HostServices, argv: string[], cwd: 
     stdio: { stdin: 'ignore', stdout: { maxBytes: 256 * 1024 }, stderr: { maxBytes: 64 * 1024 } },
     graceMs: 2000, signal })
   const outcome = await child.done
-  const stdout = child.collected.stdout?.readFrom(0)
-  const stderr = child.collected.stderr?.readFrom(0)
-  if (!stdout || !stderr) return { status: 'error', reason: 'DSH subprocess output readers are unavailable' }
-  return { exitCode: outcome.exitCode, stdout: stdout.text, stderr: stderr.text, truncated: stdout.lossy || stderr.lossy }
+  const read = (key: 'stdout' | 'stderr') => {
+    try { return child.collected[key]?.readFrom(0) } catch { return undefined }
+  }
+  const stdout = read('stdout')
+  const stderr = read('stderr')
+  return { exitCode: outcome.exitCode, signal: outcome.signal,
+    stdout: stdout?.text ?? '', stderr: stderr?.text ?? '', truncated: Boolean(stdout?.lossy || stderr?.lossy),
+    outputError: stdout && stderr ? null : 'DSH subprocess output readers are unavailable or failed' }
 }

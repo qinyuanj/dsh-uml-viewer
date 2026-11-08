@@ -5,7 +5,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
-import * as plugin from '../src/index.js'
+const builtHost = new URL('../../../lib/host.js', import.meta.url).href
+const plugin = await import(builtHost) as typeof import('../src/index.js')
 import type { HostServices, ToolDefinition, ToolRunContext, SpawnSpec } from '../src/dsh.js'
 
 const roots: string[] = []
@@ -77,6 +78,30 @@ async function setup(mode: 'read-only' | 'workspace-write' | 'danger-full-access
   }
   return { root, services, call, definitions, fiber, legacy, legacyBefore }
 }
+
+it.each([0, 1, null])('rejects a subprocess SIGTERM outcome with exit code %s when the tool was not aborted', async exitCode => {
+  const { call, services } = await setup()
+  services.subprocess.spawn = spec => {
+    const child = localSubprocess(spec)
+    return { ...child, done: child.done.then(() => ({ exitCode, signal: 'SIGTERM' })) }
+  }
+  expect(await call()).toMatchObject({ exitCode, validResult: false, status: 'error',
+    reason: expect.stringMatching(/SIGTERM/) })
+})
+
+it.each(['missing stdout', 'missing stderr', 'stdout throws', 'stderr throws'] as const)('preserves a settled nonzero outcome when diagnostics fail: %s', async failure => {
+  const { root, call, services } = await setup()
+  await writeFile(path.join(root, 'fake-binary.json'), JSON.stringify({ exitCode: 1 }))
+  services.subprocess.spawn = spec => {
+    const child = localSubprocess(spec)
+    const brokenReader = () => ({ readFrom: () => { throw new Error('reader failed') } })
+    const stdout = failure === 'missing stdout' ? undefined : failure === 'stdout throws' ? brokenReader() : child.collected.stdout
+    const stderr = failure === 'missing stderr' ? undefined : failure === 'stderr throws' ? brokenReader() : child.collected.stderr
+    return { ...child, collected: { ...(stdout ? { stdout } : {}), ...(stderr ? { stderr } : {}) } }
+  }
+  expect(await call()).toMatchObject({ exitCode: 1, validResult: false, status: 'error',
+    reason: expect.stringMatching(/reader/) })
+})
 
 it.each([1, 3])('returns the actual nonzero binary exit %s and diagnostics', async exitCode => {
   const { root, call } = await setup()
@@ -152,10 +177,11 @@ async function legacySnapshot(dir: string): Promise<unknown[]> {
   return rows
 }
 
-it.each(['success', 'failure', 'read-only'] as const)('leaves legacy .uml-viewer bytes and nanosecond mtimes unchanged on %s', async scenario => {
-  const { root, call, fiber, definitions, legacy, legacyBefore } = await setup(scenario === 'read-only' ? 'read-only' : 'danger-full-access')
+it.each(['success', 'failure', 'read-only', 'workspace-write'] as const)('leaves legacy .uml-viewer bytes and nanosecond mtimes unchanged on %s', async scenario => {
+  const mode = scenario === 'read-only' || scenario === 'workspace-write' ? scenario : 'danger-full-access'
+  const { root, call, fiber, definitions, legacy, legacyBefore } = await setup(mode)
   if (scenario === 'failure') await writeFile(path.join(root, 'fake-binary.json'), JSON.stringify({ exitCode: 1 }))
-  expect(await call()).toMatchObject({ validResult: scenario === 'success' })
+  expect(await call()).toMatchObject({ validResult: scenario === 'success' || scenario === 'workspace-write' })
   await fiber.dispose()
   expect(definitions.has('uml_ir')).toBe(false)
   expect(await legacySnapshot(legacy)).toEqual(legacyBefore)

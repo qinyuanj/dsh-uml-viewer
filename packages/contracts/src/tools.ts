@@ -56,10 +56,10 @@ export const IR_RESULT_SCHEMA = {
   type: 'object', additionalProperties: false,
   required: ['version', 'operation', 'projectRoot', 'exitCode', 'validResult', 'crapScope', 'configured', 'tool', 'status', 'reason', 'stdout', 'stderr', 'truncated'],
   properties: {
-    version: { const: 1 }, operation: { const: 'ir' }, projectRoot: { type: 'string' },
+    version: { type: 'integer', const: 1 }, operation: { type: 'string', const: 'ir' }, projectRoot: { type: 'string' },
     exitCode: { oneOf: [{ type: 'integer' }, { type: 'null' }] }, validResult: { type: 'boolean' },
-    crapScope: { const: null }, configured: { type: 'boolean' }, tool: { type: 'string' },
-    status: { enum: ['ok', 'error', 'refused'] }, reason: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+    crapScope: { type: 'null', const: null }, configured: { type: 'boolean' }, tool: { type: 'string' },
+    status: { type: 'string', enum: ['ok', 'error', 'refused'] }, reason: { oneOf: [{ type: 'string' }, { type: 'null' }] },
     stdout: { type: 'string' }, stderr: { type: 'string' }, truncated: { type: 'boolean' },
   },
 }

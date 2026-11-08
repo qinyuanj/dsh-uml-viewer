@@ -34,11 +34,14 @@ export async function runIr(services: HostServices, config: Config, exec: ToolRu
     exec.signal.throwIfAborted()
     const output = await spawnCommand(services, command.argv!, root, exec.signal)
     if ('reason' in output) return irResult(root, output)
+    const { signal: terminationSignal, outputError, ...result } = output
     const denied = command.confined && confinementError(command.confined, output.exitCode, output.stderr)
-    if (denied) return irResult(root, { ...output, ...denied })
-    const validResult = output.exitCode === 0 && !exec.signal.aborted
-    return irResult(root, { ...output, validResult, status: validResult ? 'ok' : 'error',
-      reason: validResult ? null : `IR generation failed (exit ${output.exitCode}${exec.signal.aborted ? ', interrupted' : ''})` })
+    if (denied) return irResult(root, { ...result, ...denied })
+    const validResult = output.exitCode === 0 && !terminationSignal && !outputError && !exec.signal.aborted
+    const failure = terminationSignal ? `IR generation terminated by ${terminationSignal}${outputError ? `; ${outputError}` : ''}`
+      : outputError ?? `IR generation failed (exit ${output.exitCode}${exec.signal.aborted ? ', interrupted' : ''})`
+    return irResult(root, { ...result, validResult, status: validResult ? 'ok' : 'error',
+      reason: validResult ? null : failure })
   } catch (error) {
     return irResult(root, { status: 'error', reason: error instanceof Error ? error.message : String(error) })
   }

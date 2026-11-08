@@ -69,7 +69,8 @@ The result contains ADR 0001's `version: 1`, `operation`, `projectRoot`,
 `operation` is `ir`, `crapScope` is null, `configured` is false and `tool` is
 `uml-viewer`. `status` is `ok`, `error` or `refused`; `reason` explains failure.
 A refusal or launch failure has `exitCode: null`. Only actual exit 0 without
-interruption is a valid IR result. No result files are read or written.
+a subprocess termination signal or tool cancellation is a valid IR result; a
+signal always fails closed and its name appears in `reason`. No result files are read or written.
 stdout is bounded to 256 KiB, stderr to 64 KiB, with `truncated` reporting loss.
 Confinement runner failures and access denials have separate reasons.
 
@@ -127,3 +128,16 @@ For optional manual loading, use the isolated-instance recipe in the shared
 `--no-open`. Install only into that scratch instance. Never use the live GUI,
 the user's profile, or scripts that kill all DSH processes. A browser or live
 DSH smoke test is not part of the automated Cordis seam.
+
+The verified native-Windows development loading route uses the Desktop CLI and a
+checkout-local scratch home (replace `$DSH_CLI` with the installed `dsh.cmd`):
+
+```sh
+pnpm build
+export DSH_HOME="$PWD/.scratch/dsh-home"
+"$DSH_CLI" plugin --profile web add "$PWD"
+"$DSH_CLI" --profile web --port 0 --no-open
+```
+
+This links the development package only into the scratch `web` profile. Use the
+printed token URL for that instance, and stop only its own process tree afterward.

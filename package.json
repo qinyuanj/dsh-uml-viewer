@@ -30,7 +30,7 @@
   "scripts": {
     "build": "node scripts/build-plugin.mjs",
     "typecheck": "pnpm -r run typecheck",
-    "test": "pnpm -r run test",
+    "test": "pnpm build && pnpm -r run test",
     "validate:manifest": "node scripts/validate-manifest.mjs"
   },
   "dsh": {

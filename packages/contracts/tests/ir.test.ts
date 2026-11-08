@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseIrRequest } from '../src/index.js'
+import { IR_RESULT_SCHEMA, parseIrRequest } from '../src/index.js'
 
 describe('IR request', () => {
   it('accepts policy and output paths literally and rejects unknown authority options', () => {
@@ -11,5 +11,11 @@ describe('IR request', () => {
     expect(() => parseIrRequest(null)).toThrow(/object/i)
     expect(() => parseIrRequest({ output: String.fromCharCode(0) })).toThrow(/NUL/i)
     expect(parseIrRequest({ policy: String.raw`examples\a\policy.edn` })).toEqual({ policy: String.raw`examples\a\policy.edn` })
+  })
+
+  it('uses explicit DSH types for constant and enum result fields', () => {
+    for (const [field, schema] of Object.entries(IR_RESULT_SCHEMA.properties)) {
+      if ('const' in schema || 'enum' in schema) expect(schema, field).toHaveProperty('type')
+    }
   })
 })
