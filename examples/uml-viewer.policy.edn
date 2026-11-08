@@ -19,7 +19,8 @@
   {:lang :rust, :root "crates/viewer/src", :prefix "uml.viewer"}
   {:lang :rust, :root "crates/uml-viewer/src", :prefix "uml.main"}
   {:lang :typescript, :root "packages/contracts/src", :prefix "uml.contracts"}
-  {:lang :typescript, :root "packages/host/src", :prefix "uml.host"}],
+  {:lang :typescript, :root "packages/host/src", :prefix "uml.host"}
+  {:lang :typescript, :root "packages/client/src", :prefix "uml.client"}],
  :proposals [{:id :p-1791033119418, :name "test", :layers []}],
  :levels
  [[edn platform quality_core dryer contracts]
@@ -27,7 +28,7 @@
   [frame]
   [viewer_session]
   [viewer]
-  [main host]],
+  [main host client]],
  :out "examples/uml-viewer.edn",
- :order [main host viewer viewer_session frame dryer crapper mutator companion scene ir quality_core edn platform contracts],
+ :order [main host client viewer viewer_session frame dryer crapper mutator companion scene ir quality_core edn platform contracts],
  :foreign [libc egui eframe image winit log tree_sitter tree_sitter_rust]}

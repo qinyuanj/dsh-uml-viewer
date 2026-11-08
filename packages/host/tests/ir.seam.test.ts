@@ -37,6 +37,8 @@ function localSubprocess(spec: SpawnSpec) {
       child.on('error', reject)
       child.on('close', (exitCode, signal) => resolve({ exitCode, signal }))
     }),
+    terminate: () => { child.kill() },
+    waitForExit: async () => true,
   }
 }
 
