@@ -15,9 +15,11 @@ fn suffix_match(path: &str, suffix: &str) -> bool {
     let b = segments(suffix);
     !b.is_empty() && a.len() >= b.len() && a[a.len() - b.len()..] == b
 }
+/// Profile source → (start line, end line, statements, executions).
+type GoProfile = Vec<(String, Vec<(usize, usize, u64, u64)>)>;
 #[derive(Default)]
 pub(super) struct Reports {
-    go: Vec<(String, Vec<(usize, usize, u64, u64)>)>,
+    go: GoProfile,
     java: Vec<(String, String, usize, u64, u64)>,
     pub forms: Records,
 }
