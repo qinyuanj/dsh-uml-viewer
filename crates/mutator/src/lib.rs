@@ -4,7 +4,7 @@ mod cli;
 mod engine;
 mod isolation;
 mod metrics;
-mod sites;
+pub mod sites;
 
 pub fn run(args: &[OsString]) -> ExitCode {
     run_with_clock(args, || {

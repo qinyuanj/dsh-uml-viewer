@@ -71,7 +71,7 @@ pub fn modules(root: &Path, files: &[PathBuf]) -> BTreeMap<PathBuf, Vec<PathBuf>
     found
 }
 
-fn interpreter() -> Option<PathBuf> {
+pub fn interpreter() -> Option<PathBuf> {
     ["lua5.4", "lua"].iter().find_map(|name| {
         let path = which(name)?;
         let argv = strings(&[path.to_str()?, "-e", "io.write(_VERSION)"]);
@@ -80,7 +80,7 @@ fn interpreter() -> Option<PathBuf> {
     })
 }
 
-fn require_cluacov(lua: &Path) -> Result<(), CoverageError> {
+pub fn require_cluacov(lua: &Path) -> Result<(), CoverageError> {
     let code = "pcall(require, 'luarocks.loader'); local ok, v = pcall(require, 'cluacov.version'); if ok and type(v) == 'string' then io.write(v) end";
     let argv = strings(&[lua.to_str().unwrap_or("lua"), "-e", code]);
     let found = capture(
@@ -128,7 +128,7 @@ fn include_pattern(path: &str) -> [String; 2] {
     [format!("^{escaped}$"), format!("^%./{escaped}$")]
 }
 
-fn config(stats: &Path, report: &Path, files: &[PathBuf], module: &Path) -> String {
+pub fn lua_coverage_config(stats: &Path, report: &Path, files: &[PathBuf], module: &Path) -> String {
     let selected: BTreeSet<String> = files
         .iter()
         .filter_map(|file| relative_posix(&resolve(file), module))
@@ -156,7 +156,7 @@ fn config(stats: &Path, report: &Path, files: &[PathBuf], module: &Path) -> Stri
 }
 
 const LOADER: &str = "pcall(require, 'luarocks.loader'); ";
-fn commands(lua: &Path, config: &Path) -> (Vec<String>, Vec<String>) {
+pub fn lua_coverage_commands(lua: &Path, config: &Path) -> (Vec<String>, Vec<String>) {
     let binary = lua.to_string_lossy();
     let run = format!("{LOADER}require('busted.runner')({{standalone = false}}); os.exit(0)");
     let convert = format!(
@@ -186,7 +186,7 @@ fn commands(lua: &Path, config: &Path) -> (Vec<String>, Vec<String>) {
 
 const SPECS: &str = "pcall(require, 'luarocks.loader'); local options = require('pl.tablex').update(require('busted.options'), {standalone = false}); local args = assert(require('busted.modules.cli')(options):parse({'--ignore-lua'})); local path = require('pl.path'); assert(path.chdir(path.normpath(args.directory))); local _, _, list = require('busted.modules.test_file_loader')(require('busted.core')(), args.loaders); for _, file in ipairs(list(args.ROOT, args.pattern, {excludes = args['exclude-pattern'], recursive = args.recursive})) do io.write(file, string.char(10)) end";
 
-fn spec_files(lua: &Path, module: &Path) -> Vec<String> {
+pub fn module_specs(lua: &Path, module: &Path) -> Vec<String> {
     let argv = strings(&[lua.to_str().unwrap_or("lua"), "-e", SPECS]);
     match capture(&Program::Argv(&argv), module) {
         Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
@@ -207,7 +207,7 @@ fn spec_files(lua: &Path, module: &Path) -> Vec<String> {
     }
 }
 
-fn shards(specs: &[String], count: usize, module: &Path) -> Vec<Vec<String>> {
+pub fn shard_specs(specs: &[String], count: usize, module: &Path) -> Vec<Vec<String>> {
     let mut result = vec![Vec::new(); count];
     let mut loads = vec![0_u64; count];
     let order: BTreeMap<&str, usize> = specs
@@ -236,7 +236,7 @@ fn shards(specs: &[String], count: usize, module: &Path) -> Vec<Vec<String>> {
     result
 }
 
-fn merge_stats(parts: &[PathBuf], target: &Path) -> Result<(), CoverageError> {
+pub fn merge_stats(parts: &[PathBuf], target: &Path) -> Result<(), CoverageError> {
     let mut merged = BTreeMap::<Vec<u8>, Vec<u64>>::new();
     for part in parts {
         let bytes = fs::read(part).map_err(|e| error(format!("Cannot sum LuaCov stats: {e}")))?;
@@ -326,17 +326,17 @@ fn prepare(
         let cfg = report.parent().unwrap().join("luacov.cfg.lua");
         fs::create_dir_all(report.parent().unwrap())
             .map_err(|e| error(format!("Cannot prepare LuaCov config: {e}")))?;
-        fs::write(&cfg, config(&stats, &report, &modules[&module], &module))
+        fs::write(&cfg, lua_coverage_config(&stats, &report, &modules[&module], &module))
             .map_err(|e| error(format!("Cannot prepare LuaCov config: {e}")))?;
-        let (run, lcov) = commands(&lua, &cfg);
+        let (run, lcov) = lua_coverage_commands(&lua, &cfg);
         let specs = if shards_count > 1 {
-            spec_files(&lua, &module)
+            module_specs(&lua, &module)
         } else {
             Vec::new()
         };
         let count = (shards_count as usize).min(specs.len());
         let code = if count > 1 {
-            let groups = shards(&specs, count, &module);
+            let groups = shard_specs(&specs, count, &module);
             let mut parts = Vec::new();
             let mut exit = 0;
             let mut failed_shard = 0;
@@ -352,10 +352,10 @@ fn prepare(
                     .join(format!("luacov.shard-{}.cfg.lua", index + 1));
                 fs::write(
                     &config_path,
-                    config(&part, &report, &modules[&module], &module),
+                    lua_coverage_config(&part, &report, &modules[&module], &module),
                 )
                 .map_err(|e| error(format!("Cannot prepare LuaCov config: {e}")))?;
-                let mut command = commands(&lua, &config_path).0;
+                let mut command = lua_coverage_commands(&lua, &config_path).0;
                 command.extend(group.clone());
                 eprintln!(
                     "+ ({}) Busted in {} coverage shards: {} -e '<busted runner>' -- busted …",
