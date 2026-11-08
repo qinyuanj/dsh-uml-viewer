@@ -61,8 +61,17 @@ jobs:
           java-version: '17'
       - name: Clojure CLI
         run: |
-          curl -fsSLO https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh
+          # Pinned release: the `latest` tag moves under us, and its installer
+          # verifies the clojure-tools tarball checksum. The release asset is
+          # immutable, so this script hash is stable.
+          curl -fsSL -o linux-install.sh \
+            https://github.com/clojure/brew-install/releases/download/1.12.6.1673/linux-install.sh
+          echo "5ae63b082ed33bf4c29bf1a8317c5c15249d1bc753676b2f5177fb3804ad6f77  linux-install.sh" \
+            | sha256sum -c -
           sudo bash linux-install.sh
+          # `clj` is a shell wrapper around `rlwrap`; without it every
+          # invocation exits 1 before the JVM starts.
+          sudo apt-get install -y --no-install-recommends rlwrap
 
       - name: Java fixture JaCoCo report
         run: mvn -q -f fixtures/crap/java/pom.xml test
