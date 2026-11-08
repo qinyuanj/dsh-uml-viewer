@@ -3,6 +3,7 @@ use std::{ffi::OsString, process::ExitCode};
 mod cli;
 mod engine;
 mod isolation;
+pub mod lua;
 mod metrics;
 pub mod sites;
 
@@ -48,10 +49,12 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode
             .select(&options.positionals, &mut std::io::stderr())
     };
     files.retain(|path| {
-        if quality_core::language::language_of(path) != Some(quality_core::language::Language::Rust)
-        {
+        if !matches!(
+            quality_core::language::language_of(path),
+            Some(quality_core::language::Language::Rust | quality_core::language::Language::Lua)
+        ) {
             eprintln!(
-                "Skipping {}; Linux mutation currently supports Rust only.",
+                "Skipping {}; this Linux mutation build mutates Rust and Lua sources.",
                 path.display()
             );
             return false;

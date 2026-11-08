@@ -13,10 +13,11 @@ fn relative(path: &str, project_root: &str) -> String {
     let root = project_root.replace('\\', "/");
     let root = root.trim_end_matches('/');
     let mut relative = path.replace('\\', "/");
-    if !root.is_empty() && root != "." {
-        if let Some(rest) = relative.strip_prefix(&format!("{root}/")) {
-            relative = rest.to_string();
-        }
+    if !root.is_empty()
+        && root != "."
+        && let Some(rest) = relative.strip_prefix(&format!("{root}/"))
+    {
+        relative = rest.to_string();
     }
     while let Some(rest) = relative.strip_prefix("./") {
         relative = rest.to_string();

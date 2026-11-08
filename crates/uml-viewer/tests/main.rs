@@ -52,6 +52,27 @@ where
     output
 }
 
+/// The same run with extra environment variables, such as the Lua shard pin
+/// that makes the coverage shard count observable in a test.
+pub fn binary_env<I, S>(args: I, environment: &[(&str, &str)]) -> Output
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let scratch = std::env::temp_dir().join(format!("uml-viewer-bin-env-{}", std::process::id()));
+    fs::create_dir_all(&scratch).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
+        .args(args)
+        .current_dir(&scratch)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .envs(environment.iter().copied())
+        .output()
+        .unwrap();
+    let _ = fs::remove_dir_all(&scratch);
+    output
+}
+
 /// With `autotests = false` Cargo no longer finds test files on its own;
 /// a file not declared as a module of its crate's `main.rs` would never run.
 #[test]

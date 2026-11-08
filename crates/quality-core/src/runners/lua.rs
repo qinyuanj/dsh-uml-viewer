@@ -128,7 +128,12 @@ fn include_pattern(path: &str) -> [String; 2] {
     [format!("^{escaped}$"), format!("^%./{escaped}$")]
 }
 
-pub fn lua_coverage_config(stats: &Path, report: &Path, files: &[PathBuf], module: &Path) -> String {
+pub fn lua_coverage_config(
+    stats: &Path,
+    report: &Path,
+    files: &[PathBuf],
+    module: &Path,
+) -> String {
     let selected: BTreeSet<String> = files
         .iter()
         .filter_map(|file| relative_posix(&resolve(file), module))
@@ -187,7 +192,22 @@ pub fn lua_coverage_commands(lua: &Path, config: &Path) -> (Vec<String>, Vec<Str
 const SPECS: &str = "pcall(require, 'luarocks.loader'); local options = require('pl.tablex').update(require('busted.options'), {standalone = false}); local args = assert(require('busted.modules.cli')(options):parse({'--ignore-lua'})); local path = require('pl.path'); assert(path.chdir(path.normpath(args.directory))); local _, _, list = require('busted.modules.test_file_loader')(require('busted.core')(), args.loaders); for _, file in ipairs(list(args.ROOT, args.pattern, {excludes = args['exclude-pattern'], recursive = args.recursive})) do io.write(file, string.char(10)) end";
 
 pub fn module_specs(lua: &Path, module: &Path) -> Vec<String> {
-    let argv = strings(&[lua.to_str().unwrap_or("lua"), "-e", SPECS]);
+    module_specs_for_task(lua, module, None)
+}
+
+/// The same listing for a named `.busted` task. Without one the listing script
+/// is unchanged; with one the task is a long-bracket literal, never quoted by
+/// hand, so a task name cannot become Lua source.
+pub fn module_specs_for_task(lua: &Path, module: &Path, task: Option<&str>) -> Vec<String> {
+    let script = match task {
+        Some(task) => SPECS.replacen(
+            "{'--ignore-lua'}",
+            &format!("{{'--ignore-lua', '--run', {}}}", lua_string(task)),
+            1,
+        ),
+        None => SPECS.to_string(),
+    };
+    let argv = strings(&[lua.to_str().unwrap_or("lua"), "-e", &script]);
     match capture(&Program::Argv(&argv), module) {
         Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
             .lines()
@@ -326,8 +346,11 @@ fn prepare(
         let cfg = report.parent().unwrap().join("luacov.cfg.lua");
         fs::create_dir_all(report.parent().unwrap())
             .map_err(|e| error(format!("Cannot prepare LuaCov config: {e}")))?;
-        fs::write(&cfg, lua_coverage_config(&stats, &report, &modules[&module], &module))
-            .map_err(|e| error(format!("Cannot prepare LuaCov config: {e}")))?;
+        fs::write(
+            &cfg,
+            lua_coverage_config(&stats, &report, &modules[&module], &module),
+        )
+        .map_err(|e| error(format!("Cannot prepare LuaCov config: {e}")))?;
         let (run, lcov) = lua_coverage_commands(&lua, &cfg);
         let specs = if shards_count > 1 {
             module_specs(&lua, &module)

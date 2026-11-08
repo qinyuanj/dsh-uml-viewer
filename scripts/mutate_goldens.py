@@ -129,6 +129,24 @@ def lua_oracle(refs: Path, output: Path) -> None:
                 [list(key), value] for key, value in form_digests(source, path, root).items())
         for name, data in before.items():
             assert (root / name).read_bytes() == data, f"the oracle mutated {name}"
+        # A named .busted task is a test filter: only its specs run, so the
+        # functions no spec covers stay uncovered. The nested module has no
+        # such task, so this case targets the root module only.
+        task_root = scratch / "task"
+        shutil.copytree(fixture, task_root)
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = run(["--root", str(task_root), "--max-workers", "1", "--timeout-factor", "20",
+                        "--mutate-all", "--busted-task", "first", "src/calc.lua"])
+        print(stdout.getvalue(), end="")
+        print(stderr.getvalue(), end="", file=sys.stderr)
+        assert code == 0, code
+        task_snapshot = (task_root / ".metrics/mutate/calc.edn").read_bytes()
+        assert b":killed 2" in task_snapshot and b":uncovered 1" in task_snapshot
+        assert not (task_root / ".metrics/mutate/odd name.edn").exists()
+        assert (task_root / "src/calc.lua").read_bytes() == before["src/calc.lua"]
+        (output / "lua/goldens/task").mkdir(parents=True, exist_ok=True)
+        (output / "lua/goldens/task/calc.edn").write_bytes(task_snapshot)
         for name, data in before.items():
             destination = output / "lua" / "project" / name
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -149,6 +167,13 @@ def lua_oracle(refs: Path, output: Path) -> None:
             "first_run": {"prepend": ["--mutate-all"], "exit": codes[0]},
             "unchanged_rerun": {"exit": codes[1], "identical_snapshot_bytes": True},
             "source_bytes_unchanged": True,
+            "named_task": {
+                "arguments": ["--busted-task", "first", "src/calc.lua"],
+                "exit": code,
+                "snapshot": "task/calc.edn",
+                "bytes": len(task_snapshot),
+                "sha256": hashlib.sha256(task_snapshot).hexdigest(),
+            },
             "snapshots": {name: {"bytes": len(data),
                                  "sha256": hashlib.sha256(data).hexdigest()}
                           for name, data in sorted(snapshots.items())},

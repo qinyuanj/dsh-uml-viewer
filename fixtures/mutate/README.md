@@ -61,6 +61,35 @@ the same pinned module.
 The portable sibling layout was additionally copied to a fresh native `/tmp`
 directory and passed `cargo test --offline --workspace`.
 
+## Lua project
+
+`lua/project` is a two-module Lua project: a root module (`.busted`, `lpath`
+`src/?.lua;src/?/init.lua`) and a nested one (`nested/.busted`, `lib/?.lua`).
+Two root spec files cover it, one of them with a space in its name
+(`spec/double unit_spec.lua`), and `src/odd name.lua` is an untested source with
+a space in its own name. `src/calc.lua` also holds a private `local function`.
+
+The pinned original selects 16 sites over `src/calc.lua`, `src/odd name.lua`
+and `nested/lib/mathx.lua`: 3 killed, one survivor (`//` to `/` is the same
+function on even input) and 12 uncovered sites, so both the covered run and the
+differential rerun exit 3; the rerun reuses the killed sites and republishes
+identical bytes. `--select-specs` publishes the same bytes again.
+
+`lua/goldens/` holds the three snapshots byte for byte, `lua/sites.json` the
+original's `sites_in_file` output (offsets, originals, mutants, categories,
+owners, mutation identities) and form digests, and `lua/evidence.json` the
+recorded console run. Regenerate inside WSL with Lua 5.4, Busted, LuaCov,
+cluacov 1.0.0 and dkjson installed:
+
+```bash
+python3 scripts/mutate_goldens.py --references /mnt/d/dev/github/spec203-notes/ref --lua
+```
+
+The fixture is copied to native `/tmp` first and its bytes are checked
+afterwards; the Rust tests run the same arguments with the same fixed clock and
+compare the published bytes. The Lua case keeps the caller's HOME, because
+LuaRocks resolves Busted and cluacov from `~/.luarocks`.
+
 ## Provenance and regeneration
 
 Original references (read only):
