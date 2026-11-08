@@ -88,11 +88,16 @@ fn check_snapshot(project: &Project, language: &str, output: &Output) {
         )
     });
     assert_eq!(fs::read(actual).unwrap(), expected);
+    let group = if language == "typescript-measured" {
+        "typescript"
+    } else {
+        language
+    };
     assert!(
         project
             .root
             .join("target/coverage")
-            .join(language)
+            .join(group)
             .join("lcov.info")
             .is_file()
     );
@@ -100,7 +105,9 @@ fn check_snapshot(project: &Project, language: &str, output: &Output) {
 
 fn python_available(project: &Project) -> bool {
     available(
-        if cfg!(windows) { "python" } else { "python3" },
+        std::env::var("CRAPPER_TEST_PYTHON")
+            .as_deref()
+            .unwrap_or(if cfg!(windows) { "python" } else { "python3" }),
         &["-c", "import coverage; assert coverage.__version__ >= '7'"],
         project,
         "Python",
@@ -158,7 +165,7 @@ fn lua_real_cluacov_and_sharded_busted_match_the_oracle() {
         lua,
         &[
             "-e",
-            "assert(_VERSION == 'Lua 5.4'); assert(require('cluacov.version') == '1.0.0'); require('busted.runner'); require('luacov.reporter.lcov')",
+            "assert(_VERSION == 'Lua 5.4'); pcall(require, 'luarocks.loader'); assert(require('cluacov.version') == '1.0.0'); require('busted.runner'); require('luacov.reporter.lcov')",
         ],
         &project,
         "Lua",
@@ -183,7 +190,7 @@ fn lua_multiple_modules_and_quoted_untested_sources_match_the_oracle() {
         "lua5.4",
         &[
             "-e",
-            "assert(_VERSION == 'Lua 5.4'); assert(require('cluacov.version') == '1.0.0')",
+            "assert(_VERSION == 'Lua 5.4'); pcall(require, 'luarocks.loader'); assert(require('cluacov.version') == '1.0.0')",
         ],
         &project,
         "Lua",
@@ -212,7 +219,7 @@ fn failing_lua_shard_keeps_snapshot_and_removes_shard_artifacts() {
         "lua5.4",
         &[
             "-e",
-            "assert(_VERSION == 'Lua 5.4'); assert(require('cluacov.version') == '1.0.0')",
+            "assert(_VERSION == 'Lua 5.4'); pcall(require, 'luarocks.loader'); assert(require('cluacov.version') == '1.0.0')",
         ],
         &project,
         "Lua",
@@ -288,6 +295,20 @@ fn python_failing_tests_still_publish_the_measured_report() {
         fs::read(project.root.join(".metrics/crap.edn")).unwrap(),
         expected
     );
+}
+
+#[test]
+fn typescript_node_type_stripping_reports_real_coverage_bytes() {
+    let project = Project::new();
+    copy_tree(
+        &fixture("typescript-measured").join("project"),
+        &project.root,
+    );
+    if !node_tools_available(&project) || !install_c8(&project) {
+        return;
+    }
+    let output = project.crap(&[]);
+    check_snapshot(&project, "typescript-measured", &output);
 }
 
 fn node_tools_available(project: &Project) -> bool {

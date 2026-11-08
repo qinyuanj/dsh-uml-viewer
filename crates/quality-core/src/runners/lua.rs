@@ -184,7 +184,7 @@ fn commands(lua: &Path, config: &Path) -> (Vec<String>, Vec<String>) {
     )
 }
 
-const SPECS: &str = "pcall(require, 'luarocks.loader'); local options = require('pl.tablex').update(require('busted.options'), {standalone = false}); local args = assert(require('busted.modules.cli')(options):parse({'--ignore-lua'})); local path = require('pl.path'); assert(path.chdir(path.normpath(args.directory))); local _, _, list = require('busted.modules.test_file_loader')(require('busted.core')(), args.loaders); for _, file in ipairs(list(args.ROOT, args.pattern, {excludes = args['exclude-pattern'], recursive = args.recursive})) do io.write(file, '\n') end";
+const SPECS: &str = "pcall(require, 'luarocks.loader'); local options = require('pl.tablex').update(require('busted.options'), {standalone = false}); local args = assert(require('busted.modules.cli')(options):parse({'--ignore-lua'})); local path = require('pl.path'); assert(path.chdir(path.normpath(args.directory))); local _, _, list = require('busted.modules.test_file_loader')(require('busted.core')(), args.loaders); for _, file in ipairs(list(args.ROOT, args.pattern, {excludes = args['exclude-pattern'], recursive = args.recursive})) do io.write(file, string.char(10)) end";
 
 fn spec_files(lua: &Path, module: &Path) -> Vec<String> {
     let argv = strings(&[lua.to_str().unwrap_or("lua"), "-e", SPECS]);
@@ -339,6 +339,7 @@ fn prepare(
             let groups = shards(&specs, count, &module);
             let mut parts = Vec::new();
             let mut exit = 0;
+            let mut failed_shard = 0;
             let mut outputs = Vec::new();
             for (index, group) in groups.iter().enumerate() {
                 let part = report
@@ -366,6 +367,7 @@ fn prepare(
                     .map_err(|e| error(format!("Coverage command failed to start: {e}")))?;
                 if !output.status.success() {
                     exit = output.status.code().unwrap_or(1);
+                    failed_shard = index + 1;
                 }
                 outputs.push(output);
                 parts.push(part);
@@ -375,10 +377,28 @@ fn prepare(
                 eprint!("{}", String::from_utf8_lossy(&output.stderr));
             }
             if exit != 0 {
-                for path in &parts { let _ = fs::remove_file(path); }
-                let leftovers: Vec<PathBuf> = fs::read_dir(report.parent().unwrap()).into_iter().flatten().flatten().map(|e|e.path()).filter(|p|p.file_name().is_some_and(|n|n.to_string_lossy().starts_with("luacov.shard-"))).collect();
-                for path in leftovers { fs::remove_file(path).map_err(|e|error(format!("Cannot invalidate managed coverage artifact: {e}")))?; }
-                return Err(error(format!("Lua tests exited {exit} in coverage shard {index} of {count} in {}.",module.display())));
+                for path in &parts {
+                    let _ = fs::remove_file(path);
+                }
+                let leftovers: Vec<PathBuf> = fs::read_dir(report.parent().unwrap())
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        p.file_name()
+                            .is_some_and(|n| n.to_string_lossy().starts_with("luacov.shard-"))
+                    })
+                    .collect();
+                for path in leftovers {
+                    fs::remove_file(path).map_err(|e| {
+                        error(format!("Cannot invalidate managed coverage artifact: {e}"))
+                    })?;
+                }
+                return Err(error(format!(
+                    "Lua tests exited {exit} in coverage shard {failed_shard} of {count} in {}.",
+                    module.display()
+                )));
             }
             merge_stats(&parts, &stats)?;
             let leftovers: Vec<PathBuf> = fs::read_dir(report.parent().unwrap())

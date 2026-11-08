@@ -49,7 +49,7 @@ def generate(language: str) -> None:
             source = LIVE / ("lua/modules" if language == "lua-modules" else language) / "project"
             shutil.copytree(source, project)
             env["npm_config_cache"] = str(Path(directory) / "npm-cache")
-            if language == "typescript":
+            if language in ("typescript", "typescript-measured"):
                 subprocess.run(["npm.cmd" if os.name == "nt" else "npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-global"],
                                cwd=project, env=env, check=True)
             if failing:
@@ -63,7 +63,7 @@ def generate(language: str) -> None:
                                        cwd=project, env=env)
             if completed.returncode != 0:
                 raise SystemExit(f"oracle failed: {language}, failing={failing}")
-            report = project / "target/coverage" / ("lua" if language == "lua-modules" else language) / "lcov.info"
+            report = project / "target/coverage" / ("lua" if language == "lua-modules" else "typescript" if language == "typescript-measured" else language) / "lcov.info"
             if not report.is_file():
                 raise SystemExit(f"oracle wrote no {report}")
             destination = LIVE / ("lua/modules" if language == "lua-modules" else language)
