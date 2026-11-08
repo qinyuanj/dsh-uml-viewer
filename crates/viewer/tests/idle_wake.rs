@@ -15,7 +15,7 @@ fn project(tag: &str) -> PathBuf {
 #[test]
 fn an_unchanged_poll_requests_no_repaint() {
     let dir = project("same");
-    let mut wake = Wake::new(&dir.join("diagram.edn"), &dir);
+    let mut wake = Wake::new(&dir.join("diagram.edn"), &dir, &[]);
     assert!(!wake.poll());
     assert!(!wake.poll());
 }
@@ -23,7 +23,7 @@ fn an_unchanged_poll_requests_no_repaint() {
 #[test]
 fn a_changed_diagram_requests_one_repaint() {
     let dir = project("ir");
-    let mut wake = Wake::new(&dir.join("diagram.edn"), &dir);
+    let mut wake = Wake::new(&dir.join("diagram.edn"), &dir, &[]);
     std::fs::write(dir.join("diagram.edn"), "{:packages [{:label \"P\"}]}").unwrap();
     assert!(wake.poll());
     assert!(!wake.poll());
@@ -36,7 +36,7 @@ fn an_equal_length_edit_of_the_diagram_requests_a_repaint() {
     let dir = project("same-size");
     let diagram = dir.join("diagram.edn");
     std::fs::write(&diagram, "{:title \"A\"}").unwrap();
-    let mut wake = Wake::new(&diagram, &dir);
+    let mut wake = Wake::new(&diagram, &dir, &[]);
     for _ in 0..100 {
         std::thread::sleep(std::time::Duration::from_millis(2));
         std::fs::write(&diagram, "{:title \"B\"}").unwrap();
@@ -51,7 +51,8 @@ fn an_equal_length_edit_of_the_diagram_requests_a_repaint() {
 #[test]
 fn new_metrics_and_mail_request_a_repaint() {
     let dir = project("metrics");
-    let mut wake = Wake::new(&dir.join("diagram.edn"), &dir);
+    let inbox = dir.join(".uml-viewer/to-viewer.edn");
+    let mut wake = Wake::new(&dir.join("diagram.edn"), &dir, &[&inbox]);
     std::fs::write(dir.join(".metrics/mutate/a.edn"), "{}").unwrap();
     assert!(wake.poll());
     std::fs::create_dir_all(dir.join(".uml-viewer")).unwrap();

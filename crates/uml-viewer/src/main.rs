@@ -24,8 +24,8 @@ const ROLES: &[(&str, &str, Entry)] = &[
     ),
     (
         "scene",
-        "export scene geometry for each focus, headless",
-        |_, args| scene::run(args),
+        "export scene geometry for each focus, or one view's frame (--frame), headless",
+        |_, args| frame::run_scene(args),
     ),
     (
         "crap",

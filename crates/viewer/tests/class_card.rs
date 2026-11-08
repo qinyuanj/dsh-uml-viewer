@@ -202,16 +202,11 @@ fn highlights_only_the_hovered_operation_relationship_or_module_row() {
     assert_eq!(hl(Hover::Rel(rel.id.clone().unwrap())), Some(rel.y));
 
     let marker = detail::highlight_marker(&rows, Some(&Hover::Op("go".into()))).unwrap();
-    assert_eq!(255, marker.bar.a());
-    assert!(marker.wash.a() < 128);
-    let background = composite(theme::POPUP_BG, marker.wash);
+    assert_eq!(255, theme::rgba(marker.bar).a);
+    assert!(theme::rgba(marker.wash).a < 128);
+    let background = composite(theme::POPUP_BG, viewer::color::color(marker.wash));
     assert!(contrast(theme::INK, background) >= 4.5);
-    assert!(
-        contrast(
-            theme::Rgb(marker.bar.r(), marker.bar.g(), marker.bar.b()),
-            theme::POPUP_BG
-        ) >= 3.0
-    );
+    assert!(contrast(theme::rgb(marker.bar), theme::POPUP_BG) >= 3.0);
     assert_eq!(detail::highlight_marker(&rows, None), None);
 }
 
@@ -294,7 +289,7 @@ fn view_keeps_title_and_rows_at_fixed_right_aligned_columns() {
         header
             .cells
             .iter()
-            .all(|c| c.color == theme::GOLD && c.tip.is_some())
+            .all(|c| theme::rgb(c.color) == theme::GOLD && c.tip.is_some())
     );
 }
 
@@ -318,25 +313,34 @@ fn view_colors_cells_with_the_semantic_rules() {
     let items = view(None);
     let go = item(&items, "go");
     assert_eq!(
-        cell(go, "crap").unwrap().color,
+        theme::rgb(cell(go, "crap").unwrap().color),
         theme::stroke(Some(
             scene::metric_rating(Some(1.8), None, None, None).crap_grade,
         ))
     );
-    assert_eq!(cell(go, "cc").unwrap().color, theme::MUTED);
-    assert_eq!(cell(go, "cov").unwrap().color, theme::GOLD);
-    assert_eq!(cell(go, "killed").unwrap().color, theme::WHITE);
-    assert_eq!(cell(go, "survived").unwrap().color, theme::VIOLATION);
-    assert_eq!(cell(go, "uncovered").unwrap().color, theme::VIOLATION);
-    let low = item(&items, "low");
-    assert_eq!(cell(low, "cov").unwrap().color, theme::WARN);
-    assert_eq!(cell(low, "survived").unwrap().color, theme::GOOD);
+    assert_eq!(theme::rgb(cell(go, "cc").unwrap().color), theme::MUTED);
+    assert_eq!(theme::rgb(cell(go, "cov").unwrap().color), theme::GOLD);
+    assert_eq!(theme::rgb(cell(go, "killed").unwrap().color), theme::WHITE);
     assert_eq!(
-        items.iter().find(|it| it.kind == "crap").unwrap().color,
+        theme::rgb(cell(go, "survived").unwrap().color),
+        theme::VIOLATION
+    );
+    assert_eq!(
+        theme::rgb(cell(go, "uncovered").unwrap().color),
+        theme::VIOLATION
+    );
+    let low = item(&items, "low");
+    assert_eq!(theme::rgb(cell(low, "cov").unwrap().color), theme::WARN);
+    assert_eq!(
+        theme::rgb(cell(low, "survived").unwrap().color),
+        theme::GOOD
+    );
+    assert_eq!(
+        theme::rgb(items.iter().find(|it| it.kind == "crap").unwrap().color),
         theme::GOLD
     );
-    assert_eq!(item(&items, "hide").color, theme::MUTED);
-    assert_eq!(go.color, theme::INK);
+    assert_eq!(theme::rgb(item(&items, "hide").color), theme::MUTED);
+    assert_eq!(theme::rgb(go.color), theme::INK);
     let note = cell(item(&items, "hide"), "mut-note").unwrap();
     let groups = detail::group_layout(None);
     assert_eq!(
@@ -355,10 +359,16 @@ fn view_stripes_stats_rows_draws_bars_swatches_and_marks_clickable_rows() {
     }
     let go = item(&items, "go");
     let bar = |id: &str| go.bars.iter().find(|b| b.id == id).unwrap();
-    assert_eq!((bar("cov").fraction, bar("cov").color), (0.75, theme::GOLD));
+    assert_eq!(
+        (bar("cov").fraction, theme::rgb(bar("cov").color)),
+        (0.75, theme::GOLD)
+    );
     assert_eq!(bar("kill").fraction, 0.5);
     assert!(item(&items, "bare").bars.is_empty());
-    assert_eq!(item(&items, "bare").swatch, Some(theme::stroke(Some(1.0))));
+    assert_eq!(
+        item(&items, "bare").swatch.map(theme::rgb),
+        Some(theme::stroke(Some(1.0)))
+    );
     assert_eq!(items[0].swatch, None);
     assert!(items.iter().find(|it| it.module).unwrap().clickable);
     assert!(go.clickable);

@@ -4,7 +4,8 @@
 use crate::common;
 
 use common::{composite, contrast};
-use viewer::theme::{self, Rgb};
+use viewer::color;
+use viewer::theme::{self, Rgb, Role};
 
 #[test]
 fn quality_ramps_match_the_lua_breakpoints() {
@@ -35,8 +36,8 @@ fn band_colors_are_the_traffic_light() {
 fn translucent_colors_composite_at_their_nominal_alpha() {
     let background = theme::SOURCE_BG;
     let original = Rgb(200, 214, 204);
-    let dimmed = composite(background, theme::fade(original.color32()));
-    let washed = composite(background, theme::GOLD.with_alpha(theme::ALPHA_ROW_WASH));
+    let dimmed = composite(background, color::fade(color::rgb(original)));
+    let washed = composite(background, color::color(Role::RowWash));
 
     assert!(
         dimmed.0 < original.0 && dimmed.1 < original.1 && dimmed.2 < original.2,
@@ -47,8 +48,16 @@ fn translucent_colors_composite_at_their_nominal_alpha() {
         "a wash must not become solid gold, got {washed:?}"
     );
     assert_eq!(
-        composite(background, theme::fade(original.color32())),
-        composite(background, original.with_alpha(theme::ALPHA_DIMMED)),
+        composite(background, color::fade(color::rgb(original))),
+        composite(
+            background,
+            egui::Color32::from_rgba_unmultiplied(
+                original.0,
+                original.1,
+                original.2,
+                theme::ALPHA_DIMMED
+            )
+        ),
         "fade and an equally alpha'd opaque color must composite alike"
     );
 }

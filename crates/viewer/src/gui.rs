@@ -20,11 +20,12 @@ use scene::Rect;
 use scene::document::ViewState;
 use scene::events;
 
+use crate::color::color as rgb;
 use crate::detail::{self, Hover};
 use crate::inspector;
 use crate::source::{self, Ident};
 use crate::strings;
-use crate::theme::{self, Rgb};
+use crate::theme::{self, Role};
 
 /// Height of the Cov / kill-rate bars, points.
 const BAR: f32 = 3.0;
@@ -123,16 +124,12 @@ pub struct Gui {
     window_w: f64,
 }
 
-fn rgb(c: Rgb) -> Color32 {
-    c.color32()
-}
-
 fn paint_row_marker(painter: &egui::Painter, row: ERect, marker: theme::RowMarker) {
-    painter.rect_filled(row, 0.0, marker.wash);
+    painter.rect_filled(row, 0.0, rgb(marker.wash));
     painter.rect_filled(
         ERect::from_min_size(row.min, Vec2::new(marker.bar_width, row.height())),
         0.0,
-        marker.bar,
+        rgb(marker.bar),
     );
 }
 
@@ -171,14 +168,14 @@ fn one(n: f64) -> String {
 
 fn themed_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
     let visuals = &mut ui.visuals_mut().widgets;
-    visuals.hovered.weak_bg_fill = rgb(theme::BUTTON_HOVER);
-    visuals.active.weak_bg_fill = rgb(theme::BUTTON_ACTIVE);
+    visuals.hovered.weak_bg_fill = rgb(Role::ButtonHover);
+    visuals.active.weak_bg_fill = rgb(Role::ButtonActive);
     let button = egui::Button::new(
         RichText::new(label)
-            .color(rgb(theme::GOLD))
+            .color(rgb(Role::Accent))
             .font(body_font()),
     )
-    .fill(rgb(theme::LINE))
+    .fill(rgb(Role::Line))
     .min_size(Vec2::new(ui.available_width(), 0.0));
     ui.add(button)
 }
@@ -527,7 +524,7 @@ impl Gui {
             .order(egui::Order::Middle)
             .show(ctx, |ui| {
                 egui::Frame::new()
-                    .fill(rgb(theme::SIDEBAR))
+                    .fill(rgb(Role::Sidebar))
                     .inner_margin(16.0)
                     .show(ui, |ui| {
                         ui.set_width(width - 32.0);
@@ -535,19 +532,18 @@ impl Gui {
                         ui.spacing_mut().item_spacing = Vec2::new(8.0, 6.0);
                         ui.label(
                             RichText::new(strings::INSPECTOR)
-                                .color(rgb(theme::GOLD))
+                                .color(rgb(Role::Accent))
                                 .font(FontId::new(theme::fonts::TITLE, FontFamily::Monospace)),
                         );
                         for (n, entry) in entries.iter().enumerate() {
                             if n == 1 {
                                 ui.label(
-                                    RichText::new(strings::PROPOSALS_LABEL)
-                                        .color(rgb(theme::MUTED)),
+                                    RichText::new(strings::PROPOSALS_LABEL).color(rgb(Role::Muted)),
                                 );
                             }
                             let text = RichText::new(&entry.label)
                                 .font(body_font())
-                                .color(rgb(theme::INK));
+                                .color(rgb(Role::Ink));
                             let row = ui.add(
                                 egui::Button::selectable(entry.active, text)
                                     .min_size(Vec2::new(ui.available_width(), 0.0)),
@@ -583,9 +579,7 @@ impl Gui {
                         bounds.push(("declutter".into(), declutter.rect));
                         if let Some(rename) = &mut self.rename {
                             ui.separator();
-                            ui.label(
-                                RichText::new(strings::PROPOSAL_NAME).color(rgb(theme::MUTED)),
-                            );
+                            ui.label(RichText::new(strings::PROPOSAL_NAME).color(rgb(Role::Muted)));
                             let field = ui.add(
                                 egui::TextEdit::singleline(&mut rename.name)
                                     .id(Id::unique("uml-proposal-name"))
@@ -609,7 +603,7 @@ impl Gui {
                                 self.rename = None;
                             }
                         }
-                        ui.label(RichText::new(strings::P_HINT).color(rgb(theme::MUTED)));
+                        ui.label(RichText::new(strings::P_HINT).color(rgb(Role::Muted)));
                         ui.separator();
                         let summary_h = (ui.available_height() - 44.0).max(40.0);
                         let card = egui::ScrollArea::vertical()
@@ -624,7 +618,7 @@ impl Gui {
                                 _ => {
                                     let message = inspector::empty_explanation(state)
                                         .unwrap_or(strings::SELECT_CLASS);
-                                    ui.label(RichText::new(message).color(rgb(theme::MUTED)));
+                                    ui.label(RichText::new(message).color(rgb(Role::Muted)));
                                     empty_help = true;
                                 }
                             });
@@ -730,7 +724,7 @@ impl Gui {
             .collapsible(false)
             .constrain_to(canvas)
             .max_size(canvas.size())
-            .frame(egui::Frame::window(&ctx.global_style()).fill(rgb(theme::CANVAS_BG)));
+            .frame(egui::Frame::window(&ctx.global_style()).fill(rgb(Role::Canvas)));
         if let Some((size, frames)) = self.card.force {
             window = window.min_size(size).max_size(size);
             self.card.force = (frames > 1).then_some((size, frames - 1));
@@ -770,7 +764,7 @@ impl Gui {
                             Vec2::new(plan_w as f32, h),
                         );
                         if it.stripe {
-                            painter.rect_filled(row, 0.0, rgb(theme::PANEL));
+                            painter.rect_filled(row, 0.0, rgb(Role::Panel));
                         }
                         if it.clickable && row.intersects(clip) {
                             let response = ui.interact(
@@ -885,7 +879,7 @@ impl Gui {
                                 Pos2::new(px(b.left), y),
                                 Pos2::new(px(b.right), y + BAR),
                             );
-                            painter.rect_filled(track, BAR / 2.0, rgb(theme::LINE));
+                            painter.rect_filled(track, BAR / 2.0, rgb(Role::Line));
                             let fill = ERect::from_min_max(
                                 track.min,
                                 Pos2::new(
@@ -951,7 +945,7 @@ impl Gui {
                 .collapsible(false)
                 .constrain_to(canvas)
                 .max_size(canvas.size())
-                .frame(egui::Frame::window(&ctx.global_style()).fill(rgb(theme::SOURCE_BG)))
+                .frame(egui::Frame::window(&ctx.global_style()).fill(rgb(Role::SourceBg)))
                 .show(ctx, |ui| {
                     let max_w = *w.max_w.get_or_insert_with(|| {
                         w.displays
@@ -1037,7 +1031,7 @@ impl Gui {
                             painter.rect_filled(
                                 ERect::from_min_size(line.min, Vec2::new(GUTTER, line_h)),
                                 0.0,
-                                rgb(theme::SOURCE_GUTTER_BG),
+                                rgb(Role::SourceGutterBg),
                             );
                             if let Some(marker) = row.marker {
                                 paint_row_marker(
@@ -1054,7 +1048,7 @@ impl Gui {
                                 Align2::RIGHT_TOP,
                                 row.number.to_string(),
                                 font.clone(),
-                                rgb(theme::SOURCE_GUTTER),
+                                rgb(Role::SourceGutter),
                             );
                             if let Some((a, b)) = selection
                                 && i >= a.row
@@ -1078,16 +1072,16 @@ impl Gui {
                                         Pos2::new(text_x + rx, top + line_h),
                                     ),
                                     0.0,
-                                    rgb(theme::SOURCE_SELECTION),
+                                    rgb(Role::SourceSelection),
                                 );
                             }
                             let mut x = text_x;
                             for run in source::tokens(&d.text, &w.lang) {
                                 let color = match run.kind {
-                                    "keyword" => theme::SOURCE_KEYWORD,
-                                    "string" => theme::SOURCE_STRING,
-                                    "comment" => theme::SOURCE_COMMENT,
-                                    _ => theme::SOURCE_INK,
+                                    "keyword" => Role::SourceKeyword,
+                                    "string" => Role::SourceString,
+                                    "comment" => Role::SourceComment,
+                                    _ => Role::SourceInk,
                                 };
                                 let galley = ctx.fonts_mut(|f| {
                                     f.layout_no_wrap(run.text.clone(), font.clone(), rgb(color))
@@ -1278,7 +1272,7 @@ impl Gui {
     }
 }
 
-fn label(ui: &mut egui::Ui, text: impl Into<String>, color: Rgb) {
+fn label(ui: &mut egui::Ui, text: impl Into<String>, color: Role) {
     ui.label(
         RichText::new(text.into())
             .color(rgb(color))
@@ -1287,7 +1281,7 @@ fn label(ui: &mut egui::Ui, text: impl Into<String>, color: Rgb) {
 }
 
 /// A metric line that wraps only between whole segments, never inside one.
-fn segments(ui: &mut egui::Ui, parts: Vec<String>, color: Rgb) {
+fn segments(ui: &mut egui::Ui, parts: Vec<String>, color: Role) {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
         for part in parts {
@@ -1342,35 +1336,39 @@ fn class_summary(ui: &mut egui::Ui, model: &detail::Model) {
         Some(other) => local_name(other).unwrap_or_default().to_owned(),
         None => String::new(),
     };
-    label(ui, text(get(c, "name")), theme::INK);
+    label(ui, text(get(c, "name")), Role::Ink);
     if let Some(package) = model.package_label() {
-        label(ui, format!("{}{package}", strings::PACKAGE), theme::MUTED);
+        label(ui, format!("{}{package}", strings::PACKAGE), Role::Muted);
     }
     if let Some(level) = get(c, "level").filter(|v| **v != Value::Nil) {
         label(
             ui,
             format!("{}{}", strings::LEVEL, text(Some(level))),
-            theme::MUTED,
+            Role::Muted,
         );
     }
     if let Some(stereo) = get(c, "stereotype") {
         label(
             ui,
             format!("«{}»", local_name(stereo).unwrap_or_default().to_owned()),
-            theme::MUTED,
+            Role::Muted,
         );
     }
     let crap = get(c, "crap");
     let mut measured = false;
     if let Some(n) = crap.and_then(num) {
-        label(ui, strings::CRAP_SINGLE.replace("%s", &one(n)), theme::GOLD);
+        label(
+            ui,
+            strings::CRAP_SINGLE.replace("%s", &one(n)),
+            Role::Accent,
+        );
         measured = true;
     } else if let Some(parts) = crap.and_then(crap_summary) {
-        segments(ui, parts, theme::GOLD);
+        segments(ui, parts, Role::Accent);
         measured = true;
     }
     if let Some(parts) = mutation_line(c) {
-        segments(ui, parts, theme::MUTED);
+        segments(ui, parts, Role::Muted);
     }
     for line in edn::record::seq(get(c, "lines")) {
         let kind = get(line, "kind")
@@ -1378,11 +1376,11 @@ fn class_summary(ui: &mut egui::Ui, model: &detail::Model) {
             .unwrap_or_default()
             .to_owned();
         if kind == "field" || kind == "op" {
-            label(ui, text(get(line, "text")), theme::INK);
+            label(ui, text(get(line, "text")), Role::Ink);
         }
     }
     if !measured {
-        label(ui, strings::NO_DATA, theme::BAND_RED);
+        label(ui, strings::NO_DATA, Role::NoData);
     }
 }
 
@@ -1394,20 +1392,20 @@ fn package_summary(ui: &mut egui::Ui, state: &ViewState, id: &Value) {
         Some(Value::String(s)) => s.clone(),
         _ => local_name(id).unwrap_or_default().to_owned(),
     };
-    label(ui, title, theme::INK);
+    label(ui, title, Role::Ink);
     let crap = get(p, "crap");
     if let Some(parts) = crap.and_then(crap_summary) {
-        segments(ui, parts, theme::GOLD);
+        segments(ui, parts, Role::Accent);
     }
     if let Some(parts) = mutation_line(p) {
-        segments(ui, parts, theme::MUTED);
+        segments(ui, parts, Role::Muted);
     }
     let count = edn::record::seq(get(&state.scene, "classes"))
         .iter()
         .filter(|c| get(c, "package") == Some(id))
         .count();
-    label(ui, format!("{}{count}", strings::CLASS_COUNT), theme::MUTED);
+    label(ui, format!("{}{count}", strings::CLASS_COUNT), Role::Muted);
     if crap.is_none() {
-        label(ui, strings::NO_DATA, theme::BAND_RED);
+        label(ui, strings::NO_DATA, Role::NoData);
     }
 }

@@ -25,6 +25,7 @@ use crate::real_input::{
 };
 use crate::render_cache::RenderCache;
 use crate::search_box::SearchBox;
+use crate::theme::Role;
 use crate::viewer_session::{
     Action as SessionAction, Canvas, Chrome, Effects, Event, Launch, Now, POLL_INTERVAL, Repaint,
     ViewerSession, WINDOW_MIN, window_size,
@@ -344,7 +345,10 @@ fn spawn_wake(ctx: egui::Context, diagram: PathBuf, root: PathBuf) -> Arc<Atomic
     let spawned = std::thread::Builder::new()
         .name("uml-viewer-wake".into())
         .spawn(move || {
-            let mut wake = watch::Wake::new(&diagram, &root);
+            let inbox = companion::mailbox::Mailbox::inbox(&root)
+                .path()
+                .to_path_buf();
+            let mut wake = watch::Wake::new(&diagram, &root, &[&inbox]);
             while !flag.load(Ordering::SeqCst) {
                 std::thread::sleep(POLL_INTERVAL);
                 if wake.poll() || signal::terminated() {
@@ -936,23 +940,19 @@ impl Viewer {
         }
         let screen = ctx.content_rect();
         let [minimise, close] = window_controls(screen);
-        let quiet = |ui: &mut egui::Ui, rect: egui::Rect, label: &str, hot: theme::Rgb| {
+        let quiet = |ui: &mut egui::Ui, rect: egui::Rect, label: &str, hot: Role| {
             let response = ui.interact(rect, ui.scope_id().with(label), egui::Sense::click());
             let painter = ui.painter();
             if response.hovered() {
-                painter.rect_filled(rect, 3.0, theme::LINE.color32());
+                painter.rect_filled(rect, 3.0, crate::color::color(Role::Line));
             }
-            let ink = if response.hovered() {
-                hot
-            } else {
-                theme::MUTED
-            };
+            let ink = if response.hovered() { hot } else { Role::Muted };
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 label,
                 egui::FontId::proportional(14.0),
-                ink.color32(),
+                crate::color::color(ink),
             );
             response.clicked()
         };
@@ -961,8 +961,8 @@ impl Viewer {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 (
-                    quiet(ui, minimise, "—", theme::INK),
-                    quiet(ui, close, "×", theme::VIOLATION_HOT),
+                    quiet(ui, minimise, "—", Role::Ink),
+                    quiet(ui, close, "×", Role::Danger),
                 )
             })
             .inner;

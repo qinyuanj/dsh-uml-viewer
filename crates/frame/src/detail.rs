@@ -10,7 +10,7 @@ use scene::document::ViewState;
 
 use crate::source::Ident;
 use crate::strings;
-use crate::theme::{self, Rgb, RowMarker};
+use crate::theme::{Role, RowMarker};
 
 /// Default card window, in points.
 pub const WIDTH: f64 = 640.0;
@@ -430,7 +430,7 @@ pub fn highlight<'a>(rows: &'a [Row], hover: Option<&Hover>) -> Option<&'a Row> 
 /// The shared row marker for the currently hovered card row. Leaving the row
 /// removes the description instead of retaining the last hover.
 pub fn highlight_marker(rows: &[Row], hover: Option<&Hover>) -> Option<RowMarker> {
-    highlight(rows, hover).map(|_| theme::row_marker())
+    highlight(rows, hover).map(|_| crate::theme::row_marker())
 }
 
 fn at(rows: &[Row], y: f64) -> impl Iterator<Item = &Row> {
@@ -514,7 +514,7 @@ pub struct Cell {
     pub left: f64,
     pub right: f64,
     pub center: bool,
-    pub color: Rgb,
+    pub color: Role,
     pub tip: Option<&'static str>,
 }
 
@@ -524,7 +524,7 @@ pub struct Bar {
     pub left: f64,
     pub right: f64,
     pub fraction: f64,
-    pub color: Rgb,
+    pub color: Role,
 }
 
 /// One painted card row.
@@ -534,29 +534,29 @@ pub struct Item {
     pub y: f64,
     pub h: f64,
     pub text: Option<String>,
-    pub color: Rgb,
+    pub color: Role,
     pub title_font: bool,
     pub x: f64,
     pub clip_right: Option<f64>,
     pub cells: Vec<Cell>,
     pub bars: Vec<Bar>,
     pub stripe: bool,
-    pub swatch: Option<Rgb>,
+    pub swatch: Option<Role>,
     pub clickable: bool,
     pub module: bool,
     pub op_name: Option<String>,
     pub rel: Option<Value>,
 }
 
-pub fn row_color(row: &Row) -> Rgb {
+pub fn row_color(row: &Row) -> Role {
     if row.private {
-        return theme::MUTED;
+        return Role::Muted;
     }
     match row.kind {
-        "crap" | "heading" | "group-header" | "col-header" => theme::GOLD,
-        "name" | "module" | "field" | "rel" | "stats" => theme::INK,
-        _ if row.module => theme::INK,
-        _ => theme::MUTED,
+        "crap" | "heading" | "group-header" | "col-header" => Role::Accent,
+        "name" | "module" | "field" | "rel" | "stats" => Role::Ink,
+        _ if row.module => Role::Ink,
+        _ => Role::Muted,
     }
 }
 
@@ -564,27 +564,27 @@ fn rating(c: &Cells) -> scene::MetricRating {
     scene::metric_rating(c.crap_n, c.killed, c.survived, c.uncovered)
 }
 
-pub fn cell_color(c: &Cells, id: &str) -> Rgb {
+pub fn cell_color(c: &Cells, id: &str) -> Role {
     let positive = |v: Option<f64>| {
         if v.unwrap_or(0.0) > 0.0 {
-            theme::VIOLATION
+            Role::Violation
         } else {
-            theme::GOOD
+            Role::Good
         }
     };
     match id {
-        "cov" => theme::coverage(c.coverage),
-        "crap" => theme::stroke(Some(rating(c).crap_grade)),
-        "killed" => theme::WHITE,
+        "cov" => Role::Coverage(c.coverage),
+        "crap" => Role::QualityStroke(Some(rating(c).crap_grade)),
+        "killed" => Role::Marker,
         "survived" => positive(c.survived),
         "uncovered" => positive(c.uncovered),
-        _ => theme::MUTED,
+        _ => Role::Muted,
     }
 }
 
 /// Averaged CRAP / mutation grade; a missing metric enters as grade 1.
-pub fn swatch(c: &Cells) -> Rgb {
-    theme::stroke(rating(c).grade)
+pub fn swatch(c: &Cells) -> Role {
+    Role::QualityStroke(rating(c).grade)
 }
 
 fn cell_text(c: &Cells, id: &str) -> Option<String> {
@@ -642,7 +642,7 @@ pub fn view(rows: &[Row], width: Option<f64>) -> Vec<Item> {
                             left: g.left,
                             right: g.right,
                             center: true,
-                            color: theme::GOLD,
+                            color: Role::Accent,
                             tip: None,
                         });
                     }
@@ -656,7 +656,7 @@ pub fn view(rows: &[Row], width: Option<f64>) -> Vec<Item> {
                             left: c.left,
                             right: c.right,
                             center: false,
-                            color: theme::GOLD,
+                            color: Role::Accent,
                             tip: tip(c.id),
                         });
                     }
@@ -688,7 +688,7 @@ pub fn view(rows: &[Row], width: Option<f64>) -> Vec<Item> {
                             left: groups[1].left,
                             right: groups[1].right,
                             center: true,
-                            color: theme::MUTED,
+                            color: Role::Muted,
                             tip: None,
                         });
                     } else {
@@ -699,7 +699,7 @@ pub fn view(rows: &[Row], width: Option<f64>) -> Vec<Item> {
                                 left: groups[1].left,
                                 right: groups[1].right,
                                 fraction: ratio,
-                                color: theme::stroke(Some(m.mutation_grade)),
+                                color: Role::QualityStroke(Some(m.mutation_grade)),
                             });
                         }
                     }
@@ -709,7 +709,7 @@ pub fn view(rows: &[Row], width: Option<f64>) -> Vec<Item> {
                             left: cols[2].left,
                             right: cols[2].right,
                             fraction: cov,
-                            color: theme::coverage(Some(cov)),
+                            color: Role::Coverage(Some(cov)),
                         });
                     }
                 }

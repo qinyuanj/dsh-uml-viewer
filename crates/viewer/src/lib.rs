@@ -1,7 +1,10 @@
 //! Rust viewer crate (#139): egui/eframe canvas for the UML viewer.
 //!
-//! The pure drawing model (`commands`, `theme`, `lod`) is window-free and
-//! unit-tested. The viewer session (`viewer_session`, crate-private) holds
+//! The window-free viewer model (the scene frame, `commands`, `theme`,
+//! `lod`, the class card, inspector, source window, search box, strings,
+//! session file, watch, project files and render cache) lives in the egui-free
+//! `frame` crate (#16) and is re-exported here; `color` resolves its
+//! semantic roles to egui colors. The viewer session (`viewer_session`, crate-private) holds
 //! the view and owns actions, reload, mail, canvas input, normal close and
 //! the restart exit; it is tested without a window behind a fake companion
 //! link. `app` is the eframe adapter around it; `paint`, `gui` and the
@@ -15,31 +18,25 @@ pub mod app;
 pub mod bench;
 pub mod cli;
 pub mod clock;
-pub mod commands;
-pub mod detail;
+pub mod color;
 pub mod driver;
 pub mod evidence;
 pub mod fonts;
 pub mod gui;
 pub mod identity;
-pub mod inspector;
-pub mod lod;
 mod mail;
 pub mod mail_watch;
 pub mod mailbox;
 pub mod metrics;
 pub mod paint;
-pub mod project_files;
 pub mod real_input;
-pub mod render_cache;
-pub mod search_box;
-pub mod session;
 pub mod signal;
-pub mod source;
-pub mod strings;
-pub mod theme;
 mod viewer_session;
-pub mod watch;
+
+pub use frame::{
+    commands, detail, inspector, lod, project_files, render_cache, search_box, session, source,
+    strings, theme, watch,
+};
 
 use std::ffi::OsString;
 use std::process::ExitCode;

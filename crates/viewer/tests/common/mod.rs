@@ -18,6 +18,6 @@ pub fn contrast(a: Rgb, b: Rgb) -> f64 {
 }
 
 pub fn composite(background: Rgb, overlay: egui::Color32) -> Rgb {
-    let color = background.color32().blend(overlay);
+    let color = viewer::color::rgb(background).blend(overlay);
     Rgb(color.r(), color.g(), color.b())
 }

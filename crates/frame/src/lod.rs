@@ -18,6 +18,9 @@ pub const FRAMES_ZOOM: f64 = 0.15;
 pub const FULL_ZOOM: f64 = 0.4;
 /// Mid-tier edge decimation budget, in screen points.
 pub const DECIMATE_PX: f64 = 8.0;
+/// Smallest canvas text size drawn, in points: below it a label is a smear
+/// of glyph quads (#143).
+pub const MIN_TEXT_PX: f32 = 5.0;
 
 pub fn tier(zoom: f64) -> Tier {
     if zoom < FRAMES_ZOOM {
