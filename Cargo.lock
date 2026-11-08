@@ -474,6 +474,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
+name = "dryer"
+version = "0.1.0"
+dependencies = [
+ "quality-core",
+]
+
+[[package]]
 name = "ecolor"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2681,6 +2688,7 @@ version = "0.1.0"
 dependencies = [
  "companion",
  "crapper",
+ "dryer",
  "edn",
  "frame",
  "ir",

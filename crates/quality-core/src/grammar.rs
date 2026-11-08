@@ -9,7 +9,9 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use tree_sitter::{Node, Parser, Tree};
+/// Syntax node shared by tools without a direct tree-sitter dependency.
+pub use tree_sitter::Node;
+use tree_sitter::{Parser, Tree};
 
 /// A tree-sitter grammar. Languages without one (Clojure in crapper) are
 /// read by hand-written scanners.

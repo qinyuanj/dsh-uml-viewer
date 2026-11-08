@@ -7,6 +7,9 @@
 mod crap;
 mod crap_goldens;
 mod dispatch;
+mod dry;
+mod dry_goldens;
+mod quality_selection;
 mod scene_cli;
 
 use std::ffi::OsStr;
