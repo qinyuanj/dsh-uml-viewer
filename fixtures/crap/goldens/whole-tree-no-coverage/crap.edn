@@ -1,0 +1,23 @@
+{:entries [
+  {:name "area", :namespace "crap_demo::shapes::Shape", :complexity 7, :coverage nil, :crap nil}
+  {:name "classify", :namespace "crap_demo", :complexity 6, :coverage nil, :crap nil}
+  {:name "sum_until", :namespace "crap_demo", :complexity 5, :coverage nil, :crap nil}
+  {:name "drain", :namespace "crap_demo::parse", :complexity 4, :coverage nil, :crap nil}
+  {:name "parse_pairs", :namespace "crap_demo::parse", :complexity 4, :coverage nil, :crap nil}
+  {:name "fmt", :namespace "crap_demo::shapes::Shape", :complexity 4, :coverage nil, :crap nil}
+  {:name "clamp", :namespace "crap_demo::geometry::inner", :complexity 3, :coverage nil, :crap nil}
+  {:name "unused", :namespace "crap_demo", :complexity 2, :coverage nil, :crap nil}
+  {:name "grüße", :namespace "crap_demo::parse", :complexity 2, :coverage nil, :crap nil}
+  {:name "keep_even", :namespace "crap_demo::parse", :complexity 2, :coverage nil, :crap nil}
+  {:name "outer", :namespace "crap_demo::parse", :complexity 2, :coverage nil, :crap nil}
+  {:name "describe", :namespace "crap_demo::shapes", :complexity 2, :coverage nil, :crap nil}
+  {:name "helper", :namespace "tool", :complexity 2, :coverage nil, :crap nil}
+  {:name "main", :namespace "tool", :complexity 2, :coverage nil, :crap nil}
+  {:name "fixture_helper", :namespace "crap_demo", :complexity 1, :coverage nil, :crap nil}
+  {:name "distance", :namespace "crap_demo::geometry", :complexity 1, :coverage nil, :crap nil}
+  {:name "cells", :namespace "crap_demo::geometry::inner::Grid", :complexity 1, :coverage nil, :crap nil}
+  {:name "r#match", :namespace "crap_demo::parse", :complexity 1, :coverage nil, :crap nil}
+  {:name "is_round", :namespace "crap_demo::shapes::Shape", :complexity 1, :coverage nil, :crap nil}
+  {:name "describe", :namespace "crap_demo::shapes::Vec", :complexity 1, :coverage nil, :crap nil}
+  {:name "first_or", :namespace "crap_demo::shapes::Wrapper", :complexity 1, :coverage nil, :crap nil}
+]}

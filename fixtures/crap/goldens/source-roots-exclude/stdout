@@ -1,0 +1,9 @@
+CRAP Report
+===========
+Languages: rust
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+clamp                          crap_demo::geometry::inner             3   N/A       N/A
+distance                       crap_demo::geometry                    1   N/A       N/A
+cells                          crap_demo::geometry::inner::Grid       1   N/A       N/A

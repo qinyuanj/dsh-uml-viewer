@@ -1,0 +1,27 @@
+CRAP Report
+===========
+Languages: rust
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+area                           crap_demo::shapes::Shape               7   N/A       N/A
+classify                       crap_demo                              6   N/A       N/A
+sum_until                      crap_demo                              5   N/A       N/A
+drain                          crap_demo::parse                       4   N/A       N/A
+parse_pairs                    crap_demo::parse                       4   N/A       N/A
+fmt                            crap_demo::shapes::Shape               4   N/A       N/A
+clamp                          crap_demo::geometry::inner             3   N/A       N/A
+unused                         crap_demo                              2   N/A       N/A
+grüße                          crap_demo::parse                       2   N/A       N/A
+keep_even                      crap_demo::parse                       2   N/A       N/A
+outer                          crap_demo::parse                       2   N/A       N/A
+describe                       crap_demo::shapes                      2   N/A       N/A
+helper                         tool                                   2   N/A       N/A
+main                           tool                                   2   N/A       N/A
+fixture_helper                 crap_demo                              1   N/A       N/A
+distance                       crap_demo::geometry                    1   N/A       N/A
+cells                          crap_demo::geometry::inner::Grid       1   N/A       N/A
+r#match                        crap_demo::parse                       1   N/A       N/A
+is_round                       crap_demo::shapes::Shape               1   N/A       N/A
+describe                       crap_demo::shapes::Vec                 1   N/A       N/A
+first_or                       crap_demo::shapes::Wrapper             1   N/A       N/A

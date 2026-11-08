@@ -1,0 +1,13 @@
+[package]
+name = "crapper"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# The `crap` subcommand. Depends on quality-core only (ADR 0012).
+[dependencies]
+quality-core = { path = "../quality-core" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage)"] }

@@ -32,6 +32,11 @@ const ROLES: &[(&str, &str, Entry)] = &[
         "viewer session over stdin/stdout: JSON actions in, scene frames and events out",
         |_, args| viewer_session::run_resident(args),
     ),
+    (
+        "crap",
+        "score every function with the CRAP metric, .metrics/crap.edn",
+        |_, args| crapper::run(args),
+    ),
     ("companion-worker", "Herdr companion worker", |_, args| {
         companion::run_worker(args)
     }),

@@ -1,0 +1,6 @@
+{:entries [
+  {:name "hidden", :namespace "bookwriter", :complexity 1, :coverage 0.0, :crap 2.0}
+  {:name "read_text", :namespace "bookwriter", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "run", :namespace "bookwriter", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "hidden", :namespace "bookwriter::proto::inner", :complexity 1, :coverage nil, :crap nil}
+]}

@@ -1,0 +1,11 @@
+# Sample project for the crap golden snapshots (fixtures/crap/goldens).
+# Its own workspace, so cargo never mistakes it for a member of the repo's.
+[package]
+name = "crap-demo"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+fixtures = []
+
+[workspace]

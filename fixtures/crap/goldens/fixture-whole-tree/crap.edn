@@ -1,0 +1,12 @@
+{:entries [
+  {:name "hidden", :namespace "bookwriter", :complexity 1, :coverage nil, :crap nil}
+  {:name "main", :namespace "bookwriter", :complexity 1, :coverage nil, :crap nil}
+  {:name "read_text", :namespace "bookwriter", :complexity 1, :coverage nil, :crap nil}
+  {:name "run", :namespace "bookwriter", :complexity 1, :coverage nil, :crap nil}
+  {:name "attach", :namespace "bookwriter::console", :complexity 1, :coverage nil, :crap nil}
+  {:name "nope", :namespace "bookwriter::ignored", :complexity 1, :coverage nil, :crap nil}
+  {:name "hidden", :namespace "bookwriter::proto::inner", :complexity 1, :coverage nil, :crap nil}
+  {:name "a", :namespace "bookwriter::rec", :complexity 1, :coverage nil, :crap nil}
+  {:name "b", :namespace "bookwriter::rec", :complexity 1, :coverage nil, :crap nil}
+  {:name "install", :namespace "bookwriter::signals", :complexity 1, :coverage nil, :crap nil}
+]}
