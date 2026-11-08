@@ -3,9 +3,12 @@
 //! command string (`/bin/sh -c`, `cmd.exe /c`).
 //! qinyuanj/dsh-uml-viewer#3 adds the Windows kill-on-close Job Object here.
 
-use std::ffi::OsString;
+#[cfg(windows)]
+#[path = "process_windows.rs"]
+mod process_windows;
 use std::io;
 use std::path::{Path, PathBuf};
+#[cfg(not(windows))]
 use std::process::Command;
 
 /// What to run.
@@ -45,6 +48,7 @@ pub fn shlex_quote(arg: &str) -> String {
     }
 }
 
+#[cfg(not(windows))]
 #[allow(clippy::disallowed_methods)] // the quality tools' one process boundary
 fn command(program: &Program, cwd: &Path) -> io::Result<Command> {
     let mut command = match program {
@@ -62,17 +66,6 @@ fn command(program: &Program, cwd: &Path) -> io::Result<Command> {
     Ok(command)
 }
 
-#[cfg(windows)]
-#[allow(clippy::disallowed_methods)]
-fn shell(text: &str) -> Command {
-    use std::os::windows::process::CommandExt;
-    // subprocess with shell=True: `{COMSPEC} /c "{command}"`.
-    let comspec = std::env::var_os("COMSPEC").unwrap_or_else(|| OsString::from("cmd.exe"));
-    let mut command = Command::new(comspec);
-    command.raw_arg(format!("/c \"{text}\""));
-    command
-}
-
 #[cfg(not(windows))]
 #[allow(clippy::disallowed_methods)]
 fn shell(text: &str) -> Command {
@@ -84,7 +77,7 @@ fn shell(text: &str) -> Command {
 /// Run `program` in `cwd` with inherited streams; its exit status (a
 /// signal `n` as `-n`). An error means it did not start.
 pub fn run(program: &Program, cwd: &Path) -> io::Result<i32> {
-    let status = command(program, cwd)?.status()?;
+    let status = execute(program, cwd, false)?.status;
     if let Some(code) = status.code() {
         return Ok(code);
     }
@@ -96,6 +89,52 @@ pub fn run(program: &Program, cwd: &Path) -> io::Result<i32> {
         }
     }
     Ok(1)
+}
+
+/// Run with captured stdout and stderr, preserving their bytes.
+pub fn output(program: &Program, cwd: &Path) -> io::Result<std::process::Output> {
+    execute(program, cwd, true)
+}
+
+/// The captured process boundary: the same job/process-group containment as
+/// [`output`], retained as a named alias for callers with captured children.
+pub fn capture(program: &Program, cwd: &Path) -> io::Result<std::process::Output> {
+    execute(program, cwd, true)
+}
+
+#[cfg(windows)]
+fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Result<std::process::Output> {
+    process_windows::execute(program, cwd, capture)
+}
+
+#[cfg(not(windows))]
+#[allow(clippy::disallowed_methods)] // the quality tools' one process boundary
+fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Result<std::process::Output> {
+    let mut command = command(program, cwd)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Closing this process boundary also ends the command's descendants
+        // after its leader exits. Do not replace the process group on failure.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setpgid(0, 0) == -1 {
+                    Err(io::Error::last_os_error())
+                } else {
+                    Ok(())
+                }
+            });
+        }
+    }
+    if capture {
+        command.output()
+    } else {
+        command.status().map(|status| std::process::Output {
+            status,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        })
+    }
 }
 
 /// `shutil.which`: the first `name` on PATH (with PATHEXT on Windows).

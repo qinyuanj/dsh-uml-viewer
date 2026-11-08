@@ -5,7 +5,10 @@
 #![allow(clippy::disallowed_methods)]
 
 mod crap;
+mod crap_changed;
 mod crap_goldens;
+mod crap_process;
+mod crap_stamp;
 mod dispatch;
 mod scene_cli;
 
