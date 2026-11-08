@@ -139,6 +139,22 @@ pub(crate) fn parse(args: &[String]) -> Parsed {
     }
     Parsed::Scan(options)
 }
+/// Whether this port scans `language` yet: all seven since
+/// qinyuanj/dsh-uml-viewer#7. Kept as the dispatcher's guard so an
+/// unknown future language is refused rather than silently skipped.
+pub fn scans(language: quality_core::language::Language) -> bool {
+    matches!(
+        language,
+        quality_core::language::Language::Rust
+            | quality_core::language::Language::Go
+            | quality_core::language::Language::Java
+            | quality_core::language::Language::Clojure
+            | quality_core::language::Language::Python
+            | quality_core::language::Language::TypeScript
+            | quality_core::language::Language::Lua
+    )
+}
+
 /// The binary's dry role. It preserves the original argument and exit contract.
 pub fn run(args: &[OsString]) -> ExitCode {
     run_on(platform::Host::current(), platform::windows_build(), args)

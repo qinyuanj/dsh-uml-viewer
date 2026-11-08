@@ -1,0 +1,6 @@
+{"configured":false,"crapScope":"whole-tree","exitCode":0,"operation":"crap","projectRoot":"/project","reason":null,"tool":"crapper","validResult":true,"version":1}
+{"configured":false,"crapScope":null,"exitCode":0,"operation":"dry","projectRoot":"/project","reason":null,"tool":"dryer","validResult":true,"version":1}
+{"configured":false,"crapScope":null,"exitCode":1,"operation":"mutate","projectRoot":"/project","reason":"no business mutation targets; name files or pass --changed","tool":"mutator","validResult":false,"version":1}
+{"configured":true,"crapScope":"whole-tree","exitCode":1,"operation":"crap","projectRoot":"/project","reason":null,"tool":"configured","validResult":false,"version":1}
+{"configured":true,"crapScope":null,"exitCode":3,"operation":"mutate","projectRoot":"/project","reason":null,"tool":"configured","validResult":true,"version":1}
+{"configured":false,"crapScope":null,"exitCode":1,"operation":"crap","projectRoot":"/project","reason":"uml-quality.json needs version 1 and standardTools or operations; the Clojure alias route was removed","tool":"crapper","validResult":false,"version":1}

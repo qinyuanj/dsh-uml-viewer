@@ -65,8 +65,12 @@ fn main() {
         .stdin(std::process::Stdio::null()).spawn().unwrap();
     let mut file = fs::OpenOptions::new().create(true).append(true).open(arg(2)).unwrap();
     file.write_all(format!("{} {}\n", std::process::id(), child.id()).as_bytes()).unwrap();
+    // The baseline takes a second, so a mutant's timeout is many seconds and
+    // an interrupt arrives long before the mutant could be timed out.
     if Path::new(&env::var("MUTATOR_VIEW").unwrap()).join("mutation").is_file() {
         std::thread::sleep(Duration::from_secs(120));
+    } else {
+        std::thread::sleep(Duration::from_secs(1));
     }
 }
 fn arg(n: usize) -> String { env::args().nth(n).unwrap() }
@@ -245,7 +249,7 @@ fn ctrl_break_interrupts_the_run_and_removes_the_copies() {
         || {
             fs::read_to_string(fixture.directory.join("cli.stdout"))
                 .is_ok_and(|text| text.contains("Isolation:"))
-            || !fixture.pids().is_empty()
+                || !fixture.pids().is_empty()
         },
         "the run armed its console handler",
     );
@@ -264,8 +268,11 @@ fn ctrl_break_interrupts_the_run_and_removes_the_copies() {
                 std::io::Error::last_os_error()
             );
         }
+        // A process that already recorded the signal is unwinding: its handler
+        // is gone, so another event would terminate it by default. Only a run
+        // still working after a long wait was never reached.
         let start = Instant::now();
-        while start.elapsed() < Duration::from_secs(5) {
+        while start.elapsed() < Duration::from_secs(20) {
             if let Some(code) = cli.0.try_wait().unwrap() {
                 status = Some(code);
                 break;
