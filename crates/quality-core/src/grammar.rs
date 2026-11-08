@@ -22,6 +22,8 @@ pub enum Grammar {
     Tsx,
     Lua,
     Rust,
+    Go,
+    Java,
 }
 
 impl Grammar {
@@ -32,6 +34,8 @@ impl Grammar {
             Grammar::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
             Grammar::Lua => tree_sitter_lua::LANGUAGE.into(),
             Grammar::Rust => tree_sitter_rust::LANGUAGE.into(),
+            Grammar::Go => tree_sitter_go::LANGUAGE.into(),
+            Grammar::Java => tree_sitter_java::LANGUAGE.into(),
         }
     }
 

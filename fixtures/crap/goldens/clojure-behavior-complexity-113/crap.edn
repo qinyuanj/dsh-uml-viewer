@@ -1,0 +1,3 @@
+{:entries [
+  {:name "foo", :namespace "testdata.behavior.complexity-113.core", :complexity 2, :coverage nil, :crap nil}
+]}

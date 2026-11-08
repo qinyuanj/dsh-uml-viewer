@@ -1,0 +1,6 @@
+# A Cloverage report keyed exactly by the source path wins over a longer
+# key that merely ends with it (crapper coverage.py _SuffixIndex.get).
+project clojure
+file reports/clojure/uncovered.clj.html target/coverage/a/src/demo/core.clj.html
+file reports/clojure/covered.clj.html target/coverage/src/demo/core.clj.html
+arg --use-existing-coverage

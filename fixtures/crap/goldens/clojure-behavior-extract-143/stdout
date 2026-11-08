@@ -1,0 +1,7 @@
+CRAP Report
+===========
+Languages: clojure
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+bar                            testdata.behavior.extract-143.edge     1   N/A       N/A

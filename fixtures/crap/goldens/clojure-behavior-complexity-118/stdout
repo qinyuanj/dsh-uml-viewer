@@ -1,0 +1,7 @@
+CRAP Report
+===========
+Languages: clojure
+
+Function                       Namespace                               CC    Cov%     CRAP
+------------------------------------------------------------------------------------------
+foo                            testdata.behavior.complexity-118.core    4   N/A       N/A

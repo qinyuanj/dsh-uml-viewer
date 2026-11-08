@@ -1,0 +1,3 @@
+{:entries [
+  {:name "Place", :namespace "example.com/behavior/root", :complexity 1, :coverage nil, :crap nil}
+]}

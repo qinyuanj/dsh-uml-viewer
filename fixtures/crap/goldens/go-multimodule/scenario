@@ -1,0 +1,10 @@
+project go
+file go/module/Module.go svc/Module.go
+file go/module/Module.go cmd/svc/Module.go
+file reports/go/coverage.out svc/target/coverage/go/coverage.out
+file reports/go/coverage.out cmd/svc/target/coverage/go/coverage.out
+arg --use-existing-coverage
+arg -s
+arg svc
+arg -s
+arg cmd/svc

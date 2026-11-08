@@ -1,0 +1,18 @@
+CRAP Report
+===========
+Languages: java
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+nested                         demo.Example                          13   N/A       N/A
+score                          demo.Example                          10   N/A       N/A
+switched                       demo.Example                           4   N/A       N/A
+overloaded                     demo.Example                           2   N/A       N/A
+overloaded                     demo.Example                           2   N/A       N/A
+uncovered                      demo.Example                           2   N/A       N/A
+present                        demo.Example.Contract                  2   N/A       N/A
+positive                       demo.Example.Value                     2   N/A       N/A
+outer                          demo.Example                           1   N/A       N/A
+stable                         demo.Example                           1   N/A       N/A
+tick                           demo.Example.Inner                     1   N/A       N/A
+code                           demo.Example.Mode                      1   N/A       N/A

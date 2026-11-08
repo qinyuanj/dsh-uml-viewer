@@ -1,0 +1,6 @@
+# A custom coverage command's fresh LCOV never measures Java: JaCoCo is the
+# only Java source, so every function stays N/A (crapper coverage.py percent_for).
+project java
+file reports/java/custom.lcov fixture.lcov
+arg --coverage-command
+arg {COPY_FRESH_LCOV}

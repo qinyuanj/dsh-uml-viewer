@@ -6,6 +6,9 @@ use std::path::Path;
 
 use crate::language::Language;
 
+mod clojure;
+mod go;
+mod java;
 mod lua;
 mod python;
 mod rust;
@@ -17,6 +20,9 @@ pub struct Function {
     pub name: String,
     /// `crate::module[::Type]` for Rust; the uml-viewer join key.
     pub namespace: String,
+    /// Java binary class name; nested types use `$`, not `.`.
+    #[doc(hidden)]
+    pub jacoco_class: Option<String>,
     pub complexity: u32,
     pub start_line: usize,
     pub end_line: usize,
@@ -40,6 +46,7 @@ impl Function {
         Function {
             name,
             namespace,
+            jacoco_class: None,
             complexity,
             start_line,
             end_line,
@@ -47,14 +54,27 @@ impl Function {
             language,
         }
     }
+
+    /// The Java binary class name JaCoCo keys a nested type by.
+    pub fn with_jacoco_class(mut self, binary: String) -> Function {
+        self.jacoco_class = Some(binary);
+        self
+    }
 }
 
-/// Whether crapper can extract this language. Go, Java and Clojure arrive
-/// with qinyuanj/dsh-uml-viewer#5; their registrations merge additively.
+/// Whether this port reads `language` yet. Every analysed language is ported:
+/// Python, TypeScript and Lua with qinyuanj/dsh-uml-viewer#4, Go, Java and
+/// Clojure with #5.
 pub fn supported(language: Language) -> bool {
     matches!(
         language,
-        Language::Rust | Language::Python | Language::TypeScript | Language::Lua
+        Language::Rust
+            | Language::Go
+            | Language::Java
+            | Language::Clojure
+            | Language::Python
+            | Language::TypeScript
+            | Language::Lua
     )
 }
 
@@ -69,9 +89,11 @@ pub fn functions_in_file(
     let path = path.replace('\\', "/");
     match language {
         Language::Rust => rust::functions(source, &path, project_root),
+        Language::Go => go::functions(source, &path, project_root),
+        Language::Java => java::functions(source, &path, project_root),
+        Language::Clojure => clojure::functions(source, &path, project_root),
         Language::Python => python::functions(source, &path, project_root),
         Language::TypeScript => typescript::functions(source, &path, project_root),
         Language::Lua => lua::functions(source, &path, project_root),
-        _ => Vec::new(),
     }
 }

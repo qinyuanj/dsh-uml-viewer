@@ -1,0 +1,5 @@
+# Without Cloverage's HTML form counts the Clojure project falls back to its
+# LCOV report, as crapper coverage.py percent_for does.
+project clojure
+file reports/clojure/lcov.info target/coverage/lcov.info
+arg --use-existing-coverage

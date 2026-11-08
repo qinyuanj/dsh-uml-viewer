@@ -1,0 +1,4 @@
+project clojure
+arg -s
+arg testdata/behavior/extract-148/.
+arg --no-coverage

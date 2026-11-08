@@ -1,0 +1,8 @@
+CRAP Report
+===========
+Languages: clojure
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+choose                         demo.core                              2   N/A       N/A
+hidden                         demo.core                              1   N/A       N/A

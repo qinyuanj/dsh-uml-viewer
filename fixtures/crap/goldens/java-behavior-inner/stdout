@@ -1,0 +1,8 @@
+CRAP Report
+===========
+Languages: java
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+place                          demo.pkg.Board                         3   N/A       N/A
+tick                           demo.pkg.Board.Inner                   1   N/A       N/A

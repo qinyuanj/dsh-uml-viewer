@@ -50,7 +50,7 @@ fn prepare(scenario: &Path, project: &Project) -> Vec<String> {
         match word {
             "project" => {
                 let source = match rest {
-                    "rust" => crap.join("rust"),
+                    "rust" | "go" | "java" | "clojure" => crap.join(rest),
                     "rust-fixture" => repo().join("rust-fixture"),
                     "python-fixture" | "typescript-fixture" | "lua-fixture" => repo().join(rest),
                     "language-edges" => crap.join("language-edges"),
@@ -101,7 +101,58 @@ fn every_scenario_matches_the_python_crapper_byte_for_byte() {
         .filter(|path| path.join("scenario").is_file())
         .collect();
     scenarios.sort();
-    assert!(scenarios.len() >= 12, "scenarios: {scenarios:?}");
+    let names: Vec<String> = scenarios
+        .iter()
+        .map(|dir| dir.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    // Exact: 29 base scenarios (24 from #5, four fixtures from #4 and #6's
+    // Unicode-digit threshold) and 64 behavior groups. A dropped scenario,
+    // or a behavior group whose fixtures exist but whose scenario does not,
+    // must fail. The helper-only string-blanking case has no CLI output.
+    assert_eq!(names.len(), 93, "scenarios: {names:?}");
+    let mut sourced: Vec<String> = Vec::new();
+    for language in ["go", "java", "clojure"] {
+        let base = repo()
+            .join("fixtures/crap")
+            .join(language)
+            .join("testdata/behavior");
+        let Ok(groups) = fs::read_dir(&base) else {
+            continue;
+        };
+        for group in groups {
+            let group = group.unwrap().path();
+            if group.is_dir() {
+                let group = group.file_name().unwrap().to_string_lossy().into_owned();
+                sourced.push(format!("{language}-behavior-{group}"));
+            }
+        }
+    }
+    sourced.sort();
+    let mut behavior: Vec<String> = names
+        .iter()
+        .filter(|name| name.contains("-behavior-"))
+        .cloned()
+        .collect();
+    behavior.sort();
+    sourced.retain(|name| name != "clojure-behavior-helper-158");
+    assert_eq!(
+        behavior, sourced,
+        "behavior scenarios vs materialized groups"
+    );
+    // The one intended empty selection excludes every file; a base scenario
+    // that selects nothing otherwise means its fixtures moved away.
+    let empty: Vec<&String> = names
+        .iter()
+        .filter(|name| {
+            fs::read_to_string(goldens.join(name).join("stdout")).unwrap()
+                == "No source files to analyze.\n"
+        })
+        .collect();
+    assert_eq!(
+        empty,
+        vec!["empty-selection"],
+        "empty selections: {empty:?}"
+    );
     let mut failures = Vec::new();
     for dir in &scenarios {
         let name = dir.file_name().unwrap().to_string_lossy().into_owned();

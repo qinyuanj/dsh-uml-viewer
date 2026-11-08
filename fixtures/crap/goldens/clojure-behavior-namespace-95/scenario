@@ -1,0 +1,4 @@
+project clojure
+arg -s
+arg testdata/behavior/namespace-95/src/demo
+arg --no-coverage

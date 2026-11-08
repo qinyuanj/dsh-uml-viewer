@@ -1,0 +1,10 @@
+{:entries [
+  {:name "clauses", :namespace "demo.core", :complexity 15, :coverage nil, :crap nil}
+  {:name "branches", :namespace "demo.core", :complexity 13, :coverage nil, :crap nil}
+  {:name "fallback-clause", :namespace "demo.core", :complexity 3, :coverage nil, :crap nil}
+  {:name "choose", :namespace "demo.core", :complexity 2, :coverage nil, :crap nil}
+  {:name "strings", :namespace "demo.core", :complexity 2, :coverage nil, :crap nil}
+  {:name "after-characters", :namespace "demo.core", :complexity 1, :coverage nil, :crap nil}
+  {:name "empty-clauses", :namespace "demo.core", :complexity 1, :coverage nil, :crap nil}
+  {:name "hidden", :namespace "demo.core", :complexity 1, :coverage nil, :crap nil}
+]}

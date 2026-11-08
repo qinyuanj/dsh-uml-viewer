@@ -1,0 +1,1 @@
+(defn foo [x] (case x () :empty [1] :one :other))

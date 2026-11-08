@@ -1,0 +1,30 @@
+CRAP Report
+===========
+Languages: java
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+nested                         demo.Example                          13  73.8%     16.0
+nested                         demo.Example                          13  73.8%     16.0
+score                          demo.Example                          10  85.7%     10.3
+score                          demo.Example                          10  85.7%     10.3
+overloaded                     demo.Example                           2   0.0%      6.0
+overloaded                     demo.Example                           2   0.0%      6.0
+uncovered                      demo.Example                           2   0.0%      6.0
+uncovered                      demo.Example                           2   0.0%      6.0
+present                        demo.Example.Contract                  2   0.0%      6.0
+present                        demo.Example.Contract                  2   0.0%      6.0
+switched                       demo.Example                           4  80.0%      4.1
+switched                       demo.Example                           4  80.0%      4.1
+overloaded                     demo.Example                           2  66.7%      2.1
+overloaded                     demo.Example                           2  66.7%      2.1
+positive                       demo.Example.Value                     2  87.5%      2.0
+positive                       demo.Example.Value                     2  87.5%      2.0
+outer                          demo.Example                           1 100.0%      1.0
+outer                          demo.Example                           1 100.0%      1.0
+stable                         demo.Example                           1 100.0%      1.0
+stable                         demo.Example                           1 100.0%      1.0
+tick                           demo.Example.Inner                     1 100.0%      1.0
+tick                           demo.Example.Inner                     1 100.0%      1.0
+code                           demo.Example.Mode                      1 100.0%      1.0
+code                           demo.Example.Mode                      1 100.0%      1.0

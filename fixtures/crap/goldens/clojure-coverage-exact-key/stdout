@@ -1,0 +1,14 @@
+CRAP Report
+===========
+Languages: clojure
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+clauses                        demo.core                             15 100.0%     15.0
+branches                       demo.core                             13 100.0%     13.0
+fallback-clause                demo.core                              3 100.0%      3.0
+choose                         demo.core                              2 100.0%      2.0
+strings                        demo.core                              2 100.0%      2.0
+after-characters               demo.core                              1 100.0%      1.0
+empty-clauses                  demo.core                              1 100.0%      1.0
+hidden                         demo.core                              1 100.0%      1.0
