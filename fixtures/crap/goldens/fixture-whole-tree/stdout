@@ -1,0 +1,16 @@
+CRAP Report
+===========
+Languages: rust
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+hidden                         bookwriter                             1   N/A       N/A
+main                           bookwriter                             1   N/A       N/A
+read_text                      bookwriter                             1   N/A       N/A
+run                            bookwriter                             1   N/A       N/A
+attach                         bookwriter::console                    1   N/A       N/A
+nope                           bookwriter::ignored                    1   N/A       N/A
+hidden                         bookwriter::proto::inner               1   N/A       N/A
+a                              bookwriter::rec                        1   N/A       N/A
+b                              bookwriter::rec                        1   N/A       N/A
+install                        bookwriter::signals                    1   N/A       N/A

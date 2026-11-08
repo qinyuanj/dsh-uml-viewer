@@ -1,0 +1,3 @@
+project rust-fixture
+arg --full-tree
+arg --no-coverage

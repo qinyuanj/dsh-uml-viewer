@@ -1,0 +1,10 @@
+# Named files outside the source roots or excluded are skipped on stderr.
+project rust
+arg --no-coverage
+arg -s
+arg src/geometry
+arg --exclude
+arg src/geometry/gen
+arg src/lib.rs
+arg src/geometry/gen/table.rs
+arg src/geometry/mod.rs

@@ -1,0 +1,7 @@
+# cargo-llvm-cov's own LCOV counts LF differently from its DA lines; the
+# strict reader for a custom coverage command rejects it: exit 1, no snapshot.
+project rust
+file rust.llvm-cov.lcov fixture.lcov
+arg --full-tree
+arg --coverage-command
+arg {COPY_FRESH_LCOV}

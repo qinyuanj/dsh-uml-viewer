@@ -1,0 +1,3 @@
+Skipping src/lib.rs; it is outside the source roots
+Skipping excluded src/geometry/gen/table.rs
+Wrote <ROOT>/.metrics/crap.edn

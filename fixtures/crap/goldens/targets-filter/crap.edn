@@ -1,0 +1,8 @@
+{:entries [
+  {:name "drain", :namespace "crap_demo::parse", :complexity 4, :coverage nil, :crap nil}
+  {:name "parse_pairs", :namespace "crap_demo::parse", :complexity 4, :coverage nil, :crap nil}
+  {:name "grüße", :namespace "crap_demo::parse", :complexity 2, :coverage nil, :crap nil}
+  {:name "keep_even", :namespace "crap_demo::parse", :complexity 2, :coverage nil, :crap nil}
+  {:name "outer", :namespace "crap_demo::parse", :complexity 2, :coverage nil, :crap nil}
+  {:name "r#match", :namespace "crap_demo::parse", :complexity 1, :coverage nil, :crap nil}
+]}

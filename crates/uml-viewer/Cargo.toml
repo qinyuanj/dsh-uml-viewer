@@ -17,6 +17,7 @@ path = "tests/main.rs"
 
 [dependencies]
 companion = { path = "../companion" }
+crapper = { path = "../crapper" }
 frame = { path = "../frame" }
 ir = { path = "../ir" }
 scene = { path = "../scene" }
