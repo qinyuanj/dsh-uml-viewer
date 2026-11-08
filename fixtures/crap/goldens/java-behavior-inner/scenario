@@ -1,0 +1,4 @@
+project java
+arg -s
+arg testdata/behavior/inner/.
+arg --no-coverage

@@ -1,0 +1,652 @@
+{
+  "reference": "D:\\dev\\github\\spec203-notes\\ref\\crapper\\tests",
+  "policy": "Generated source strings and scalar expectations originate in pinned ASTs. Each case directory is a distinct explicit -s root. Expected CLI artifacts are produced by the original tools.",
+  "omitted": "Only test_an_unfinished_cond_counts_the_clauses_it_has: private unfinished complexity cannot be observed through CLI extraction.",
+  "cases": [
+    {
+      "language": "go",
+      "case": "go/branchy/sample",
+      "group": "branchy",
+      "path": "sample.go",
+      "source_root": ".",
+      "source_test": "test_go.py:branchy",
+      "source": "package sample\n\nfunc Branchy(x int, ch chan int) int {\n\tif x > 0 && x < 10 {\n\t\treturn 1\n\t}\n\tswitch x {\n\tcase 1, 2:\n\t\treturn 2\n\tdefault:\n\t\treturn 3\n\t}\n}\n",
+      "module": "example.com/behavior/go"
+    },
+    {
+      "language": "go",
+      "case": "go/receivers/widget",
+      "group": "receivers",
+      "path": "widget.go",
+      "source_root": ".",
+      "source_test": "test_go.py:receivers",
+      "source": "package sample\n\ntype Widget struct{}\n\nfunc (w *Widget) Run() {\n\tfor i := 0; i < 10; i++ {\n\t}\n\tfor _, item := range items {\n\t}\n}\n\nfunc Simple() int { return 1 }\n",
+      "module": "example.com/behavior/go"
+    },
+    {
+      "language": "go",
+      "case": "go/import-path/board",
+      "group": "import-path",
+      "path": "board.go",
+      "source_root": ".",
+      "source_test": "test_go.py:import-path",
+      "source": "package game\n\ntype Board struct{}\n\nfunc (b *Board) Place() {\n\tif ready && ok {\n\t\treturn\n\t}\n}\n",
+      "module": "example.com/behavior/go"
+    },
+    {
+      "language": "go",
+      "case": "go/root-module/board",
+      "group": "root-module",
+      "path": "board.go",
+      "source_root": "$CASE",
+      "source_test": "test_edges.py:204",
+      "source": "package demo\nfunc Place() int { return 1 }\n",
+      "module": "example.com/behavior/root",
+      "original_path": null
+    },
+    {
+      "language": "go",
+      "case": "go/orphan/board",
+      "group": "orphan",
+      "path": "board.go",
+      "source_root": ".",
+      "source_test": "test_edges.py:196",
+      "source": "func Orphan() int { return 1 }\n",
+      "module": null,
+      "original_path": "board.go"
+    },
+    {
+      "language": "go",
+      "case": "go/declarations/board",
+      "group": "declarations",
+      "path": "board.go",
+      "source_root": ".",
+      "source_test": "test_edges.py:200",
+      "source": "package p\nfunc Declared(x int)\nfunc Real() int { return 1 }\nfunc () Run() {}\nfunc (w *Widget) () {}\n",
+      "module": null,
+      "original_path": "board.go"
+    },
+    {
+      "language": "java",
+      "case": "java/score/Sample",
+      "group": "score",
+      "path": "Sample.java",
+      "source_root": ".",
+      "source_test": "test_java.py:score",
+      "source": "\nclass Sample {\n    int score(boolean a, boolean b, int[] values) {\n        for (int i = 0; i < values.length; i++) {\n        }\n        for (int value : values) {\n        }\n        while (a) {\n            a = false;\n        }\n        do {\n            b = false;\n        } while (b);\n        if (a && b || values.length > 0) {\n        }\n        try {\n            return a ? 1 : 0;\n        } catch (RuntimeException ex) {\n            return 2;\n        }\n    }\n}\n"
+    },
+    {
+      "language": "java",
+      "case": "java/nested/Sample",
+      "group": "nested",
+      "path": "Sample.java",
+      "source_root": ".",
+      "source_test": "test_java.py:nested",
+      "source": "\nclass Sample {\n    int nested(boolean a, boolean b, int[] values) {\n        for (int i = 0; i < values.length; i++) {\n            if (a) {\n            }\n        }\n        for (int value : values) {\n            if (b) {\n            }\n        }\n        while (a) {\n            if (b) {\n            }\n            a = false;\n        }\n        do {\n            if (a) {\n            }\n            b = false;\n        } while (b);\n        try {\n            return a ? (b ? 1 : 0) : 2;\n        } catch (RuntimeException ex) {\n            if (values.length > 0) {\n                return values[0];\n            }\n            return 3;\n        }\n    }\n\n    int switched(int value) {\n        switch (value) {\n            case 1:\n                if (value > 0) {\n                    return 1;\n                }\n                return 0;\n            default:\n                return 2;\n        }\n    }\n}\n"
+    },
+    {
+      "language": "java",
+      "case": "java/anonymous/Sample",
+      "group": "anonymous",
+      "path": "Sample.java",
+      "source_root": ".",
+      "source_test": "test_java.py:anonymous",
+      "source": "\nclass Sample {\n    int outer() {\n        Runnable runnable = new Runnable() {\n            @Override\n            public void run() {\n                if (true) {\n                }\n            }\n        };\n        return 1;\n    }\n}\n"
+    },
+    {
+      "language": "java",
+      "case": "java/inner/Board",
+      "group": "inner",
+      "path": "Board.java",
+      "source_root": ".",
+      "source_test": "test_java.py:inner",
+      "source": "\n    package demo.pkg;\n    public class Board {\n        Board() { if (true) {} }\n        public void place(int x) { if (x > 0 && ready) return; }\n        class Inner { void tick() { return; } }\n    }\n    "
+    },
+    {
+      "language": "java",
+      "case": "java/comments/Sample",
+      "group": "comments",
+      "path": "Sample.java",
+      "source_root": ".",
+      "source_test": "test_java.py:comments",
+      "source": "\n    class Sample {\n        int stable() {\n            String text = \"if && || ? case default catch\";\n            // if && || ? case default catch\n            /* if && || ? case default catch */\n            return 1;\n        }\n    }\n    "
+    },
+    {
+      "language": "java",
+      "case": "java/loose/Loose",
+      "group": "loose",
+      "path": "Loose.java",
+      "source_root": ".",
+      "source_test": "test_java.py:loose",
+      "source": "int score() { return 1; }\n"
+    },
+    {
+      "language": "java",
+      "case": "java/local-lambda/Sample",
+      "group": "local-lambda",
+      "path": "Sample.java",
+      "source_root": ".",
+      "source_test": "test_edges.py:220",
+      "source": "\n    class Sample {\n        Runnable r = () -> {\n            class Local {\n                int score() { if (true) return 1; return 0; }\n            }\n            return null;\n        };\n        int outer() { return 1; }\n    }\n    "
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-11/core",
+      "group": "complexity-11",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:11",
+      "source": "(defn foo [])",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-12/core",
+      "group": "complexity-12",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:12",
+      "source": "(defn foo [x]\n  (+ x 1))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-13/core",
+      "group": "complexity-13",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:13",
+      "source": "(defn foo [x]\n  (if x 1 0))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-14/core",
+      "group": "complexity-14",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:14",
+      "source": "(defn foo [x]\n  (if-not x 1 0))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-15/core",
+      "group": "complexity-15",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:15",
+      "source": "(defn foo [x]\n  (if-let [y x] y 0))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-16/core",
+      "group": "complexity-16",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:16",
+      "source": "(defn foo [x]\n  (when x 1))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-17/core",
+      "group": "complexity-17",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:17",
+      "source": "(defn foo [x]\n  (when-first [y x] y))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-18/core",
+      "group": "complexity-18",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:18",
+      "source": "(defn foo [x y]\n  (and x y))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-19/core",
+      "group": "complexity-19",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:19",
+      "source": "(defn foo [x y]\n  (or x y))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-20/core",
+      "group": "complexity-20",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:20",
+      "source": "(defn foo [x]\n  (loop [i 0] (recur (inc i))))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-25/core",
+      "group": "complexity-25",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:25",
+      "source": "(defn foo [x]\n  (cond\n    (= x 1) :one\n    :else :other))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-28/core",
+      "group": "complexity-28",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:28",
+      "source": "(defn foo [x]\n  (condp = x\n    1 :one\n    2 :two))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-29/core",
+      "group": "complexity-29",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:29",
+      "source": "(defn foo [x]\n  (case x\n    1 :one\n    :other))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-31/core",
+      "group": "complexity-31",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:31",
+      "source": "(defn foo [x]\n  (cond-> x\n    (pos? x) inc\n    (even? x) (* 2)))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-36/core",
+      "group": "complexity-36",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:36",
+      "source": "(defn foo [x]\n  (some-> x inc dec))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-38/core",
+      "group": "complexity-38",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:38",
+      "source": "(defn foo [x]\n  (some->> x (map inc) (filter pos?)))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-43/core",
+      "group": "complexity-43",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:43",
+      "source": "(defn foo [x]\n  \"if when cond and or\"\n  x)",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-44/core",
+      "group": "complexity-44",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:44",
+      "source": "(defn foo [x]\n  \"(if true 1 0)\"\n  x)",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-45/core",
+      "group": "complexity-45",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:45",
+      "source": "(defn foo [x]\n  ;; if when cond\n  x)",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-46/core",
+      "group": "complexity-46",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:46",
+      "source": "(defn foo [x]\n  (if x :yes :no) ; and or when cond)",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-65/core",
+      "group": "complexity-65",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:65",
+      "source": "(defn foo [cell]\n  (let [contents (:contents cell)]\n    (cond\n      (pred-a? contents)\n      {:type :army :mode :awake :owner (:owner contents) :aboard true}\n\n      (pred-b? contents)\n      {:type :fighter :mode :awake :owner (:owner contents) :fuel 20 :from-carrier true}\n\n      (pred-c? contents) contents\n\n      (pred-d? cell)\n      {:type :fighter :mode :awake :owner :player :fuel 20 :from-airport true}\n\n      :else nil)))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-111/core",
+      "group": "complexity-111",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:111",
+      "source": "(defn foo [x] \"\" (if x 1 0))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-112/core",
+      "group": "complexity-112",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:112",
+      "source": "(defn foo [x] \"\\\"\" (if x 1 0))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-113/core",
+      "group": "complexity-113",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:113",
+      "source": "(defn foo [x] \"\\\\\" (if x 1 0))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-117/core",
+      "group": "complexity-117",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:117",
+      "source": "(defn foo [x] (cond (a? x) 1 (b? x) 2))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-118/core",
+      "group": "complexity-118",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:118",
+      "source": "(defn foo [x] (case x () :empty [1] :one :other))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-119/core",
+      "group": "complexity-119",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:119",
+      "source": "(defn foo [x] (cond))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-120/core",
+      "group": "complexity-120",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:120",
+      "source": "(defn foo [x] (some-> x))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/omitted/unfinished",
+      "group": "omitted",
+      "path": "unfinished.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:124",
+      "source": "(defn foo [x] (cond a b",
+      "omitted": true,
+      "reason": "Private unfinished complexity test; extraction drops an unclosed defn."
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-162/core",
+      "group": "complexity-162",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:162",
+      "source": "(defn foo [x] (cond a b c))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/complexity-163/core",
+      "group": "complexity-163",
+      "path": "core.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:163",
+      "source": "(defn foo [x] (case x 1 :one))",
+      "expected_complexity": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/demo-core/core",
+      "group": "demo-core",
+      "path": "core.clj",
+      "source_root": "src",
+      "source_test": "test_clojure.py:70",
+      "source": "(ns demo.core)\n\n(defn choose [x]\n  (if x 1 0))\n\n(defn- hidden [y]\n  y)\n",
+      "original_path": "src/demo/core.clj",
+      "original_root": "/proj"
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/core-extra/core_extra",
+      "group": "core-extra",
+      "path": "core_extra.clj",
+      "source_root": "src",
+      "source_test": "test_clojure.py:96",
+      "source": "(defn foo [] 1)\n",
+      "original_path": "src/demo/core_extra.clj",
+      "original_root": "/proj"
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/extract-88/edge",
+      "group": "extract-88",
+      "path": "edge.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:88",
+      "source": "(defn alpha [x]\n  (if x 1 0))\n\n(def rules\n  [{:pred (fn [v]\n            (if v (when (pos? v) true) false))}])\n\n(defn omega [y]\n  y)"
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/extract-102/edge",
+      "group": "extract-102",
+      "path": "edge.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:102",
+      "source": "(defn foo [x]\n  \"say \\\"hi\\\"\n  (if x 1)\"\n  \\space\n  ;; (defn hidden [])\n  x)\n"
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/extract-107/edge",
+      "group": "extract-107",
+      "path": "edge.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:107",
+      "source": "(def x #{\\\"})\n(defn foo [] 1)"
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/extract-138/edge",
+      "group": "extract-138",
+      "path": "edge.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:138",
+      "source": ";; (defn hidden [])\n(def s \"a\nb\")\n(def t \"\")\n\"(defn fake [])\"\n(defn foo [x]\n  (inc x)\n  x)\n;; trailing"
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/extract-143/edge",
+      "group": "extract-143",
+      "path": "edge.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:143",
+      "source": ")\n(defn bar [] 1)"
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/extract-148/edge",
+      "group": "extract-148",
+      "path": "edge.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:148",
+      "source": "(def c [\\a \\( \\space])\n(defn foo [] \\x)\n(defn bar [] 1)"
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/extract-168/edge",
+      "group": "extract-168",
+      "path": "edge.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:168",
+      "source": "(def c [\\a\n])\n(defn foo [] 1)"
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/edge-186/edge",
+      "group": "edge-186",
+      "path": "edge.clj",
+      "source_root": ".",
+      "source_test": "test_edges.py:186",
+      "source": "(defn foo [] \\"
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/edge-187/edge",
+      "group": "edge-187",
+      "path": "edge.clj",
+      "source_root": ".",
+      "source_test": "test_edges.py:187",
+      "source": "(defn foo [] \\abc"
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/edge-189/edge",
+      "group": "edge-189",
+      "path": "edge.clj",
+      "source_root": ".",
+      "source_test": "test_edges.py:189",
+      "source": "(defn foo [] \"hello"
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/edge-188/edge",
+      "group": "edge-188",
+      "path": "edge.clj",
+      "source_root": ".",
+      "source_test": "test_edges.py:188",
+      "source": "(defn foo [] ;; comment"
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/private-190/edge",
+      "group": "private-190",
+      "path": "edge.clj",
+      "source_root": ".",
+      "source_test": "test_edges.py:190",
+      "source": "(defn foo []\n  ;; comment\n  \"hello\")",
+      "note": "Public extraction gives the same function; private raw text assertion is not CLI observable."
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/namespace-93/core_extra",
+      "group": "namespace-93",
+      "path": "core_extra.clj",
+      "source_root": "src/demo",
+      "source_test": "test_clojure.py:93",
+      "source": "(defn foo [] 1)\n",
+      "original_path": "src/demo/core_extra.clj",
+      "original_root": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/namespace-94/core",
+      "group": "namespace-94",
+      "path": "core.cljc",
+      "source_root": "src/demo",
+      "source_test": "test_clojure.py:94",
+      "source": "(defn foo [] 1)\n",
+      "original_path": "/proj/src/demo/core.cljc",
+      "original_root": "/proj"
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/namespace-95/core",
+      "group": "namespace-95",
+      "path": "core.bb",
+      "source_root": "src/demo",
+      "source_test": "test_clojure.py:95",
+      "source": "(defn foo [] 1)\n",
+      "original_path": "pkg/src/demo/core.bb",
+      "original_root": null
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/namespace-152/core",
+      "group": "namespace-152",
+      "path": "core.clj",
+      "source_root": "demo",
+      "source_test": "test_clojure.py:152",
+      "source": "(defn foo [] 1)\n",
+      "original_path": "/proj/demo/core.clj",
+      "original_root": "/proj"
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/namespace-153/core",
+      "group": "namespace-153",
+      "path": "core.clj",
+      "source_root": "demo",
+      "source_test": "test_clojure.py:153",
+      "source": "(defn foo [] 1)\n",
+      "original_path": "/proj/demo/core.clj",
+      "original_root": "/proj/"
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/namespace-154/core",
+      "group": "namespace-154",
+      "path": "core.clj",
+      "source_root": "demo",
+      "source_test": "test_clojure.py:154",
+      "source": "(defn foo [] 1)\n",
+      "original_path": "demo/core.clj",
+      "original_root": "."
+    },
+    {
+      "language": "clojure",
+      "case": "clojure/helper-158/helper",
+      "group": "helper-158",
+      "path": "helper.clj",
+      "source_root": ".",
+      "source_test": "test_clojure.py:158",
+      "source": "(f \"ab\nc\" x) ; done",
+      "helper_only": true,
+      "note": "String blanking has no direct CLI output; source preserved for manual inspection only."
+    }
+  ]
+}

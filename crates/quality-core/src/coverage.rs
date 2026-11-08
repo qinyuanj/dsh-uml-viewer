@@ -448,7 +448,7 @@ const LCOV_REPORTS: &[&str] = &[
 fn glob(root: &Path, pattern: &str) -> Vec<PathBuf> {
     if pattern.starts_with("*/") || pattern.starts_with("*/*/") {
         let depth = usize::from(pattern.starts_with("*/*/")) + 1;
-        let rest = pattern.splitn(depth + 1, '/').next_back().unwrap();
+        let rest = pattern.splitn(depth + 1, '/').last().unwrap();
         let mut found = Vec::new();
         fn children_at(root: &Path, depth: usize, found: &mut Vec<PathBuf>) {
             if depth == 0 {

@@ -1,0 +1,4 @@
+project clojure
+arg -s
+arg testdata/behavior/private-190/.
+arg --no-coverage

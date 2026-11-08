@@ -1,0 +1,8 @@
+CRAP Report
+===========
+Languages: java
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+nested                         Sample                                13   N/A       N/A
+switched                       Sample                                 4   N/A       N/A

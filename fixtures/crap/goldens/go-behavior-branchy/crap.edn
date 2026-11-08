@@ -1,0 +1,3 @@
+{:entries [
+  {:name "Branchy", :namespace "example.com/behavior/go", :complexity 5, :coverage nil, :crap nil}
+]}

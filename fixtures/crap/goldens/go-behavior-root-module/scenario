@@ -1,0 +1,4 @@
+project go
+arg -s
+arg testdata/behavior/root-module/$CASE
+arg --no-coverage

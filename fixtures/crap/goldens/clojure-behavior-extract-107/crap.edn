@@ -1,0 +1,3 @@
+{:entries [
+  {:name "foo", :namespace "testdata.behavior.extract-107.edge", :complexity 1, :coverage nil, :crap nil}
+]}

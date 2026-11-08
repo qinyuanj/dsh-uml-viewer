@@ -1,0 +1,10 @@
+project java
+file java/src/main/java/demo/Example.java svc/Example.java
+file java/src/main/java/demo/Example.java api/svc/Example.java
+file reports/java/jacoco.xml svc/target/site/jacoco/jacoco.xml
+file reports/java/jacoco.xml api/svc/target/site/jacoco/jacoco.xml
+arg --use-existing-coverage
+arg -s
+arg svc
+arg -s
+arg api/svc

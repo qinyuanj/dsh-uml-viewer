@@ -1,0 +1,4 @@
+project clojure
+arg -s
+arg testdata/behavior/complexity-163/.
+arg --no-coverage

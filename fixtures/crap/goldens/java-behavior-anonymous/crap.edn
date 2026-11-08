@@ -1,0 +1,3 @@
+{:entries [
+  {:name "outer", :namespace "Sample", :complexity 1, :coverage nil, :crap nil}
+]}

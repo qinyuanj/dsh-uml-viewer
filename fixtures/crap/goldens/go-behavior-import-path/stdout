@@ -1,0 +1,7 @@
+CRAP Report
+===========
+Languages: go
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+Place                          example.com/behavior/go.Board          3   N/A       N/A

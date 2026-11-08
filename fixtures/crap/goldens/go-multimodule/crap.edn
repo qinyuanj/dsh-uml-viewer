@@ -1,0 +1,6 @@
+{:entries [
+  {:name "First", :namespace "example.com/quality/go/cmd/svc", :complexity 1, :coverage nil, :crap nil}
+  {:name "Last", :namespace "example.com/quality/go/cmd/svc", :complexity 1, :coverage nil, :crap nil}
+  {:name "First", :namespace "example.com/quality/go/svc", :complexity 1, :coverage nil, :crap nil}
+  {:name "Last", :namespace "example.com/quality/go/svc", :complexity 1, :coverage nil, :crap nil}
+]}
