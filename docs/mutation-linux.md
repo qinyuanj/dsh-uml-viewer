@@ -35,9 +35,11 @@ wall time with seconds and a `+HH:MM` offset.
 
 ## Selection, differential reuse and recovery
 
-`--changed` follows the original: source roots narrow the selection only when
-`-s` is given, and the positional text filters and `--exclude` patterns apply
-afterwards, like every other selection.
+`--changed` follows the original and uses the shared changed selection
+(`Scope::select_changed`): source roots narrow the selection only when `-s` is
+given, and the positional text filters and `--exclude` patterns apply
+afterwards, like every other selection. Mutator still filters the resulting
+files to non-test Rust sources.
 
 The differential fast path ("No mutations selected; keeping the previous
 snapshots.") mirrors the original `reused_run` guard per file: the file must
