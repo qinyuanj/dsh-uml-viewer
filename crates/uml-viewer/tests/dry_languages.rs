@@ -161,6 +161,29 @@ fn path_filter() {
     assert!(!out.contains("src/other/a.py"), "{out}");
 }
 
+#[test]
+fn malformed_lua_source_fails_and_keeps_the_previous_snapshot() {
+    let project = Project::new();
+    project.write(
+        "src/a.lua",
+        "function f(q return q end\nfunction g(q) return q * 2 + 1 end\n",
+    );
+    project.write(".metrics/dry.edn", "old\n");
+    let output = run(&project.root, &[]);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(output.stdout, b"");
+    let error = text(&output.stderr);
+    assert!(
+        error.contains("Lua source does not parse: src/a.lua"),
+        "{error}"
+    );
+    assert!(!error.contains("panicked"), "{error}");
+    assert_eq!(
+        fs::read(project.root.join(".metrics/dry.edn")).unwrap(),
+        b"old\n"
+    );
+}
+
 /// The original Lua fixture's own report lines and names.
 #[test]
 fn lua_fixture_reports_the_copied_function() {
