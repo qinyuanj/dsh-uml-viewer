@@ -1,0 +1,1 @@
+function mix(a: number, b: number) { const s = "^ & | << >> %"; /* ^ & | << >> % */ a ^= b; a &= b; a |= b; a <<= b; a >>= b; a %= b; }
