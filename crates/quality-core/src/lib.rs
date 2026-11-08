@@ -28,6 +28,7 @@ pub mod number;
 pub mod paths;
 pub mod process;
 pub mod runner;
+pub mod runners;
 pub mod select;
 pub mod snapshot;
 pub mod stamp;

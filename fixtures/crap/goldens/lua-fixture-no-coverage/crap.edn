@@ -1,0 +1,7 @@
+{:entries [
+  {:name "M.clamp", :namespace "calc.util", :complexity 4, :coverage nil, :crap nil}
+  {:name "M.classify", :namespace "calc", :complexity 3, :coverage nil, :crap nil}
+  {:name "M.total", :namespace "calc", :complexity 2, :coverage nil, :crap nil}
+  {:name "M.untested", :namespace "calc.util", :complexity 2, :coverage nil, :crap nil}
+  {:name "between", :namespace "calc.util", :complexity 2, :coverage nil, :crap nil}
+]}

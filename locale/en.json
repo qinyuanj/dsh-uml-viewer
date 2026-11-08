@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "UML viewer",
+    "description": "Generate UML IR from the session project's policy and source tree."
+  }
+}

@@ -17,12 +17,20 @@ use tree_sitter::{Parser, Tree};
 /// read by hand-written scanners.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Grammar {
+    Python,
+    TypeScript,
+    Tsx,
+    Lua,
     Rust,
 }
 
 impl Grammar {
     pub fn language(self) -> tree_sitter::Language {
         match self {
+            Grammar::Python => tree_sitter_python::LANGUAGE.into(),
+            Grammar::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+            Grammar::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
+            Grammar::Lua => tree_sitter_lua::LANGUAGE.into(),
             Grammar::Rust => tree_sitter_rust::LANGUAGE.into(),
         }
     }

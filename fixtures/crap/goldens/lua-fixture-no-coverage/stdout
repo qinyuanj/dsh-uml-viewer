@@ -1,0 +1,11 @@
+CRAP Report
+===========
+Languages: lua
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+M.clamp                        calc.util                              4   N/A       N/A
+M.classify                     calc                                   3   N/A       N/A
+M.total                        calc                                   2   N/A       N/A
+M.untested                     calc.util                              2   N/A       N/A
+between                        calc.util                              2   N/A       N/A

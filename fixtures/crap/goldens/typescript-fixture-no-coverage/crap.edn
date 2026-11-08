@@ -1,0 +1,7 @@
+{:entries [
+  {:name "loadBook", :namespace "book", :complexity 1, :coverage nil, :crap nil}
+  {:name "show", :namespace "editor.view", :complexity 1, :coverage nil, :crap nil}
+  {:name "wordCount", :namespace "model", :complexity 1, :coverage nil, :crap nil}
+  {:name "nodeFs", :namespace "nodeFs", :complexity 1, :coverage nil, :crap nil}
+  {:name "allowBook", :namespace "tauriFs", :complexity 1, :coverage nil, :crap nil}
+]}

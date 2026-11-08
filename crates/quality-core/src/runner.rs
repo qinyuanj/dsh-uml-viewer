@@ -33,6 +33,18 @@ fn warn(message: &str) {
 /// Run `program` in `cwd` after echoing it; 127 when it did not start.
 pub fn run_shell(program: &Program, cwd: &Path) -> i32 {
     warn(&format!("+ ({}) {}", cwd.display(), program.display()));
+    let mut resolved_args = Vec::new();
+    if let Program::Argv(argv) = program
+        && let Some(path) = argv.first().and_then(|program| which(program))
+    {
+        resolved_args.push(path.to_string_lossy().into_owned());
+        resolved_args.extend(argv.iter().skip(1).cloned());
+    }
+    let program = if resolved_args.is_empty() {
+        program
+    } else {
+        &Program::Argv(&resolved_args)
+    };
     match run(program, cwd) {
         Ok(code) => code,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -267,6 +279,18 @@ pub fn run_coverage(
     command: Option<&str>,
     strict: bool,
 ) -> Result<Option<CoverageBundle>, CoverageError> {
+    run_coverage_with_lua_shards(root, files, command, None, strict)
+}
+
+/// Coverage with the crapper CLI's optional Lua shard count. Other callers
+/// retain `run_coverage`'s original four-argument API.
+pub fn run_coverage_with_lua_shards(
+    root: &Path,
+    files: &[PathBuf],
+    command: Option<&str>,
+    lua_shards: Option<u32>,
+    strict: bool,
+) -> Result<Option<CoverageBundle>, CoverageError> {
     let root = resolve(root);
     let before = crate::stamp::fingerprint(&root);
     let mut failed: Vec<&str> = files
@@ -276,6 +300,7 @@ pub fn run_coverage(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
+    let mut managed: Option<crate::coverage::Records> = None;
     let result = if let Some(command) = command {
         run_custom(&root, command)
             .map(Some)
@@ -284,10 +309,33 @@ pub fn run_coverage(
         let languages: BTreeSet<Language> =
             files.iter().filter_map(|file| language_of(file)).collect();
         failed.clear();
+        if languages.contains(&Language::TypeScript)
+            && !crate::runners::typescript::cover(&root, files)
+        {
+            failed.push(Language::TypeScript.name());
+        }
+        if languages.contains(&Language::Python) && !crate::runners::python::cover(&root, files) {
+            failed.push(Language::Python.name());
+        }
         if languages.contains(&Language::Rust) && !cover_rust(&root, files) {
             failed.push(Language::Rust.name());
         }
-        Ok(None)
+        // Lua runs last and raises instead of returning false; the stamp below
+        // still records every language, exactly as the original's `finally`.
+        if languages.contains(&Language::Lua) {
+            match crate::runners::lua::cover(&root, files, lua_shards) {
+                Ok(records) => {
+                    managed = records;
+                    Ok(None)
+                }
+                Err(error) => {
+                    failed.push(Language::Lua.name());
+                    Err(error)
+                }
+            }
+        } else {
+            Ok(None)
+        }
     };
     crate::stamp::record(&root, files, command, &failed, &before);
     let bundle = result?;
@@ -297,6 +345,11 @@ pub fn run_coverage(
             "No usable coverage for {}.",
             failed.join(", ")
         )));
+    }
+    if let Some(records) = managed {
+        let mut bundle = crate::coverage::load_bundle(&root);
+        bundle.add_fresh(&records, &root);
+        return Ok(Some(bundle));
     }
     Ok(bundle)
 }
