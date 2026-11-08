@@ -16,6 +16,7 @@
 //! - [`paths`]: Python-compatible `resolve` / `as_posix`.
 
 pub mod atomic;
+pub mod changed;
 pub mod coverage;
 mod coverage_reports;
 pub mod functions;
@@ -29,3 +30,4 @@ mod runner_go;
 mod runner_java;
 pub mod select;
 pub mod snapshot;
+pub mod stamp;

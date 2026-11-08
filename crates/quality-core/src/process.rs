@@ -3,9 +3,12 @@
 //! command string (`/bin/sh -c`, `cmd.exe /c`).
 //! qinyuanj/dsh-uml-viewer#3 adds the Windows kill-on-close Job Object here.
 
-use std::ffi::OsString;
+#[cfg(windows)]
+#[path = "process_windows.rs"]
+mod process_windows;
 use std::io;
 use std::path::{Path, PathBuf};
+#[cfg(not(windows))]
 use std::process::Command;
 
 /// What to run.
@@ -45,6 +48,7 @@ pub fn shlex_quote(arg: &str) -> String {
     }
 }
 
+#[cfg(not(windows))]
 #[allow(clippy::disallowed_methods)] // the quality tools' one process boundary
 fn command(program: &Program, cwd: &Path) -> io::Result<Command> {
     let mut command = match program {
@@ -62,17 +66,6 @@ fn command(program: &Program, cwd: &Path) -> io::Result<Command> {
     Ok(command)
 }
 
-#[cfg(windows)]
-#[allow(clippy::disallowed_methods)]
-fn shell(text: &str) -> Command {
-    use std::os::windows::process::CommandExt;
-    // subprocess with shell=True: `{COMSPEC} /c "{command}"`.
-    let comspec = std::env::var_os("COMSPEC").unwrap_or_else(|| OsString::from("cmd.exe"));
-    let mut command = Command::new(comspec);
-    command.raw_arg(format!("/c \"{text}\""));
-    command
-}
-
 #[cfg(not(windows))]
 #[allow(clippy::disallowed_methods)]
 fn shell(text: &str) -> Command {
@@ -84,7 +77,7 @@ fn shell(text: &str) -> Command {
 /// Run `program` in `cwd` with inherited streams; its exit status (a
 /// signal `n` as `-n`). An error means it did not start.
 pub fn run(program: &Program, cwd: &Path) -> io::Result<i32> {
-    let status = command(program, cwd)?.status()?;
+    let status = execute(program, cwd, false)?.status;
     if let Some(code) = status.code() {
         return Ok(code);
     }
@@ -96,6 +89,97 @@ pub fn run(program: &Program, cwd: &Path) -> io::Result<i32> {
         }
     }
     Ok(1)
+}
+
+/// Run with captured stdout and stderr, preserving their bytes.
+pub fn output(program: &Program, cwd: &Path) -> io::Result<std::process::Output> {
+    execute(program, cwd, true)
+}
+
+/// The captured process boundary: the same job/process-group containment as
+/// [`output`], retained as a named alias for callers with captured children.
+pub fn capture(program: &Program, cwd: &Path) -> io::Result<std::process::Output> {
+    execute(program, cwd, true)
+}
+
+#[cfg(windows)]
+fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Result<std::process::Output> {
+    process_windows::execute(program, cwd, capture)
+}
+
+#[cfg(unix)]
+#[allow(clippy::disallowed_methods)] // the quality tools' one process boundary
+fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Result<std::process::Output> {
+    use std::io::Read;
+    use std::os::unix::process::CommandExt;
+    use std::process::{Child, Stdio};
+    struct Group(Child);
+    impl Drop for Group {
+        fn drop(&mut self) {
+            // The group is created in the child before exec. Keep its identity
+            // until wait returns; descendants can still hold captured pipes.
+            unsafe {
+                libc::kill(-(self.0.id() as i32), libc::SIGKILL);
+            }
+            let _ = self.0.wait();
+        }
+    }
+    fn reader<T: Read + Send + 'static>(
+        pipe: Option<T>,
+    ) -> Option<std::thread::JoinHandle<io::Result<Vec<u8>>>> {
+        pipe.map(|mut pipe| {
+            std::thread::spawn(move || {
+                let mut out = Vec::new();
+                pipe.read_to_end(&mut out)?;
+                Ok(out)
+            })
+        })
+    }
+    fn finish(reader: Option<std::thread::JoinHandle<io::Result<Vec<u8>>>>) -> io::Result<Vec<u8>> {
+        reader.map_or_else(
+            || Ok(Vec::new()),
+            |reader| {
+                reader
+                    .join()
+                    .map_err(|_| io::Error::other("process output reader panicked"))?
+            },
+        )
+    }
+    let mut command = command(program, cwd)?;
+    command.process_group(0);
+    if capture {
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+    }
+    let mut group = Group(command.spawn()?);
+    let stdout = reader(group.0.stdout.take());
+    let stderr = reader(group.0.stderr.take());
+    let status = group.0.wait();
+    drop(group);
+    let out = finish(stdout);
+    let err = finish(stderr);
+    Ok(std::process::Output {
+        status: status?,
+        stdout: out?,
+        stderr: err?,
+    })
+}
+
+#[cfg(not(any(windows, unix)))]
+fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Result<std::process::Output> {
+    if capture {
+        command(program, cwd)?.output()
+    } else {
+        command(program, cwd)?
+            .status()
+            .map(|status| std::process::Output {
+                status,
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+            })
+    }
 }
 
 /// `shutil.which`: the first `name` on PATH (with PATHEXT on Windows).
