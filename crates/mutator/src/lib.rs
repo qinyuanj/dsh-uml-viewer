@@ -5,8 +5,11 @@ mod engine;
 mod interrupts;
 mod isolation;
 mod metrics;
+mod operators;
+mod python;
 mod scratch;
-mod sites;
+pub mod sites;
+mod typescript;
 mod workers;
 
 pub fn run(args: &[OsString]) -> ExitCode {
