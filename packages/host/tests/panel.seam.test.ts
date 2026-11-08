@@ -78,6 +78,8 @@ async function setup(options: {
   mode?: 'read-only' | 'workspace-write' | 'danger-full-access'
   resident?: Record<string, unknown>
   displayError?: string
+  /** Provide the optional services only after the plugin is loaded. */
+  late?: boolean
 } = {}) {
   const mode = options.mode ?? 'danger-full-access'
   const home = await mkdtemp(path.join(os.tmpdir(), 'uml panel home '))
@@ -114,7 +116,12 @@ async function setup(options: {
   }
   const ctx = new Context()
   contexts.push(ctx)
-  for (const [key, value] of Object.entries(services)) if (value !== undefined) ctx.provide(key, value)
+  const optional = ['typert', 'webServer'] as const
+  for (const [key, value] of Object.entries(services)) {
+    if (value === undefined) continue
+    if (options.late && (optional as readonly string[]).includes(key)) continue
+    ctx.provide(key, value)
+  }
   const fiber = ctx.plugin(plugin, { binary: fakeBinary, home: path.join(home, 'dsh-uml-viewer') })
   await fiber
   const tool = async (name: string, args: unknown, session: string) => {
@@ -138,7 +145,11 @@ async function setup(options: {
       close: async () => { controller.abort(); await iterator.return?.(undefined) },
     }
   }
-  return { home, projects, services, definitions, contributions, routes, agents, prompts, ctx, fiber, tool, viewer, stream }
+  /** Provide an optional service after the plugin loaded (Cordis starts a late fiber). */
+  const provideLate = (key: 'typert' | 'webServer'): void => {
+    ctx.provide(key, services[key] as never)
+  }
+  return { home, projects, services, definitions, contributions, routes, agents, prompts, ctx, fiber, tool, viewer, stream, provideLate }
 }
 
 async function actionLog(root: string): Promise<{ action: string }[]> {
@@ -341,4 +352,20 @@ it('persists the panel view state per session and restores it when the panel reo
     .trim().split('\n')[3]!) as { state?: unknown }
   expect(openAction.state).toMatchObject({ declutter: ':triangles' })
   await reopen.close()
+})
+
+it('publishes the Remote and the font route when the optional services arrive after the plugin', async () => {
+  // A profile may activate typert and webServer rows after this plugin; the
+  // panel must still get its Remote and the Sarasa route instead of silently
+  // degrading (a snapshot of the services at apply time would miss them).
+  const { contributions, routes, provideLate } = await setup({ late: true })
+  expect(contributions).toEqual([])
+  expect(routes).toEqual([])
+  provideLate('typert')
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(contributions).toHaveLength(1)
+  provideLate('webServer')
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(routes).toHaveLength(1)
+  expect(routes[0]).toMatchObject({ kind: 'exact', path: '/dsh-uml-viewer/font/SarasaMonoSC-Regular.ttf' })
 })

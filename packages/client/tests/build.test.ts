@@ -90,8 +90,9 @@ describe('built client bundle', () => {
   it('declares the client facet the host reads: dsh.client, a ./client export, and the shipped files', () => {
     expect(pkg.dsh?.client?.platform).toBe('web')
     expect(pkg.dsh?.client?.immediately).toBe(true)
-    // Activation order only: the right sidebar must be mounted before the tab is registered.
-    expect(pkg.dsh?.client?.inject).toEqual(['@deepseek-ai/dsh-client-ui-sidebar-right'])
+    // Activation order only: the Remote gateway and the right sidebar must be
+    // mounted before the tab registers.
+    expect(pkg.dsh?.client?.inject).toEqual(['@deepseek-ai/dsh-api-gateway', '@deepseek-ai/dsh-client-ui-sidebar-right'])
     // No non-baseline module requests: everything but React is bundled.
     expect(pkg.dsh?.client?.external ?? []).toEqual([])
     expect(pkg.exports['./client']).toBe('./lib/client.js')

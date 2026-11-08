@@ -19,15 +19,24 @@ export type { Config } from './binary.js'
 export const name = 'dsh-uml-viewer'
 export const inject = ['tools', 'sandboxPolicy', 'workingDirectory', 'subprocess']
 
+/** The DSH services this plugin uses; `sandbox`, `typert`, `webServer` and `dshHomePath` are optional. */
+const SERVICE_KEYS = new Set(['tools', 'sandboxPolicy', 'workingDirectory', 'subprocess', 'sandbox',
+  'typert', 'webServer', 'dshHomePath'])
+
 export function apply(ctx: Context, config: Config = {}): void {
-  // Every service is read through `ctx.get` so a profile without the optional
-  // ones (typert, webServer, systemPrompt) still mounts the two tools.
-  const services = Object.fromEntries(['tools', 'sandboxPolicy', 'workingDirectory', 'subprocess', 'sandbox',
-    'typert', 'webServer', 'dshHomePath'].map(key => [key, ctx.get(key)])) as unknown as HostServices
+
+  // Every service is resolved when it is used, never snapshotted at apply
+  // time: a profile may activate an optional row (sandbox, typert, webServer)
+  // after this plugin, and a captured `undefined` would silently disable the
+  // panel's Remote, the Sarasa route or confinement for the whole session.
+  const services = new Proxy({}, {
+    get: (_target, key) => (typeof key === 'string' && SERVICE_KEYS.has(key) ? ctx.get(key) : undefined),
+  }) as unknown as HostServices
 
   const gate = new IrGate()
   const states = new SessionStates(pluginHome(config.home, () => {
-    const resolve = services.dshHomePath
+    // Resolved lazily: `dshHomePath` may arrive after this plugin.
+    const resolve = ctx.get('dshHomePath') as ((...segments: string[]) => string) | undefined
     return resolve ? resolve('dsh-uml-viewer') : undefined
   }))
   const sessions = new ResidentSessions(services, config, states)
@@ -80,12 +89,13 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
   }), 'dsh-uml-viewer: uml_display')
 
-  // The typed Remote the browser half mounts; a profile without the registry
-  // keeps the tools and simply has no panel.
-  ctx.effect(() => {
-    const typert = services.typert
-    if (!typert) return () => {}
-    ctx.provide(REMOTE_SERVICE, viewer)
+  // The typed Remote the browser half mounts. This is a fiber on `typert`, so a
+  // registry that activates later still gets the service and the descriptors;
+  // a profile without it keeps the tools and simply has no panel.
+  ctx.inject(['typert'], (fiber) => {
+    const typert = fiber.get('typert') as HostServices['typert']
+    if (!typert) return
+    const unprovide = fiber.provide(REMOTE_SERVICE, viewer)
     const dispose = typert.register({
       package: 'dsh-uml-viewer',
       face: 'host',
@@ -93,10 +103,14 @@ export function apply(ctx: Context, config: Config = {}): void {
       model: { services: [], events: [], objects: [] },
       invocations: REMOTE_DESCRIPTORS,
     })
-    return () => { void dispose() }
-  }, 'dsh-uml-viewer: umlViewer Remote')
+    return () => {
+      void dispose()
+      unprovide()
+    }
+  })
 
-  ctx.effect(() => registerFontRoute(services, packageRoot()) ?? (() => {}), 'dsh-uml-viewer: Sarasa route')
+  // The packaged Sarasa route follows the web server's lifetime, likewise late.
+  ctx.inject(['webServer'], () => registerFontRoute(services, packageRoot()) ?? (() => {}))
 
   ctx.effect(() => async () => {
     prompts.disposeAll()

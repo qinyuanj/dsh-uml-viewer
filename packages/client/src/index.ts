@@ -208,7 +208,7 @@ function registerPanels(ctx: ClientContext): void {
       guide: [{ id: TAB_ID, order: GUIDE_ORDER, title: () => 'UML', description: () => 'The session project’s namespace tree and quality' }],
     }))
     own(ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register(
-      { name: 'sidebar.right.pane.tab', key: TAB_ID, locale: 'dsh-uml-viewer' },
+      { name: 'sidebar.right.pane.tab', key: TAB_ID },
       props => Panel(props as ClientPanelProps),
     )))
     own(ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register(
@@ -216,7 +216,7 @@ function registerPanels(ctx: ClientContext): void {
       () => createElement('span', null, 'UML'),
     )))
     own(ctx.slots.inject('main', () => ctx.slots.register(
-      { name: 'main', key: PANEL_PATH, locale: 'dsh-uml-viewer' },
+      { name: 'main', key: PANEL_PATH },
       props => Panel(props as ClientPanelProps),
     )))
     if (typeof tabs.register !== 'function') return
