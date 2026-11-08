@@ -203,47 +203,33 @@ viewer 对 CRAP、mutation 与重复检测请求的通用分发：按项目配�
 当前与 companion 讨论的图：源码图，或其中一个提案；选择另一张图时才改变。
 
 **companion**:
-由 viewer 管理的外部 coding-agent 会话，按序消费邮件队列、执行质量命令并驱动图展示。
+viewer 面板所绑定的 DeepSeek Harness 会话；它按到达顺序处理面板投递的请求，执行质量命令并驱动图展示。不存在另起的外部 agent 进程。
+_Avoid_: coding-agent 提供方, Herdr 会话
 
-**coding-agent 提供方**:
-承载 companion 对话与工具执行的编程 agent 产品，如 Claude Code 或 Codex CLI；它不同于负责进程启动与恢复的 Herdr。
-_Avoid_: companion backend（指这一层时）
+**viewer 面板**:
+与 companion 对话并排显示图的界面区域；一个面板只属于一个会话，被查看的项目就是该会话的工作目录。
+_Avoid_: viewer 窗口, 原生窗口
+
+**面板请求**:
+用户在 viewer 面板上的操作（刷新质量、隐藏、切换讨论上下文、新建提案等）以对话中可见的消息形式交给 companion；它取代邮件。
+_Avoid_: 邮件, mail
 
 **交付平台**:
-承诺可运行并经实机验收的宿主：WSL2 + Ubuntu 24.04 + WSLg、macOS、原生 Windows 11 与 Windows 10 22H2 及以上。不在其中的宿主在启动前被拒绝并说明原因。
+承诺可运行并经验收的宿主：运行 DeepSeek Harness 的 Windows x64、Linux x64、macOS arm64 与 macOS x64。不在其中的宿主上插件不启用并说明原因。
 _Avoid_: 支持平台, 目标系统
-
-**Herdr**:
-每个交付平台上唯一的 companion 启动后端。
-
-**selected Herdr**:
-一次启动选定的 Herdr；同一次启动内所有 Herdr 调用都用它。
-_Avoid_: default herdr, PATH herdr
-
-**Herdr migration**:
-将项目从旧 companion 后端迁到 Herdr 的过程：保留会话、policy、提案与邮件队列，重新创建 Herdr companion，而不是跨后端重启。
-_Avoid_: reindexing, in-place upgrade
 
 **场景核心**:
 viewer 中把 IR 与质量快照变成可绘制场景的那部分；不含绘制、窗口与输入。
 _Avoid_: 引擎, 后端, scene service
 
 **viewer 会话**:
-viewer 中不依赖窗口的部分：持有视图状态，处理用户动作、热重载、邮件与退出。它读写项目文件，因此**不是**纯逻辑模块；与「会话快照」和 Herdr 会话不同。
+viewer 中不依赖绘制的部分：持有视图状态与讨论上下文，处理用户动作、热重载与面板请求。它的状态随所绑定的 DeepSeek Harness 会话保存与恢复，不另写会话快照。
 _Avoid_: app, session state
-
-**正常关闭**:
-关窗或收到终止信号时 viewer 的退出：**不保留** companion，不写会话快照。
-_Avoid_: quit, 关闭（单独使用时）
-
-**重启退出**:
-收到 `:quit-for-restart` 邮件后的退出：**保留** companion，写会话快照，供重启后恢复视图。
-_Avoid_: restart（指退出这一步时）
 
 ## 运行时
 
 **viewer 运行时**:
-本仓唯一的实现，一个 Rust 二进制；同时承担 viewer、IR 生成、扫描器与 companion 角色。
+本仓唯一的实现，一个 Rust 二进制；同时承担 viewer、IR 生成、扫描器、companion 角色与三个质量工具（crapper、mutator、dryer）。
 _Avoid_: LOVE, LuaJIT, 双解释器, 主解释器
 
 **分析语言版本**:
@@ -257,11 +243,15 @@ _Avoid_: 适配器, adapter
 ## 安装与更新
 
 **机器安装**:
-本机当前用户共有的一份工具安装，包含 viewer 运行时、三个质量工具与字体；所有被查看项目共用它，安装和更新都不需要管理员权限。
+本机当前用户共有的一份工具安装，包含 viewer 运行时（含三个质量工具）与字体；所有被查看项目共用它，安装和更新都不需要管理员权限。
 _Avoid_: 全局安装, 系统安装, 项目安装
 
+**插件**:
+以 DeepSeek Harness 插件形式发布的**发行版本**，名为 `dsh-uml-viewer`；它是**机器安装**的唯一来源，安装、更新与卸载都经由 DeepSeek Harness 的插件管理完成。
+_Avoid_: 扩展, 安装器（指这一载体时）
+
 **项目状态**:
-工具在被查看项目内留下的数据：邮箱、会话与恢复记录、质量快照。它属于项目，不属于**机器安装**。
+工具在被查看项目内留下的数据：policy、提案与质量快照。它属于项目，不属于**机器安装**；视图状态随 DeepSeek Harness 会话保存，不在项目内。
 _Avoid_: 项目安装, 安装副本
 
 **发行版本**:
@@ -269,5 +259,5 @@ _Avoid_: 项目安装, 安装副本
 _Avoid_: commit（指用户所装内容时）, build
 
 **自动更新**:
-工具在后台取得新的**发行版本**，并在下一次全新启动时生效；运行中的会话不换版本。
+DeepSeek Harness 的插件管理取得新的**发行版本**后，它在下一次全新启动时生效；运行中的会话不换版本。
 _Avoid_: 热更新, 升级（指这一机制时）
