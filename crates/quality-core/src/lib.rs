@@ -15,6 +15,9 @@
 //! - [`snapshot`]: the `.metrics` EDN writer (number format, key order).
 //! - [`paths`]: Python-compatible `resolve` / `as_posix`.
 
+// Shared syntax, serialization and OS primitives for quality tool crates.
+pub use {chrono, edn, libc, serde_json, sha2, tree_sitter};
+
 pub mod atomic;
 pub mod coverage;
 pub mod functions;

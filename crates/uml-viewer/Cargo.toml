@@ -20,6 +20,7 @@ companion = { path = "../companion" }
 crapper = { path = "../crapper" }
 frame = { path = "../frame" }
 ir = { path = "../ir" }
+mutator = { path = "../mutator" }
 scene = { path = "../scene" }
 viewer = { path = "../viewer" }
 
