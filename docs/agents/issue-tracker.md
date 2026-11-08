@@ -1,19 +1,28 @@
 # Issue tracker: GitHub
 
-本仓库的 issues 和 specs 使用 qinyuanj/uml-viewer 的 GitHub Issues。
-使用 gh CLI，显式指定 --repo qinyuanj/uml-viewer，确保操作目标明确。
+本仓库的 issues 和 specs 使用 qinyuanj/dsh-uml-viewer 的 GitHub Issues。
+使用 gh CLI，显式指定 --repo qinyuanj/dsh-uml-viewer，确保操作目标明确。
 
 ## 常用操作
 
-- 创建：gh issue create --repo qinyuanj/uml-viewer --title "..." --body-file <文件>
-- 读取：gh issue view <编号> --repo qinyuanj/uml-viewer --json number,title,body,labels,comments
-- 列表：gh issue list --repo qinyuanj/uml-viewer --state open --json number,title,body,labels
-- 评论：gh issue comment <编号> --repo qinyuanj/uml-viewer --body-file <文件>
-- 添加标签：gh issue edit <编号> --repo qinyuanj/uml-viewer --add-label "..."
-- 移除标签：gh issue edit <编号> --repo qinyuanj/uml-viewer --remove-label "..."
-- 关闭：gh issue close <编号> --repo qinyuanj/uml-viewer --comment "..."
+- 创建：gh issue create --repo qinyuanj/dsh-uml-viewer --title "..." --body-file <文件>
+- 读取：gh issue view <编号> --repo qinyuanj/dsh-uml-viewer --json number,title,body,labels,comments
+- 列表：gh issue list --repo qinyuanj/dsh-uml-viewer --state open --json number,title,body,labels
+- 评论：gh issue comment <编号> --repo qinyuanj/dsh-uml-viewer --body-file <文件>
+- 添加标签：gh issue edit <编号> --repo qinyuanj/dsh-uml-viewer --add-label "..."
+- 移除标签：gh issue edit <编号> --repo qinyuanj/dsh-uml-viewer --remove-label "..."
+- 关闭：gh issue close <编号> --repo qinyuanj/dsh-uml-viewer --comment "..."
 
 多行正文写入临时文件，通过 --body-file 传入。
+
+## 编号引用约定
+
+见 [ADR 0013](../adr/0013-repository-migration.md)：
+
+- 历史 commit、代码注释与 ADR 0001–0012 中的裸 `#N` 指 `qinyuanj/uml-viewer#N`，不改写。
+- 此后新写的裸 `#N` 指本仓库 `qinyuanj/dsh-uml-viewer#N`。
+- 跨仓库引用一律写全名 `owner/repo#N`，例如 spec `qinyuanj/uml-viewer#203`。
+- 读到旧 `#N` 时用 `--repo qinyuanj/uml-viewer` 查询，不要按本仓库编号解读。
 
 ## Pull requests as a triage surface
 

@@ -9,30 +9,39 @@ The diagram is already on screen.
   packages. **Layer** and **component** mean the same thing.
 - TypeScript, Rust, Python, and Lua are the supported scanners. This
   repository's policy is `:lang :rust` with one `:sources` root per crate
-  (`crates/<crate>/src`, ns prefix `uml.<crate>`). A class with no CRAP or
-  mutation data is red; never hide it. The overlay joins a snapshot by the
-  class `:ns`, then by the class id. crapper and mutator name a Rust module
-  `crate::module` (and a method `crate::module::Type`); the overlay treats
-  `::` and `.` alike, and the id drops the policy `:prefix`, so
-  `uml.ir.graph` has id `ir.graph` and joins `ir::graph`. Do not strip
-  source roots on either side. A non-Rust project sets `:lang` or
-  `:sources`.
+  (`crates/<crate>/src`, ns prefix `uml.<crate>`); each plugin TypeScript
+  package joins as one `:lang :typescript` source (`packages/<pkg>/src`,
+  prefix `uml.<pkg>`), added by the ticket that creates it (ADR 0013).
+  A class with no CRAP or mutation data is red; never hide it. The
+  overlay joins a snapshot by the class `:ns`, then by the class id.
+  crapper and mutator name a Rust module `crate::module` (and a method
+  `crate::module::Type`); the overlay treats `::` and `.` alike, and the
+  id drops the policy `:prefix`, so `uml.ir.graph` has id `ir.graph` and
+  joins `ir::graph`. Do not strip source roots on either side. A non-Rust
+  project sets `:lang` or `:sources`.
 - `:proposals` are named groupings that are **not** in the source. Preserve
   them when rewriting policy. Do not invent them on launch. The inspector
   lists them; **P** returns to the namespace tree. If instructed, add a
   named proposal (default name is a timestamp) and regenerate the IR.
   Edit policy in place: change only the keys you mean to and keep its
   comments, ordering and line layout; never re-serialize the whole file.
-- Developing this repository: the maintainer runs the quality refresh by
-  hand (`./uml crap`, a differential `./uml mutate` on the changed source
-  files, then `./uml ir`). Your hand-off ends with the list of changed
+- Developing this repository (ADR 0013): dsh-uml-viewer is the only
+  repository for the `dsh-uml-viewer` plugin; qinyuanj/uml-viewer is frozen
+  on the old `get-uml-viewer` / `./uml` flow. Until the ticket that deletes
+  the old entry (#18) lands, the maintainer runs the quality refresh by
+  hand through the frozen uml-viewer and Python tools in `.uml-viewer/`
+  (`./uml crap`, a differential `./uml mutate` on the changed source
+  files, then `./uml ir`); after it, through the binary subcommands
+  (`uml-viewer crap|mutate|dry|ir`). Port tickets do not switch the
+  refresh early. Your hand-off ends with the list of changed
   source files for that refresh. Commit source and docs only; `.metrics/`
   snapshots and `examples/uml-viewer.edn` go in the maintainer's refresh
   commit. Requests (launch, `:omit`, proposals, quality mail) still run IR
   under their own rules.
 - In a git worktree of this repository, run `./uml` with
-  `UML_VIEWER_TOOL_ROOT` set to that worktree so it uses the tree under
-  change, not the clone in `.uml-viewer/uml-viewer/`. The viewer on
+  `UML_VIEWER_TOOL_ROOT` set to that worktree only to exercise the entry
+  under change; the transition quality refresh above uses the frozen clone
+  in `.uml-viewer/uml-viewer/`. The viewer on
   screen may be another project's; its working directory names it:
   `for p in $(pgrep -f '[u]ml-viewer viewer'); do readlink /proc/$p/cwd; done`
   (macOS: `lsof -a -d cwd -Fn -p $p`; native Windows: the viewer is this
@@ -105,7 +114,7 @@ do not kill the process on interrupt.
 
 ### Issue tracker
 
-Issues 和 specs 使用 GitHub Issues；操作前读取 `docs/agents/issue-tracker.md`。
+Issues 和 specs 使用 qinyuanj/dsh-uml-viewer 的 GitHub Issues；操作前读取 `docs/agents/issue-tracker.md`。历史 commit、注释与 ADR 0001–0012 中的裸 `#N` 指 `qinyuanj/uml-viewer#N`；跨仓库引用写全名。
 
 ### Triage labels
 

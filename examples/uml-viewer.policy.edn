@@ -2,6 +2,8 @@
  :title "UML viewer",
  :prefix "uml",
  :lang :rust,
+ ;; ADR 0013: include each plugin TS package when created (no absent roots).
+ ;; :lang :typescript, :root "packages/<pkg>/src", :prefix "uml.<pkg>"
  :sources
  [{:lang :rust, :root "crates/edn/src", :prefix "uml.edn"}
   {:lang :rust, :root "crates/platform/src", :prefix "uml.platform"}
