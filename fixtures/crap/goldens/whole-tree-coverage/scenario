@@ -1,0 +1,7 @@
+# The maintainer's refresh shape: the whole business tree, fresh coverage.
+project rust
+file rust.fresh.lcov fixture.lcov
+crlf src/parse.rs
+arg --full-tree
+arg --coverage-command
+arg {COPY_FRESH_LCOV}

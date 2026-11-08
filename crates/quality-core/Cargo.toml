@@ -1,0 +1,18 @@
+[package]
+name = "quality-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# Shared by crapper, mutator and dryer (ADR 0012): source selection, the
+# tree-sitter language table, coverage reports and runners, atomic writes.
+[dependencies]
+# Pinned to the grammar the Python tools parse with (tree-sitter-language-pack
+# 1.21.0 ships tree-sitter-rust 0.24.2 regenerated at ABI 14); a full node walk
+# is byte-identical across the workspace and the cargo registry sources.
+tree-sitter = "=0.26.13"
+tree-sitter-rust = "=0.24.2"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage)"] }

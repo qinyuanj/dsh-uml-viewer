@@ -1,0 +1,7 @@
+project rust
+arg --full-tree
+arg --no-coverage
+arg -s
+arg src
+arg --exclude
+arg **/gen

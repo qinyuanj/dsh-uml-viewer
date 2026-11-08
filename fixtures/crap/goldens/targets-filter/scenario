@@ -1,0 +1,5 @@
+# A named directory narrowed by a text filter.
+project rust
+arg --no-coverage
+arg src
+arg parse

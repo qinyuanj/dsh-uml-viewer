@@ -4,7 +4,10 @@
 // Test code is the outside harness: it launches the binary under test itself.
 #![allow(clippy::disallowed_methods)]
 
+mod crap;
+mod crap_goldens;
 mod dispatch;
+mod resident;
 mod scene_cli;
 
 use std::ffi::OsStr;

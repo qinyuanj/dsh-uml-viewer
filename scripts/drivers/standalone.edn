@@ -1,0 +1,18 @@
+{:version 1
+ :doc "无 companion 的 egui 窗口 driver（dsh-uml-viewer#17）：不带 --backend 启动，
+       没有 Herdr、companion 归属记录或邮件队列；改写 diagram.edn 的标题后，
+       viewer 会话按热重载节拍重新载入并显示新标题。"
+ :steps [{:op :wait-frames :n 3}
+         {:op :assert-gui :path [:mail :waiting] :equals false
+          :message "a launch without a companion shows the diagram at once"}
+         {:op :assert-gui :path [:mail :title] :equals "Standalone"
+          :message "the first diagram must load"}
+         {:op :edit :project "diagram.edn" :from "Standalone" :to "Reloaded"}
+         {:op :start-timer :as :reload}
+         {:op :wait-timer :as :reload :ms 900}
+         {:op :wait-frames :n 2}
+         {:op :assert-gui :path [:mail :title] :equals "Reloaded"
+          :message "the edited diagram must hot-reload without a companion"}
+         {:op :write :evidence "standalone-pass.txt"
+          :text "PASS standalone window without a companion; diagram.edn hot-reloaded\n"}
+         {:op :quit :code 0}]}

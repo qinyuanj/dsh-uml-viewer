@@ -3,6 +3,9 @@
 # Four review-found bugs came from launches outside it (a lost timeout, a
 # bypassed Job Object). The adapter allows the lint where it launches; test
 # code is the outside harness and allows it at its crate or module root.
+# The quality tools (crapper, mutator, dryer) may depend on quality-core
+# only (ADR 0012), so their launches go through its own adapter,
+# `crates/quality-core/src/process.rs`.
 disallowed-methods = [
-    { path = "std::process::Command::new", reason = "launch through the companion OS adapter (crates/companion/src/posix.rs, windows.rs)" },
+    { path = "std::process::Command::new", reason = "launch through the companion OS adapter (crates/companion/src/posix.rs, windows.rs) or, for the quality tools, crates/quality-core/src/process.rs" },
 ]

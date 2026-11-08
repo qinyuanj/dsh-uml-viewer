@@ -1,0 +1,25 @@
+{:entries [
+  {:name "lookup", :namespace "crap_demo::geometry::gen", :complexity 5, :coverage 0.0, :crap 30.0}
+  {:name "area", :namespace "crap_demo::shapes::Shape", :complexity 7, :coverage 37.5, :crap 18.9629}
+  {:name "classify", :namespace "crap_demo", :complexity 6, :coverage 88.8889, :crap 6.0494}
+  {:name "unused", :namespace "crap_demo", :complexity 2, :coverage 0.0, :crap 6.0}
+  {:name "grüße", :namespace "crap_demo::parse", :complexity 2, :coverage 0.0, :crap 6.0}
+  {:name "keep_even", :namespace "crap_demo::parse", :complexity 2, :coverage 0.0, :crap 6.0}
+  {:name "helper", :namespace "tool", :complexity 2, :coverage 0.0, :crap 6.0}
+  {:name "main", :namespace "tool", :complexity 2, :coverage 0.0, :crap 6.0}
+  {:name "sum_until", :namespace "crap_demo", :complexity 5, :coverage 100.0, :crap 5.0}
+  {:name "fmt", :namespace "crap_demo::shapes::Shape", :complexity 4, :coverage 71.4286, :crap 4.3732}
+  {:name "drain", :namespace "crap_demo::parse", :complexity 4, :coverage 100.0, :crap 4.0}
+  {:name "parse_pairs", :namespace "crap_demo::parse", :complexity 4, :coverage 100.0, :crap 4.0}
+  {:name "clamp", :namespace "crap_demo::geometry::inner", :complexity 3, :coverage 71.4286, :crap 3.2099}
+  {:name "describe", :namespace "crap_demo::shapes", :complexity 2, :coverage 80.0, :crap 2.032}
+  {:name "outer", :namespace "crap_demo::parse", :complexity 2, :coverage 87.5, :crap 2.0078}
+  {:name "fallback", :namespace "crap_demo::geometry::gen::table", :complexity 1, :coverage 0.0, :crap 2.0}
+  {:name "cells", :namespace "crap_demo::geometry::inner::Grid", :complexity 1, :coverage 0.0, :crap 2.0}
+  {:name "r#match", :namespace "crap_demo::parse", :complexity 1, :coverage 0.0, :crap 2.0}
+  {:name "is_round", :namespace "crap_demo::shapes::Shape", :complexity 1, :coverage 0.0, :crap 2.0}
+  {:name "describe", :namespace "crap_demo::shapes::Vec", :complexity 1, :coverage 0.0, :crap 2.0}
+  {:name "fixture_helper", :namespace "crap_demo", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "distance", :namespace "crap_demo::geometry", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "first_or", :namespace "crap_demo::shapes::Wrapper", :complexity 1, :coverage 100.0, :crap 1.0}
+]}

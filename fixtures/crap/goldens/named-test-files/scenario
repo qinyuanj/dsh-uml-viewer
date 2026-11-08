@@ -1,0 +1,5 @@
+# Named test files are selected, and their test code scores nothing.
+project rust
+arg --no-coverage
+arg tests/integration.rs
+arg src/tests.rs

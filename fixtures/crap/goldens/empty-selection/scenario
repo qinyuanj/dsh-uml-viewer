@@ -1,0 +1,7 @@
+# Nothing selected: no snapshot, exit 0.
+project rust
+arg --no-coverage
+arg -s
+arg src
+arg --exclude
+arg src
