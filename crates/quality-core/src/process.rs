@@ -98,6 +98,13 @@ pub fn run(program: &Program, cwd: &Path) -> io::Result<i32> {
     Ok(1)
 }
 
+/// Capture git output for changed selection. #3 replaces this with the same
+/// contained execute implementation used by run.
+#[allow(clippy::disallowed_methods)]
+pub fn output(program: &Program, cwd: &Path) -> io::Result<std::process::Output> {
+    command(program, cwd)?.output()
+}
+
 /// `shutil.which`: the first `name` on PATH (with PATHEXT on Windows).
 pub fn which(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;

@@ -305,6 +305,18 @@ impl Scope {
         files
     }
 
+    /// Git changes narrowed by source roots, text filters and exclusions.
+    /// Existing positional paths do not replace the changed set.
+    pub fn select_changed(&self, positionals: &[String], notes: &mut dyn Write) -> Vec<PathBuf> {
+        let files = crate::changed::changed_files(&self.project_root(), notes)
+            .into_iter()
+            .filter(|path| is_source_file(path))
+            .collect();
+        let selected = self.in_scope(files, &self.roots());
+        let filtered = apply_filters(selected, &self.named(positionals).filters);
+        exclude_files(filtered, &self.project_root(), &self.exclusions)
+    }
+
     /// crapper's selection: named paths, or the walk; then text filters,
     /// then exclusions; sorted by posix path.
     pub fn select(&self, positionals: &[String], notes: &mut dyn Write) -> Vec<PathBuf> {
