@@ -35,6 +35,8 @@ jobs:
         run: pnpm test
       - name: Build the host plugin
         run: pnpm build
+      - name: Validate dsh-std manifest and resources
+        run: pnpm validate:manifest
 
   linux:
     runs-on: ubuntu-latest
