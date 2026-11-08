@@ -18,7 +18,7 @@ function packageRoot(): string {
   }
 }
 
-export function binaryArgv(config: Config): string[] {
+export function binaryArgv(config: Config, pluginRoot?: string): string[] {
   const configured = config.binary ?? process.env.UML_VIEWER_BIN
   if (configured !== undefined) {
     const argv = typeof configured === 'string' ? [configured] : [...configured]
@@ -27,7 +27,7 @@ export function binaryArgv(config: Config): string[] {
     }
     return argv
   }
-  const root = packageRoot()
+  const root = pluginRoot ?? packageRoot()
   const name = process.platform === 'win32' ? 'uml-viewer.exe' : 'uml-viewer'
   for (const profile of ['debug', 'release']) {
     const binary = path.join(root, 'target', profile, name)
