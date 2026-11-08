@@ -1,7 +1,7 @@
 {
-  "reference": "D:\\dev\\github\\spec203-notes\\ref\\crapper\\tests",
+  "reference": "crapper 4068857bc44e6383cf4a5e4d0b5c1111b49ce0b4 tests",
   "policy": "Generated source strings and scalar expectations originate in pinned ASTs. Each case directory is a distinct explicit -s root. Expected CLI artifacts are produced by the original tools.",
-  "omitted": "Only test_an_unfinished_cond_counts_the_clauses_it_has: private unfinished complexity cannot be observed through CLI extraction.",
+  "omitted": "Only test_an_unfinished_cond_counts_the_clauses_it_has: the private complexity assertion is not ported; its source still materializes so the CLI asserts the unclosed defn yields no function.",
   "cases": [
     {
       "language": "go",
@@ -38,7 +38,7 @@
       "case": "go/root-module/board",
       "group": "root-module",
       "path": "board.go",
-      "source_root": "$CASE",
+      "source_root": ".",
       "source_test": "test_edges.py:204",
       "source": "package demo\nfunc Place() int { return 1 }\n",
       "module": "example.com/behavior/root",

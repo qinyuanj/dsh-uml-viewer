@@ -11,10 +11,53 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import subprocess
+import sys
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_REFERENCE = ROOT.parent / "spec203-notes" / "ref" / "crapper" / "tests"
+GOLDENS = ROOT / "fixtures" / "crap" / "goldens"
+SOURCE = GOLDENS / "SOURCE"
+
+
+def pinned_commit() -> str:
+    """The crapper commit `goldens/SOURCE` pins for every CLI expectation."""
+    return SOURCE.read_text(encoding="utf-8").split()[1]
+
+
+def default_reference() -> Path:
+    """The pinned crapper tests, wherever this worktree sits in the tree."""
+    for base in (ROOT, *ROOT.parents):
+        candidate = base / "spec203-notes" / "ref" / "crapper" / "tests"
+        if candidate.is_dir():
+            return candidate
+    raise SystemExit(
+        "--reference is required: no spec203-notes/ref/crapper/tests beside "
+        f"{ROOT} or its parents"
+    )
+
+
+def verify_reference(reference: Path) -> None:
+    """Refuse a checkout that is not the pinned crapper commit."""
+    checkout = reference.parent
+    if not (checkout / ".git").exists():
+        print(
+            f"note: {checkout} is not a git checkout; cannot verify crapper "
+            f"{pinned_commit()}",
+            file=sys.stderr,
+        )
+        return
+    result = subprocess.run(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise SystemExit(f"cannot read the crapper commit at {checkout}: {result.stderr.strip()}")
+    head = result.stdout.strip()
+    if head != pinned_commit():
+        raise SystemExit(f"crapper is at {head}, expected {pinned_commit()}")
 
 
 class PinnedTests:
@@ -120,7 +163,7 @@ def go_cases(tests: PinnedTests):
             group = "declarations"
         else:
             group = "root-module"
-        case("go", group, source, path or "board.go", f"test_edges.py:{line}", source_root="$CASE" if group == "root-module" else ".", module="example.com/behavior/root" if group == "root-module" else None, original_path=path)
+        case("go", group, source, path or "board.go", f"test_edges.py:{line}", module="example.com/behavior/root" if group == "root-module" else None, original_path=path)
     # Extra original Go complexity calls (closure/type-switch/select) are added
     # by the parent fixture only when they have a source in the pinned tests.
 
@@ -191,8 +234,31 @@ def clojure_cases(tests: PinnedTests):
         case("clojure", f"helper-{line}", values[0], "helper.clj", f"test_clojure.py:{line}", helper_only=True, note="String blanking has no direct CLI output; source preserved for manual inspection only.")
 
 
-def write_module(directory: Path, module: str):
-    (directory / "go.mod").write_text(f"module {module}\n\ngo 1.20\n", encoding="utf-8")
+def group_directory(item: dict) -> Path:
+    return ROOT / "fixtures/crap" / item["language"] / "testdata/behavior" / item["group"]
+
+
+def placed_source(item: dict) -> Path:
+    """Where the source must sit: under its declared `-s` root, not the group root."""
+    root = item["source_root"]
+    source = group_directory(item) / item["path"]
+    if root in ("", "."):
+        return source
+    return group_directory(item) / root / item["path"]
+
+
+def scenario_name(item: dict) -> str:
+    return f"{item['language']}-behavior-{item['group']}"
+
+
+def scenario_text(item: dict) -> str:
+    root = "." if item["source_root"] in ("", ".") else item["source_root"]
+    return (
+        f"project {item['language']}\n"
+        "arg -s\n"
+        f"arg testdata/behavior/{item['group']}/{root}\n"
+        "arg --no-coverage\n"
+    )
 
 
 def generate(tests: PinnedTests, check: bool):
@@ -201,37 +267,46 @@ def generate(tests: PinnedTests, check: bool):
     java_cases(tests)
     clojure_cases(tests)
     manifest = {
-        "reference": str(tests.directory),
+        "reference": f"crapper {pinned_commit()} tests",
         "policy": "Generated source strings and scalar expectations originate in pinned ASTs. Each case directory is a distinct explicit -s root. Expected CLI artifacts are produced by the original tools.",
-        "omitted": "Only test_an_unfinished_cond_counts_the_clauses_it_has: private unfinished complexity cannot be observed through CLI extraction.",
+        "omitted": "Only test_an_unfinished_cond_counts_the_clauses_it_has: the private complexity assertion is not ported; its source still materializes so the CLI asserts the unclosed defn yields no function.",
         "cases": CASES,
     }
     rendered = json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
     manifest_path = ROOT / "fixtures/crap/behavior-cases.json"
     files = {manifest_path: rendered}
     for item in CASES:
-        if item.get("omitted"):
-            continue
-        directory = ROOT / "fixtures/crap" / item["language"] / "testdata/behavior" / item["group"]
-        files[directory / item["path"]] = item["source"]
+        files[placed_source(item)] = item["source"]
         if item["language"] == "go" and item.get("module"):
-            files[directory / "go.mod"] = f"module {item['module']}\n\ngo 1.20\n"
+            files[group_directory(item) / "go.mod"] = f"module {item['module']}\n\ngo 1.20\n"
+        if item.get("helper_only"):
+            # String blanking has no CLI output; the group has no scenario.
+            continue
+        name = scenario_name(item)
+        if any(
+            scenario_name(other) == name and other is not item and not other.get("helper_only")
+            for other in CASES
+        ):
+            raise SystemExit(f"two behavior cases share the golden group {name}")
+        files[GOLDENS / name / "scenario"] = scenario_text(item)
     for path, content in files.items():
         if check:
-            if path.read_text(encoding="utf-8") != content:
+            if path.read_bytes() != content.encode("utf-8"):
                 raise SystemExit(f"stale generated file: {path}")
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
+            path.write_text(content, encoding="utf-8", newline="\n")
     print(f"{'Verified' if check else 'Generated'} {len(CASES)} cases ({sum(item.get('omitted', False) for item in CASES)} omitted).")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--reference", type=Path, default=DEFAULT_REFERENCE)
+    parser.add_argument("--reference", type=Path)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    generate(PinnedTests(args.reference), args.check)
+    reference = args.reference or default_reference()
+    verify_reference(reference)
+    generate(PinnedTests(reference), args.check)
 
 
 if __name__ == "__main__":

@@ -1,1 +1,7 @@
-No source files to analyze.
+CRAP Report
+===========
+Languages: clojure
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+foo                            demo.core                              1   N/A       N/A

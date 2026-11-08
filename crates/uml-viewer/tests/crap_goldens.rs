@@ -99,7 +99,20 @@ fn every_scenario_matches_the_python_crapper_byte_for_byte() {
         .filter(|path| path.join("scenario").is_file())
         .collect();
     scenarios.sort();
-    assert!(scenarios.len() >= 12, "scenarios: {scenarios:?}");
+    // Exact: 22 base scenarios and 64 behavior groups (65 pinned cases less
+    // the helper-only string-blanking case). A dropped scenario must fail.
+    assert_eq!(scenarios.len(), 86, "scenarios: {scenarios:?}");
+    // A behavior scenario must select its materialized source; an empty
+    // selection means its `-s` root does not exist and nothing was tested.
+    let hollow: Vec<String> = scenarios
+        .iter()
+        .filter(|dir| dir.file_name().unwrap().to_string_lossy().contains("-behavior-"))
+        .filter(|dir| {
+            fs::read_to_string(dir.join("stdout")).unwrap() == "No source files to analyze.\n"
+        })
+        .map(|dir| dir.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert!(hollow.is_empty(), "hollow behavior scenarios: {hollow:?}");
     let mut failures = Vec::new();
     for dir in &scenarios {
         let name = dir.file_name().unwrap().to_string_lossy().into_owned();
