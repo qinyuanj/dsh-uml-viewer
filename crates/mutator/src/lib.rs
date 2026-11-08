@@ -13,6 +13,16 @@ pub mod sites;
 mod typescript;
 mod workers;
 
+/// Whether this port mutates `language` yet: Rust and Lua (Go, Java and
+/// Clojure follow with qinyuanj/dsh-uml-viewer#14). Quality dispatch refuses
+/// a selection holding any other language instead of reporting it empty.
+pub fn mutates(language: quality_core::language::Language) -> bool {
+    matches!(
+        language,
+        quality_core::language::Language::Rust | quality_core::language::Language::Lua
+    )
+}
+
 pub fn run(args: &[OsString]) -> ExitCode {
     run_with_clock(args, || {
         quality_core::chrono::Local::now()

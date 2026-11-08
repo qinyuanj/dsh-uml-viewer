@@ -47,6 +47,11 @@ const ROLES: &[(&str, &str, Entry)] = &[
         "find duplicate structures, .metrics/dry.edn",
         |_, args| dryer::run(args),
     ),
+    (
+        "quality",
+        "run crap|mutate|dry per uml-quality.json, print the version-1 result record",
+        |_, args| quality_dispatch::run(args),
+    ),
     ("companion-worker", "Herdr companion worker", |_, args| {
         companion::run_worker(args)
     }),
