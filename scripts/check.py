@@ -82,11 +82,15 @@ def native_checks(timeout):
 
 def selected_checks(native, native_timeout):
     """Fast source rules, the cargo build and tests, then the entry suites."""
-    suites = ['test_posix_entries.py', 'test_posix_restart_entries.py',
-              'test_posix_codex_companion.py']
+    suites = ['test_posix_entries.py', 'test_posix_restart_entries.py']
     if os.name == 'nt':
         # `uml.cmd`, junction dev installs and `.exe` naming.
         suites.insert(1, 'test_windows_entries.py')
+    else:
+        # POSIX by construction (/bin/sh fakes, ':' PATH, killpg, AF_UNIX);
+        # the Windows Codex preflight is covered by the entry suites and
+        # test_windows_e2e.py.
+        suites.append('test_posix_codex_companion.py')
     checks = python_checks(FAST_SUITES)
     checks += [('cargo build --release --locked + cargo test --workspace --locked', cargo_suite)]
     checks += python_checks(suites)
