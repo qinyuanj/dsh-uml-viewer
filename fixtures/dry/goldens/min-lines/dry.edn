@@ -1,0 +1,14 @@
+{:candidates [
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/calls.rs", :start-line 57, :end-line 65, :namespace "dry_oracle::calls", :name "operators_left"}
+  :right {:file "src/calls.rs", :start-line 67, :end-line 75, :namespace "dry_oracle::calls", :name "operators_right"}
+  :left-nodes 95
+  :right-nodes 95}
+ {:score 0.690909090909
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 66, :end-line 77, :namespace "dry_oracle::extraction", :name "container"}
+  :right {:file "src/lib.rs", :start-line 67, :end-line 77, :namespace "dry_oracle", :name "outer"}
+  :left-nodes 74
+  :right-nodes 82}
+]}

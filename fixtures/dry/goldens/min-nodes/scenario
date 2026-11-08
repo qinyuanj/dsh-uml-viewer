@@ -1,0 +1,8 @@
+project rust
+arg --min-lines
+arg 1
+arg --min-nodes
+arg 90
+arg --threshold
+arg 0.6
+arg --edn

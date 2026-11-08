@@ -1,0 +1,8 @@
+{:candidates [
+ {:score 0.690909090909
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 66, :end-line 77, :namespace "dry_oracle::extraction", :name "container"}
+  :right {:file "src/lib.rs", :start-line 67, :end-line 77, :namespace "dry_oracle", :name "outer"}
+  :left-nodes 74
+  :right-nodes 82}
+]}

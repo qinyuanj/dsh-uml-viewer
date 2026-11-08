@@ -1,0 +1,9 @@
+project rust
+arg src/lib.rs
+arg src/extraction.rs
+arg --min-lines
+arg 9
+arg --threshold
+arg 0.6909090909091
+arg --format
+arg edn

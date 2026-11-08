@@ -1,0 +1,53 @@
+{
+  "oracle_commits": {
+    "crapper": "4068857bc44e6383cf4a5e4d0b5c1111b49ce0b4",
+    "dryer": "b3f72ad9681a6574c5714d3c54d50e2ea3eff91a"
+  },
+  "packages": {
+    "tree-sitter": "0.26.0",
+    "tree-sitter-language-pack": "1.21.0"
+  },
+  "platform": "win32",
+  "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "source_sha256": {
+    "crapper/src/crapper/__init__.py": "27ab95af09172b64b47e2c5502c177e2f2fcbf3615665630507ace73c9decc83",
+    "crapper/src/crapper/__main__.py": "9ec4074a50b63651a4e1c46cc85db28c137865efc17d51b173ff8185b5b1ee55",
+    "crapper/src/crapper/analyze.py": "77089f39373a526958b6ea4668287ec56ee3fc2667c8387670b092f1c6ee0565",
+    "crapper/src/crapper/atomic.py": "75bddea027a10b9c97994211def42dfc898734db90bf8855a6a6df105f33f1f8",
+    "crapper/src/crapper/cli.py": "1aea6ed6bc7d1015a06d411c32571551431ca684533a83a90b978505e90772eb",
+    "crapper/src/crapper/coverage.py": "949008d9431884c8db36d3fe807f8047b83c356b4d2ad524337e1a794c8e8ea5",
+    "crapper/src/crapper/crap.py": "9a38855f3b9148f36a7a50e16c3934e1c830072fc6b5d2cd811b78e625e8f2a4",
+    "crapper/src/crapper/discover.py": "aba89d07db590756ba380f23c1beafac2418b9fbd7d6898b69d49472df79dbf7",
+    "crapper/src/crapper/languages/__init__.py": "fc88d113c82ef9256e3d532907de16042b67ed4551257580e68ee52bd3c0e6cd",
+    "crapper/src/crapper/languages/clojure.py": "6afff3d6fb8b03bc5bb48fe05f8c035d10989565176df7c9b99cfb4a1a02fce5",
+    "crapper/src/crapper/languages/golang.py": "29302aa2679e6c6f52c95fa5dc21e270c6d227269e6a4e12aa4bca1db0b404c8",
+    "crapper/src/crapper/languages/java.py": "d3748d8c882ab82b6d8ca592129d996e8de1facf5b75671fe0ed2763ee11370d",
+    "crapper/src/crapper/languages/language.py": "70ede0e098a42608e565047026f1fdcb7dc083ea289a00f940a147e04fee9c34",
+    "crapper/src/crapper/languages/lua.py": "ed63331efe2966f67b5737012ab0d888e48221b8451b4c2cbacb87841ec21773",
+    "crapper/src/crapper/languages/python.py": "f9ded90e7a91b9db3ec572d93becfab3aa8655e4da6a7ba820fd6c35efb7331c",
+    "crapper/src/crapper/languages/rust.py": "6f186fb2a742e34f5ab80249595c4349e49a7a7fa01545690df1ec347570ab97",
+    "crapper/src/crapper/languages/treesitter.py": "4360a95e45c25c6458d458062f039164e91279aed6a580ee97195e87ebef8d38",
+    "crapper/src/crapper/languages/typescript.py": "cd4357279595744db0225527f79fa3cd3dd362e911f1ff04c69b14c5d0eac4e4",
+    "crapper/src/crapper/metrics.py": "db058ed9c3a4d57658d3ecc561d4a87628b375e4b9ce4de13c053082ac0ebf2c",
+    "crapper/src/crapper/model.py": "524bc122752a2f4acf688b3ecd6f47204395cea76a9e52548720576e6d8f7c95",
+    "crapper/src/crapper/platform.py": "cda0c00017945832cc41cb69f6b0dcc2273f421d896eebc579fe03c67c9776fb",
+    "crapper/src/crapper/report.py": "049dd7796cbee933492d8ef83de6b33b80d90232111a80040f49e2192f886d11",
+    "crapper/src/crapper/runners.py": "e82f6b271bb9c3f8ef6c3d7cee6a3e2374919506461e235932b01e7fa320a2f3",
+    "crapper/src/crapper/stamp.py": "7a50810d5db2a77f3d914a697bf3a641b4644db0bb4f9af17c147da213a67ff9",
+    "dryer/src/dryer/__init__.py": "e14a0fe69c359f380cc685c6917cdf9e67c35d14c1412716b1f439f3c9b6455d",
+    "dryer/src/dryer/__main__.py": "6a99d3bd93950e598b8ba4afb50e06c70ea3fe7a3369187322fc83c7487816c1",
+    "dryer/src/dryer/astnorm.py": "50a62c0da426e49f0b5c23a667c4291ca34ad10f2f12846fe09764deb66100e3",
+    "dryer/src/dryer/cli.py": "8a5ba6da4f76e8bcb4334bb566c033b4a03ec440d922e80a3233a0219aff3e07",
+    "dryer/src/dryer/clojure_read.py": "959a13310b4603e95d2042ded1cc7a121a16d1fff85fed0bea7fb957d35ac18e",
+    "dryer/src/dryer/crapper_link.py": "c23b20ada2b35a94d0d26ed86e7a068bc958da52e07d012acb9583ea9376a7a6",
+    "dryer/src/dryer/discover.py": "247f63335a47a9e23ae5cddd69e4b3fa054f285b9d8b42263177dd03eb20cff1",
+    "dryer/src/dryer/extract.py": "020f67deb8878be974d37c1c1e3b79bfa667f5cf089e1ec11ea5b9ab1d218822",
+    "dryer/src/dryer/model.py": "b149add754818053c8df2b36708a375541baf83bfff349cb4897e2552e8ff4d4",
+    "dryer/src/dryer/names.py": "13b8ca3144ed7bcd98c4cb914db4d37ac588f4394639724a0701386adb813a19",
+    "dryer/src/dryer/platform.py": "eda134f1f47db9ecdc3d3598cd73ebb951d8c3f3953fdfd04a2500ba9c70e0b7",
+    "dryer/src/dryer/report.py": "a67c56e90651fb613868be7c0151e4aa8656707a4003ffe6bee602d6cb50788b",
+    "dryer/src/dryer/scan.py": "d8790cd8203bbb4351fb123ee3eb524d03d8beb838f6d1fa1e6c64a0fe3af436",
+    "dryer/src/dryer/shape.py": "066c61b5093e062240d81f823eec64d62501a4013657dc0324130f75db2053b8",
+    "dryer/src/dryer/treesitter.py": "a9c5ffb7b6f06cb315665f54c8c16412bae5ba05373fb7cf26026d6f9b25c431"
+  }
+}
