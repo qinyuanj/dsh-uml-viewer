@@ -3,6 +3,7 @@
 //! command string (`/bin/sh -c`, `cmd.exe /c`).
 //! qinyuanj/dsh-uml-viewer#3 adds the Windows kill-on-close Job Object here.
 
+#[cfg(windows)]
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};

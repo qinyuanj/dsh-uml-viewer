@@ -1,0 +1,6 @@
+project rust
+arg --min-lines
+arg 1_0
+arg --min-nodes
+arg 0_0
+arg --edn

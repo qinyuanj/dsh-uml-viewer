@@ -32,6 +32,22 @@ are passed explicitly so an installed or sibling crapper cannot replace the
 pinned naming/discovery implementation. `PYTHONHASHSEED=0` and UTF-8 output are
 set for the subprocesses. No Rust binary participates in generation.
 
+Two more oracles cover the parts the CLI scenarios cannot enumerate:
+
+- `python -I scripts/dry_count_oracle.py` (any CPython 3.11+; captured with
+  3.12.10) writes `fixtures/dry/count/{cases,whitespace,limits}.tsv` and the
+  generated digit table `crates/dryer/src/digits.rs`. It starts from the real
+  `int()` conversion, so accepted spellings (whitespace, signs, underscores,
+  every Unicode Nd digit), the 4300-digit limit and the trimmed White_Space set
+  are all the interpreter's own answers.
+- `python -I scripts/dry_platform_oracle.py <dryer-checkout>` writes
+  `fixtures/dry/platform/cases.tsv` from importing the pinned
+  `dryer.platform`. Run it where the warning path is POSIX, i.e. WSL2 or Linux
+  (captured with CPython 3.12.3 under WSL2), because the original formats the
+  host `Path` object. Both scripts verify the checkout hash and refuse a dirty
+  source tree; the status check normalizes CRLF so a Windows checkout is still
+  accepted under WSL git. Both support `--check`.
+
 The exact `--help` stdout is saved as `help.txt`, including its original wording
 and final newline. Every `goldens/<scenario>/` contains `scenario`, `stdout`,
 `stderr` and decimal `exit` followed by LF. `dry.edn` exists only when the CLI
@@ -68,6 +84,14 @@ project before the invocation. Paths in reports remain project-relative POSIX pa
 | `scoped-excluded` | Source-root/exclusion diagnostics on named files; compares only lib.rs. |
 | `unknown-format` | Invalid format exits 2 with no snapshot. |
 | `usage-error` | Unknown option exits 1 and prints original help after its diagnostic, with no snapshot. |
+| `count-underscore` | `--min-lines 1_0 --min-nodes 0_0`; Python `int()` accepts one underscore between digits, so both options parse as 10 and 0. |
+| `count-whitespace-plus` | `--min-lines " 4" --min-nodes +20`; the value strips leading White_Space and accepts a leading plus sign. |
+| `count-unicode` | `--min-lines ١٢ --min-nodes ٥`; Arabic-Indic digits are category Nd, so `int()` reads 12 and 5. |
+| `count-large` | A 101-digit `--min-lines`; accepted arbitrary precision, compared against small counts, publishes `{:candidates []}`. |
+| `count-negative-zero` | `--min-lines " -0"`; `int()` yields 0, which is not negative, so the default-sized report is produced. |
+| `count-error-float` | `--min-lines 1.0` exits 1 with `requires an integer` and the original help. |
+| `count-error-underscore` | `--min-nodes 1__0` exits 1 naming `--min-nodes`; a doubled underscore is not an integer. |
+| `count-error-negative` | `--min-lines " -5"` exits 1 with `requires a non-negative integer`; a leading `-` directly after the option is still `requires a value`. |
 
 ## Observed behavior to preserve
 

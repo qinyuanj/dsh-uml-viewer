@@ -1,0 +1,320 @@
+{:candidates [
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/calls.rs", :start-line 3, :end-line 7, :namespace "dry_oracle::calls", :name "path_left"}
+  :right {:file "src/calls.rs", :start-line 9, :end-line 13, :namespace "dry_oracle::calls", :name "path_right"}
+  :left-nodes 76
+  :right-nodes 76}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/calls.rs", :start-line 27, :end-line 31, :namespace "dry_oracle::calls", :name "generic_left"}
+  :right {:file "src/calls.rs", :start-line 33, :end-line 37, :namespace "dry_oracle::calls", :name "generic_right"}
+  :left-nodes 80
+  :right-nodes 80}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/calls.rs", :start-line 39, :end-line 43, :namespace "dry_oracle::calls", :name "macro_left"}
+  :right {:file "src/calls.rs", :start-line 45, :end-line 49, :namespace "dry_oracle::calls", :name "macro_right"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/calls.rs", :start-line 39, :end-line 43, :namespace "dry_oracle::calls", :name "macro_left"}
+  :right {:file "src/calls.rs", :start-line 51, :end-line 55, :namespace "dry_oracle::calls", :name "macro_variant"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/calls.rs", :start-line 45, :end-line 49, :namespace "dry_oracle::calls", :name "macro_right"}
+  :right {:file "src/calls.rs", :start-line 51, :end-line 55, :namespace "dry_oracle::calls", :name "macro_variant"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/calls.rs", :start-line 57, :end-line 65, :namespace "dry_oracle::calls", :name "operators_left"}
+  :right {:file "src/calls.rs", :start-line 67, :end-line 75, :namespace "dry_oracle::calls", :name "operators_right"}
+  :left-nodes 95
+  :right-nodes 95}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 12, :end-line 19, :namespace nil, :name nil}
+  :right {:file "src/extraction.rs", :start-line 22, :end-line 29, :namespace nil, :name nil}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 12, :end-line 19, :namespace nil, :name nil}
+  :right {:file "src/extraction.rs", :start-line 32, :end-line 39, :namespace "dry_oracle::extraction", :name "cfg_any_test"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 12, :end-line 19, :namespace nil, :name nil}
+  :right {:file "src/extraction.rs", :start-line 43, :end-line 50, :namespace nil, :name nil}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 12, :end-line 19, :namespace nil, :name nil}
+  :right {:file "src/extraction.rs", :start-line 55, :end-line 62, :namespace nil, :name nil}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 12, :end-line 19, :namespace nil, :name nil}
+  :right {:file "src/extraction.rs", :start-line 68, :end-line 75, :namespace "dry_oracle::extraction::embedded", :name "nested_module_function"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 12, :end-line 19, :namespace nil, :name nil}
+  :right {:file "src/lib.rs", :start-line 6, :end-line 13, :namespace "dry_oracle", :name "duplicate_left"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 12, :end-line 19, :namespace nil, :name nil}
+  :right {:file "src/lib.rs", :start-line 16, :end-line 23, :namespace "dry_oracle", :name "duplicate_right"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 12, :end-line 19, :namespace nil, :name nil}
+  :right {:file "src/lib.rs", :start-line 34, :end-line 41, :namespace "dry_oracle", :name "parenthesized"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 22, :end-line 29, :namespace nil, :name nil}
+  :right {:file "src/extraction.rs", :start-line 32, :end-line 39, :namespace "dry_oracle::extraction", :name "cfg_any_test"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 22, :end-line 29, :namespace nil, :name nil}
+  :right {:file "src/extraction.rs", :start-line 43, :end-line 50, :namespace nil, :name nil}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 22, :end-line 29, :namespace nil, :name nil}
+  :right {:file "src/extraction.rs", :start-line 55, :end-line 62, :namespace nil, :name nil}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 22, :end-line 29, :namespace nil, :name nil}
+  :right {:file "src/extraction.rs", :start-line 68, :end-line 75, :namespace "dry_oracle::extraction::embedded", :name "nested_module_function"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 22, :end-line 29, :namespace nil, :name nil}
+  :right {:file "src/lib.rs", :start-line 6, :end-line 13, :namespace "dry_oracle", :name "duplicate_left"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 22, :end-line 29, :namespace nil, :name nil}
+  :right {:file "src/lib.rs", :start-line 16, :end-line 23, :namespace "dry_oracle", :name "duplicate_right"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 22, :end-line 29, :namespace nil, :name nil}
+  :right {:file "src/lib.rs", :start-line 34, :end-line 41, :namespace "dry_oracle", :name "parenthesized"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 32, :end-line 39, :namespace "dry_oracle::extraction", :name "cfg_any_test"}
+  :right {:file "src/extraction.rs", :start-line 43, :end-line 50, :namespace nil, :name nil}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 32, :end-line 39, :namespace "dry_oracle::extraction", :name "cfg_any_test"}
+  :right {:file "src/extraction.rs", :start-line 55, :end-line 62, :namespace nil, :name nil}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 32, :end-line 39, :namespace "dry_oracle::extraction", :name "cfg_any_test"}
+  :right {:file "src/extraction.rs", :start-line 68, :end-line 75, :namespace "dry_oracle::extraction::embedded", :name "nested_module_function"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 32, :end-line 39, :namespace "dry_oracle::extraction", :name "cfg_any_test"}
+  :right {:file "src/lib.rs", :start-line 6, :end-line 13, :namespace "dry_oracle", :name "duplicate_left"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 32, :end-line 39, :namespace "dry_oracle::extraction", :name "cfg_any_test"}
+  :right {:file "src/lib.rs", :start-line 16, :end-line 23, :namespace "dry_oracle", :name "duplicate_right"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 32, :end-line 39, :namespace "dry_oracle::extraction", :name "cfg_any_test"}
+  :right {:file "src/lib.rs", :start-line 34, :end-line 41, :namespace "dry_oracle", :name "parenthesized"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 43, :end-line 50, :namespace nil, :name nil}
+  :right {:file "src/extraction.rs", :start-line 55, :end-line 62, :namespace nil, :name nil}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 43, :end-line 50, :namespace nil, :name nil}
+  :right {:file "src/extraction.rs", :start-line 68, :end-line 75, :namespace "dry_oracle::extraction::embedded", :name "nested_module_function"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 43, :end-line 50, :namespace nil, :name nil}
+  :right {:file "src/lib.rs", :start-line 6, :end-line 13, :namespace "dry_oracle", :name "duplicate_left"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 43, :end-line 50, :namespace nil, :name nil}
+  :right {:file "src/lib.rs", :start-line 16, :end-line 23, :namespace "dry_oracle", :name "duplicate_right"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 43, :end-line 50, :namespace nil, :name nil}
+  :right {:file "src/lib.rs", :start-line 34, :end-line 41, :namespace "dry_oracle", :name "parenthesized"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 55, :end-line 62, :namespace nil, :name nil}
+  :right {:file "src/extraction.rs", :start-line 68, :end-line 75, :namespace "dry_oracle::extraction::embedded", :name "nested_module_function"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 55, :end-line 62, :namespace nil, :name nil}
+  :right {:file "src/lib.rs", :start-line 6, :end-line 13, :namespace "dry_oracle", :name "duplicate_left"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 55, :end-line 62, :namespace nil, :name nil}
+  :right {:file "src/lib.rs", :start-line 16, :end-line 23, :namespace "dry_oracle", :name "duplicate_right"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 55, :end-line 62, :namespace nil, :name nil}
+  :right {:file "src/lib.rs", :start-line 34, :end-line 41, :namespace "dry_oracle", :name "parenthesized"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 68, :end-line 75, :namespace "dry_oracle::extraction::embedded", :name "nested_module_function"}
+  :right {:file "src/lib.rs", :start-line 6, :end-line 13, :namespace "dry_oracle", :name "duplicate_left"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 68, :end-line 75, :namespace "dry_oracle::extraction::embedded", :name "nested_module_function"}
+  :right {:file "src/lib.rs", :start-line 16, :end-line 23, :namespace "dry_oracle", :name "duplicate_right"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 68, :end-line 75, :namespace "dry_oracle::extraction::embedded", :name "nested_module_function"}
+  :right {:file "src/lib.rs", :start-line 34, :end-line 41, :namespace "dry_oracle", :name "parenthesized"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/lib.rs", :start-line 6, :end-line 13, :namespace "dry_oracle", :name "duplicate_left"}
+  :right {:file "src/lib.rs", :start-line 16, :end-line 23, :namespace "dry_oracle", :name "duplicate_right"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/lib.rs", :start-line 6, :end-line 13, :namespace "dry_oracle", :name "duplicate_left"}
+  :right {:file "src/lib.rs", :start-line 34, :end-line 41, :namespace "dry_oracle", :name "parenthesized"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/lib.rs", :start-line 16, :end-line 23, :namespace "dry_oracle", :name "duplicate_right"}
+  :right {:file "src/lib.rs", :start-line 34, :end-line 41, :namespace "dry_oracle", :name "parenthesized"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/lib.rs", :start-line 45, :end-line 52, :namespace "dry_oracle::Counter", :name "advance"}
+  :right {:file "src/lib.rs", :start-line 54, :end-line 61, :namespace "dry_oracle::Counter", :name "retreat"}
+  :left-nodes 67
+  :right-nodes 67}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/lib.rs", :start-line 64, :end-line 64, :namespace "dry_oracle", :name "tiny_left"}
+  :right {:file "src/lib.rs", :start-line 65, :end-line 65, :namespace "dry_oracle", :name "tiny_right"}
+  :left-nodes 23
+  :right-nodes 23}
+ {:score 0.847826086957
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 12, :end-line 19, :namespace nil, :name nil}
+  :right {:file "src/extraction.rs", :start-line 66, :end-line 77, :namespace "dry_oracle::extraction", :name "container"}
+  :left-nodes 60
+  :right-nodes 74}
+ {:score 0.847826086957
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 22, :end-line 29, :namespace nil, :name nil}
+  :right {:file "src/extraction.rs", :start-line 66, :end-line 77, :namespace "dry_oracle::extraction", :name "container"}
+  :left-nodes 60
+  :right-nodes 74}
+ {:score 0.847826086957
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 32, :end-line 39, :namespace "dry_oracle::extraction", :name "cfg_any_test"}
+  :right {:file "src/extraction.rs", :start-line 66, :end-line 77, :namespace "dry_oracle::extraction", :name "container"}
+  :left-nodes 60
+  :right-nodes 74}
+ {:score 0.847826086957
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 43, :end-line 50, :namespace nil, :name nil}
+  :right {:file "src/extraction.rs", :start-line 66, :end-line 77, :namespace "dry_oracle::extraction", :name "container"}
+  :left-nodes 60
+  :right-nodes 74}
+ {:score 0.847826086957
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 55, :end-line 62, :namespace nil, :name nil}
+  :right {:file "src/extraction.rs", :start-line 66, :end-line 77, :namespace "dry_oracle::extraction", :name "container"}
+  :left-nodes 60
+  :right-nodes 74}
+ {:score 0.847826086957
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 66, :end-line 77, :namespace "dry_oracle::extraction", :name "container"}
+  :right {:file "src/extraction.rs", :start-line 68, :end-line 75, :namespace "dry_oracle::extraction::embedded", :name "nested_module_function"}
+  :left-nodes 74
+  :right-nodes 60}
+ {:score 0.847826086957
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 66, :end-line 77, :namespace "dry_oracle::extraction", :name "container"}
+  :right {:file "src/lib.rs", :start-line 6, :end-line 13, :namespace "dry_oracle", :name "duplicate_left"}
+  :left-nodes 74
+  :right-nodes 60}
+ {:score 0.847826086957
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 66, :end-line 77, :namespace "dry_oracle::extraction", :name "container"}
+  :right {:file "src/lib.rs", :start-line 16, :end-line 23, :namespace "dry_oracle", :name "duplicate_right"}
+  :left-nodes 74
+  :right-nodes 60}
+ {:score 0.847826086957
+  :language "rust"
+  :left {:file "src/extraction.rs", :start-line 66, :end-line 77, :namespace "dry_oracle::extraction", :name "container"}
+  :right {:file "src/lib.rs", :start-line 34, :end-line 41, :namespace "dry_oracle", :name "parenthesized"}
+  :left-nodes 74
+  :right-nodes 60}
+]}
