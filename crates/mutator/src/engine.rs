@@ -16,6 +16,33 @@ use std::{
     time::Duration,
 };
 
+/// The original `--timings` totals: one line per phase in first-run order.
+#[derive(Default)]
+pub struct Timings {
+    phases: Vec<(String, f64, usize)>,
+}
+impl Timings {
+    pub fn add(&mut self, phase: &str, elapsed: Duration) {
+        let seconds = elapsed.as_secs_f64();
+        if let Some(entry) = self.phases.iter_mut().find(|(name, _, _)| name == phase) {
+            entry.1 += seconds;
+            entry.2 += 1;
+        } else {
+            self.phases.push((phase.to_string(), seconds, 1));
+        }
+    }
+    pub fn summary(&self) -> String {
+        self.phases
+            .iter()
+            .map(|(name, seconds, count)| {
+                format!(
+                    "timing {name}: {seconds:.1}s total, {count} run(s), {:.2}s each\n",
+                    seconds / *count as f64
+                )
+            })
+            .collect()
+    }
+}
 pub struct Prepared {
     pub file: PathBuf,
     pub key: String,
@@ -43,7 +70,7 @@ fn execute(
     site: Option<(&Path, &str)>,
     timeout: Option<Duration>,
 ) -> Result<(i32, Duration), String> {
-    let view = View::new().map_err(|e| e.to_string())?;
+    let view = View::new(root).map_err(|e| e.to_string())?;
     let result = view
         .run(root, cwd, command, site, timeout)
         .map_err(|e| format!("Cannot enter user+mount namespace overlay: {e}"))?;
@@ -111,7 +138,7 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Records
         .collect()
     };
     for (cwd, command, report) in jobs {
-        let view = View::new().map_err(|error| {
+        let view = View::new(root).map_err(|error| {
             eprintln!("{error}");
             2
         })?;
@@ -202,7 +229,12 @@ pub fn check_backups(root: &Path) -> Result<(), String> {
     }
     Ok(())
 }
-pub fn prepare(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Vec<Prepared>, i32> {
+pub fn prepare(
+    root: &Path,
+    options: &Options,
+    files: &[PathBuf],
+    timings: &mut Timings,
+) -> Result<Vec<Prepared>, i32> {
     let mut prepared = Vec::new();
     for file in files {
         let raw = fs::read(file).map_err(|error| {
@@ -237,13 +269,20 @@ pub fn prepare(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Vec<
             covered,
         });
     }
+    if options.flag("--scan") {
+        // Scanning inventories sites: no coverage command runs and nothing runs.
+        return Ok(prepared);
+    }
     if prepared.iter().all(|item| reusable(root, item)) {
         return Ok(prepared);
     }
     let records = if options.flag("--no-coverage") {
         Records::default()
     } else {
-        coverage(root, options, files)?
+        let started = std::time::Instant::now();
+        let records = coverage(root, options, files)?;
+        timings.add("coverage", started.elapsed());
+        records
     };
     for item in &mut prepared {
         let history = metrics::load_history(root, &item.key);
@@ -266,11 +305,20 @@ pub fn prepare(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Vec<
             options.flag("--mutate-all"),
             options.lines.as_ref(),
         );
-        item.outcomes = if options.flag("--mutate-all") || options.lines.is_some() {
-            BTreeMap::new()
-        } else {
-            metrics::carry_forward(&item.sites, &item.covered, &history, &item.forms)
-        };
+        // Outcomes of sites this run does not execute survive, including the
+        // covered sites a --lines filter excludes.
+        item.outcomes = metrics::carry_forward(&item.sites, &item.covered, &history, &item.forms);
+        let selected = item
+            .decisions
+            .values()
+            .filter(|decision| decision.action == "executed")
+            .count();
+        if selected as i64 > options.mutation_warning {
+            eprintln!(
+                "WARNING: {selected} covered mutations selected in {}.",
+                item.key
+            );
+        }
     }
     Ok(prepared)
 }
@@ -279,10 +327,21 @@ pub fn mutate(
     options: &Options,
     prepared: Vec<Prepared>,
     clock: impl Fn() -> String,
+    timings: &mut Timings,
 ) -> i32 {
     if options.flag("--scan") {
         for item in prepared {
-            println!("Scan: {} mutation sites in {}", item.sites.len(), item.key);
+            let sites: Vec<&Site> = item
+                .sites
+                .iter()
+                .filter(|site| {
+                    options
+                        .lines
+                        .as_ref()
+                        .is_none_or(|lines| lines.contains(&site.line))
+                })
+                .collect();
+            println!("Scan: {} mutation sites in {}", sites.len(), item.key);
             let history = metrics::load_history(root, &item.key);
             let changed = item.forms.iter().any(|form| {
                 history
@@ -290,7 +349,7 @@ pub fn mutate(
                     .get(&(form.namespace.clone(), form.id.clone()))
                     .is_some_and(|prior| prior.digest != form.digest)
             });
-            for site in &item.sites {
+            for site in &sites {
                 let mark = if history
                     .forms
                     .get(&(site.namespace.clone(), site.form_id.clone()))
@@ -343,13 +402,19 @@ pub fn mutate(
             let baseline = baselines
                 .entry((command.clone(), cwd.clone()))
                 .or_insert_with(|| {
-                    if options.value("--test-command").is_none() {
+                    let started = std::time::Instant::now();
+                    let result = if options.value("--test-command").is_none() {
                         let built = execute(root, &cwd, "cargo test --no-run", None, None)?;
                         if built.0 != 0 {
-                            return Ok(built);
+                            Ok(built)
+                        } else {
+                            execute(root, &cwd, &command, None, None)
                         }
-                    }
-                    execute(root, &cwd, &command, None, None)
+                    } else {
+                        execute(root, &cwd, &command, None, None)
+                    };
+                    timings.add("baseline", started.elapsed());
+                    result
                 });
             let (code, duration) = match baseline {
                 Ok(value) => *value,
@@ -366,12 +431,6 @@ pub fn mutate(
                 Duration::from_secs_f64((duration.as_secs_f64() * options.timeout_factor).max(2.0));
             for site in &item.sites {
                 let decision = &item.decisions[&site.mutation_id];
-                if options.flag("--verbose") {
-                    println!(
-                        "{}:{}: {} ({})",
-                        site.file, site.line, decision.action, decision.reason
-                    );
-                }
                 if decision.action != "executed" {
                     continue;
                 }
@@ -406,6 +465,27 @@ pub fn mutate(
             eprintln!("Source changed during mutation: {}", item.key);
             status = 4;
             continue;
+        }
+        if options.flag("--verbose") {
+            for site in &item.sites {
+                let decision = &item.decisions[&site.mutation_id];
+                let result = item
+                    .outcomes
+                    .get(&site.mutation_id)
+                    .map_or("none", String::as_str);
+                println!(
+                    "{}:{} {}/{} {} {} reason={} previous={} result={result} id={}",
+                    site.file,
+                    site.line,
+                    site.namespace,
+                    site.name,
+                    site.description(),
+                    decision.action,
+                    decision.reason,
+                    decision.previous,
+                    site.mutation_id
+                );
+            }
         }
         metrics::tally_forms(
             &mut item.forms,

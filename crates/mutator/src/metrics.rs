@@ -38,12 +38,11 @@ pub fn source_key(path: &Path, root: &Path) -> io::Result<String> {
         )
     })
 }
-pub fn snapshot_path(root: &Path, namespace: &str) -> io::Result<PathBuf> {
+fn namespace_parts(namespace: &str) -> io::Result<Vec<String>> {
     let normalized = namespace.replace('\\', "/").replace("::", "/");
-    let mut path = root.join(".metrics").join("mutate");
-    let parts: Vec<_> = normalized.split('/').collect();
-    for part in &parts {
-        if matches!(*part, "" | "." | "..")
+    let mut parts = Vec::new();
+    for part in normalized.split('/') {
+        if matches!(part, "" | "." | "..")
             || Path::new(part).components().count() != 1
             || part.contains(':')
         {
@@ -52,11 +51,60 @@ pub fn snapshot_path(root: &Path, namespace: &str) -> io::Result<PathBuf> {
                 format!("unsafe namespace {namespace:?}"),
             ));
         }
+        parts.push(part.to_string());
+    }
+    Ok(parts)
+}
+pub fn snapshot_path(root: &Path, namespace: &str) -> io::Result<PathBuf> {
+    let parts = namespace_parts(namespace)?;
+    let mut path = root.join(".metrics").join("mutate");
+    for part in &parts {
         path.push(part);
     }
     // Append, rather than replace an extension: dots are namespace characters.
     path.set_file_name(format!("{}.edn", parts.last().unwrap()));
     Ok(path)
+}
+/// Whether `path` is an existing real directory: a symlink is never followed,
+/// so no snapshot is read, published or removed through one.
+fn real_directory(path: &Path) -> io::Result<bool> {
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("snapshot path is a symlink: {}", path.display()),
+        )),
+        Ok(metadata) if !metadata.is_dir() => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("snapshot path is not a directory: {}", path.display()),
+        )),
+        Ok(_) => Ok(true),
+    }
+}
+fn open_directory(path: &Path) -> io::Result<()> {
+    match fs::create_dir(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            real_directory(path)?;
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
+}
+/// The snapshot file may be replaced atomically, but never through a link.
+fn check_snapshot_file(path: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("snapshot path is not a file: {}", path.display()),
+            ))
+        }
+        Ok(_) => Ok(()),
+    }
 }
 
 fn value_string(value: &Value) -> Option<&str> {
@@ -115,16 +163,28 @@ fn edn_files(directory: &Path, files: &mut Vec<PathBuf>) {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() {
+        // A symlinked directory or file is never visited.
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_dir() {
             edn_files(&path, files);
-        } else if path.is_file() && path.extension().is_some_and(|ext| ext == "edn") {
+        } else if kind.is_file() && path.extension().is_some_and(|ext| ext == "edn") {
             files.push(path);
         }
     }
 }
 pub fn read_snapshots(root: &Path) -> Vec<Snapshot> {
+    let base = root.join(".metrics");
+    if !matches!(real_directory(&base), Ok(true)) {
+        return Vec::new();
+    }
+    let base = base.join("mutate");
+    if !matches!(real_directory(&base), Ok(true)) {
+        return Vec::new();
+    }
     let mut paths = Vec::new();
-    edn_files(&root.join(".metrics").join("mutate"), &mut paths);
+    edn_files(&base, &mut paths);
     paths.sort();
     paths
         .into_iter()
@@ -423,12 +483,17 @@ fn remove_if_exists(path: &Path) -> io::Result<()> {
     }
 }
 fn remove_empty_dirs(directory: &Path) -> io::Result<()> {
-    if !directory.is_dir() {
+    let Ok(metadata) = fs::symlink_metadata(directory) else {
+        return Ok(());
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Ok(());
     }
     for entry in fs::read_dir(directory)? {
-        let path = entry?.path();
-        if path.is_dir() {
+        let entry = entry?;
+        let path = entry.path();
+        // A symlinked child is neither recursed into nor removed here.
+        if entry.file_type()?.is_dir() {
             remove_empty_dirs(&path)?;
             if fs::read_dir(&path)?.next().is_none() {
                 fs::remove_dir(path)?;
@@ -448,6 +513,11 @@ pub fn write_results(
     isolation: &str,
 ) -> io::Result<Vec<PathBuf>> {
     let root = resolve(root);
+    // Publication and cleanup stay under the project: a symlinked snapshot
+    // directory is refused instead of written through.
+    let metrics = root.join(".metrics");
+    open_directory(&metrics)?;
+    open_directory(&metrics.join("mutate"))?;
     let existing = read_snapshots(&root);
     let mut retained: BTreeMap<String, (Vec<Value>, BTreeMap<String, String>)> = BTreeMap::new();
     let mut touched = BTreeSet::new();
@@ -486,6 +556,13 @@ pub fn write_results(
     let mut canonical = BTreeSet::new();
     for namespace in &touched {
         let path = snapshot_path(&root, namespace)?;
+        let parts = namespace_parts(namespace)?;
+        let mut directory = metrics.join("mutate");
+        for part in &parts[..parts.len() - 1] {
+            directory.push(part);
+            open_directory(&directory)?;
+        }
+        check_snapshot_file(&path)?;
         canonical.insert(resolve(&path));
         let (mut kept, mut merged) = retained.remove(namespace).unwrap_or_default();
         let fresh = incoming.get(namespace).cloned().unwrap_or_default();

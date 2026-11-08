@@ -401,3 +401,168 @@ fn changed_selection_keeps_files_below_a_skip_named_directory() {
             .is_file()
     );
 }
+
+#[test]
+fn line_filter_keeps_the_carried_outcomes_of_excluded_sites() {
+    let fixture = Fixture::new();
+    let command = "grep -q 'x + x' app/src/lib.rs && grep -q 'x / 2' app/src/more.rs";
+    assert_eq!(
+        fixture.run(&[
+            "--no-coverage",
+            "--mutate-all",
+            "--test-command",
+            command,
+            "app/src/lib.rs",
+            "app/src/more.rs"
+        ]),
+        ExitCode::SUCCESS
+    );
+    let lib = fixture.root().join("app/src/lib.rs");
+    let source = fs::read_to_string(&lib).unwrap();
+    fs::write(&lib, source.replace("{\n    x + x", "{\n\n    x + x")).unwrap();
+    // Line 5 selects only the changed lib form; more.rs stays filtered out but
+    // keeps the killed outcome its earlier run recorded.
+    assert_eq!(
+        fixture.run(&[
+            "--no-coverage",
+            "--test-command",
+            command,
+            "--lines",
+            "5",
+            "app/src/lib.rs",
+            "app/src/more.rs"
+        ]),
+        ExitCode::SUCCESS
+    );
+    let more = fs::read_to_string(fixture.root().join(".metrics/mutate/app/more.edn")).unwrap();
+    assert!(more.contains(":killed 1"), "{more}");
+    assert!(more.contains(":survived 0"), "{more}");
+}
+
+#[test]
+fn command_views_are_private_and_their_artifacts_are_owner_only() {
+    let fixture = Fixture::new();
+    let recorded = fixture.scratch().join("views.txt");
+    let command = format!(
+        "{{ printf 'dir %s\\n' \"$(stat -c %a \"$MUTATOR_VIEW\")\"; \
+         printf 'path %s\\n' \"$MUTATOR_VIEW\"; \
+         if [ -f \"$MUTATOR_VIEW/mutation\" ]; then \
+           printf 'file %s\\n' \"$(stat -c %a \"$MUTATOR_VIEW/mutation\")\"; fi; }} >> {}",
+        recorded.display()
+    );
+    assert_eq!(
+        fixture.run(&[
+            "--no-coverage",
+            "--mutate-all",
+            "--test-command",
+            &command,
+            "app/src/lib.rs"
+        ]),
+        // The recording command always succeeds, so the mutant survives.
+        ExitCode::from(3)
+    );
+    let text = fs::read_to_string(&recorded).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    let modes = |prefix: &str| -> Vec<&str> {
+        lines
+            .iter()
+            .filter_map(|line| line.strip_prefix(prefix))
+            .collect()
+    };
+    let directories = modes("dir ");
+    let paths = modes("path ");
+    let files = modes("file ");
+    assert!(directories.len() >= 2, "{text}");
+    assert!(directories.iter().all(|mode| *mode == "700"), "{text}");
+    assert!(files.len() >= 1, "{text}");
+    assert!(files.iter().all(|mode| *mode == "600"), "{text}");
+    for path in paths {
+        let path = Path::new(path);
+        let name = path.file_name().and_then(|name| name.to_str()).unwrap();
+        assert_eq!(path.parent(), Some(std::env::temp_dir().as_path()));
+        let tail = name.rsplit('-').next().unwrap();
+        assert!(
+            name.starts_with("mutator-")
+                && tail.len() >= 16
+                && tail.chars().all(|c| c.is_ascii_hexdigit()),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn commands_write_to_the_view_home_and_temp_not_the_callers() {
+    let fixture = Fixture::new();
+    let recorded = fixture.scratch().join("environment.txt");
+    let command = format!(
+        "printf '%s\\n' \"$HOME\" \"$TMPDIR\" \"$XDG_CACHE_HOME\" >> {}",
+        recorded.display()
+    );
+    assert_eq!(
+        fixture.run(&[
+            "--no-coverage",
+            "--mutate-all",
+            "--test-command",
+            &command,
+            "app/src/lib.rs"
+        ]),
+        ExitCode::from(3)
+    );
+    let home = fixture.root().join("target/mutator-home");
+    let text = fs::read_to_string(&recorded).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines.len() >= 6, "{text}");
+    for chunk in lines.chunks(3) {
+        assert_eq!(Path::new(chunk[0]), home, "{text}");
+        assert_eq!(Path::new(chunk[1]), home.join("tmp"), "{text}");
+        assert_eq!(Path::new(chunk[2]), home.join(".cache"), "{text}");
+    }
+}
+
+#[test]
+fn a_setsid_descendant_cannot_outlive_its_view() {
+    let fixture = Fixture::new();
+    let escaped = fixture.scratch().join("escaped-daemon");
+    let command = format!(
+        "setsid sh -c 'sleep 2; touch {}' & exit 0",
+        escaped.display()
+    );
+    assert_eq!(
+        fixture.run(&[
+            "--no-coverage",
+            "--mutate-all",
+            "--test-command",
+            &command,
+            "app/src/lib.rs"
+        ]),
+        ExitCode::from(3)
+    );
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    assert!(
+        !escaped.exists(),
+        "a setsid descendant must not outlive its view"
+    );
+}
+
+#[test]
+fn a_symlinked_snapshot_directory_is_refused_before_deleting_anything() {
+    let fixture = Fixture::new();
+    let victim = fixture.scratch().join("victim");
+    fs::create_dir_all(victim.join("empty")).unwrap();
+    fs::write(victim.join("keep.txt"), "keep\n").unwrap();
+    let metrics = fixture.root().join(".metrics");
+    fs::create_dir_all(&metrics).unwrap();
+    std::os::unix::fs::symlink(&victim, metrics.join("mutate")).unwrap();
+    assert_eq!(
+        fixture.run(&["--no-coverage", "--mutate-all", "app/src/lib.rs"]),
+        ExitCode::from(2)
+    );
+    assert!(
+        victim.join("empty").is_dir(),
+        "nothing outside the project may be deleted or published"
+    );
+    assert_eq!(
+        fs::read_to_string(victim.join("keep.txt")).unwrap(),
+        "keep\n"
+    );
+}

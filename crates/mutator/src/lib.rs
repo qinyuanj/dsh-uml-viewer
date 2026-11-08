@@ -25,7 +25,7 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode
     let options = match cli::parse(&args) {
         Ok(options) => options,
         Err(error) => {
-            eprintln!("{error}\n\n{HELP}");
+            eprint!("{error}\n\n{HELP}");
             return ExitCode::from(1);
         }
     };
@@ -73,9 +73,18 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String) -> ExitCode
         eprintln!("{error}");
         return ExitCode::from(2);
     }
-    let prepared = match engine::prepare(&root, &options, &files) {
+    let mut timings = engine::Timings::default();
+    let prepared = match engine::prepare(&root, &options, &files, &mut timings) {
         Ok(value) => value,
         Err(code) => return ExitCode::from(code as u8),
     };
-    ExitCode::from(engine::mutate(&root, &options, prepared, clock) as u8)
+    let started = std::time::Instant::now();
+    let status = engine::mutate(&root, &options, prepared, clock, &mut timings);
+    if !options.flag("--scan") {
+        timings.add("mutation-run", started.elapsed());
+    }
+    if options.flag("--timings") {
+        eprint!("{}", timings.summary());
+    }
+    ExitCode::from(status as u8)
 }

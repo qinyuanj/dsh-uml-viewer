@@ -4,6 +4,9 @@ use std::{
     path::PathBuf,
 };
 
+/// The original's default: warn when a file selects more covered mutations.
+const DEFAULT_MUTATION_WARNING: i64 = 50;
+
 #[derive(Default)]
 pub struct Options {
     pub scope: Scope,
@@ -12,6 +15,7 @@ pub struct Options {
     pub values: BTreeMap<String, String>,
     pub lines: Option<BTreeSet<usize>>,
     pub timeout_factor: f64,
+    pub mutation_warning: i64,
 }
 impl Options {
     pub fn flag(&self, name: &str) -> bool {
@@ -22,6 +26,47 @@ impl Options {
     }
 }
 
+/// Python `int()`: surrounding whitespace, an optional sign and underscores
+/// between digits.
+fn python_int(value: &str) -> Option<i64> {
+    let text = value.trim();
+    let (sign, digits) = match text.as_bytes().first() {
+        Some(b'+') => (1, &text[1..]),
+        Some(b'-') => (-1, &text[1..]),
+        _ => (1, text),
+    };
+    if digits.is_empty() {
+        return None;
+    }
+    let mut cleaned = String::new();
+    for (index, ch) in digits.char_indices() {
+        if ch.is_ascii_digit() {
+            cleaned.push(ch);
+        } else if ch == '_' {
+            let previous = digits[..index].chars().next_back();
+            let next = digits[index + 1..].chars().next();
+            if !previous.is_some_and(|c| c.is_ascii_digit())
+                || !next.is_some_and(|c| c.is_ascii_digit())
+            {
+                return None;
+            }
+        } else {
+            return None;
+        }
+    }
+    cleaned.parse::<i64>().ok().map(|number| sign * number)
+}
+
+/// Python `float()`: surrounding whitespace and digit-group underscores.
+fn python_float(value: &str) -> Option<f64> {
+    let text = value.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let cleaned: String = text.chars().filter(|ch| *ch != '_').collect();
+    cleaned.parse::<f64>().ok()
+}
+
 pub fn parse(args: &[String]) -> Result<Options, String> {
     let mut options = Options {
         scope: Scope {
@@ -29,6 +74,7 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
             ..Scope::default()
         },
         timeout_factor: 10.0,
+        mutation_warning: DEFAULT_MUTATION_WARNING,
         ..Options::default()
     };
     let flags = [
@@ -58,6 +104,7 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
         "--max-workers",
         "--lines",
     ];
+    let mut workers: Option<i64> = None;
     let mut index = 0;
     while index < args.len() {
         let arg = args[index].as_str();
@@ -74,38 +121,34 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
                 "-s" | "--source-root" => options.scope.source_roots.push(value.clone()),
                 "--exclude" => options.scope.exclusions.push(value.clone()),
                 "--max-workers" => {
-                    if value.parse::<usize>().ok().filter(|n| *n > 0).is_none() {
-                        return Err("--max-workers requires a positive integer".into());
-                    }
-                    if value != "1" {
-                        return Err(
-                            "this Linux mutation build supports --max-workers 1 only".into()
-                        );
-                    }
+                    workers = python_int(value)
+                        .filter(|number| *number > 0)
+                        .map(Some)
+                        .ok_or("--max-workers requires a positive integer")?;
                 }
                 "--timeout-factor" => {
-                    options.timeout_factor = value
-                        .parse()
-                        .map_err(|_| "--timeout-factor requires a positive number")?;
-                    if options.timeout_factor <= 0.0 || !options.timeout_factor.is_finite() {
+                    let factor = python_float(value)
+                        .ok_or_else(|| format!("could not convert string to float: '{value}'"))?;
+                    if factor <= 0.0 || !factor.is_finite() {
                         return Err("--timeout-factor requires a positive number".into());
                     }
+                    options.timeout_factor = factor;
                 }
                 "--mutation-warning" => {
-                    value
-                        .parse::<i64>()
-                        .map_err(|_| "--mutation-warning requires an integer")?;
+                    options.mutation_warning = python_int(value).ok_or_else(|| {
+                        format!("invalid literal for int() with base 10: '{value}'")
+                    })?;
                 }
                 "--lines" => {
                     let mut lines = BTreeSet::new();
                     for piece in value.split(',').map(str::trim).filter(|v| !v.is_empty()) {
-                        let number = piece
-                            .parse::<usize>()
-                            .map_err(|_| "--lines requires positive line numbers")?;
-                        if number == 0 {
+                        let number = python_int(piece).ok_or_else(|| {
+                            format!("invalid literal for int() with base 10: '{piece}'")
+                        })?;
+                        if number < 1 {
                             return Err("--lines requires positive line numbers".into());
                         }
-                        lines.insert(number);
+                        lines.insert(number as usize);
                     }
                     if lines.is_empty() {
                         return Err("--lines requires a line number".into());
@@ -137,6 +180,11 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
     }
     if let Some(error) = options.scope.exclusion_error() {
         return Err(error);
+    }
+    // The single-worker limit of this build is not a usage conflict, so the
+    // original's conflict messages above win.
+    if workers.is_some_and(|workers| workers != 1) {
+        return Err("this Linux mutation build supports --max-workers 1 only".into());
     }
     Ok(options)
 }

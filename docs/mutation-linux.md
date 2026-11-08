@@ -9,11 +9,29 @@ left to their follow-up tickets.
 ## Write contract (stronger than the original baseline)
 
 Coverage commands, the baseline test command and every mutant run in a separate
-child user namespace and mount namespace. Within the child, `mount --make-rprivate /`
+child user+mount+PID namespace. Within the child, `mount --make-rprivate /`
 prevents propagation, then overlayfs mounts the canonical project root over
 itself. Upper and work directories live in a disposable native temp directory.
 The original project is only the lower layer. Mutant source changes are copied
 into the overlay only; they are never written to the lower project.
+
+The scratch directory is created with mode `0700` and an unpredictable
+`mutator-<pid>-<counter>-<16 hex>` name, and `TMPDIR` is refused when it points
+inside the canonical project. The mutation input and captured output files are
+created `0600`. Cleanup walks the tree without following links, restores the
+zero permission overlayfs leaves on its work directory and reports a removal
+failure on stderr instead of ignoring it. Each command's shell is the PID
+namespace's first process (`unshare --pid --fork --kill-child`), so when it
+exits every remaining descendant dies with the namespace, including a `setsid`
+escape; the unshare parent also takes SIGKILL when `uml-viewer` dies. Tests can
+read `MUTATOR_VIEW` (the scratch path inside the child) to observe these
+properties.
+
+Commands run with `HOME`, `XDG_CACHE_HOME` and `TMPDIR` inside the view's own
+`target/mutator-home`, with `CARGO_TARGET_DIR` pinned beneath the view and
+`CARGO_BUILD_TARGET_DIR`, `CARGO_ENCODED_RUSTFLAGS` and `LLVM_PROFILE_FILE`
+unset. `CARGO_HOME` and `RUSTUP_HOME` stay at the installed toolchains' homes so
+the pinned toolchain and registry cache remain usable.
 
 Using the canonical root in the child (rather than a differently named project
 copy) retains absolute paths and sibling Cargo path dependencies. Cargo output
@@ -53,6 +71,17 @@ Before any test, the non-`--scan` path refuses to run with exit 2 while
 `target/mutator-backup` holds files, as the original does; nothing is written
 back and an empty backup directory is not a refusal.
 
+`--scan` inventories sites only: it runs no coverage command and applies the
+`--lines` filter. `--mutation-warning` (default 50) warns per file above its
+threshold, `--timings` prints the original's per-phase `timing <phase>: ...`
+summary on stderr, and `--verbose` prints the original's per-site decision line.
+Usage errors print the original message, a blank line and the exact help bytes.
+
+Snapshot publication stays under the canonical project: a symlinked `.metrics`,
+`.metrics/mutate`, namespace directory or snapshot file is refused (exit 2)
+rather than read, written or deleted through, and directory walking never
+follows links.
+
 ## Byte oracle
 
 `fixtures/mutate` and `scripts/mutate_goldens.py` are development-only inputs.
@@ -60,3 +89,16 @@ They reproduce the Python snapshot bytes and exact help text using mutator
 f772a83 and crapper 4068857. The product binary has no Python runtime.
 `run_with_clock` injects a clock only for the fixed-timestamp golden tests;
 normal `uml-viewer mutate` uses the real local clock, not timestamp replay.
+
+## Known deviations from the original
+
+- The console report is this port's own compact text (per-file
+  `executed=/reused=` counts, scan lines and verbose decision lines), not the
+  original results table, site log and decision summary.
+- Fresh crapper coverage is not reused from `target/coverage/crapper-stamp.json`;
+  default Rust coverage runs again in the overlay instead. No coverage or build
+  output reaches the original project either way.
+- A source that is not UTF-8 aborts the run with exit 2 instead of being skipped.
+- Only `HOME`, `XDG_CACHE_HOME` and `TMPDIR` are redirected; the Windows-only
+  profile and app-data variables of the original's copy isolation have no Linux
+  counterpart here.
