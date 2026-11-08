@@ -17,7 +17,7 @@ CRLF line ends, as a Windows autocrlf checkout would), `arg <value>`.
 `fixture.lcov` to `coverage/lcov.info`. stderr is normalized: the project root
 becomes `<ROOT>`, and the `+ (cwd) command` echo
 lines, which name the host shell, are dropped. Native separators on `Wrote`
-and other root-bearing lines become `<SEP>`; all other bytes stay exact.
+and other root-bearing path tokens become `<SEP>`; all other bytes stay exact.
 """
 
 from __future__ import annotations
@@ -82,8 +82,10 @@ def normalize(stderr: str, root: Path) -> str:
     for line in stderr.replace("\r\n", "\n").split("\n"):
         if line.startswith("+ ("):
             continue
-        if line.startswith("Wrote ") or "<ROOT>" in line:
-            line = line.replace(os.sep, "<SEP>")
+        line = " ".join(
+            word.replace(os.sep, "<SEP>") if "<ROOT>" in word else word
+            for word in line.split(" ")
+        )
         lines.append(line)
     return "\n".join(lines)
 
