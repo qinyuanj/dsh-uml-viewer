@@ -371,6 +371,12 @@ fn a_failed_open_preserves_the_viewport_and_existing_session() {
     std::fs::write(dir.join("invalid.edn"), "{broken").unwrap();
     std::fs::create_dir(dir.join("directory")).unwrap();
     let mut resident = opened(&dir);
+    resident.ask(
+        100,
+        json!({"action": "context", "proposalId": ":p-shop"}),
+        "context",
+    );
+    resident.expect("frame");
     let before = resident.ask(2, json!({"action": "viewport"}), "frame");
     let saved = resident.ask(3, json!({"action": "save"}), "state");
     for (seq, fields) in [
