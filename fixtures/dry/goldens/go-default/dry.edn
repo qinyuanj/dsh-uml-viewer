@@ -1,0 +1,14 @@
+{:candidates [
+ {:score 1.0
+  :language "go"
+  :left {:file "src/board/board.go", :start-line 3, :end-line 7, :namespace "board", :name "total"}
+  :right {:file "src/panel/panel.go", :start-line 3, :end-line 7, :namespace "panel", :name "sum"}
+  :left-nodes 68
+  :right-nodes 68}
+ {:score 1.0
+  :language "go"
+  :left {:file "src/board/board.go", :start-line 9, :end-line 13, :namespace "board.Board", :name "run"}
+  :right {:file "src/panel/panel.go", :start-line 9, :end-line 13, :namespace "panel.Panel", :name "walk"}
+  :left-nodes 79
+  :right-nodes 79}
+]}

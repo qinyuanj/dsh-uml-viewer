@@ -1,9 +1,12 @@
-use crate::normalize::shape;
-use quality_core::functions::functions_in_file;
-use quality_core::grammar::{Grammar, Node, children, end_line, read_source, start_line, text};
+//! Read source files and pair the forms that clear the similarity threshold
+//! (`dryer/scan.py`).
+
+use crate::discover;
+use crate::extract::{Entry, entries_in_source};
+use crate::names;
+use quality_core::grammar::read_source;
 use quality_core::language::Language;
-use quality_core::paths::relative_posix;
-use std::collections::HashSet;
+use quality_core::paths::{posix, relative_posix};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -15,12 +18,6 @@ pub(crate) struct Span {
     pub namespace: Option<String>,
     pub name: Option<String>,
 }
-pub(crate) struct Entry {
-    span: Span,
-    language: Language,
-    nodes: usize,
-    fingerprints: HashSet<String>,
-}
 pub(crate) struct Candidate {
     pub score: f64,
     pub language: Language,
@@ -29,93 +26,62 @@ pub(crate) struct Candidate {
     pub left_nodes: usize,
     pub right_nodes: usize,
 }
-fn nodes<'t>(root: Node<'t>, source: &str) -> Vec<Node<'t>> {
-    quality_core::grammar::preorder(root)
-        .into_iter()
-        .filter(|node| {
-            if node.kind() != "function_item"
-                || !children(*node).iter().any(|n| n.kind() == "block")
-            {
-                return false;
-            }
-            if node.parent().is_some_and(|parent| parent.kind() == "block") {
-                return false;
-            }
-            let mut parent = node.parent();
-            while let Some(current) = parent {
-                if current.kind() == "mod_item"
-                    && let Some(name) = children(current)
-                        .into_iter()
-                        .find(|n| n.kind() == "identifier")
-                    && text(source, name) == "tests"
-                {
-                    return false;
-                }
-                parent = current.parent();
-            }
-            true
-        })
-        .collect()
+
+/// `lines >= min_lines and nodes >= min_nodes`.
+pub(crate) fn keep(entry: &Entry, min_lines: usize, min_nodes: usize) -> bool {
+    // Written as `end + 1 - start >= min_lines` because a huge count
+    // (`int()` accepts arbitrary precision) must not overflow.
+    entry.end_line + 1 - entry.start_line >= min_lines && entry.nodes >= min_nodes
 }
-pub(crate) fn scan(
+
+/// The forms of every selected file, named after crapper's functions, plus
+/// one warning per unreadable Clojure tail (`"<file>:<line>: <message>"`).
+pub(crate) fn scan_files(
     files: &[PathBuf],
     root: &Path,
     min_lines: usize,
     min_nodes: usize,
-) -> io::Result<Vec<Entry>> {
-    let mut found = Vec::new();
+) -> io::Result<(Vec<Entry>, Vec<String>)> {
+    let mut entries = Vec::new();
+    let mut warnings = Vec::new();
     for path in files {
-        let language = quality_core::language::language_of(path).expect("selected language");
-        if language != Language::Rust {
-            return Err(io::Error::other(format!(
-                "dry does not support {} yet (qinyuanj/dsh-uml-viewer#7)",
-                language.name()
-            )));
-        }
+        let Some(language) = discover::language_of(path) else {
+            continue;
+        };
         let source = read_source(path)?;
         let file = relative_posix(path, root).expect("source inside project root");
-        let tree = Grammar::Rust.parse(&source);
-        let functions = functions_in_file(language, &source, &file, root);
-        for node in nodes(tree.root_node(), &source) {
-            let (nodes, fingerprints) = shape(node, &source);
-            let (start, end) = (start_line(node), end_line(node));
-            if end + 1 - start < min_lines || nodes < min_nodes {
-                continue;
-            }
-            let owner = functions
-                .iter()
-                .filter(|f| f.start_line == start)
-                .min_by_key(|f| (f.end_line - f.start_line, f.start_line))
-                .or_else(|| {
-                    functions
-                        .iter()
-                        .filter(|f| f.start_line <= start && end <= f.end_line)
-                        .min_by_key(|f| (f.end_line - f.start_line, f.start_line))
-                });
-            found.push(Entry {
-                span: Span {
-                    file: file.clone(),
-                    start,
-                    end,
-                    namespace: owner.map(|f| f.namespace.clone()),
-                    name: owner.map(|f| f.name.clone()),
-                },
-                language,
-                nodes,
-                fingerprints,
-            });
+        let (found, warning) = entries_in_source(language, &source, &posix(path), &file);
+        if let Some(warning) = warning {
+            warnings.push(format!("{file}:{warning}"));
         }
+        let kept: Vec<Entry> = found
+            .into_iter()
+            .filter(|entry| keep(entry, min_lines, min_nodes))
+            .collect();
+        entries.extend(names::named(kept, language, &source, &file, root)?);
     }
-    Ok(found)
+    Ok((entries, warnings))
 }
+
+fn span(entry: &Entry) -> Span {
+    Span {
+        file: entry.file.clone(),
+        start: entry.start_line,
+        end: entry.end_line,
+        namespace: entry.namespace.clone(),
+        name: entry.name.clone(),
+    }
+}
+
+/// Pair forms of the same language; each unordered pair is reported once.
 pub(crate) fn duplicates(entries: Vec<Entry>, threshold: f64) -> Vec<Candidate> {
     let mut found = Vec::new();
     for (i, left) in entries.iter().enumerate() {
         for right in &entries[i + 1..] {
             if left.language != right.language
-                || (left.span.file == right.span.file
-                    && left.span.start == right.span.start
-                    && left.span.end == right.span.end)
+                || (left.file == right.file
+                    && left.start_line == right.start_line
+                    && left.end_line == right.end_line)
             {
                 continue;
             }
@@ -131,18 +97,20 @@ pub(crate) fn duplicates(entries: Vec<Entry>, threshold: f64) -> Vec<Candidate> 
                 found.push(Candidate {
                     score,
                     language: left.language,
-                    left: left.span.clone(),
-                    right: right.span.clone(),
+                    left: span(left),
+                    right: span(right),
                     left_nodes: left.nodes,
                     right_nodes: right.nodes,
                 });
             }
         }
     }
+    // Python groups by language before pairing; within one language the order
+    // is the same, so the stable sort breaks ties identically.
     found.sort_by(|a, b| {
         b.score
             .total_cmp(&a.score)
-            .then_with(|| a.language.cmp(&b.language))
+            .then_with(|| a.language.name().cmp(b.language.name()))
             .then_with(|| a.left.file.cmp(&b.left.file))
             .then_with(|| a.left.start.cmp(&b.left.start))
             .then_with(|| a.right.file.cmp(&b.right.file))

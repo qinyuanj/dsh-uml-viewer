@@ -1,0 +1,50 @@
+{:candidates [
+ {:score 1.0
+  :language "typescript"
+  :left {:file "src/ui/card.tsx", :start-line 1, :end-line 4, :namespace "ui.card", :name "Card"}
+  :right {:file "src/ui/widget.tsx", :start-line 1, :end-line 4, :namespace "ui.widget", :name "Widget"}
+  :left-nodes 82
+  :right-nodes 82}
+ {:score 1.0
+  :language "typescript"
+  :left {:file "src/ui/left.ts", :start-line 1, :end-line 5, :namespace "ui.left", :name "total"}
+  :right {:file "src/ui/right.ts", :start-line 1, :end-line 5, :namespace "ui.right", :name "sum"}
+  :left-nodes 66
+  :right-nodes 66}
+ {:score 1.0
+  :language "typescript"
+  :left {:file "src/ui/left.ts", :start-line 7, :end-line 11, :namespace "ui.left", :name "amount"}
+  :right {:file "src/ui/right.ts", :start-line 7, :end-line 11, :namespace "ui.right", :name "subtotal"}
+  :left-nodes 74
+  :right-nodes 74}
+ {:score 1.0
+  :language "typescript"
+  :left {:file "src/ui/left.ts", :start-line 19, :end-line 24, :namespace "ui.left", :name "outer"}
+  :right {:file "src/ui/right.ts", :start-line 19, :end-line 24, :namespace "ui.right", :name "outer"}
+  :left-nodes 65
+  :right-nodes 65}
+ {:score 0.837209302326
+  :language "typescript"
+  :left {:file "src/ui/left.ts", :start-line 1, :end-line 5, :namespace "ui.left", :name "total"}
+  :right {:file "src/ui/left.ts", :start-line 7, :end-line 11, :namespace "ui.left", :name "amount"}
+  :left-nodes 66
+  :right-nodes 74}
+ {:score 0.837209302326
+  :language "typescript"
+  :left {:file "src/ui/left.ts", :start-line 1, :end-line 5, :namespace "ui.left", :name "total"}
+  :right {:file "src/ui/right.ts", :start-line 7, :end-line 11, :namespace "ui.right", :name "subtotal"}
+  :left-nodes 66
+  :right-nodes 74}
+ {:score 0.837209302326
+  :language "typescript"
+  :left {:file "src/ui/left.ts", :start-line 7, :end-line 11, :namespace "ui.left", :name "amount"}
+  :right {:file "src/ui/right.ts", :start-line 1, :end-line 5, :namespace "ui.right", :name "sum"}
+  :left-nodes 74
+  :right-nodes 66}
+ {:score 0.837209302326
+  :language "typescript"
+  :left {:file "src/ui/right.ts", :start-line 1, :end-line 5, :namespace "ui.right", :name "sum"}
+  :right {:file "src/ui/right.ts", :start-line 7, :end-line 11, :namespace "ui.right", :name "subtotal"}
+  :left-nodes 66
+  :right-nodes 74}
+]}

@@ -1,25 +1,31 @@
 //! Candidate duplicate structures, ported from Python dryer b3f72ad.
-use quality_core::select::Scope;
+use quality_core::{platform, select::Scope};
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
+mod clojure;
 mod count;
+mod discover;
+mod extract;
+mod names;
 mod normalize;
-mod platform;
 mod report;
 mod scan;
 
+#[cfg(test)]
+mod original;
+
 const HELP: &str = include_str!("../../../fixtures/dry/help.txt");
-struct Options {
+pub(crate) struct Options {
     scope: Scope,
-    positionals: Vec<String>,
-    threshold: f64,
-    min_lines: usize,
-    min_nodes: usize,
-    format: String,
+    pub(crate) positionals: Vec<String>,
+    pub(crate) threshold: f64,
+    pub(crate) min_lines: usize,
+    pub(crate) min_nodes: usize,
+    pub(crate) format: String,
     changed: bool,
 }
-enum Parsed {
+pub(crate) enum Parsed {
     Help,
     Error(String, u8),
     Scan(Options),
@@ -30,7 +36,7 @@ fn take(args: &[String], at: usize) -> Result<&str, String> {
         _ => Err(format!("{} requires a value", args[at])),
     }
 }
-fn parse(args: &[String]) -> Parsed {
+pub(crate) fn parse(args: &[String]) -> Parsed {
     if args
         .iter()
         .any(|arg| matches!(arg.as_str(), "-h" | "--help"))
@@ -133,6 +139,22 @@ fn parse(args: &[String]) -> Parsed {
     }
     Parsed::Scan(options)
 }
+/// Whether this port scans `language` yet: all seven since
+/// qinyuanj/dsh-uml-viewer#7. Kept as the dispatcher's guard so an
+/// unknown future language is refused rather than silently skipped.
+pub fn scans(language: quality_core::language::Language) -> bool {
+    matches!(
+        language,
+        quality_core::language::Language::Rust
+            | quality_core::language::Language::Go
+            | quality_core::language::Language::Java
+            | quality_core::language::Language::Clojure
+            | quality_core::language::Language::Python
+            | quality_core::language::Language::TypeScript
+            | quality_core::language::Language::Lua
+    )
+}
+
 /// The binary's dry role. It preserves the original argument and exit contract.
 pub fn run(args: &[OsString]) -> ExitCode {
     run_on(platform::Host::current(), platform::windows_build(), args)
@@ -157,7 +179,7 @@ fn run_on(host: platform::Host, build: Option<u32>, args: &[OsString]) -> ExitCo
         }
         Parsed::Scan(options) => options,
     };
-    if let Some(refusal) = platform::refusal(host, build) {
+    if let Some(refusal) = platform::refusal(platform::Tool::Dryer, host, build) {
         eprintln!("{refusal}");
         return ExitCode::FAILURE;
     }
@@ -167,9 +189,9 @@ fn run_on(host: platform::Host, build: Option<u32>, args: &[OsString]) -> ExitCo
         eprintln!("{warning}");
     }
     let files = if options.changed {
-        scope.select_changed(&options.positionals, &mut std::io::stderr())
+        discover::select_changed(&scope, &options.positionals, &mut std::io::stderr())
     } else {
-        scope.select(&options.positionals, &mut std::io::stderr())
+        discover::select(&scope, &options.positionals, &mut std::io::stderr())
     };
     if let Some(file) = files.iter().find(|path| !path.starts_with(&root)) {
         eprintln!(
@@ -182,33 +204,26 @@ fn run_on(host: platform::Host, build: Option<u32>, args: &[OsString]) -> ExitCo
         println!("No source files to analyze.");
         return ExitCode::SUCCESS;
     }
-    if let Some(language) = files
-        .iter()
-        .filter_map(|path| quality_core::language::language_of(path))
-        .find(|language| *language != quality_core::language::Language::Rust)
-    {
-        eprintln!(
-            "dryer: language {} is not ported yet (qinyuanj/dsh-uml-viewer#7)",
-            language.name()
-        );
-        return ExitCode::FAILURE;
+    let (entries, warnings) =
+        match scan::scan_files(&files, &root, options.min_lines, options.min_nodes) {
+            Ok(found) => found,
+            Err(error) => {
+                eprintln!("dryer: {error}");
+                return ExitCode::FAILURE;
+            }
+        };
+    for warning in warnings {
+        eprintln!("dryer: {warning}");
     }
-    let entries = match scan::scan(&files, &root, options.min_lines, options.min_nodes) {
-        Ok(found) => found,
+    let candidates = scan::duplicates(entries, options.threshold);
+    let payload = report::edn(&candidates);
+    let path = match report::write_metrics(&candidates, &root) {
+        Ok(path) => path,
         Err(error) => {
             eprintln!("dryer: {error}");
             return ExitCode::FAILURE;
         }
     };
-    let candidates = scan::duplicates(entries, options.threshold);
-    let payload = report::edn(&candidates);
-    // Pinned dryer prints `root / ".metrics" / "dry.edn"`, so every separator
-    // is the host's; one literal component would print `\.metrics/dry.edn`.
-    let path = root.join(".metrics").join("dry.edn");
-    if let Err(error) = quality_core::atomic::write_bytes(&path, payload.as_bytes()) {
-        eprintln!("dryer: {error}");
-        return ExitCode::FAILURE;
-    }
     print!(
         "{}",
         if options.format == "edn" {

@@ -10,6 +10,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use super::crap::{Project, stderr};
 
@@ -60,8 +61,32 @@ fn on_path(program: &str) -> bool {
     false
 }
 
-fn skip(language: &str, toolchain: &str) {
-    eprintln!("SKIP the real {language} coverage runner: {toolchain} is not on PATH");
+fn skip(language: &str, reason: &str) {
+    let message = format!("the real {language} coverage runner: {reason}");
+    assert!(
+        !std::env::var_os("CRAPPER_REQUIRE_TOOLCHAINS").is_some_and(|value| value == "1"),
+        "CRAPPER_REQUIRE_TOOLCHAINS=1; {message}"
+    );
+    eprintln!("SKIP {message}");
+}
+
+fn clj_usable() -> Result<(), String> {
+    if !on_path("clj") {
+        return Err("`clj` is not on PATH".to_string());
+    }
+    let output = Command::new("clj")
+        .arg("--version")
+        .output()
+        .map_err(|error| format!("`clj --version` could not start: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(format!(
+        "`clj --version` exited {}; stdout:\n{}\nstderr:\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ))
 }
 
 fn published(p: &Project) -> String {
@@ -82,7 +107,7 @@ fn entry<'a>(snapshot: &'a str, namespace: &str, name: &str) -> &'a str {
 #[test]
 fn real_go_coverage_runner_measures_the_fixture() {
     if !on_path("go") {
-        return skip("Go", "`go`");
+        return skip("Go", "`go` is not on PATH");
     }
     let p = project("go");
     let result = p.crap(&[]);
@@ -116,7 +141,7 @@ fn real_go_coverage_runner_measures_the_fixture() {
 #[test]
 fn real_java_coverage_runner_measures_the_fixture() {
     if !(on_path("mvn") && on_path("java")) {
-        return skip("Java", "`mvn` and `java`");
+        return skip("Java", "`mvn` and `java` are not both on PATH");
     }
     let p = project("java");
     let result = p.crap(&[]);
@@ -150,8 +175,8 @@ fn real_java_coverage_runner_measures_the_fixture() {
 
 #[test]
 fn real_clojure_coverage_runner_measures_the_fixture() {
-    if !on_path("clj") {
-        return skip("Clojure", "`clj`");
+    if let Err(reason) = clj_usable() {
+        return skip("Clojure", &reason);
     }
     let p = project("clojure");
     let result = p.crap(&[]);
