@@ -315,7 +315,8 @@ pub enum EdgeCommand {
         tip: [f64; 2],
         behind: [f64; 2],
         color: Role,
-        /// Interior of a closed head (canvas, or ink for a filled diamond).
+        /// Opaque interior of a closed head (canvas, or ink for a filled diamond).
+        /// Never dim this fill: it masks the shaft; `dimmed` affects only the outline.
         fill: Role,
         width: f32,
         hot: bool,

@@ -3,7 +3,7 @@
        :context 提案 + :display second.edn，断言两条都已消费、标题变成 Second diagram；
        再经真实右键菜单点一次 refresh-crap，to-agent.edn 必须是该条精确命令。
        FIFO、等待空画布、四个菜单操作的逐字契约与 :quit-for-restart 由 viewer 会话的
-       无窗口测试覆盖（crates/viewer/src/viewer_session.rs）。"
+       无窗口测试覆盖（crates/viewer/src/shell_session.rs）。"
  :steps [{:op :wait-frames :n 3}
          {:op :write-project :project ".uml-viewer/to-viewer.edn"
           :text "{:next-id 3 :queue [{:id 1 :op :context :context :proposal :proposal-id :p :name \"中文\"} {:id 2 :op :display :path \"second.edn\"}]}"}
