@@ -99,12 +99,26 @@ fn run(project: &Project, args: &[String]) -> Output {
         .output()
         .unwrap()
 }
+/// Same narrowing as `scripts/dry_goldens.py`: the root and the native
+/// separators of the `Wrote` line become placeholders; every other byte stays
+/// exact, so a mixed-separator path cannot match the pinned original.
 fn normalize(stderr: &[u8], root: &Path) -> String {
-    let text = String::from_utf8(stderr.to_vec()).unwrap();
-    text.replace(root.to_string_lossy().as_ref(), "<ROOT>")
-        .replace(root.to_string_lossy().replace('\\', "/").as_str(), "<ROOT>")
-        .replace('\\', "/")
-        .replace("\r\n", "\n")
+    let text = String::from_utf8(stderr.to_vec())
+        .unwrap()
+        .replace("\r\n", "\n");
+    let text = text
+        .replace(root.to_string_lossy().as_ref(), "<ROOT>")
+        .replace(root.to_string_lossy().replace('\\', "/").as_str(), "<ROOT>");
+    text.split('\n')
+        .map(|line| {
+            if line.starts_with("Wrote ") {
+                line.replace(std::path::MAIN_SEPARATOR, "<SEP>")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 #[test]
 fn every_scenario_matches_the_pinned_python_dryer_byte_for_byte() {

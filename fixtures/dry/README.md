@@ -58,9 +58,13 @@ The exact `--help` stdout is saved as `help.txt`, including its original wording
 and final newline. Every `goldens/<scenario>/` contains `scenario`, `stdout`,
 `stderr` and decimal `exit` followed by LF. `dry.edn` exists only when the CLI
 actually publishes `.metrics/dry.edn`. `stdout` and snapshots are raw bytes;
-stderr alone replaces the absolute temporary project root with `<ROOT>`,
-backslashes with slashes, and CRLF with LF. There are no timing or shell-echo
-lines to discard. `--check` reruns every CLI invocation and compares these
+stderr alone replaces the absolute temporary project root with `<ROOT>` and
+CRLF with LF; on the `Wrote` line, the only one that prints a native path, each
+host separator becomes `<SEP>`. Every other stderr byte stays exact (pinned
+dryer prints its other paths with `as_posix()`), so a mixed separator such as
+`<ROOT>\.metrics/dry.edn` fails the comparison. The native Windows raw bytes
+are also asserted without normalization in `crates/uml-viewer/tests/dry.rs`.
+There are no timing or shell-echo lines to discard. `--check` reruns every CLI invocation and compares these
 files and their presence byte for byte, without modifying provenance or outputs.
 
 Scenario syntax is `project rust` followed by zero or more `arg <literal argv

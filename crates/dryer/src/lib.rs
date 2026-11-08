@@ -202,7 +202,9 @@ fn run_on(host: platform::Host, build: Option<u32>, args: &[OsString]) -> ExitCo
     };
     let candidates = scan::duplicates(entries, options.threshold);
     let payload = report::edn(&candidates);
-    let path = root.join(".metrics/dry.edn");
+    // Pinned dryer prints `root / ".metrics" / "dry.edn"`, so every separator
+    // is the host's; one literal component would print `\.metrics/dry.edn`.
+    let path = root.join(".metrics").join("dry.edn");
     if let Err(error) = quality_core::atomic::write_bytes(&path, payload.as_bytes()) {
         eprintln!("dryer: {error}");
         return ExitCode::FAILURE;

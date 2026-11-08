@@ -85,12 +85,21 @@ def setup(root: Path, lines: list[str]) -> None:
 
 
 def normalized_stderr(data: bytes, root: Path) -> bytes:
-    # CLI output is captured as bytes. Only stderr's host-specific root and
-    # separators/line endings are normalized. stdout and snapshot stay exact.
+    # CLI output is captured as bytes. Only stderr's host-specific root, the
+    # native separators of the one line that prints an absolute path, and line
+    # endings are normalized. stdout and snapshot stay exact. Every other line
+    # holds `Path.as_posix()` output, which is "/" on every host, so it stays
+    # byte-exact; `Wrote` marks each native separator as <SEP> instead of
+    # flattening them, so a mixed "<ROOT>\\.metrics/dry.edn" cannot compare
+    # equal to the original's "<ROOT>\\.metrics\\dry.edn".
     text = data.decode("utf-8").replace("\r\n", "\n")
     for form in (str(root), root.as_posix()):
         text = text.replace(form, "<ROOT>")
-    return text.replace("\\", "/").encode("utf-8")
+    lines = [
+        line.replace(os.sep, "<SEP>") if line.startswith("Wrote ") else line
+        for line in text.split("\n")
+    ]
+    return "\n".join(lines).encode("utf-8")
 
 
 def main() -> int:

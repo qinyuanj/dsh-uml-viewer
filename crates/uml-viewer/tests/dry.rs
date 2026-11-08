@@ -184,6 +184,11 @@ fn threshold_accepts_and_refuses_what_pinned_python_float_does() {
 
 /// Native Windows above the minimum build prints no platform diagnostic; the
 /// pinned tests cannot reach a real older build here either.
+///
+/// The raw stderr bytes are asserted, not a separator-flattened form: pinned
+/// dryer prints `str(root / ".metrics" / "dry.edn")`, so every separator is
+/// the host's. The golden normalizer marks them `<SEP>`, which would hide a
+/// mixed `<root>\\.metrics/dry.edn`; this assertion cannot.
 #[cfg(windows)]
 #[test]
 fn native_windows_root_has_no_platform_diagnostic() {
@@ -191,10 +196,9 @@ fn native_windows_root_has_no_platform_diagnostic() {
     project.write("src/lib.rs", "pub fn one() {}\n");
     let output = run(&project, &[]);
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.starts_with("Wrote "), "{stderr}");
-    assert!(!stderr.contains("Windows drive"), "{stderr}");
-    assert!(!stderr.contains("22H2"), "{stderr}");
+    let expected = format!("Wrote {}\\.metrics\\dry.edn\n", project.root.display());
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), expected);
+    assert!(project.root.join(".metrics").join("dry.edn").is_file());
 }
 
 #[cfg(unix)]
