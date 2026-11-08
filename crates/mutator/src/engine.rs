@@ -1,8 +1,10 @@
 use crate::{
     cli::Options,
-    isolation::View,
+    interrupts,
+    isolation::{Failure, View},
     metrics::{self, Decision},
     sites::{self, Form, Site},
+    workers::{self, Workers},
 };
 use quality_core::{
     coverage::{Records, parse_lcov},
@@ -64,16 +66,21 @@ fn plan(root: &Path, options: &Options, source: &Path) -> (String, PathBuf) {
     )
 }
 fn execute(
+    view: &View,
     root: &Path,
     cwd: &Path,
     command: &str,
     site: Option<(&Path, &str)>,
     timeout: Option<Duration>,
-) -> Result<(i32, Duration), String> {
-    let view = View::new(root).map_err(|e| e.to_string())?;
+) -> Result<(i32, Duration), Failure> {
     let result = view
         .run(root, cwd, command, site, timeout)
-        .map_err(|e| format!("Cannot enter user+mount namespace overlay: {e}"))?;
+        .map_err(|failure| match failure {
+            Failure::Interrupted => Failure::Interrupted,
+            Failure::Message(error) => Failure::Message(format!(
+                "Cannot enter user+mount namespace overlay: {error}"
+            )),
+        })?;
     if !result.output.is_empty() {
         eprint!("{}", result.output);
     }
@@ -142,12 +149,16 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Records
             eprintln!("{error}");
             2
         })?;
-        let result = view
-            .run(root, &cwd, &command, None, None)
-            .map_err(|error| {
-                eprintln!("Isolation unavailable: {error}");
-                1
-            })?;
+        let result =
+            view.run(root, &cwd, &command, None, None)
+                .map_err(|failure| match failure {
+                    // The interrupt path reports and cleans up; no exit here.
+                    Failure::Interrupted => 2,
+                    Failure::Message(error) => {
+                        eprintln!("Isolation unavailable: {error}");
+                        1
+                    }
+                })?;
         eprint!("{}", result.output);
         if result.code != 0 {
             eprintln!("Coverage command exited {}.", result.code);
@@ -395,30 +406,62 @@ pub fn mutate(
     let mut baselines = BTreeMap::new();
     let mut status = 0;
     let mut survived_any = false;
+    // One pool for the whole call: its slots are the workers every target
+    // file's mutants reuse, and dropping it removes them.
+    let selected_counts: Vec<usize> = prepared
+        .iter()
+        .map(|item| {
+            item.decisions
+                .values()
+                .filter(|decision| decision.action == "executed")
+                .count()
+        })
+        .collect();
+    let limit = workers::worker_count(usize::MAX, options.max_workers);
+    let pool_size = limit.min(selected_counts.iter().copied().max().unwrap_or(0));
+    let pool = if pool_size == 0 {
+        None
+    } else {
+        match Workers::new(root, pool_size) {
+            Ok(pool) => Some(pool),
+            Err(error) => {
+                eprintln!("{error}");
+                return 2;
+            }
+        }
+    };
     for mut item in prepared {
         let (command, cwd) = plan(root, options, &item.file);
         let selected = item.decisions.values().any(|d| d.action == "executed");
         if selected {
+            if interrupts::pending().is_some() {
+                return 2;
+            }
+            let workers = pool.as_ref().expect("a selected site needs a worker");
+            // One pristine run per command and working directory, shared by
+            // every target file in this call.
             let baseline = baselines
                 .entry((command.clone(), cwd.clone()))
                 .or_insert_with(|| {
                     let started = std::time::Instant::now();
+                    let check = workers.view(0);
                     let result = if options.value("--test-command").is_none() {
-                        let built = execute(root, &cwd, "cargo test --no-run", None, None)?;
+                        let built = execute(&check, root, &cwd, "cargo test --no-run", None, None)?;
                         if built.0 != 0 {
                             Ok(built)
                         } else {
-                            execute(root, &cwd, &command, None, None)
+                            execute(&check, root, &cwd, &command, None, None)
                         }
                     } else {
-                        execute(root, &cwd, &command, None, None)
+                        execute(&check, root, &cwd, &command, None, None)
                     };
                     timings.add("baseline", started.elapsed());
                     result
                 });
             let (code, duration) = match baseline {
                 Ok(value) => *value,
-                Err(error) => {
+                Err(Failure::Interrupted) => return 2,
+                Err(Failure::Message(error)) => {
                     eprintln!("{error}");
                     return 2;
                 }
@@ -429,34 +472,41 @@ pub fn mutate(
             }
             let timeout =
                 Duration::from_secs_f64((duration.as_secs_f64() * options.timeout_factor).max(2.0));
-            for site in &item.sites {
-                let decision = &item.decisions[&site.mutation_id];
-                if decision.action != "executed" {
-                    continue;
-                }
-                let mutated = sites::apply_site(&item.source, site);
-                let result = execute(
+            let sites: Vec<Site> = item
+                .sites
+                .iter()
+                .filter(|site| item.decisions[&site.mutation_id].action == "executed")
+                .cloned()
+                .collect();
+            let count = workers::worker_count(sites.len(), options.max_workers);
+            let source = &item.source;
+            let file = &item.file;
+            let outcomes = workers.run_selected(count, &sites, |view, site| {
+                let mutated = sites::apply_site(source, site);
+                execute(
+                    view,
                     root,
                     &cwd,
                     &command,
-                    Some((&item.file, &mutated)),
+                    Some((file, &mutated)),
                     Some(timeout),
-                );
-                let code = match result {
-                    Ok((code, _)) => code,
-                    Err(error) => {
-                        eprintln!("{error}");
-                        return 2;
+                )
+                .map(|(code, _)| code)
+            });
+            match outcomes {
+                Ok(outcomes) => {
+                    for (mutation_id, outcome) in outcomes {
+                        if outcome == "survived" {
+                            survived_any = true;
+                        }
+                        item.outcomes.insert(mutation_id, outcome);
                     }
-                };
-                let outcome = if code == 0 {
-                    survived_any = true;
-                    "survived"
-                } else {
-                    "killed"
-                };
-                item.outcomes
-                    .insert(site.mutation_id.clone(), outcome.into());
+                }
+                Err(Failure::Interrupted) => return 2,
+                Err(Failure::Message(error)) => {
+                    eprintln!("{error}");
+                    return 2;
+                }
             }
         }
         let changed = fs::read(&item.file).ok() != Some(item.raw)

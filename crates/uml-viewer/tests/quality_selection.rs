@@ -1,22 +1,34 @@
 //! The same scope is exercised at each tool's CLI and read from its public
 //! report, for every language. Two duplicate functions per fixture file make
 //! every selected file observable even when the selection has only one file.
-//! A future mutate adapter can join TOOLS by reading its published forms'
-//! :file fields.
+//! Mutate joins through its published forms' :file fields, one snapshot per
+//! selected file; it is Linux-only, so the other platforms keep the selection
+//! contract for the tools that run there.
 //!
 //! dryer's one intentional discovery difference is `.cljd` (its
 //! `discover.py`); the fixtures use `.clj`, so both tools must agree exactly.
 use std::collections::BTreeSet;
 use std::fs;
-use std::process::Command;
+use std::path::Path;
+use std::process::{Command, Output};
 
 use crate::crap::Project;
 
 struct Tool {
     role: &'static str,
     flags: &'static [&'static str],
-    snapshot: &'static str,
-    files: fn(&str, &str) -> BTreeSet<String>,
+    /// Mutate's namespace isolation is Linux-only today.
+    linux_only: bool,
+    /// Mutate's scope here is Rust; dry and crap cover every language.
+    rust_only: bool,
+    /// The selected files as the tool's own published report names them.
+    report: fn(&Path, &str) -> BTreeSet<String>,
+    /// An empty selection: the tool's own message on its own stream.
+    empty: fn(&Output),
+    /// Whether any report exists at all.
+    published: fn(&Path) -> bool,
+    /// Extra per-tool proof that the run did real work.
+    verify: fn(&Path),
 }
 
 struct Fixture {
@@ -47,18 +59,127 @@ fn crap_files(snapshot: &str, extension: &str) -> BTreeSet<String> {
         .collect()
 }
 
+fn read_named(
+    root: &Path,
+    relative: &str,
+    extension: &str,
+    files: impl Fn(&str, &str) -> BTreeSet<String>,
+) -> BTreeSet<String> {
+    files(
+        &fs::read_to_string(root.join(relative)).unwrap_or_default(),
+        extension,
+    )
+}
+
+fn crap_report(root: &Path, extension: &str) -> BTreeSet<String> {
+    read_named(root, ".metrics/crap.edn", extension, crap_files)
+}
+
+fn dry_report(root: &Path, _extension: &str) -> BTreeSet<String> {
+    quoted_fields(
+        &fs::read_to_string(root.join(".metrics/dry.edn")).unwrap_or_default(),
+        "file",
+    )
+}
+
+/// Every `:file` a mutation snapshot published, across all its snapshots.
+fn mutate_report(root: &Path, _extension: &str) -> BTreeSet<String> {
+    fn walk(directory: &Path, files: &mut BTreeSet<String>) {
+        let Ok(entries) = fs::read_dir(directory) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, files);
+            } else if path.extension().is_some_and(|ext| ext == "edn") {
+                let text = fs::read_to_string(&path).unwrap_or_default();
+                files.extend(quoted_fields(&text, "file"));
+            }
+        }
+    }
+    let mut files = BTreeSet::new();
+    walk(&root.join(".metrics").join("mutate"), &mut files);
+    files
+}
+
+fn empty_quality(output: &Output) {
+    assert_eq!(output.stdout, b"No source files to analyze.\n");
+}
+
+fn empty_mutate(output: &Output) {
+    // The documented deviation: mutate's empty selection goes to stderr.
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("No source files to mutate."),
+        "{output:?}"
+    );
+}
+
+fn mutate_snapshots(root: &Path) -> bool {
+    root.join(".metrics").join("mutate").exists()
+}
+
+fn mutate_verify(root: &Path) {
+    // Not a hollow selection: each snapshot's sites were executed and killed.
+    fn check(directory: &Path) {
+        let Ok(entries) = fs::read_dir(directory) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                check(&path);
+            } else if path.extension().is_some_and(|ext| ext == "edn") {
+                let text = fs::read_to_string(&path).unwrap_or_default();
+                assert!(text.contains(":killed 1"), "{}: {text}", path.display());
+                assert!(text.contains(":survived 0"), "{}: {text}", path.display());
+            }
+        }
+    }
+    check(&root.join(".metrics").join("mutate"));
+}
+
+fn noop_verify(_root: &Path) {}
+
 const TOOLS: &[Tool] = &[
     Tool {
         role: "crap",
         flags: &["--no-coverage"],
-        snapshot: ".metrics/crap.edn",
-        files: crap_files,
+        linux_only: false,
+        rust_only: false,
+        report: crap_report,
+        empty: empty_quality,
+        published: |root| root.join(".metrics/crap.edn").exists(),
+        verify: noop_verify,
     },
     Tool {
         role: "dry",
         flags: &["--edn", "--min-lines", "1", "--min-nodes", "1"],
-        snapshot: ".metrics/dry.edn",
-        files: |text, _| quoted_fields(text, "file"),
+        linux_only: false,
+        rust_only: false,
+        report: dry_report,
+        empty: empty_quality,
+        published: |root| root.join(".metrics/dry.edn").exists(),
+        verify: noop_verify,
+    },
+    Tool {
+        role: "mutate",
+        // The test command passes pristine code and fails every mutant, so a
+        // complete run of the selected files exits 0 with killed sites.
+        flags: &[
+            "--no-coverage",
+            "--mutate-all",
+            "--max-workers",
+            "2",
+            "--test-command",
+            "if [ -f \"$MUTATOR_VIEW/mutation\" ]; then exit 1; fi; true",
+        ],
+        linux_only: true,
+        rust_only: true,
+        report: mutate_report,
+        empty: empty_mutate,
+        published: mutate_snapshots,
+        verify: mutate_verify,
     },
 ];
 
@@ -193,6 +314,11 @@ fn quality_commands_publish_the_same_selected_source_files() {
         ];
         for (args, expected) in scenarios {
             for tool in TOOLS {
+                if (tool.linux_only && !cfg!(target_os = "linux"))
+                    || (tool.rust_only && fixture.language != "rust")
+                {
+                    continue;
+                }
                 let project = Project::new();
                 project.write(
                     "Cargo.toml",
@@ -222,18 +348,21 @@ fn quality_commands_publish_the_same_selected_source_files() {
                     tool.role,
                     fixture.language
                 );
-                let snapshot =
-                    fs::read_to_string(project.root.join(tool.snapshot)).unwrap_or_default();
-                let selected = (tool.files)(&snapshot, extension);
+                let selected = (tool.report)(&project.root, extension);
                 let expected: BTreeSet<String> = expected.iter().map(|s| s.to_string()).collect();
                 assert_eq!(
                     selected, expected,
                     "{} {} {args:?}",
                     tool.role, fixture.language
                 );
+                (tool.verify)(&project.root);
                 if expected.is_empty() {
-                    assert_eq!(output.stdout, b"No source files to analyze.\n");
-                    assert!(!project.root.join(tool.snapshot).exists());
+                    (tool.empty)(&output);
+                    assert!(
+                        !(tool.published)(&project.root),
+                        "{} {args:?}: an empty selection publishes nothing",
+                        tool.role
+                    );
                 }
             }
         }
