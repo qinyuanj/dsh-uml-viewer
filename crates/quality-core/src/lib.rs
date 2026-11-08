@@ -28,6 +28,7 @@ pub mod runner;
 mod runner_clojure;
 mod runner_go;
 mod runner_java;
+pub mod runners;
 pub mod select;
 pub mod snapshot;
 pub mod stamp;

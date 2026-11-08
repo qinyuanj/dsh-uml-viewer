@@ -9,12 +9,17 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use tree_sitter::{Node, Parser, Tree};
+pub use tree_sitter::Node;
+use tree_sitter::{Parser, Tree};
 
 /// A tree-sitter grammar. Languages without one (Clojure in crapper) are
 /// read by hand-written scanners.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Grammar {
+    Python,
+    TypeScript,
+    Tsx,
+    Lua,
     Rust,
     Go,
     Java,
@@ -23,6 +28,10 @@ pub enum Grammar {
 impl Grammar {
     pub fn language(self) -> tree_sitter::Language {
         match self {
+            Grammar::Python => tree_sitter_python::LANGUAGE.into(),
+            Grammar::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+            Grammar::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
+            Grammar::Lua => tree_sitter_lua::LANGUAGE.into(),
             Grammar::Rust => tree_sitter_rust::LANGUAGE.into(),
             Grammar::Go => tree_sitter_go::LANGUAGE.into(),
             Grammar::Java => tree_sitter_java::LANGUAGE.into(),

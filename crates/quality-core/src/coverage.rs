@@ -408,6 +408,7 @@ pub struct CoverageBundle {
     languages: crate::coverage_reports::Reports,
     suffix: SuffixIndex,
     fresh: Option<(HashMap<String, Lines>, PathBuf)>,
+    managed_lua: Option<(HashMap<String, Lines>, PathBuf)>,
 }
 
 impl CoverageBundle {
@@ -417,7 +418,18 @@ impl CoverageBundle {
             languages: crate::coverage_reports::Reports::default(),
             suffix: SuffixIndex::new(lcov),
             fresh: None,
+            managed_lua: None,
         }
+    }
+
+    /// Managed Lua coverage matches exact selected files; other languages retain
+    /// legacy disk report matching in mixed-language projects.
+    pub fn add_fresh(&mut self, records: &Records, root: &Path) {
+        let exact = records
+            .iter()
+            .map(|(key, lines)| (normcase(Path::new(key)), lines.clone()))
+            .collect();
+        self.managed_lua = Some((exact, root.to_path_buf()));
     }
 
     /// A validated fresh report, matched by resolved path under `root`.
@@ -432,6 +444,7 @@ impl CoverageBundle {
             languages: crate::coverage_reports::Reports::default(),
             suffix: SuffixIndex::new(&Records::default()),
             fresh: Some((exact, root.to_path_buf())),
+            managed_lua: None,
         }
     }
 
@@ -443,6 +456,15 @@ impl CoverageBundle {
     /// Cloverage's form counts and only then reads LCOV, as crapper's
     /// `percent_for` does.
     pub fn percent_for(&self, function: &Function) -> Option<f64> {
+        if function.language == Language::Lua
+            && let Some((exact, root)) = &self.managed_lua
+        {
+            return percent_for_range(
+                exact.get(&normcase(&resolve(&root.join(&function.path)))),
+                function.start_line,
+                function.end_line,
+            );
+        }
         if matches!(function.language, Language::Java | Language::Go) {
             return self.languages.percent(function);
         }

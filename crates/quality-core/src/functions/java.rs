@@ -114,16 +114,18 @@ fn record(source: &str, node: Node, package: Option<&str>, path: &str) -> Option
             None => body,
         }
     };
-    Some(Function {
-        name: text(source, ident).to_string(),
-        namespace: qualify("."),
-        jacoco_class: Some(qualify("$")),
-        complexity: method_complexity(node),
-        start_line: start_line(node),
-        end_line: end_line(node),
-        path: path.to_string(),
-        language: Language::Java,
-    })
+    Some(
+        Function::new(
+            text(source, ident).to_string(),
+            qualify("."),
+            method_complexity(node),
+            start_line(node),
+            end_line(node),
+            path.to_string(),
+            Language::Java,
+        )
+        .with_jacoco_class(qualify("$")),
+    )
 }
 
 pub fn functions(source: &str, path: &str, _root: &Path) -> Vec<Function> {

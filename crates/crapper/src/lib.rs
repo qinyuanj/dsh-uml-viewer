@@ -19,7 +19,7 @@ use quality_core::coverage::load_bundle;
 use quality_core::functions::supported;
 use quality_core::language::language_of;
 use quality_core::paths::posix;
-use quality_core::runner::run_coverage;
+use quality_core::runner::run_coverage_with_lua_shards;
 use quality_core::select::Scope;
 
 use crate::cli::{HELP, Options, Parsed};
@@ -103,10 +103,11 @@ fn analyze_project(options: &Options) -> u8 {
     let mut bundle = None;
     if !options.no_coverage && (!files.is_empty() || options.coverage_command.is_some()) {
         if !options.use_existing_coverage {
-            match run_coverage(
+            match run_coverage_with_lua_shards(
                 &root,
                 &files,
                 options.coverage_command.as_deref(),
+                options.lua_shards,
                 options.full_tree,
             ) {
                 Ok(found) => bundle = found,

@@ -97,16 +97,15 @@ pub fn functions(source: &str, path: &str, root: &Path) -> Vec<Function> {
         })
         .filter_map(|node| {
             let (name, namespace) = name_and_namespace(source, node, &package)?;
-            Some(Function {
+            Some(Function::new(
                 name,
                 namespace,
-                jacoco_class: None,
-                complexity: complexity(node, &is_decision),
-                start_line: start_line(node),
-                end_line: end_line(node),
-                path: path.to_string(),
-                language: Language::Go,
-            })
+                complexity(node, &is_decision),
+                start_line(node),
+                end_line(node),
+                path.to_string(),
+                Language::Go,
+            ))
         })
         .collect()
 }

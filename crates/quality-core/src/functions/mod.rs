@@ -9,7 +9,10 @@ use crate::language::Language;
 mod clojure;
 mod go;
 mod java;
+mod lua;
+mod python;
 mod rust;
+mod typescript;
 
 /// One function or method.
 #[derive(Clone, Debug, PartialEq)]
@@ -28,13 +31,50 @@ pub struct Function {
     pub language: Language,
 }
 
-/// Whether this port reads `language` yet. The others arrive with
-/// qinyuanj/dsh-uml-viewer#4 (Python, TypeScript, Lua) and #5 (Go, Java,
-/// Clojure).
+impl Function {
+    /// The only construction site, so a new field (such as the Java binary
+    /// class #5 adds) is set once rather than in every language scanner.
+    pub fn new(
+        name: String,
+        namespace: String,
+        complexity: u32,
+        start_line: usize,
+        end_line: usize,
+        path: String,
+        language: Language,
+    ) -> Function {
+        Function {
+            name,
+            namespace,
+            jacoco_class: None,
+            complexity,
+            start_line,
+            end_line,
+            path,
+            language,
+        }
+    }
+
+    /// The Java binary class name JaCoCo keys a nested type by.
+    pub fn with_jacoco_class(mut self, binary: String) -> Function {
+        self.jacoco_class = Some(binary);
+        self
+    }
+}
+
+/// Whether this port reads `language` yet. Every analysed language is ported:
+/// Python, TypeScript and Lua with qinyuanj/dsh-uml-viewer#4, Go, Java and
+/// Clojure with #5.
 pub fn supported(language: Language) -> bool {
     matches!(
         language,
-        Language::Rust | Language::Go | Language::Java | Language::Clojure
+        Language::Rust
+            | Language::Go
+            | Language::Java
+            | Language::Clojure
+            | Language::Python
+            | Language::TypeScript
+            | Language::Lua
     )
 }
 
@@ -52,6 +92,8 @@ pub fn functions_in_file(
         Language::Go => go::functions(source, &path, project_root),
         Language::Java => java::functions(source, &path, project_root),
         Language::Clojure => clojure::functions(source, &path, project_root),
-        _ => Vec::new(),
+        Language::Python => python::functions(source, &path, project_root),
+        Language::TypeScript => typescript::functions(source, &path, project_root),
+        Language::Lua => lua::functions(source, &path, project_root),
     }
 }

@@ -33,6 +33,9 @@ CRAP = REPO / "fixtures" / "crap"
 GOLDENS = CRAP / "goldens"
 PROJECTS = {name: CRAP / name for name in ("rust", "go", "java", "clojure")}
 PROJECTS["rust-fixture"] = REPO / "rust-fixture"
+for name in ("python-fixture", "typescript-fixture", "lua-fixture"):
+    PROJECTS[name] = REPO / name
+PROJECTS["language-edges"] = CRAP / "language-edges"
 PINNED = (GOLDENS / "SOURCE").read_text(encoding="utf-8").split()[1]
 
 

@@ -345,16 +345,15 @@ fn record<'t>(
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join("::");
-    Some(Function {
-        name: text(source, ident).to_string(),
+    Some(Function::new(
+        text(source, ident).to_string(),
         namespace,
-        jacoco_class: None,
-        complexity: complexity(node, &is_decision),
-        start_line: start_line(node),
-        end_line: end_line(node),
-        path: path.to_string(),
-        language: Language::Rust,
-    })
+        complexity(node, &is_decision),
+        start_line(node),
+        end_line(node),
+        path.to_string(),
+        Language::Rust,
+    ))
 }
 
 pub(super) fn functions(source: &str, path: &str, project_root: &Path) -> Vec<Function> {

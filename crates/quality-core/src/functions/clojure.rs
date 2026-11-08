@@ -226,16 +226,15 @@ pub fn functions(source: &str, path: &str, root: &Path) -> Vec<Function> {
                             .take_while(|ch| !ch.is_whitespace() && !"()[]{}\"".contains(*ch))
                             .collect();
                         if !name.is_empty() {
-                            found.push(Function {
+                            found.push(Function::new(
                                 name,
-                                namespace: ns.clone(),
-                                jacoco_class: None,
-                                complexity: complexity(&form),
-                                start_line: first_line,
-                                end_line: line,
-                                path: path.into(),
-                                language: Language::Clojure,
-                            });
+                                ns.clone(),
+                                complexity(&form),
+                                first_line,
+                                line,
+                                path.into(),
+                                Language::Clojure,
+                            ));
                         }
                     }
                 }

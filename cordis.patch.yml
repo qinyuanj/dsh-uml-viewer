@@ -1,0 +1,5 @@
+# The package and row names stay equal so #21 can mount its client half here.
+- insert:
+    - id: dsh-uml-viewer
+      name: dsh-uml-viewer
+      config: {}
