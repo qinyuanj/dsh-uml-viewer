@@ -12,9 +12,9 @@
     "contracts": [{ "apiVersion": "tools.dsh/v1alpha1", "kind": "Tool" }]
   },
   "permissions": [
-    { "name": "uml-viewer.process", "scope": "subprocess", "reason": "Run the native IR generator through the session sandbox policy and DSH subprocess provider." },
+    { "name": "uml-viewer.process", "scope": "subprocess", "reason": "Run the native IR generator and quality tools through the session sandbox policy and DSH subprocess provider." },
     { "name": "uml-viewer.read", "scope": "filesystem-read", "reason": "Read policy and source files in the session project and locate the plugin binary." },
-    { "name": "uml-viewer.write", "scope": "filesystem-write", "reason": "Generate project IR under the session sandbox policy." }
+    { "name": "uml-viewer.write", "scope": "filesystem-write", "reason": "Generate project IR and quality snapshots under the session sandbox policy." }
   ],
   "contributes": {
     "x-components": [{
@@ -23,10 +23,9 @@
       "defaultEnabled": true,
       "platforms": ["win32", "linux", "darwin"],
       "targets": ["win32-x64", "linux-x64", "darwin-arm64", "darwin-x64"],
-      "tools": ["uml_ir", "uml_display"],
-      "notes": "Host and Web panel. uml_crap, uml_mutate and uml_dry follow in #20; platform binary packaging follows in the release tickets. The browser half is the package.json dsh.client facet and the ./client export (dsh-std 0.15 has no client facet key)."
-    }],
-    "x-planned-tools": ["uml_crap", "uml_mutate", "uml_dry"]
+      "tools": ["uml_ir", "uml_crap", "uml_mutate", "uml_dry", "uml_display"],
+      "notes": "Host and Web panel with IR, the three quality tools and display. Platform binary packaging follows in the release tickets. The browser half is the package.json dsh.client facet and the ./client export (dsh-std 0.15 has no client facet key)."
+    }]
   },
   "subscriptions": []
 }
