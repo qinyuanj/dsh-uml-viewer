@@ -46,6 +46,13 @@ every other byte is the committed golden's, which the Windows tests assert
 with the same injected clock. `Isolation: copy (a fresh copy of the project
 per command)` names the mechanism on stdout.
 
+Default coverage needs `cargo-llvm-cov` and the pinned toolchain's
+`llvm-tools`. Note that `cargo llvm-cov` itself auto-installs
+`llvm-tools-preview` through rustup when it is missing (its `CARGO_LLVM_COV_SETUP`
+default), on every platform including under the Python original, so a host
+without the component gains it on the first default-coverage run. CI installs
+it up front.
+
 ## Weaker than Linux, and honest about it
 
 A copy is a convention, not an OS-enforced sandbox: an absolute path outside

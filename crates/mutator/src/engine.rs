@@ -163,6 +163,26 @@ fn execute(
     Ok((result.code, result.elapsed))
 }
 
+/// `os.path.relpath`: `path` as seen from `base`, both absolute.
+fn relative_from(base: &Path, path: &Path) -> Option<PathBuf> {
+    let base: Vec<_> = base.components().collect();
+    let path: Vec<_> = path.components().collect();
+    let common = base
+        .iter()
+        .zip(&path)
+        .take_while(|(left, right)| left == right)
+        .count();
+    if common == 0 {
+        return None;
+    }
+    let mut relative = PathBuf::new();
+    for _ in common..base.len() {
+        relative.push("..");
+    }
+    relative.extend(path[common..].iter());
+    Some(relative)
+}
+
 fn quote(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
 }
@@ -294,10 +314,16 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
             .map(|module| {
                 let report = quality_core::runner::coverage_report(root, &module, "rust");
                 let relative = report.strip_prefix(root).unwrap_or(&report).to_path_buf();
+                // Windows runs this in a copy of the project: the report path
+                // must be relative to the command's own directory, or it would
+                // name the real project and write there.
                 let command = if cfg!(windows) {
+                    let parent = relative_from(&module, report.parent().unwrap())
+                        .unwrap_or_else(|| report.parent().unwrap().to_path_buf());
+                    let report = relative_from(&module, &report).unwrap_or_else(|| report.clone());
                     format!(
-                        "mkdir {} 2>nul & cargo llvm-cov --lcov --output-path {}",
-                        report.parent().unwrap().display(),
+                        "mkdir \"{}\" 2>nul & cargo llvm-cov --lcov --output-path \"{}\"",
+                        parent.display(),
                         report.display()
                     )
                 } else {

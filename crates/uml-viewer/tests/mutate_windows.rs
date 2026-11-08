@@ -239,6 +239,15 @@ fn abrupt_cli_kill_ends_the_mutants_and_the_next_run_sweeps_the_copies() {
 fn ctrl_break_interrupts_the_run_and_removes_the_copies() {
     let fixture = Fixture::new();
     let mut cli = fixture.spawn(true);
+    // The handler is installed before this line is printed, so the wait also
+    // proves the CLI is ready to receive the event.
+    wait_for(
+        || {
+            fs::read_to_string(fixture.directory.join("cli.stdout"))
+                .is_ok_and(|text| text.contains("Isolation:"))
+        },
+        "the run armed its console handler",
+    );
     wait_for(|| !fixture.pids().is_empty(), "the mutant started");
     let watched: Vec<Watched> = fixture
         .pids()
@@ -246,13 +255,28 @@ fn ctrl_break_interrupts_the_run_and_removes_the_copies() {
         .map(|pid| Watched::open(*pid))
         .collect();
     let pid = cli.0.id();
-    if unsafe { GenerateConsoleCtrlEvent(1, pid) } == 0 {
-        panic!(
-            "SKIPPED: this session cannot deliver Ctrl+Break: {}",
-            std::io::Error::last_os_error()
-        );
+    let mut status = None;
+    for attempt in 0..3 {
+        if unsafe { GenerateConsoleCtrlEvent(1, pid) } == 0 {
+            panic!(
+                "SKIPPED: this session cannot deliver Ctrl+Break: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(5) {
+            if let Some(code) = cli.0.try_wait().unwrap() {
+                status = Some(code);
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if status.is_some() {
+            break;
+        }
+        assert!(attempt < 2, "Ctrl+Break did not stop the run");
     }
-    let status = cli.0.wait().unwrap();
+    let status = status.unwrap();
     assert_eq!(status.code(), Some(149), "128 + SIGBREAK(21)");
     let stderr = fs::read_to_string(fixture.directory.join("cli.stderr")).unwrap();
     assert!(stderr.contains("Interrupted by SIGBREAK"), "{stderr}");
