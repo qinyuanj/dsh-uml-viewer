@@ -1,0 +1,61 @@
+import path from 'node:path'
+import type { HostServices, Policy, ConfinedArgv } from './dsh.js'
+
+/** DSH authority checked once per invocation; the caller re-resolves after I/O. */
+export type CommandError = { status: 'refused' | 'error'; reason: string }
+export type CommandOutcome = CommandError | {
+  exitCode: number | null
+  signal: string | null
+  stdout: string
+  stderr: string
+  truncated: boolean
+  outputError: string | null
+}
+
+export async function confinedCommand(services: HostServices, argv: string[], policy: Policy, signal: AbortSignal): Promise<{ argv?: string[]; confined?: ConfinedArgv; error?: CommandError }> {
+  if (policy.mode === 'danger-full-access') return { argv }
+  if (!services.sandbox) return { error: { status: 'refused', reason: 'No DSH confinement provider; refusing unconfined execution' } }
+  const confined = await services.sandbox.confine(argv, policy, signal)
+  if (!['full', 'partial'].includes(confined?.enforcement) || !confined.argv?.length) {
+    return { error: { status: 'refused', reason: 'Invalid DSH confinement result; refusing unconfined execution' } }
+  }
+  return { argv: confined.argv, confined }
+}
+
+export function validPolicy(policy: Policy): boolean {
+  return policy && ['read-only', 'workspace-write', 'danger-full-access'].includes(policy.mode) && path.isAbsolute(policy.workspaceRoot)
+}
+export function samePolicy(left: Policy, right: Policy): boolean {
+  return left.mode === right.mode && left.workspaceRoot === right.workspaceRoot && left.sessionId === right.sessionId
+    && JSON.stringify(left.additionalWritableRoots ?? []) === JSON.stringify(right.additionalWritableRoots ?? [])
+}
+
+/** Nonzero sandbox signatures are distinct from the binary's real exit result. */
+export function confinementError(confined: ConfinedArgv, exitCode: number | null, stderr: string): CommandError | undefined {
+  if (exitCode === 0) return undefined
+  const text = stderr.toLowerCase()
+  const failed = (confined.runnerFailureRules ?? []).some(rule =>
+    (!rule.allowedExitCodes || (exitCode !== null && rule.allowedExitCodes.includes(exitCode)))
+    && text.split(/\r?\n/).some(line => !(rule.informationalLines ?? []).some(s => s.toLowerCase() === line)
+      && rule.fatalSignatures.some(s => line.includes(s.toLowerCase()))))
+  if (failed) return { status: 'error', reason: 'DSH confinement runner failed' }
+  if (confined.denialSignatures?.some(s => text.includes(s.toLowerCase()))) {
+    return { status: 'refused', reason: 'DSH sandbox denied project file access' }
+  }
+  return undefined
+}
+
+export async function spawnCommand(services: HostServices, argv: string[], cwd: string, signal: AbortSignal): Promise<CommandOutcome> {
+  const child = services.subprocess.spawn({ argv, cwd,
+    stdio: { stdin: 'ignore', stdout: { maxBytes: 256 * 1024 }, stderr: { maxBytes: 64 * 1024 } },
+    graceMs: 2000, signal })
+  const outcome = await child.done
+  const read = (key: 'stdout' | 'stderr') => {
+    try { return child.collected[key]?.readFrom(0) } catch { return undefined }
+  }
+  const stdout = read('stdout')
+  const stderr = read('stderr')
+  return { exitCode: outcome.exitCode, signal: outcome.signal,
+    stdout: stdout?.text ?? '', stderr: stderr?.text ?? '', truncated: Boolean(stdout?.lossy || stderr?.lossy),
+    outputError: stdout && stderr ? null : 'DSH subprocess output readers are unavailable or failed' }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "crap-live-typescript-measured",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/calc.test.ts"
+  },
+  "devDependencies": {
+    "c8": "10.1.3"
+  }
+}

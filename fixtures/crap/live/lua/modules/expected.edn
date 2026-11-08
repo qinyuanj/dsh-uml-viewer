@@ -1,0 +1,5 @@
+{:entries [
+  {:name "M.zero", :namespace "unused ' ü]==]", :complexity 2, :coverage 0.0, :crap 6.0}
+  {:name "M.leaf", :namespace "nested.src.leaf", :complexity 2, :coverage 66.6667, :crap 2.1481}
+  {:name "M.root", :namespace "root", :complexity 1, :coverage 100.0, :crap 1.0}
+]}

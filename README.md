@@ -1,4 +1,10 @@
 # UML viewer
+
+The DeepSeek Harness host skeleton is in development. See
+[Plugin host development](docs/plugin-development.md) for the pnpm workspace,
+`uml_ir`, binary location and Cordis seam tests. The legacy flow below remains
+available during the ADR 0013 transition.
+
 ## Abstract
 
 This project displays a project as UML. The UML is *dynamic*. You can click

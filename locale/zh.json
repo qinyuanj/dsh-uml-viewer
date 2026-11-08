@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "UML 查看器",
+    "description": "从当前会话项目的 policy 和源码生成 UML IR。"
+  }
+}

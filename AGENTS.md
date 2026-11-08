@@ -38,6 +38,9 @@ The diagram is already on screen.
   snapshots and `examples/uml-viewer.edn` go in the maintainer's refresh
   commit. Requests (launch, `:omit`, proposals, quality mail) still run IR
   under their own rules.
+- Plugin development and isolated DSH testing: read
+  `docs/plugin-development.md` for workspace checks and `UML_VIEWER_BIN`.
+  Use a scratch DSH home; keep the user's live profile untouched.
 - In a git worktree of this repository, run `./uml` with
   `UML_VIEWER_TOOL_ROOT` set to that worktree only to exercise the entry
   under change; the transition quality refresh above uses the frozen clone
