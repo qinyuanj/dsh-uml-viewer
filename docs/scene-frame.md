@@ -21,7 +21,8 @@ is the view's EDN extras (`{:declutter :triangles}`, `{:proposal true
 :proposal-id :p-1}`, `{:open-layer :x}`); a hit is the EDN map hit testing
 yields (`{:kind :class :id :ir.graph}`, `{:kind :edge :from :a :to :b
 :deps [...]}`). Without `--frame` the `scene` subcommand writes the geometry
-EDN as before.
+EDN as before. The resident mode (`uml-viewer resident`) streams the same
+frames, one per line, in reply to actions: [resident-protocol.md](resident-protocol.md).
 
 The goldens in `crates/frame/tests/fixtures/frames/*.frame.json` are the
 contract, locked byte for byte by `crates/frame/tests/golden_frame.rs`.
@@ -62,7 +63,7 @@ contract, locked byte for byte by `crates/frame/tests/golden_frame.rs`.
 | `widths.band` / `rule` / `dot` / `portLink` | 2 / 1 / 1 / 1.3 | stroke widths in points, never scaled by zoom |
 | `widths.dash` / `dashGap` | 6 / 4 | dashed outline of an unmeasured frame |
 | `radius.class` / `package` / `port` / `rowWash` | 4 / 8 / 3 / 2 | corner radii in world units (dropped under 2 screen px) |
-| `dimAlpha` | 70 | 关系淡化: a `dimmed` item multiplies all color channels, alpha included, by 70/255 |
+| `dimAlpha` | 70 | 关系淡化: a `dimmed` item multiplies all color channels, alpha included, by 70/255, except a closed arrowhead's `fill` (see Edges) |
 | `lodZoom` | `{frames: 0.15, full: 0.4}` | zoom below `frames` is `blocks`, below `full` is `frames` |
 | `minTextPx` | 5 | canvas text under 5 screen px is not drawn |
 | `edgeDecimatePx` | 8 | at the `frames` tier stroke points closer than 8 screen px may be dropped (ends kept) |
@@ -146,6 +147,23 @@ requests. Rects are `{x, y, w, h}`, points `[x, y]`, all in world units.
 
 `hot` is the edge under the pointer, `warm` an edge touching the hovered
 class; both are already folded into `stroke`/`width`.
+
+For a `head`, `dimmed` applies only to `stroke`. A closed head's `fill`
+remains fully opaque: `canvas` for hollow triangles/diamonds and `ink` for
+filled diamonds. Draw the fill over the shaft before the head outline; the
+scene's shaft runs through the head to its tip, so the opaque interior
+masks it. Canvas clients must resolve the fill role at alpha 1 and apply
+`dimAlpha` only to the outline, rather than reducing the whole head's
+`globalAlpha`. An `open` head has no fill.
+
+## Shared inspector summaries
+
+The window-free `frame::inspector` API also supplies `class_summary(&detail::Model)`
+and `package_summary(&scene, &id)`. Each returns display-ordered `SummaryLine`s:
+`Label { text, color }` or `Segments { parts, color }`. Colors are semantic roles;
+metric segments wrap only between complete statistics. These functions own
+identity/member text, quality formatting, no-data lines and the current view's
+package class count. Native and panel adapters only render the supplied lines.
 
 ## Chrome items (viewport points)
 

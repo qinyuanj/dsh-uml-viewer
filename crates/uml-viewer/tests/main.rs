@@ -8,6 +8,7 @@ mod crap;
 mod crap_goldens;
 mod dispatch;
 mod mutate;
+mod resident;
 mod scene_cli;
 
 use std::ffi::OsStr;
