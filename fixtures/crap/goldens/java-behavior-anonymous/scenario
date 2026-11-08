@@ -1,0 +1,4 @@
+project java
+arg -s
+arg testdata/behavior/anonymous/.
+arg --no-coverage

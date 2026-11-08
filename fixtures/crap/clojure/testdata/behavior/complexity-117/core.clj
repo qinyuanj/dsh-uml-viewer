@@ -1,0 +1,1 @@
+(defn foo [x] (cond (a? x) 1 (b? x) 2))

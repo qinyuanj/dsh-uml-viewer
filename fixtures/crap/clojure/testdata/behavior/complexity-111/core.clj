@@ -1,0 +1,1 @@
+(defn foo [x] "" (if x 1 0))

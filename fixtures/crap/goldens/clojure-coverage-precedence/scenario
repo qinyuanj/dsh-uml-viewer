@@ -1,0 +1,6 @@
+# Cloverage's HTML form counts are the Clojure coverage source; a project
+# LCOV report is only the fallback (crapper coverage.py percent_for).
+project clojure
+file reports/clojure/core.clj.html target/coverage/demo/core.clj.html
+file reports/clojure/lcov.info target/coverage/lcov.info
+arg --use-existing-coverage

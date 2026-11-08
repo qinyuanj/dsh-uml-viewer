@@ -1,0 +1,7 @@
+# Same as default-existing-threshold, but Python float() reads Arabic-Indic
+# digits: the threshold is 5.2 without any ASCII digit in argv.
+project rust
+file rust.existing.lcov target/coverage/rust/lcov.info
+arg --use-existing-coverage
+arg --threshold
+arg ٥.٢

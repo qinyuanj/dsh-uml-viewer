@@ -1,0 +1,4 @@
+project rust
+arg --threshold
+arg 1.0
+arg --edn

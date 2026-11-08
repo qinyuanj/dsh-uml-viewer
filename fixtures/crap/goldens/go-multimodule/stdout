@@ -1,0 +1,10 @@
+CRAP Report
+===========
+Languages: go
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+First                          example.com/quality/go/cmd/svc         1   N/A       N/A
+Last                           example.com/quality/go/cmd/svc         1   N/A       N/A
+First                          example.com/quality/go/svc             1   N/A       N/A
+Last                           example.com/quality/go/svc             1   N/A       N/A

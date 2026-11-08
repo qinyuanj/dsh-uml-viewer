@@ -1,0 +1,3 @@
+{:entries [
+  {:name "score", :namespace "Sample", :complexity 10, :coverage nil, :crap nil}
+]}

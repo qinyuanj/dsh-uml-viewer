@@ -1,0 +1,11 @@
+dryer b3f72ad9681a6574c5714d3c54d50e2ea3eff91a
+crapper 4068857bc44e6383cf4a5e4d0b5c1111b49ce0b4
+Python 3.12.10 (CPython, win32, MSC v.1943 64 bit AMD64)
+tree-sitter 0.26.0
+tree-sitter-language-pack 1.21.0
+
+Captured from the original dryer.cli.main, with both pinned src directories
+explicitly loaded into an isolated (-I) Python process. Full runtime version
+and SHA-256 hashes of every oracle Python source are in provenance.json.
+Regenerate: python -I scripts/dry_goldens.py <dryer-checkout> <crapper-checkout>
+Verify: append --check to rerun without changing any expected bytes.

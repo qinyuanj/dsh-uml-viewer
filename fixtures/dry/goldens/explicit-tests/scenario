@@ -1,0 +1,3 @@
+project rust
+arg tests/explicit.rs
+arg --edn

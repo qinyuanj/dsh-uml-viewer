@@ -1,0 +1,8 @@
+CRAP Report
+===========
+Languages: clojure
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+alpha                          testdata.behavior.extract-88.edge      2   N/A       N/A
+omega                          testdata.behavior.extract-88.edge      1   N/A       N/A

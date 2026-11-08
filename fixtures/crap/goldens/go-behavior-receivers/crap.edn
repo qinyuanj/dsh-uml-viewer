@@ -1,0 +1,4 @@
+{:entries [
+  {:name "Run", :namespace "example.com/behavior/go.Widget", :complexity 3, :coverage nil, :crap nil}
+  {:name "Simple", :namespace "example.com/behavior/go", :complexity 1, :coverage nil, :crap nil}
+]}

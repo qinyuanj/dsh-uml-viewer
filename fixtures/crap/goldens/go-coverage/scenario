@@ -1,0 +1,3 @@
+project go
+file reports/go/coverage.out target/coverage/go/coverage.out
+arg --use-existing-coverage

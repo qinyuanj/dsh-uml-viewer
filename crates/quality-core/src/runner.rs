@@ -3,7 +3,7 @@
 //! A custom coverage command must write a fresh, valid `coverage/lcov.info`
 //! or the run fails. A built-in runner that fails leaves its language N/A,
 //! unless the run is strict (a whole-tree refresh), where it fails too.
-//! Built-in runners for languages other than Rust arrive with #4/#5. The
+//! Built-in runners for Python, TypeScript and Lua arrive with #4. The
 //! coverage stamp mutator reuses is shared here (#3).
 
 use std::collections::BTreeSet;
@@ -320,6 +320,15 @@ pub fn run_coverage_with_lua_shards(
         if languages.contains(&Language::Rust) && !cover_rust(&root, files) {
             failed.push(Language::Rust.name());
         }
+        if languages.contains(&Language::Go) && !crate::runner_go::cover(&root, files) {
+            failed.push(Language::Go.name());
+        }
+        if languages.contains(&Language::Java) && !crate::runner_java::cover(&root, files) {
+            failed.push(Language::Java.name());
+        }
+        if languages.contains(&Language::Clojure) && !crate::runner_clojure::cover(&root) {
+            failed.push(Language::Clojure.name());
+        }
         // Lua runs last and raises instead of returning false; the stamp below
         // still records every language, exactly as the original's `finally`.
         if languages.contains(&Language::Lua) {
@@ -347,7 +356,7 @@ pub fn run_coverage_with_lua_shards(
         )));
     }
     if let Some(records) = managed {
-        let mut bundle = crate::coverage::load_bundle(&root);
+        let mut bundle = crate::coverage::load_bundle(&root).map_err(CoverageError)?;
         bundle.add_fresh(&records, &root);
         return Ok(Some(bundle));
     }

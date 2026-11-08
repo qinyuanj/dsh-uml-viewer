@@ -1,0 +1,4 @@
+project clojure
+arg -s
+arg testdata/behavior/edge-189/.
+arg --no-coverage
