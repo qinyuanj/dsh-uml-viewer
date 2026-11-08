@@ -242,12 +242,14 @@ pub fn level() -> &'static str {
 }
 
 /// The original's `Isolation: ...` line, naming the real mechanism.
+#[cfg(windows)]
 pub fn describe() -> &'static str {
-    if cfg!(windows) {
-        crate::copies::describe()
-    } else {
-        "namespace views (a private overlayfs view per command)"
-    }
+    crate::copies::describe()
+}
+
+#[cfg(not(windows))]
+pub fn describe() -> &'static str {
+    "namespace views (a private overlayfs view per command)"
 }
 
 /// A report a command wrote inside its own view, never in the project.
