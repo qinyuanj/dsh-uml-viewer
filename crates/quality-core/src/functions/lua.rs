@@ -111,15 +111,15 @@ pub(super) fn functions(source: &str, path: &str, _root: &Path) -> Vec<Function>
                     ) || binary_logic(**decision))
             })
             .count() as u32;
-        result.push(Function {
-            name: name.to_string(),
-            namespace: namespace(path),
+        result.push(Function::new(
+            name.to_string(),
+            namespace(path),
             complexity,
-            start_line: start_line(header),
-            end_line: end_line(node),
-            path: path.to_string(),
-            language: Language::Lua,
-        });
+            start_line(header),
+            end_line(node),
+            path.to_string(),
+            Language::Lua,
+        ));
     }
     result
 }

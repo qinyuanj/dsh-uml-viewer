@@ -98,15 +98,15 @@ pub(super) fn functions(source: &str, path: &str, root: &Path) -> Vec<Function> 
         let Some(ident) = child_of_kind(node, &["identifier"]) else {
             continue;
         };
-        found.push(Function {
-            name: text(source, ident).to_string(),
-            namespace: namespace(source, node, &module),
-            complexity: complexity(node),
-            start_line: start_line(node),
-            end_line: end_line(node),
-            path: path.to_string(),
-            language: Language::Python,
-        });
+        found.push(Function::new(
+            text(source, ident).to_string(),
+            namespace(source, node, &module),
+            complexity(node),
+            start_line(node),
+            end_line(node),
+            path.to_string(),
+            Language::Python,
+        ));
     }
     found
 }

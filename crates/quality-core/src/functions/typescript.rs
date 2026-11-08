@@ -112,15 +112,15 @@ fn entry(
     span: Node,
     body: Node,
 ) -> Function {
-    Function {
-        name: text(source, name).to_string(),
+    Function::new(
+        text(source, name).to_string(),
         namespace,
-        complexity: complexity(body),
-        start_line: start_line(span),
-        end_line: end_line(span),
-        path: path.to_string(),
-        language: Language::TypeScript,
-    }
+        complexity(body),
+        start_line(span),
+        end_line(span),
+        path.to_string(),
+        Language::TypeScript,
+    )
 }
 
 pub(super) fn functions(source: &str, path: &str, root: &Path) -> Vec<Function> {

@@ -25,6 +25,30 @@ pub struct Function {
     pub language: Language,
 }
 
+impl Function {
+    /// The only construction site, so a new field (such as the Java binary
+    /// class #5 adds) is set once rather than in every language scanner.
+    pub fn new(
+        name: String,
+        namespace: String,
+        complexity: u32,
+        start_line: usize,
+        end_line: usize,
+        path: String,
+        language: Language,
+    ) -> Function {
+        Function {
+            name,
+            namespace,
+            complexity,
+            start_line,
+            end_line,
+            path,
+            language,
+        }
+    }
+}
+
 /// Whether crapper can extract this language. Go, Java and Clojure arrive
 /// with qinyuanj/dsh-uml-viewer#5; their registrations merge additively.
 pub fn supported(language: Language) -> bool {
