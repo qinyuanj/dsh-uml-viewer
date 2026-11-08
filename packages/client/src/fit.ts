@@ -116,13 +116,14 @@ export interface ViewTransform {
   minWorld: number
 }
 
-export function viewTransform(frame: SceneFrame, width: number, height: number): ViewTransform {
+export function viewTransform(frame: SceneFrame, _width: number, _height: number): ViewTransform {
   const zoom = frame.camera.zoom
-  const cx = frame.camera.x
-  const cy = frame.camera.y
   return {
-    x: cx - width / 2 / zoom,
-    y: cy - height / 2 / zoom,
+    // The native fit already centres the scene by computing this top-left
+    // world point. Transform::new only applies rect.origin - camera * zoom;
+    // the panel viewport origin is zero, so no half-viewport offset belongs here.
+    x: frame.camera.x,
+    y: frame.camera.y,
     zoom,
     minWorld: frame.style.minTextPx / zoom,
   }

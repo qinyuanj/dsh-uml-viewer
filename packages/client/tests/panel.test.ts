@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { PanelAction, PanelEvent, SceneFrame } from '@dsh-uml-viewer/contracts'
 import { PanelController, type PanelRemoteApi, type PanelStatus } from '../src/panel.js'
+import { screenToWorld, viewTransform, worldToScreen } from '../src/fit.js'
 import { fakeCanvas, FakeMutationObserver } from './fakes.js'
 
 const framesDir = path.resolve(fileURLToPath(new URL('../../../crates/frame/tests/fixtures/frames', import.meta.url)))
@@ -142,6 +143,42 @@ describe('session-bound panel stream', () => {
     h.controller.pointerUp(410, 310)
     await settle(() => h.actions.some(entry => entry.action.action === 'select'), 'the select action')
     expect(h.actions.at(-1)).toMatchObject({ sessionId: 'session-a', action: { action: 'select' } })
+    h.controller.close()
+  })
+
+  it('round-trips local pan and zoom through resident camera actions', async () => {
+    const initial: SceneFrame = { ...frame, viewport: { width: 800, height: 600 } }
+    const h = harness([{ kind: 'ready', actions: [] }, { kind: 'frame', seq: 1, frame: initial }])
+    await h.controller.open('session-a')
+    await settle(() => h.painted.length === 1, 'the frame')
+
+    const world: [number, number] = [200, 180]
+    const beforePan = worldToScreen(viewTransform(initial, 800, 600), ...world)
+    h.controller.pointerDown(400, 300)
+    h.controller.pointerMove(380, 290)
+    h.controller.pointerUp(380, 290)
+    await settle(() => h.actions.filter(entry => entry.action.action === 'camera').length === 1, 'the pan action')
+    const pan = h.actions.filter(entry => entry.action.action === 'camera')[0]!.action
+    if (pan.action !== 'camera') throw new Error('expected a camera action')
+    const panned = h.controller.current.frame!
+    expect(panned.camera).toMatchObject({ x: pan.x, y: pan.y, zoom: pan.zoom })
+    const afterPan = worldToScreen(viewTransform(panned, 800, 600), ...world)
+    expect(afterPan[0]).toBeCloseTo(beforePan[0] - 20, 10)
+    expect(afterPan[1]).toBeCloseTo(beforePan[1] - 10, 10)
+
+    const anchor = screenToWorld(viewTransform(panned, 800, 600), 380, 290)
+    h.controller.wheel(380, 290, -1)
+    await settle(() => h.actions.filter(entry => entry.action.action === 'camera').length === 2, 'the zoom action')
+    const zoom = h.actions.filter(entry => entry.action.action === 'camera')[1]!.action
+    if (zoom.action !== 'camera') throw new Error('expected a camera action')
+    const zoomed = h.controller.current.frame!
+    expect(zoomed.camera).toMatchObject({ x: zoom.x, y: zoom.y, zoom: zoom.zoom })
+    const afterZoom = worldToScreen(viewTransform(zoomed, 800, 600), ...anchor)
+    expect(afterZoom[0]).toBeCloseTo(380, 10)
+    expect(afterZoom[1]).toBeCloseTo(290, 10)
+    // The resident acknowledges a camera action without sending another frame;
+    // both local camera changes have therefore already been painted.
+    expect(h.painted).toHaveLength(3)
     h.controller.close()
   })
 

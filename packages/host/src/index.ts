@@ -52,22 +52,24 @@ export function apply(ctx: Context, config: Config = {}): void {
     output: { schema: IR_RESULT_SCHEMA, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
     async execute(args, exec) {
       const sessionId = exec.agent?.session.id
+      let result: ReturnType<typeof irResult>
       try {
         const request = parseIrRequest(args)
         const argv: string[] = []
         if (request.policy !== undefined) argv.push('--policy', request.policy)
         if (request.output !== undefined) argv.push('--output', request.output)
-        const result = await runIr(services, config, exec, argv)
-        // The display gate follows this plugin's own IR calls, per session.
-        if (sessionId !== undefined && result.status !== 'refused') {
-          gate.record(sessionId, { validResult: result.validResult, exitCode: result.exitCode, reason: result.reason })
-        }
-        return result
+        result = await runIr(services, config, exec, argv)
       } catch (error) {
-        return irResult(exec.agent ? services.workingDirectory.get(exec.agent.session) : '', {
+        result = irResult(exec.agent ? services.workingDirectory.get(exec.agent.session) : '', {
           reason: error instanceof Error ? error.message : String(error),
         })
       }
+      // Every completed invocation replaces the previous grant. In particular,
+      // a parse failure or refusal must not leave an earlier success displayable.
+      if (sessionId !== undefined) {
+        gate.record(sessionId, { validResult: result.validResult, exitCode: result.exitCode, reason: result.reason })
+      }
+      return result
     },
   }), 'dsh-uml-viewer: uml_ir')
 

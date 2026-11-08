@@ -83,6 +83,22 @@ describe('host theme tokens', () => {
     expect(DARK_HUES.violation).not.toBe(LIGHT_HUES.violation)
   })
 
+  it('does not invent RGB chrome colors when host tokens are absent', () => {
+    const theme = resolveTheme(fakeCanvas({ tokens: {} }))
+    for (const role of ['canvas', 'ink', 'muted', 'line', 'accent', 'danger']) {
+      expect(theme.frame(role), role).toBe('')
+    }
+  })
+
+  it('distinguishes hot violations from ordinary violations in both modes', () => {
+    const light = resolveTheme(fakeCanvas({ tokens: LIGHT_TOKENS }))
+    const dark = resolveTheme(fakeCanvas({ tokens: DARK_TOKENS, dark: true }))
+    expect(dark.frame('violation')).toBe('#c42a24')
+    expect(dark.frame('violation-hot')).toBe('#ff4030')
+    expect(light.frame('violation-hot')).not.toBe(light.frame('violation'))
+    expect(Math.abs(hueOf(light.frame('violation-hot')) - hueOf(dark.frame('violation-hot')))).toBeLessThanOrEqual(1.5)
+  })
+
   it('draws an unknown role as ink and an unmeasured grade as the neutral ramp anchor', () => {
     const theme = resolveTheme(fakeCanvas({ tokens: DARK_TOKENS, dark: true }))
     expect(theme.frame('a-role-from-the-future')).toBe('#ecece4')

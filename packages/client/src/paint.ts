@@ -79,7 +79,7 @@ function headPath(
   ctx.lineTo(tx - len * Math.cos(angle - spread), ty - len * Math.sin(angle - spread))
   if (diamond) {
     // The diamond's back vertex sits 16·zoom behind the tip.
-    ctx.lineTo(tx - 2 * len * Math.cos(angle), ty - 2 * len * Math.sin(angle))
+    ctx.lineTo(tx - len * Math.cos(angle), ty - len * Math.sin(angle))
   }
   ctx.lineTo(tx - len * Math.cos(angle + spread), ty - len * Math.sin(angle + spread))
   ctx.closePath()
@@ -199,7 +199,7 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
       ctx.setLineDash(item.missing ? [frame.style.widths.dash, frame.style.widths.dashGap] : [])
       ctx.globalAlpha = item.dimmed ? dimAlpha(frame) : 1
       ctx.fillStyle = colorOf(item.fill)
-      ctx.strokeStyle = colorOf(item.selected || item.hovered ? { role: 'selected' } : item.stroke)
+      ctx.strokeStyle = colorOf(item.selected ? { role: 'selected' } : item.stroke)
       ctx.lineWidth = item.strokeWidth
       if (item.shape === 'oval') {
         ctx.beginPath()
@@ -258,11 +258,11 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
     }
     case 'text': {
       if (item.line === 'name' ? !atOrBelow('frames') : lod !== 'full') return
-      const size = item.size * view.zoom
+      const size = item.slot * view.zoom
       if (size < frame.style.minTextPx) return
       const [sx, sy] = worldToScreen(view, item.center ? item.x + item.maxW / 2 : item.x, item.top + item.slot / 2)
       ctx.globalAlpha = item.dimmed ? dimAlpha(frame) : 1
-      fittedText(p, item.text ?? '', sx, sy, item.size, item.maxW, colorOf(item.ink),
+      fittedText(p, item.text ?? '', sx, sy, item.slot, item.maxW, colorOf(item.ink),
         { bold: item.bold, italic: item.italic, align: item.center ? 'center' : 'left' })
       ctx.globalAlpha = 1
       return
@@ -270,7 +270,9 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
     case 'no-data': {
       if (lod !== 'full') return
       const [sx, sy] = worldToScreen(view, item.right, item.y)
+      ctx.globalAlpha = item.dimmed ? dimAlpha(frame) : 1
       text(p, item.text, sx, sy, item.size * view.zoom, colorOf(item.ink), { align: 'right' })
+      ctx.globalAlpha = 1
       return
     }
     case 'child-wash': {
@@ -278,17 +280,20 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
       const [sx, sy] = worldToScreen(view, item.rect.x, item.rect.y)
       const sw = item.rect.w * view.zoom
       const sh = item.rect.h * view.zoom
+      ctx.globalAlpha = item.dimmed ? dimAlpha(frame) : 1
       ctx.fillStyle = colorOf(item.marker.wash)
       roundRect(ctx, sx, sy, sw, sh, Math.max(0, frame.style.radius.rowWash * view.zoom))
       ctx.fill()
       ctx.fillStyle = colorOf(item.marker.bar)
       ctx.fillRect(sx, sy, item.marker.barWidth * view.zoom, sh)
+      ctx.globalAlpha = 1
       return
     }
     case 'port-link': {
       if (lod !== 'full') return
       const [fx, fy] = worldToScreen(view, item.behind[0], item.behind[1])
       const [tx, ty] = worldToScreen(view, item.tip[0], item.tip[1])
+      ctx.globalAlpha = item.dimmed ? dimAlpha(frame) : 1
       ctx.strokeStyle = colorOf(item.stroke)
       ctx.lineWidth = Math.max(1, frame.style.widths.portLink)
       ctx.beginPath()
@@ -296,6 +301,7 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
       ctx.lineTo(tx, ty)
       ctx.stroke()
       arrowheadOpen(ctx, tx, ty, fx, fy, 10 * view.zoom)
+      ctx.globalAlpha = 1
       return
     }
     case 'port': {
@@ -303,6 +309,7 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
       const [sx, sy] = worldToScreen(view, item.rect.x, item.rect.y)
       const sw = item.rect.w * view.zoom
       const sh = item.rect.h * view.zoom
+      ctx.globalAlpha = item.dimmed ? dimAlpha(frame) : 1
       ctx.fillStyle = colorOf(item.marked ? { role: 'port-fill-marked' } : item.fill)
       ctx.strokeStyle = colorOf(item.stroke)
       ctx.lineWidth = item.strokeWidth
@@ -311,6 +318,7 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
       ctx.stroke()
       fittedText(p, item.text, sx + sw / 2, sy + sh / 2, frame.style.fonts.port, item.rect.w - 6,
         colorOf(item.ink), { align: 'center' })
+      ctx.globalAlpha = 1
       return
     }
     default:
@@ -363,9 +371,12 @@ function paintEdge(p: Painter, edge: SceneFrame['edges'][number]): void {
   if (lod === 'blocks') return
   ctx.globalAlpha = edge.dimmed ? dimAlpha(frame) : 1
   ctx.fillStyle = colorOf(edge.fill)
+  ctx.strokeStyle = ctx.fillStyle
+  ctx.lineWidth = 1
   polyline(ctx, view, edge.points)
   ctx.closePath()
   ctx.fill()
+  ctx.stroke()
   ctx.globalAlpha = 1
 }
 

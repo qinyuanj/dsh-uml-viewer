@@ -122,6 +122,16 @@ export class PanelController {
     return ackOf(result)
   }
 
+  /** Apply local camera work now; the resident only acknowledges and saves it. */
+  private updateCamera(camera: SceneFrame['camera']): void {
+    if (!this.frame) return
+    const frame = { ...this.frame, camera }
+    this.frame = frame
+    this.publish({ ...this.status, frame })
+    this.paint(frame, this.canvas)
+    void this.send({ action: 'camera', ...camera })
+  }
+
   /**
    * Tell the host the panel's canvas size so it lays the frame out for this
    * viewport. The size is in CSS pixels; the painter renders at device pixels.
@@ -151,8 +161,7 @@ export class PanelController {
     if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return
     this.drag = { x, y, moved: true }
     const view = viewTransform(this.frame, this.viewport.width, this.viewport.height)
-    void this.send({
-      action: 'camera',
+    this.updateCamera({
       x: this.frame.camera.x - dx / view.zoom,
       y: this.frame.camera.y - dy / view.zoom,
       zoom: this.frame.camera.zoom,
@@ -168,16 +177,15 @@ export class PanelController {
     void this.send({ action: 'select', at: [world[0], world[1]] })
   }
 
-  /** Zoom about a screen point; the camera stays a host decision. */
+  /** Zoom about a screen point; the resident saves the resulting top-left camera. */
   public wheel(x: number, y: number, delta: number): void {
     if (!this.frame || !this.viewport) return
     const zoom = Math.min(8, Math.max(this.frame.style.lodZoom.frames / 2, this.frame.camera.zoom * (delta > 0 ? 0.9 : 1.1)))
     const view = viewTransform(this.frame, this.viewport.width, this.viewport.height)
     const [wx, wy] = screenToWorld(view, x, y)
-    void this.send({
-      action: 'camera',
-      x: wx - (x - this.viewport.width / 2) / zoom,
-      y: wy - (y - this.viewport.height / 2) / zoom,
+    this.updateCamera({
+      x: wx - x / zoom,
+      y: wy - y / zoom,
       zoom,
     })
   }

@@ -184,8 +184,18 @@ export class ResidentSessions {
     private readonly states: SessionStates,
   ) {}
 
+  private writablePolicy(agent: Agent): Policy {
+    const policy = this.services.sandboxPolicy.resolve({ session: agent.session })
+    if (policy.mode === 'read-only') throw new Refusal(READ_ONLY_REASON)
+    if (!validPolicy(policy)) throw new Refusal('Invalid authoritative sandbox policy; no resident was started')
+    return policy as Policy
+  }
+
   /** Start or join this session's resident, and open its waiting canvas. */
   async open(agent: Agent, signal: AbortSignal): Promise<ResidentConnection> {
+    // Reuse is still an open: a session that became read-only must not acquire
+    // another panel stream merely because a resident already exists.
+    this.writablePolicy(agent)
     const id = agent.session.id
     const existing = this.connections.get(id)
     if (existing && !existing.isSettled) {
@@ -195,6 +205,7 @@ export class ResidentSessions {
     const inflight = this.opening.get(id)
     if (inflight) {
       const joined = await inflight
+      this.writablePolicy(agent)
       joined.refs += 1
       return joined
     }
@@ -225,9 +236,7 @@ export class ResidentSessions {
   }
 
   private async start(agent: Agent, signal: AbortSignal): Promise<ResidentConnection> {
-    const policy = this.services.sandboxPolicy.resolve({ session: agent.session })
-    if (policy.mode === 'read-only') throw new Refusal(READ_ONLY_REASON)
-    if (!validPolicy(policy)) throw new Refusal('Invalid authoritative sandbox policy; no resident was started')
+    const policy = this.writablePolicy(agent)
     const cwd = await realpath(await this.services.workingDirectory.ensure(agent, signal))
     const command = await confinedCommand(this.services, [...binaryArgv(this.config), 'resident'], policy as Policy, signal)
     if (command.error) throw new Refusal(command.error.reason)
@@ -243,29 +252,35 @@ export class ResidentSessions {
       graceMs: 2000,
     })
     const connection = new ResidentConnection(agent.session.id, cwd, child, Boolean(command.confined))
-    if (!child.stdout) {
-      child.terminate()
-      throw new Error('DSH subprocess provider gave no resident stdout stream')
-    }
-    // Attach before the first byte can arrive: the ready line is pushed to this
-    // queue and the panel queues that follow get the recorded state instead.
-    const ready = connection.attach()
-    child.stdout.on('data', chunk => connection.ingest(typeof chunk === 'string' ? chunk
-      : Buffer.from(chunk as Uint8Array).toString('utf8')))
-    child.stdout.on('error', error => connection.fail(`resident stdout failed: ${String(error)}`))
-    void child.done.then(outcome => {
-      if (!connection.isSettled) {
-        connection.fail(`uml-viewer resident exited (${outcome.exitCode === null ? `signal ${outcome.signal}` : `exit ${outcome.exitCode}`})`)
-      }
-      connection.end()
-      this.connections.delete(connection.id)
-    }, error => connection.fail(`uml-viewer resident failed: ${String(error)}`))
+    // This connection is not in `connections` until startFresh returns. Every
+    // failure before then must therefore clean up the child right here.
     try {
-      await this.waitForReady(connection, ready)
-    } finally {
-      connection.detach(ready)
+      if (!child.stdout) throw new Error('DSH subprocess provider gave no resident stdout stream')
+      // Attach before the first byte can arrive: the ready line is pushed to this
+      // queue and the panel queues that follow get the recorded state instead.
+      const ready = connection.attach()
+      child.stdout.on('data', chunk => connection.ingest(typeof chunk === 'string' ? chunk
+        : Buffer.from(chunk as Uint8Array).toString('utf8')))
+      child.stdout.on('error', error => connection.fail(`resident stdout failed: ${String(error)}`))
+      void child.done.then(outcome => {
+        if (!connection.isSettled) {
+          connection.fail(`uml-viewer resident exited (${outcome.exitCode === null ? `signal ${outcome.signal}` : `exit ${outcome.exitCode}`})`)
+        }
+        connection.end()
+        this.connections.delete(connection.id)
+      }, error => connection.fail(`uml-viewer resident failed: ${String(error)}`))
+      try {
+        await this.waitForReady(connection, ready)
+      } finally {
+        connection.detach(ready)
+      }
+      return connection
+    } catch (error) {
+      connection.end()
+      child.terminate()
+      await Promise.race([connection.exited, new Promise(resolve => setTimeout(resolve, STOP_TIMEOUT_MS))])
+      throw error
     }
-    return connection
   }
 
   private async waitForReady(connection: ResidentConnection, queue: Queue<ResidentEvent>): Promise<void> {

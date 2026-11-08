@@ -81,7 +81,8 @@ async function setup(options: {
   /** Provide the optional services only after the plugin is loaded. */
   late?: boolean
 } = {}) {
-  const mode = options.mode ?? 'danger-full-access'
+  let mode = options.mode ?? 'danger-full-access'
+  let spawns = 0
   const home = await mkdtemp(path.join(os.tmpdir(), 'uml panel home '))
   roots.push(home)
   const projects: Record<string, string> = {}
@@ -108,7 +109,7 @@ async function setup(options: {
     tools: { register(definition) { definitions.set(definition.name, definition); return () => { definitions.delete(definition.name) } } },
     sandboxPolicy: { resolve: ({ session }) => ({ mode, workspaceRoot: projects[session.id]! }) },
     workingDirectory: { get: session => projects[session.id]!, ensure: async agent => projects[agent.session.id]! },
-    subprocess: { spawn: localSubprocess },
+    subprocess: { spawn(spec) { spawns += 1; return localSubprocess(spec) } },
     sandbox: { confine: async argv => ({ argv: [...argv], enforcement: 'full' }) },
     typert: { register(contribution: unknown) { contributions.push(contribution); return async () => { contributions.splice(contributions.indexOf(contribution), 1) } } },
     webServer: { register(route: Route) { routes.push(route); return () => { routes.splice(routes.indexOf(route), 1) } } },
@@ -149,7 +150,8 @@ async function setup(options: {
   const provideLate = (key: 'typert' | 'webServer'): void => {
     ctx.provide(key, services[key] as never)
   }
-  return { home, projects, services, definitions, contributions, routes, agents, prompts, ctx, fiber, tool, viewer, stream, provideLate }
+  return { home, projects, services, definitions, contributions, routes, agents, prompts, ctx, fiber, tool, viewer, stream, provideLate,
+    setMode(value: typeof mode) { mode = value }, spawnCount: () => spawns }
 }
 
 async function actionLog(root: string): Promise<{ action: string }[]> {
@@ -211,6 +213,20 @@ it('revokes the gate when a later uml_ir fails', async () => {
   expect(await tool('uml_display', {}, 'session-a')).toMatchObject({ status: 'refused' })
 })
 
+it('revokes a successful grant on refused, parse-failed and caught uml_ir invocations', async () => {
+  const { tool, services } = await setup()
+  expect(await tool('uml_ir', {}, 'session-a')).toMatchObject({ validResult: true })
+
+  expect(await tool('uml_ir', { policy: '../outside.policy.edn' }, 'session-a'))
+    .toMatchObject({ status: 'refused', validResult: false })
+  expect(await tool('uml_display', {}, 'session-a')).toMatchObject({ status: 'refused', validResult: false })
+
+  expect(await tool('uml_ir', {}, 'session-a')).toMatchObject({ validResult: true })
+  services.workingDirectory.ensure = async () => { throw new Error('controlled preparation failure') }
+  expect(await tool('uml_ir', {}, 'session-a')).toMatchObject({ status: 'error', validResult: false })
+  expect(await tool('uml_display', {}, 'session-a')).toMatchObject({ status: 'refused', validResult: false })
+})
+
 it('reports a resident error instead of claiming the panel refreshed', async () => {
   const { tool, projects } = await setup({ displayError: 'unreadable IR' })
   expect(await tool('uml_ir', {}, 'session-a')).toMatchObject({ validResult: true })
@@ -232,6 +248,22 @@ it('refuses the panel stream and uml_display in read-only, spawning nothing', as
   expect(await tool('uml_display', {}, 'session-a')).toMatchObject({ status: 'refused',
     reason: expect.stringMatching(/read-only/) })
   expect(existsSync(path.join(projects['session-a']!, 'resident-invocation.json'))).toBe(false)
+})
+
+it('refuses a new watcher after its existing resident session becomes read-only', async () => {
+  const { stream, setMode, spawnCount, tool } = await setup()
+  const first = stream('session-a')
+  expect((await timeout(first.next())).value).toMatchObject({ kind: 'ready' })
+  const before = spawnCount()
+
+  setMode('read-only')
+  const second = stream('session-a')
+  expect((await timeout(second.next())).value).toMatchObject({ kind: 'refused', reason: expect.stringMatching(/read-only/) })
+  expect((await timeout(second.next())).done).toBe(true)
+  expect(spawnCount()).toBe(before)
+  expect(await tool('uml_display', {}, 'session-a')).toMatchObject({ status: 'refused', validResult: false })
+  setMode('danger-full-access')
+  await first.close()
 })
 
 it('streams the resident scene frame to the panel bound to that session', async () => {

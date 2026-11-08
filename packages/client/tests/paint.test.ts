@@ -122,6 +122,84 @@ describe('Canvas 2D namespace tree', () => {
     expect(sarasa.widthPx(label, size)).toBeLessThanOrEqual(80 + 1e-6)
   })
 
+  it('uses the producer slot height for slotted golden text', () => {
+    const frame = golden('root.frame.json')
+    const item = frame.world.find(candidate => candidate.kind === 'text' && candidate.text === 'Util')
+    if (!item || item.kind !== 'text') throw new Error('missing Util text')
+    expect(item.size).toBe(16)
+    expect(item.slot).toBe(15)
+    const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true })
+    paintFrame(frame, canvas)
+    const drawn = canvas.recording.ops.find(op => op.op === 'fillText' && op.text === 'Util')
+    expect(drawn).toBeDefined()
+    expect(fontPx(drawn!)).toBeCloseTo(item.slot * frame.camera.zoom, 8)
+  })
+
+  it('dims no-data, child-wash, port-link and port items the producer marks dimmed', () => {
+    const frame = golden('core-selected.frame.json')
+    const noData = frame.world.find(item => item.kind === 'no-data' && item.dimmed)
+    const portLink = frame.world.find(item => item.kind === 'port-link')
+    const port = frame.world.find(item => item.kind === 'port')
+    expect(noData, 'the producer frame has a dimmed no-data marker').toBeDefined()
+    const wash = {
+      kind: 'child-wash', lod: 'full', bounds: null, dimmed: true, owner: ':core',
+      rect: { x: 70, y: 150, w: 100, h: 16 },
+      marker: { wash: { role: 'row-wash' }, bar: { role: 'row-bar' }, barWidth: 2 },
+    } as unknown as SceneFrame['world'][number]
+    const items = [noData!, wash, { ...portLink!, dimmed: true }, { ...port!, dimmed: true }] as SceneFrame['world'][number][]
+    for (const item of items) {
+      const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true })
+      paintFrame({ ...frame, world: [item], edges: [], chrome: [] }, canvas)
+      // Exclude only the canvas clear; every draw op of the item is dimmed.
+      const drawn = canvas.recording.ops.filter(op => ['fill', 'stroke', 'fillText', 'fillRect'].includes(op.op)
+        && !(op.op === 'fillRect' && op.x === 0 && op.y === 0 && op.width === frame.viewport.width && op.height === frame.viewport.height))
+      expect(drawn.length, item.kind).toBeGreaterThan(0)
+      for (const op of drawn) expect(op.globalAlpha, `${item.kind} ${op.op}`).toBeCloseTo(70 / 255, 6)
+    }
+  })
+
+  it('places a diamond back vertex 16 screen points behind the tip', () => {
+    const frame = golden('core-selected.frame.json')
+    const diamond = frame.edges.find(edge => edge.kind === 'head' && edge.head === 'diamond')
+    if (!diamond || diamond.kind !== 'head') throw new Error('missing diamond head')
+    const synthetic: SceneFrame = {
+      ...frame,
+      camera: { x: 0, y: 0, zoom: 1 },
+      world: [],
+      edges: [{ ...diamond, tip: [16, 0], behind: [0, 0], dimmed: false }],
+      chrome: [],
+    }
+    const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true })
+    paintFrame(synthetic, canvas)
+    const vertices = canvas.recording.ops.filter(op => op.op === 'lineTo')
+    expect(vertices).toHaveLength(3)
+    expect(vertices[1]).toMatchObject({ x: 0, y: 0 })
+  })
+
+  it('keeps the producer-supplied quality stroke on a hovered class', () => {
+    const frame = golden('root-hover-frames.frame.json')
+    const item = frame.world.find(candidate => candidate.kind === 'class' && candidate.hovered)
+    if (!item || item.kind !== 'class') throw new Error('missing hovered class')
+    const hovered = fakeCanvas({ tokens: DARK_TOKENS, dark: true })
+    const ordinary = fakeCanvas({ tokens: DARK_TOKENS, dark: true })
+    paintFrame({ ...frame, world: [item], edges: [], chrome: [] }, hovered)
+    paintFrame({ ...frame, world: [{ ...item, hovered: false }], edges: [], chrome: [] }, ordinary)
+    expect(hovered.recording.ops.find(op => op.op === 'stroke')!.strokeStyle)
+      .toBe(ordinary.recording.ops.find(op => op.op === 'stroke')!.strokeStyle)
+  })
+
+  it('outlines a producer indicator with the same color as its fill', () => {
+    const frame = golden('core-triangles-blocks.frame.json')
+    const indicator = frame.edges.find(edge => edge.kind === 'indicator')!
+    const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true })
+    paintFrame({ ...frame, lod: 'full', world: [], edges: [indicator], chrome: [] }, canvas)
+    const fill = canvas.recording.ops.find(op => op.op === 'fill')
+    const outline = canvas.recording.ops.find(op => op.op === 'stroke')
+    expect(fill).toBeDefined()
+    expect(outline).toBeDefined()
+    expect(outline!.strokeStyle).toBe(fill!.fillStyle)
+  })
+
   it('keeps a closed arrowhead opaque while its outline dims', () => {
     const frame = golden('root.frame.json')
     // Find a dimmed closed head; the producer writes one for the selected view.

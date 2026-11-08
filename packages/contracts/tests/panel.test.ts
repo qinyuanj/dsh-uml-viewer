@@ -33,6 +33,7 @@ describe('panel Remote descriptors', () => {
       { kind: 'ready', actions: ['open', 'display'] },
       { kind: 'frame', seq: 2, frame: root },
       { kind: 'context', context: { kind: 'real', edn: '{:context :real}' } },
+      { kind: 'context', context: { kind: 'proposal', proposalId: ':p-shop', name: 'P', edn: '{:context :proposal}' } },
       { kind: 'state', state: { schema: 'dsh-uml-viewer/session-state', version: 1, diagram: null, context: null,
         focus: [], proposalId: null, openLayer: null, declutter: null, camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null } },
       { kind: 'search', query: 'a', results: [] },

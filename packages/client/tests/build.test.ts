@@ -100,6 +100,7 @@ describe('built client bundle', () => {
     expect(pkg.files).toContain('fonts')
     // The bundle is a closure-factory registration for the package name.
     expect(bundle.startsWith('window.__ModuleLoader__.load({ id: "dsh-uml-viewer", factory: (require) => {')).toBe(true)
+    expect(bundle).not.toContain('var(--dsw-alias-state-error-primary, #')
     const factory = registered()
     expect(factory.id).toBe('dsh-uml-viewer')
   })

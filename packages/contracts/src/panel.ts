@@ -117,7 +117,14 @@ export function parsePanelEvent(value: unknown, label = 'panel event'): PanelEve
         const context = record(source.context, `${label}.context`)
         const contextKind = str(context.kind, `${label}.context.kind`)
         if (contextKind !== 'real' && contextKind !== 'proposal') at(`${label}.context.kind`, 'must be "real" or "proposal"')
-        return { kind, context: { kind: contextKind, edn: str(context.edn, `${label}.context.edn`) } }
+        const parsed: DiscussionContext = { kind: contextKind, edn: str(context.edn, `${label}.context.edn`) }
+        if (context.proposalId !== undefined && context.proposalId !== null) {
+          parsed.proposalId = str(context.proposalId, `${label}.context.proposalId`)
+        }
+        if (context.name !== undefined && context.name !== null) {
+          parsed.name = str(context.name, `${label}.context.name`)
+        }
+        return { kind, context: parsed }
       }
       case 'state':
         return { kind, state: validateSessionState(source.state, `${label}.state`) }

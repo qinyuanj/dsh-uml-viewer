@@ -25,7 +25,7 @@ const STYLE = `
 .dsh-uml-viewer-panel canvas { display: block; flex: 1 1 auto; min-height: 0; width: 100%; height: 100%; }
 .dsh-uml-viewer-status {
   position: absolute; left: 12px; right: 12px; bottom: 8px;
-  font: 12px/1.4 var(--dsw-font-family, system-ui); color: var(--dsw-alias-state-error-primary, #ff4030);
+  font: 12px/1.4 var(--dsw-font-family, system-ui); color: var(--dsw-alias-state-error-primary);
   pointer-events: none; white-space: pre-wrap;
 }
 `

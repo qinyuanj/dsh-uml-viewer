@@ -69,6 +69,7 @@ export interface HuePalette {
   fill: readonly [string, string, string]
   stroke: readonly [string, string, string]
   violation: string
+  violationHot: string
   noData: string
   /** Unmeasured quality: neutral fill and neutral stroke (`#243430`/`#5a6e64`). */
   neutralFill: string
@@ -79,6 +80,7 @@ export const DARK_HUES: HuePalette = {
   fill: ['#4a2818', '#3d3a18', '#1e4a38'],
   stroke: ['#e07a4a', '#d4c05a', '#5fb58a'],
   violation: '#c42a24',
+  violationHot: '#ff4030',
   noData: '#c42a24',
   neutralFill: '#243430',
   neutralStroke: '#5a6e64',
@@ -89,17 +91,10 @@ export const LIGHT_HUES: HuePalette = {
   fill: ['#e6c3b2', '#e2dfb6', '#b6e2d0'],
   stroke: ['#b7501f', '#aa952c', '#44926b'],
   violation: '#b52721',
+  violationHot: '#f01300',
   noData: '#b52721',
   neutralFill: '#c6dbd5',
   neutralStroke: '#587f75',
-}
-
-const FALLBACKS: Readonly<Record<string, string>> = {
-  canvas: '#ffffff',
-  ink: '#1c2324',
-  muted: '#5a6a63',
-  line: '#d6ded9',
-  accent: '#8a6d00',
 }
 
 function hexChannel(value: string): number {
@@ -204,22 +199,23 @@ export function resolveTheme(el: HTMLElement): Theme {
       case 'package-stroke':
         return quality(grade, hues.stroke, hues.neutralStroke)
       case 'violation':
-      case 'violation-hot':
         return hues.violation
+      case 'violation-hot':
+        return hues.violationHot
       case 'no-data':
         return hues.noData
       case 'coverage':
-        if (ratio === null) return read(TOKENS.relation!) ?? FALLBACKS.muted!
-        if (ratio >= 0.8) return read(TOKENS.good!) ?? FALLBACKS.muted!
-        if (ratio >= 0.5) return read(TOKENS.accent!) ?? FALLBACKS.accent!
-        return read(TOKENS.coverage!) ?? FALLBACKS.muted!
+        if (ratio === null) return read(TOKENS.relation!) ?? read(TOKENS.ink!) ?? ''
+        if (ratio >= 0.8) return read(TOKENS.good!) ?? read(TOKENS.ink!) ?? ''
+        if (ratio >= 0.5) return read(TOKENS.accent!) ?? read(TOKENS.ink!) ?? ''
+        return read(TOKENS.coverage!) ?? read(TOKENS.ink!) ?? ''
       default: {
         const token = TOKENS[role]
         if (token === null || token === undefined) {
           // An unknown role draws as ink (docs/scene-frame.md).
-          return read(TOKENS.ink!) ?? FALLBACKS.ink!
+          return read(TOKENS.ink!) ?? ''
         }
-        return read(token) ?? read(TOKENS.ink!) ?? FALLBACKS.ink!
+        return read(token) ?? read(TOKENS.ink!) ?? ''
       }
     }
   }
