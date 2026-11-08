@@ -14,8 +14,7 @@
   "permissions": [
     { "name": "uml-viewer.process", "scope": "subprocess", "reason": "Run the native IR generator through the session sandbox policy and DSH subprocess provider." },
     { "name": "uml-viewer.read", "scope": "filesystem-read", "reason": "Read policy and source files in the session project and locate the plugin binary." },
-    { "name": "uml-viewer.write", "scope": "filesystem-write", "reason": "Generate project IR under the session sandbox policy." },
-    { "name": "uml-viewer.home", "scope": "dsh-home", "reason": "Reserved for versioned binaries and session view state; not used by the development skeleton." }
+    { "name": "uml-viewer.write", "scope": "filesystem-write", "reason": "Generate project IR under the session sandbox policy." }
   ],
   "contributes": {
     "x-components": [{

@@ -14,8 +14,8 @@ export interface Policy {
 export interface ConfinedArgv {
   argv: string[]
   enforcement: 'full' | 'partial'
-  denialSignatures: readonly string[]
-  runnerFailureRules: readonly {
+  denialSignatures?: readonly string[]
+  runnerFailureRules?: readonly {
     allowedExitCodes?: readonly number[]
     fatalSignatures: readonly string[]
     informationalLines?: readonly string[]

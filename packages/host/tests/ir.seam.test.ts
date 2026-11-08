@@ -100,6 +100,22 @@ it('executes the sandbox provider’s confined argv in workspace-write', async (
   expect(JSON.parse(await readFile(path.join(root, 'confined.json'), 'utf8'))[0]).toBe(process.execPath)
 })
 
+it('preserves nonzero exits when optional confinement signature lists are omitted', async () => {
+  const { root, call, services } = await setup('workspace-write')
+  await writeFile(path.join(root, 'fake-binary.json'), JSON.stringify({ exitCode: 1, stderr: 'bad policy\n' }))
+  services.sandbox!.confine = async argv => ({ argv: [...argv], enforcement: 'partial' })
+  expect(await call()).toMatchObject({ exitCode: 1, status: 'error', validResult: false, stderr: 'bad policy\n' })
+})
+
+it('rejects model paths escaping the session project before spawning', async () => {
+  const { root, call } = await setup()
+  for (const policy of ['../other.policy.edn', 'C:/other/policy.edn', '/etc/policy.edn', 'a/../../b.edn', 'a//b.edn']) {
+    expect(await call({ policy })).toMatchObject({ status: 'refused', exitCode: null, validResult: false,
+      reason: expect.stringMatching(/relative path inside/i) })
+  }
+  await expect(readFile(path.join(root, 'invocation.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
 it('fails closed when confinement is unavailable', async () => {
   const { root, call, services } = await setup('workspace-write')
   services.sandbox!.confine = async () => { throw new Error('No confinement provider') }

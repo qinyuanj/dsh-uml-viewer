@@ -9,5 +9,7 @@ describe('IR request', () => {
     expect(() => parseIrRequest({ cwd: '/another/project' })).toThrow(/unknown/i)
     expect(() => parseIrRequest({ policy: '' })).toThrow(/policy/i)
     expect(() => parseIrRequest(null)).toThrow(/object/i)
+    expect(() => parseIrRequest({ output: String.fromCharCode(0) })).toThrow(/NUL/i)
+    expect(parseIrRequest({ policy: String.raw`examples\a\policy.edn` })).toEqual({ policy: String.raw`examples\a\policy.edn` })
   })
 })

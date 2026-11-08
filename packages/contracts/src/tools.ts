@@ -33,21 +33,25 @@ export function parseIrRequest(value: unknown): IrRequest {
   const request: IrRequest = {}
   for (const [key, field] of Object.entries(value)) {
     if (key !== 'policy' && key !== 'output') throw new Error(`Unknown IR argument: ${key}`)
-    if (typeof field !== 'string' || !field.trim() || field.includes('\0')) throw new Error(`${key} must be a nonempty path without NUL`)
+    if (typeof field !== 'string' || !field.trim() || field.includes(String.fromCharCode(0))) throw new Error(`${key} must be a nonempty path without NUL`)
+    const parts = field.replaceAll('\\', '/').split('/')
+    if (field.startsWith('/') || /^[a-zA-Z]:/.test(field) || parts.includes('..') || parts.includes('')) {
+      throw new Error(`${key} must be a normalized relative path inside the session cwd`)
+    }
     request[key] = field
   }
   return request
 }
 
+// Keep plain JSON Schema: shared with DSH without importing a host runtime.
 export const IR_PARAMETERS = {
   type: 'object', additionalProperties: false,
   properties: {
-    policy: { type: 'string', description: 'Policy path relative to the session cwd. Defaults to examples/<directory>.policy.edn, the first sorted examples/*.policy.edn, then policy.edn.' },
-    output: { type: 'string', description: 'IR output path relative to the session cwd. Omit to use the policy :out, else diagram.edn.' },
+    policy: { type: 'string', description: 'Normalized policy path relative to the session cwd, with no .. segments. Defaults to examples/<directory>.policy.edn, the first sorted examples/*.policy.edn, then policy.edn.' },
+    output: { type: 'string', description: 'Normalized IR output path relative to the session cwd, with no .. segments. Omit to use the policy :out, else diagram.edn.' },
   },
 } as const
 
-// Keep plain JSON Schema: shared with DSH without importing a host runtime.
 export const IR_RESULT_SCHEMA = {
   type: 'object', additionalProperties: false,
   required: ['version', 'operation', 'projectRoot', 'exitCode', 'validResult', 'crapScope', 'configured', 'tool', 'status', 'reason', 'stdout', 'stderr', 'truncated'],

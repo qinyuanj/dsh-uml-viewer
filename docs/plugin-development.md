@@ -49,7 +49,9 @@ release packaging ticket; this development locator does not implement them.
 
 `uml_ir({policy?, output?})` generates IR in the current session directory from
 `ctx.workingDirectory.ensure(agent, signal)`. Paths are passed as literal argv,
-including spaces and shell metacharacters. With no policy argument it selects
+including spaces and shell metacharacters. Absolute paths, empty path segments
+and `..` are refused before spawning, so arguments stay inside the project;
+the binary's own path and policy validation still apply. With no policy argument it selects
 `examples/<project-directory>.policy.edn`, otherwise the first sorted
 `examples/*.policy.edn`, otherwise `policy.edn`. With no output argument the
 binary uses the policy's `:out`, otherwise `diagram.edn`.
@@ -92,7 +94,8 @@ exports the public contracts. Later additions belong in separate modules:
   unknown kinds are skipped and unknown roles render as `ink`.
 
 The host's `dsh.ts` is a narrow structural boundary to the inspected DSH
-0.2.2-rc.1 services; `runner.ts` owns policy checks and subprocess execution;
+0.2.2-rc.1 services; `process.ts` owns confinement and bounded subprocess
+execution; `runner.ts` composes IR arguments and the tool result;
 `binary.ts` owns executable location; `policy.ts` owns default policy selection;
 `index.ts` owns the tool definition and effect lifetime. #20 can extend the
 runner with operation-specific args/result parsing and per-session
