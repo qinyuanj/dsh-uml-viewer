@@ -23,10 +23,10 @@
       "defaultEnabled": true,
       "platforms": ["win32", "linux", "darwin"],
       "targets": ["win32-x64", "linux-x64", "darwin-arm64", "darwin-x64"],
-      "tools": ["uml_ir"],
-      "notes": "Host skeleton. uml_crap, uml_mutate and uml_dry follow in #20; the Web client facet, panel and uml_display follow in #21. Platform binary packaging follows in the release tickets."
+      "tools": ["uml_ir", "uml_display"],
+      "notes": "Host and Web panel. uml_crap, uml_mutate and uml_dry follow in #20; platform binary packaging follows in the release tickets. The browser half is the package.json dsh.client facet and the ./client export (dsh-std 0.15 has no client facet key)."
     }],
-    "x-planned-tools": ["uml_crap", "uml_mutate", "uml_dry", "uml_display"]
+    "x-planned-tools": ["uml_crap", "uml_mutate", "uml_dry"]
   },
   "subscriptions": []
 }

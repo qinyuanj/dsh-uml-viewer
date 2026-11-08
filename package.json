@@ -10,11 +10,19 @@
     "type": "git",
     "url": "git+https://github.com/qinyuanj/dsh-uml-viewer.git"
   },
-  "os": ["win32", "linux", "darwin"],
-  "cpu": ["x64", "arm64"],
+  "os": [
+    "win32",
+    "linux",
+    "darwin"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
   "main": "lib/host.js",
   "exports": {
     ".": "./lib/host.js",
+    "./client": "./lib/client.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg",
     "./package.json": "./package.json"
@@ -22,6 +30,7 @@
   "files": [
     "lib",
     "locale",
+    "fonts",
     "cordis.patch.yml",
     "dsh-plugin.json",
     "icon.svg",
@@ -36,6 +45,13 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
     }
   },
   "engines": {
