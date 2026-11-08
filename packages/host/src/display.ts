@@ -40,7 +40,7 @@ export async function runDisplay(
   try {
     root = await realpath(await services.workingDirectory.ensure(agent, exec.signal))
     const event = await sessions.refresh(agent, exec.signal,
-      request.path === undefined ? { action: 'reload' } : { action: 'display', path: request.path })
+      request.path === undefined ? { action: 'reload' } : { action: 'display', path: request.path }, true)
     if (event.event === 'error') return displayResult(root, { status: 'error', path, reason: event.message })
     if (event.event !== 'frame') {
       return displayResult(root, { status: 'error', path, reason: `uml-viewer resident answered ${event.event} instead of a frame` })

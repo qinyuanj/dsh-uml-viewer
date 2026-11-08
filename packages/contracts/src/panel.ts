@@ -213,7 +213,11 @@ const codec = (name: string, parse: (value: unknown) => unknown): RemoteCodec =>
 })
 
 /** The calling agent's session id, resolved by the gateway's `agent` lookup. */
-const agentId = (): RemoteCodec => codec('SessionId', value => str(value, 'agentId'))
+const agentId = (): RemoteCodec => ({
+  ...codec('SessionId', value => str(value, 'agentId')),
+  // Strict lookup descriptors must use the provider's canonical wire symbol.
+  typeSymbol: '@deepseek-ai/dsh-session/types#SessionId',
+})
 
 /** One hand-written declaration of the panel's typed Remote. */
 export const REMOTE_DESCRIPTORS: readonly RemoteDescriptor[] = Object.freeze([

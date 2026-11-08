@@ -23,6 +23,10 @@ const REMOTE_NAMESPACE = 'umlViewer'
 const STYLE = `
 .dsh-uml-viewer-panel { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; width: 100%; }
 .dsh-uml-viewer-panel canvas { display: block; flex: 1 1 auto; min-height: 0; width: 100%; height: 100%; }
+.dsh-uml-viewer-summary {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
 .dsh-uml-viewer-status {
   position: absolute; left: 12px; right: 12px; bottom: 8px;
   font: 12px/1.4 var(--dsw-font-family, system-ui); color: var(--dsw-alias-state-error-primary);
@@ -80,6 +84,15 @@ async function mountRemote(ctx: ClientContext): Promise<PanelRemoteApi | null> {
   return service ?? null
 }
 
+function summaryLine(): HTMLElement {
+  const line = document.createElement('div')
+  line.className = 'dsh-uml-viewer-summary'
+  line.setAttribute('role', 'status')
+  line.setAttribute('aria-label', 'UML panel summary')
+  line.dataset.kind = 'connecting'
+  return line
+}
+
 function statusLine(): HTMLElement {
   const line = document.createElement('div')
   line.className = 'dsh-uml-viewer-status'
@@ -98,8 +111,10 @@ export async function mountPanel(host: HTMLElement, options: {
 }): Promise<() => void> {
   const canvas = document.createElement('canvas')
   canvas.style.touchAction = 'none'
+  canvas.setAttribute('aria-label', 'UML diagram canvas')
+  const summary = summaryLine()
   const status = statusLine()
-  host.append(canvas, status)
+  host.append(summary, canvas, status)
   const api = await mountRemote(options.ctx)
   if (!api) {
     status.textContent = 'The viewer panel needs the Web Remote gateway.'
@@ -111,6 +126,20 @@ export async function mountPanel(host: HTMLElement, options: {
     api,
     paint: (frame, target) => paintFrame(frame, target),
     onStatus: (state) => {
+      const frame = state.frame
+      summary.dataset.kind = frame ? 'frame' : state.kind
+      summary.dataset.context = state.context?.kind ?? 'real'
+      if (frame) {
+        const heading = frame.chrome.find(item => item.kind === 'title')
+        const title = heading && 'text' in heading ? heading.text : 'Untitled diagram'
+        const proposal = frame.chrome.find(item => item.kind === 'proposal-banner')
+        summary.dataset.view = proposal && 'text' in proposal ? 'proposal' : 'source'
+        const discussion = state.context?.kind === 'proposal' ? state.context.name ?? state.context.proposalId : 'source diagram'
+        const camera = frame.camera
+        summary.textContent = `Diagram: ${title}. Discussion: ${discussion}. View: ${proposal && 'text' in proposal ? 'proposal diagram' : 'source diagram'}. Camera: ${camera.x.toFixed(3)}, ${camera.y.toFixed(3)}, ${camera.zoom.toFixed(3)}.`
+      } else {
+        summary.textContent = `UML panel: ${state.kind}.`
+      }
       const reason = state.kind === 'refused' || state.kind === 'failed' ? state.reason : null
       status.textContent = reason ?? ''
       status.style.display = reason ? '' : 'none'

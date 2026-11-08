@@ -130,3 +130,30 @@ ADR 0011 说面板由宿主注入 `dsh-client-ui-primitives`。实际落地时
 未公开 API；若 DSH 将来公开 primitives，应优先改用公开组件。其余部分（
 右侧栏 tab、`main` 页、Remote `watch`/`action`、会话绑定）仍按 ADR 0011
 的宿主接缝实现。
+
+## 附录（2026-11-09，#22 落地）：浏览器验收改动的两处生产语义
+
+#22 的 Playwright lane 第一次把面板挂进真实 DSH Web，于是顺带修掉两处此前只有
+单元测试覆盖、其实不满足宿主契约的生产语义：
+
+- **`ViewerService.typertRemote` 绑定**：面板的 typed Remote 是手写描述符
+  （`UML_VIEWER_REMOTE`，经 `typert.register` 注册），`ViewerService` 不继承
+  `TypertRemoteService`。Gateway 在每次调用前都要求接收者带一个可见的
+  `typertRemote = { service, serviceKey: 'umlViewer', namespace: 'umlViewer' }`，
+  否则以 `gateway/binding-invalid` 拒绝；源码模式（SRC）的端点发现也只枚举带该
+  绑定的 Service。缺了它，浏览器的 `remote.$mount()` 拿不到 `remote.umlViewer`，
+  面板永远停在 `connecting`。同一轮还要求严格 lookup 描述符的 `typeSymbol` 用
+  provider 真正的 wire symbol（`@deepseek-ai/dsh-session/types#SessionId`），
+  否则 `agent` 查找以 `gateway/provider-mismatch` 拒绝。
+- **`ResidentSessions.refresh(..., restoreContext)`**：`display` 会重新生成 IR 并
+  让 resident 回到源图，而会话持久化的讨论上下文可能仍是某个提案。只转发
+  `display` 会让“看到的图”与“会话在讨论的上下文”分叉，下一次保存还会把上下文写回
+  源图。因此 `display` 传 `restoreContext`：先 `context` 切回持久化的提案，再
+  `reload` 取回该上下文下的帧。同理，`open` 把状态里的 `context` 记进
+  `latestContext`，`watch` 在 `ready` 之后先推一个 `context` 事件，浏览器才不会
+  从源图开始画。
+
+两处都只是让会话状态、resident 与面板三者一致，没有改协议：`context` 事件与
+`context` 动作原本就在 ADR 0011 的面板接缝里。面板为此多了一个隐藏的
+`role="status"` 摘要（`.dsh-uml-viewer-summary`），它只镜像帧与上下文，不是新的
+状态来源；验收断言读它，而不是 Canvas 内部。

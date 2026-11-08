@@ -40,6 +40,8 @@
     "build": "node scripts/build-plugin.mjs",
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm build && pnpm -r run test",
+    "test:e2e": "pnpm --filter @dsh-uml-viewer/e2e test:e2e",
+    "e2e:install": "pnpm --filter @dsh-uml-viewer/e2e install:chromium",
     "validate:manifest": "node scripts/validate-manifest.mjs"
   },
   "dsh": {
