@@ -1,6 +1,7 @@
 # Linux mutation isolation
 
-This Rust port handles **Rust projects on Linux**. `--max-workers N` runs up to
+This Rust port handles **Rust, Python and TypeScript projects on Linux**.
+`--max-workers N` runs up to
 N mutants at once; without it the limit is one per core, and the actual number
 is the smaller of that limit, the core count and the file's selected sites, as
 in the original. Other mutation languages and the Windows and macOS isolation
@@ -65,6 +66,47 @@ coverage tools or components. Timeouts and command exit status select outcomes;
 snapshot publication is atomic and the normal clock records local ISO/RFC3339
 wall time with seconds and a `+HH:MM` offset.
 
+## Python and TypeScript
+
+Site discovery follows the original's shared leaf walk: binary operators swap
+through the Java table plus the bitwise/shift/remainder swaps, `!`/`not` and
+unary `-` are deleted, booleans swap and `0`/`1` flip. Python skips bitwise
+operators inside `type` annotations and spells booleans `True`/`False`;
+TypeScript adds `===`/`!==` and `>>>`→`<<`, and `.tsx` parses with the TSX
+grammar. A Python function is private when its name starts with `_` (dunders
+excepted); a TypeScript one when its name starts with `#` or its declaration
+contains the word `private`. `fixtures/mutate/sites/sites.json` records the
+original's sites, offsets, categories, owners, form spans, digests and privacy
+for a 30-file corpus, and the parity test compares every field.
+
+The per-file test plan is the original's: Python runs at the nearest
+`pyproject.toml`, then `pytest.ini`, then `setup.cfg` directory (marker order
+beats nearness) with the project's `.venv`/`venv` interpreter — absolute, its
+symlink unresolved — using pytest when the project declares it and
+`unittest discover` otherwise. TypeScript runs `npm test` at the nearest
+`package.json`. A baseline whose output contains `Ran 0 tests in` fails, so an
+empty suite cannot let every mutant survive. Only a generated `cargo test` has
+a separate untimed build step.
+
+Python and TypeScript coverage uses #4's runner rules — the same package
+roots, interpreter, pytest detection, `--source` tops, `npm run coverage` /
+Vitest / c8 choice and LCOV anchoring — but every step runs inside one overlay
+view per package, so the coverage data file, the report, any Vitest provider
+install and all test writes stay out of the project. A view command starts
+from a fresh upper layer, which is why each package's coverage is a single
+script. A missing `coverage` module, a failed run or a missing report leaves
+that language's files uncovered with the original's N/A message; a file absent
+from every report is reported as
+`No coverage data for <file>; its sites are uncovered. Pass --no-coverage to run them anyway.`
+A custom `npm run coverage` report is read from the root's `coverage/lcov.info`
+without anchoring, as the original's `load_bundle` does.
+
+`fixtures/mutate/{python,typescript}` hold the oracle projects and the pinned
+original's raw snapshot bytes; `scripts/mutate_goldens_python_ts.py` regenerates
+them (see `fixtures/mutate/README.md`). The acceptance tests inject the fixed
+clock and compare bytes, rerun unchanged to prove the snapshots are kept, and
+compare one worker against two.
+
 ## Interrupt, kill and abandoned scratch
 
 `SIGINT` and `SIGTERM` stop a run instead of killing the process mid-cleanup.
@@ -97,7 +139,7 @@ no other file gains a snapshot. Source roots, positional filters and
 (`Scope::select_changed`): source roots narrow the selection only when `-s` is
 given, and the positional text filters and `--exclude` patterns apply
 afterwards, like every other selection. Mutator still filters the resulting
-files to non-test Rust sources.
+files to non-test sources of the languages this build mutates.
 
 The differential fast path ("No mutations selected; keeping the previous
 snapshots.") mirrors the original `reused_run` guard per file: the file must
@@ -136,8 +178,12 @@ normal `uml-viewer mutate` uses the real local clock, not timestamp replay.
   `executed=/reused=` counts, scan lines and verbose decision lines), not the
   original results table, site log and decision summary.
 - Fresh crapper coverage is not reused from `target/coverage/crapper-stamp.json`;
-  default Rust coverage runs again in the overlay instead. No coverage or build
-  output reaches the original project either way.
+  default coverage runs again in the overlay instead, for every language. No
+  coverage or build output reaches the original project either way.
+- Python's runner installs pytest when it is missing; mutator never installs
+  tools, so a detected but unavailable pytest falls back to
+  `unittest discover` with the original's message. Vitest's coverage provider
+  install still happens, but only inside the view.
 - A source that is not UTF-8 aborts the run with exit 2 instead of being skipped.
 - The original's Rust worker slots also keep a Cargo target directory per slot
   across files and runs (`WorkerSlots`). This port reuses the slot but not its
