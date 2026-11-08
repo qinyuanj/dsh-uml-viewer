@@ -44,12 +44,17 @@ files and their presence byte for byte, without modifying provenance or outputs.
 Scenario syntax is `project rust` followed by zero or more `arg <literal argv
 item>` lines. Empty/comment lines after the project line are ignored. The
 runner prepends `--root <temporary project>`; all other argv items come directly
-from the scenario file. Paths in reports remain project-relative POSIX paths.
+from the scenario file. Optional `git init`, `git add`, `commit <paths>`,
+`modify <path>` and `rename <source> <target>` lines set up a real temporary git
+project before the invocation. Paths in reports remain project-relative POSIX paths.
 
 ## Scenarios
 
 | Directory under `goldens/` | Purpose |
 | --- | --- |
+| `changed` | Real git status: modified calls.rs and renamed extraction.rs selected; tracked unchanged lib.rs and tests not selected. |
+| `changed-scoped` | Changed untracked integration test narrowed away by -s src; existing positional calls.rs remains a filter rather than overriding --changed. |
+| `changed-empty` | Clean git tree yields original empty-selection output and no snapshot. |
 | `default-text` | Defaults: threshold 0.82, min-lines 4, min-nodes 20; text uses two decimals while its snapshot uses twelve-place EDN rendering. |
 | `all-edn` | Threshold 0.35, min-lines 1, min-nodes 0; broad cross-file pair and small-function coverage with `--format edn`. |
 | `exact-only` | Threshold 1.0; exact normalized matches only, using `--edn`. |

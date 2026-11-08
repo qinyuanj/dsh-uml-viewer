@@ -50,12 +50,38 @@ def scenario(path: Path) -> list[str]:
         raise SystemExit(f"{path}: expected project rust")
     args = []
     for line in lines[1:]:
-        if not line or line.startswith("#"):
+        if not line or line.startswith(("#", "git ", "commit ", "modify ", "rename ")):
             continue
         if not line.startswith("arg "):
             raise SystemExit(f"{path}: unknown line {line!r}")
         args.append(line[4:])
     return args
+
+
+def setup(root: Path, lines: list[str]) -> None:
+    """Real git setup for --changed; never mutate the committed fixture."""
+    for line in lines:
+        if not line or line.startswith(("#", "arg ")):
+            continue
+        if line == "git init":
+            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+        elif line == "git add":
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+        elif line.startswith("commit "):
+            paths = line[7:].split()
+            subprocess.run(["git", "add", "--", *paths], cwd=root, check=True)
+            subprocess.run(["git", "-c", "user.name=oracle", "-c",
+                            "user.email=<REDACTED_EMAIL>", "commit", "--quiet", "-m", "base"],
+                           cwd=root, check=True)
+        elif line.startswith("modify "):
+            target = root / line[7:]
+            target.write_text(target.read_text(encoding="utf-8") +
+                              "// Modified for a git status selection.\n", encoding="utf-8")
+        elif line.startswith("rename "):
+            source, destination = line[7:].split()
+            (root / source).rename(root / destination)
+        else:
+            raise SystemExit(f"unknown setup line {line!r}")
 
 
 def normalized_stderr(data: bytes, root: Path) -> bytes:
@@ -104,6 +130,7 @@ def main() -> int:
             root = Path(scratch) / path.parent.name / "project"
             shutil.copytree(FIXTURES / "rust", root,
                             ignore=shutil.ignore_patterns("target", "Cargo.lock"))
+            setup(root, path.read_text(encoding="utf-8").splitlines()[1:])
             result = subprocess.run([*prefix, "--root", str(root), *scenario(path)],
                                     cwd=root, env=environment, capture_output=True, check=False)
             out = path.parent

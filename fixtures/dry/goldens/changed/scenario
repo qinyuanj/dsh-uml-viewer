@@ -1,0 +1,12 @@
+project rust
+git init
+git add
+commit Cargo.toml src/lib.rs src/extraction.rs tests/explicit.rs
+modify src/calls.rs
+rename src/extraction.rs src/renamed.rs
+arg --changed
+arg --edn
+arg --min-lines
+arg 1
+arg --min-nodes
+arg 0

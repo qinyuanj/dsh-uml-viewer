@@ -163,12 +163,12 @@ pub fn run(args: &[OsString]) -> ExitCode {
         }
         Parsed::Scan(options) => options,
     };
-    if options.changed {
-        eprintln!("--changed is not ported to uml-viewer dry yet (qinyuanj/dsh-uml-viewer#3).");
-        return ExitCode::FAILURE;
-    }
     let scope = options.scope;
-    let files = scope.select(&options.positionals, &mut std::io::stderr());
+    let files = if options.changed {
+        scope.select_changed(&options.positionals, &mut std::io::stderr())
+    } else {
+        scope.select(&options.positionals, &mut std::io::stderr())
+    };
     let root = scope.project_root();
     if let Some(file) = files.iter().find(|path| !path.starts_with(&root)) {
         eprintln!(

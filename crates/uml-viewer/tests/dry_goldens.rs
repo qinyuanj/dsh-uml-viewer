@@ -19,6 +19,14 @@ fn copy_tree(from: &Path, to: &Path) {
         }
     }
 }
+fn git(root: &Path, args: &[&str]) {
+    let status = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
 fn args(project: &Project, scenario: &Path) -> Vec<String> {
     fs::read_to_string(scenario)
         .unwrap()
@@ -32,6 +40,48 @@ fn args(project: &Project, scenario: &Path) -> Vec<String> {
                     None
                 }
                 "arg" => Some(rest.to_string()),
+                "git" if rest == "init" => {
+                    git(&project.root, &["init", "--quiet"]);
+                    None
+                }
+                "git" if rest == "add" => {
+                    git(&project.root, &["add", "."]);
+                    None
+                }
+                "commit" => {
+                    let paths =
+                        [&["add", "--"][..], &rest.split(' ').collect::<Vec<_>>()[..]].concat();
+                    git(&project.root, &paths);
+                    git(
+                        &project.root,
+                        &[
+                            "-c",
+                            "user.name=oracle",
+                            "-c",
+                            "user.email=<REDACTED_EMAIL>",
+                            "commit",
+                            "--quiet",
+                            "-m",
+                            "base",
+                        ],
+                    );
+                    None
+                }
+                "modify" => {
+                    let path = project.root.join(rest);
+                    fs::write(
+                        &path,
+                        fs::read_to_string(&path).unwrap()
+                            + "// Modified for a git status selection.\n",
+                    )
+                    .unwrap();
+                    None
+                }
+                "rename" => {
+                    let (from, to) = rest.split_once(' ').unwrap();
+                    fs::rename(project.root.join(from), project.root.join(to)).unwrap();
+                    None
+                }
                 _ => panic!("unknown scenario line {line}"),
             }
         })

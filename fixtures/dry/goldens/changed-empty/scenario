@@ -1,0 +1,5 @@
+project rust
+git init
+git add
+commit Cargo.toml src/lib.rs src/calls.rs src/extraction.rs tests/explicit.rs
+arg --changed
