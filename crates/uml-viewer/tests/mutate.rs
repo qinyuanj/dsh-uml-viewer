@@ -161,7 +161,11 @@ fn select_specs_runs_only_the_covering_specs() {
     // Selected specs: the pristine subset check and the mutant run, both with
     // only the covering spec — the non-covering spec is never an argument.
     let selected = mutant_lines(&root, true);
-    assert_eq!(selected.len(), 2, "subset check and mutant run: {selected:?}");
+    assert_eq!(
+        selected.len(),
+        2,
+        "subset check and mutant run: {selected:?}"
+    );
     for line in &selected {
         assert!(line.contains("spec/double unit_spec.lua"), "{line}");
         assert!(!line.contains("spec/add_spec.lua"), "{line}");
