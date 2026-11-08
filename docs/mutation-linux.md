@@ -134,7 +134,10 @@ follows links.
 
 `fixtures/mutate` and `scripts/mutate_goldens.py` are development-only inputs.
 They reproduce the Python snapshot bytes and exact help text using mutator
-f772a83 and crapper 4068857. The product binary has no Python runtime.
+f772a83 and crapper 4068857. The Lua case (`--lua`) additionally needs Lua 5.4,
+Busted, LuaCov, cluacov 1.0.0 and dkjson; it writes `fixtures/mutate/lua`
+(project, goldens, `sites.json`, `evidence.json`). The product binary has no
+Python runtime.
 `run_with_clock` injects a clock only for the fixed-timestamp golden tests;
 normal `uml-viewer mutate` uses the real local clock, not timestamp replay.
 

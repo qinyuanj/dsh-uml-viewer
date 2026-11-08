@@ -103,6 +103,72 @@ fn lua_scan_inventories_sites_without_running_anything() {
     remove_lua_project(&root);
 }
 
+/// `--select-specs` must really filter the suite. Each spec file appends its
+/// name and Busted's argv to an external marker when it loads. Only the `*`
+/// mutant of `M.double` (line 8) is selected, and its covering spec is
+/// `spec/double unit_spec.lua`: the full suite's command lists both specs,
+/// covering first, while a selected run's commands name only that one.
+#[cfg(target_os = "linux")]
+#[test]
+fn select_specs_runs_only_the_covering_specs() {
+    fn mutant_lines(root: &std::path::Path, select: bool) -> Vec<String> {
+        let marker = root.with_extension("marker");
+        let _ = fs::remove_file(&marker);
+        let mut args = vec![
+            "mutate".to_string(),
+            "--root".into(),
+            root.to_string_lossy().into_owned(),
+            "--max-workers".into(),
+            "1".into(),
+            "--timeout-factor".into(),
+            "20".into(),
+            "--mutate-all".into(),
+            "--lines".into(),
+            "8".into(),
+            "src/calc.lua".into(),
+        ];
+        if select {
+            args.insert(args.len() - 1, "--select-specs".into());
+        }
+        let output = binary_env(
+            args,
+            &[
+                ("MUTATOR_LUA_SPEC_MARKER", marker.to_str().unwrap()),
+                ("MUTATOR_LUA_SHARDS", "1"),
+            ],
+        );
+        let code = output.status.code().unwrap_or(-1);
+        assert!(
+            code == 0 || code == 3,
+            "exit {code}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = fs::read_to_string(&marker).expect("the specs marked their runs");
+        let lines: Vec<String> = text
+            .lines()
+            .filter(|line| line.contains("--no-keep-going"))
+            .map(str::to_string)
+            .collect();
+        let _ = fs::remove_file(&marker);
+        lines
+    }
+    let root = lua_project("filter");
+    // The full suite lists every spec, covering one first.
+    let full = mutant_lines(&root, false);
+    assert_eq!(full.len(), 1, "one mutant run: {full:?}");
+    assert!(full[0].contains("spec/add_spec.lua"), "{full:?}");
+    assert!(full[0].contains("spec/double unit_spec.lua"), "{full:?}");
+    // Selected specs: the pristine subset check and the mutant run, both with
+    // only the covering spec — the non-covering spec is never an argument.
+    let selected = mutant_lines(&root, true);
+    assert_eq!(selected.len(), 2, "subset check and mutant run: {selected:?}");
+    for line in &selected {
+        assert!(line.contains("spec/double unit_spec.lua"), "{line}");
+        assert!(!line.contains("spec/add_spec.lua"), "{line}");
+    }
+    remove_lua_project(&root);
+}
+
 /// Without the Lua toolchain the run refuses before any test: no snapshot is
 /// published and the sources stay as they were.
 #[cfg(target_os = "linux")]
