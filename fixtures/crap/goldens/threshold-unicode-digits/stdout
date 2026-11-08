@@ -1,0 +1,29 @@
+CRAP Report
+===========
+Languages: rust
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+lookup                         crap_demo::geometry::gen               5   0.0%     30.0
+area                           crap_demo::shapes::Shape               7  37.5%     19.0
+classify                       crap_demo                              6  88.9%      6.0
+unused                         crap_demo                              2   0.0%      6.0
+grüße                          crap_demo::parse                       2   0.0%      6.0
+keep_even                      crap_demo::parse                       2   0.0%      6.0
+helper                         tool                                   2   0.0%      6.0
+main                           tool                                   2   0.0%      6.0
+sum_until                      crap_demo                              5 100.0%      5.0
+fmt                            crap_demo::shapes::Shape               4  71.4%      4.4
+drain                          crap_demo::parse                       4 100.0%      4.0
+parse_pairs                    crap_demo::parse                       4 100.0%      4.0
+clamp                          crap_demo::geometry::inner             3  71.4%      3.2
+describe                       crap_demo::shapes                      2  80.0%      2.0
+outer                          crap_demo::parse                       2  87.5%      2.0
+fallback                       crap_demo::geometry::gen::table        1   0.0%      2.0
+cells                          crap_demo::geometry::inner::Grid       1   0.0%      2.0
+r#match                        crap_demo::parse                       1   0.0%      2.0
+is_round                       crap_demo::shapes::Shape               1   0.0%      2.0
+describe                       crap_demo::shapes::Vec                 1   0.0%      2.0
+fixture_helper                 crap_demo                              1 100.0%      1.0
+distance                       crap_demo::geometry                    1 100.0%      1.0
+first_or                       crap_demo::shapes::Wrapper             1 100.0%      1.0

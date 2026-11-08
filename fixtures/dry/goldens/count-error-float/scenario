@@ -1,0 +1,3 @@
+project rust
+arg --min-lines
+arg 1.0

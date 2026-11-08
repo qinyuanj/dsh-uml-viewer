@@ -42,6 +42,11 @@ const ROLES: &[(&str, &str, Entry)] = &[
         "differential mutation testing, isolated Linux test runs",
         |_, args| mutator::run(args),
     ),
+    (
+        "dry",
+        "find duplicate structures, .metrics/dry.edn",
+        |_, args| dryer::run(args),
+    ),
     ("companion-worker", "Herdr companion worker", |_, args| {
         companion::run_worker(args)
     }),

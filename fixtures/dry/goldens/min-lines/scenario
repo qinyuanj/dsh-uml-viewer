@@ -1,0 +1,6 @@
+project rust
+arg --min-lines
+arg 9
+arg --threshold
+arg 0.6
+arg --text

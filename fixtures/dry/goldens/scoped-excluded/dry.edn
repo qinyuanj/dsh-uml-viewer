@@ -1,0 +1,26 @@
+{:candidates [
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/lib.rs", :start-line 6, :end-line 13, :namespace "dry_oracle", :name "duplicate_left"}
+  :right {:file "src/lib.rs", :start-line 16, :end-line 23, :namespace "dry_oracle", :name "duplicate_right"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/lib.rs", :start-line 6, :end-line 13, :namespace "dry_oracle", :name "duplicate_left"}
+  :right {:file "src/lib.rs", :start-line 34, :end-line 41, :namespace "dry_oracle", :name "parenthesized"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/lib.rs", :start-line 16, :end-line 23, :namespace "dry_oracle", :name "duplicate_right"}
+  :right {:file "src/lib.rs", :start-line 34, :end-line 41, :namespace "dry_oracle", :name "parenthesized"}
+  :left-nodes 60
+  :right-nodes 60}
+ {:score 1.0
+  :language "rust"
+  :left {:file "src/lib.rs", :start-line 45, :end-line 52, :namespace "dry_oracle::Counter", :name "advance"}
+  :right {:file "src/lib.rs", :start-line 54, :end-line 61, :namespace "dry_oracle::Counter", :name "retreat"}
+  :left-nodes 67
+  :right-nodes 67}
+]}

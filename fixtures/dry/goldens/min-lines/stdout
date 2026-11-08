@@ -1,0 +1,7 @@
+DUPLICATE score=1.00
+  src/calls.rs:57-65
+  src/calls.rs:67-75
+
+DUPLICATE score=0.69
+  src/extraction.rs:66-77
+  src/lib.rs:67-77

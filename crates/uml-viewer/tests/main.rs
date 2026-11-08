@@ -12,7 +12,10 @@ mod crap_languages;
 mod crap_process;
 mod crap_stamp;
 mod dispatch;
+mod dry;
+mod dry_goldens;
 mod mutate;
+mod quality_selection;
 mod resident;
 mod scene_cli;
 

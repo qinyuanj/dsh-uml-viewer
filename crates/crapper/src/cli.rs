@@ -119,37 +119,6 @@ fn take<'a>(args: &'a [String], index: usize, option: &str) -> Result<&'a str, S
     }
 }
 
-/// Python `float()`: surrounding whitespace allowed, `_` between digits.
-fn python_float(raw: &str) -> Option<f64> {
-    let text = raw.trim();
-    let bytes = text.as_bytes();
-    for (index, byte) in bytes.iter().enumerate() {
-        if *byte == b'_' {
-            let digit = |at: Option<&u8>| at.is_some_and(u8::is_ascii_digit);
-            if index == 0 || !digit(bytes.get(index - 1)) || !digit(bytes.get(index + 1)) {
-                return None;
-            }
-        }
-    }
-    let text = text.replace('_', "");
-    let lower = text.to_ascii_lowercase();
-    let unsigned = lower.trim_start_matches(['+', '-']);
-    if ["inf", "infinity", "nan"].contains(&unsigned) {
-        return lower.parse().ok().or_else(|| {
-            let sign = if lower.starts_with('-') { -1.0 } else { 1.0 };
-            if unsigned == "nan" {
-                Some(f64::NAN)
-            } else {
-                Some(sign * f64::INFINITY)
-            }
-        });
-    }
-    if !unsigned.starts_with(|c: char| c.is_ascii_digit() || c == '.') {
-        return None;
-    }
-    text.parse().ok()
-}
-
 fn apply(options: &mut Options, args: &[String], index: usize) -> Result<usize, String> {
     let arg = args[index].as_str();
     match arg {
@@ -173,7 +142,8 @@ fn apply(options: &mut Options, args: &[String], index: usize) -> Result<usize, 
         }
         "--threshold" => {
             let raw = take(args, index, arg)?;
-            let value = python_float(raw).ok_or("--threshold requires a number")?;
+            let value =
+                quality_core::number::python_float(raw).ok_or("--threshold requires a number")?;
             options.threshold = Some(value);
             Ok(index + 2)
         }
