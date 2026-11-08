@@ -51,12 +51,6 @@ impl Form {
             _ => None,
         }
     }
-    fn items(&self) -> Option<&[Form]> {
-        match self {
-            Form::Coll(coll) if coll.kind != "map" => Some(&coll.items),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -552,11 +546,11 @@ pub(crate) fn normalize(form: &Form, head: bool) -> Normalized {
 
 /// A non-empty top-level list whose head is not `ns`.
 pub(crate) fn is_candidate_form(form: &Form) -> bool {
-    let Some(items) = form.items() else {
+    let Form::Coll(coll) = form else {
         return false;
     };
-    if items.is_empty() || !matches!(form, Form::Coll(coll) if coll.kind == "list") {
+    if coll.kind != "list" || coll.items.is_empty() {
         return false;
     }
-    items[0].symbol_name() != Some("ns")
+    coll.items[0].symbol_name() != Some("ns")
 }
