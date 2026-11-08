@@ -10,6 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::functions::Function;
+use crate::language::Language;
 use crate::paths::{normcase, posix, resolve};
 
 /// Line → (covered lines, lines): one `DA` record per line.
@@ -417,17 +418,23 @@ impl CoverageBundle {
     }
 
     /// The percentage of `function`'s lines covered, or None.
+    ///
+    /// Java (JaCoCo) and Go (statement profile) have their own report formats
+    /// and never fall back to LCOV, so a custom coverage command's fresh
+    /// report leaves them unmeasured. Every other language prefers
+    /// Cloverage's form counts and only then reads LCOV, as crapper's
+    /// `percent_for` does.
     pub fn percent_for(&self, function: &Function) -> Option<f64> {
-        if let Some(percent) = self.languages.percent(function) {
-            return Some(percent);
+        if matches!(function.language, Language::Java | Language::Go) {
+            return self.languages.percent(function);
         }
-        let lines = match &self.fresh {
-            Some((exact, root)) => exact.get(&normcase(&resolve(&root.join(&function.path)))),
-            None => self
-                .suffix
-                .get(&function.path)
-                .or_else(|| self.languages.forms_percent(&function.path)),
-        };
+        let lines = self
+            .languages
+            .forms_percent(&function.path)
+            .or_else(|| match &self.fresh {
+                Some((exact, root)) => exact.get(&normcase(&resolve(&root.join(&function.path)))),
+                None => self.suffix.get(&function.path),
+            });
         percent_for_range(lines, function.start_line, function.end_line)
     }
 }
