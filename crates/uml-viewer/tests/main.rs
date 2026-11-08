@@ -5,6 +5,7 @@
 #![allow(clippy::disallowed_methods)]
 
 mod dispatch;
+mod resident;
 mod scene_cli;
 
 use std::ffi::OsStr;

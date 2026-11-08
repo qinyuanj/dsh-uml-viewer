@@ -27,6 +27,11 @@ const ROLES: &[(&str, &str, Entry)] = &[
         "export scene geometry for each focus, or one view's frame (--frame), headless",
         |_, args| frame::run_scene(args),
     ),
+    (
+        "resident",
+        "viewer session over stdin/stdout: JSON actions in, scene frames and events out",
+        |_, args| viewer_session::run_resident(args),
+    ),
     ("companion-worker", "Herdr companion worker", |_, args| {
         companion::run_worker(args)
     }),

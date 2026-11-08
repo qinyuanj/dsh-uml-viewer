@@ -11,6 +11,7 @@
   {:lang :rust, :root "crates/scene/src", :prefix "uml.scene"}
   {:lang :rust, :root "crates/companion/src", :prefix "uml.companion"}
   {:lang :rust, :root "crates/frame/src", :prefix "uml.frame"}
+  {:lang :rust, :root "crates/viewer-session/src", :prefix "uml.viewer_session"}
   {:lang :rust, :root "crates/viewer/src", :prefix "uml.viewer"}
   {:lang :rust, :root "crates/uml-viewer/src", :prefix "uml.main"}],
  :proposals [{:id :p-1791033119418, :name "test", :layers []}],
@@ -18,8 +19,9 @@
  [[edn platform]
   [ir scene companion]
   [frame]
+  [viewer_session]
   [viewer]
   [main]],
  :out "examples/uml-viewer.edn",
- :order [main viewer frame companion scene ir edn platform],
+ :order [main viewer viewer_session frame companion scene ir edn platform],
  :foreign [libc egui eframe image winit log]}

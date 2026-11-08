@@ -21,6 +21,8 @@ frame = { path = "../frame" }
 ir = { path = "../ir" }
 scene = { path = "../scene" }
 viewer = { path = "../viewer" }
+viewer-session = { path = "../viewer-session" }
 
 [dev-dependencies]
 edn = { path = "../edn" }
+serde_json = "1"
