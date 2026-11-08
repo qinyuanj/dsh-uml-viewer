@@ -3,6 +3,7 @@
 //! command string (`/bin/sh -c`, `cmd.exe /c`).
 //! qinyuanj/dsh-uml-viewer#3 adds the Windows kill-on-close Job Object here.
 
+#[cfg(windows)]
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -96,6 +97,12 @@ pub fn run(program: &Program, cwd: &Path) -> io::Result<i32> {
         }
     }
     Ok(1)
+}
+
+/// Run `program` with stdout/stderr captured for interpreter probes and shard results.
+/// It shares `command` with inherited-stream runs so process-tree policy stays centralized.
+pub fn capture(program: &Program, cwd: &Path) -> io::Result<std::process::Output> {
+    command(program, cwd)?.output()
 }
 
 /// `shutil.which`: the first `name` on PATH (with PATHEXT on Windows).

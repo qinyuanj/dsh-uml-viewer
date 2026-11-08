@@ -6,6 +6,7 @@
 
 mod crap;
 mod crap_goldens;
+mod crap_languages;
 mod dispatch;
 mod scene_cli;
 

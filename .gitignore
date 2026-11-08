@@ -2,8 +2,11 @@
 .uml-viewer/
 .scratch/
 target/
+/target-linux/
 coverage/
 uml-viewer-log.txt
+node_modules/
+npm-cache/
 
 # teaching workspace (/teach)
 MISSION.md

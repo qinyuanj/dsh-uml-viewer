@@ -23,5 +23,6 @@ pub mod language;
 pub mod paths;
 pub mod process;
 pub mod runner;
+pub mod runners;
 pub mod select;
 pub mod snapshot;

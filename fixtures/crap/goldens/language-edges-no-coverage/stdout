@@ -1,0 +1,40 @@
+CRAP Report
+===========
+Languages: lua, python, typescript
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+choose                         demo.box                              14   N/A       N/A
+M.choose                       src.calc.edges                        10   N/A       N/A
+choose                         demo.box                               7   N/A       N/A
+outer                          src.calc.edges                         4   N/A       N/A
+tick                           demo.sample.Outer.Inner                3   N/A       N/A
+helper                         src.calc.edges                         3   N/A       N/A
+View                           ui.view                                3   N/A       N/A
+arrow                          demo.box                               2   N/A       N/A
+load                           demo.box                               2   N/A       N/A
+outer                          demo.box                               2   N/A       N/A
+outer                          demo.box                               2   N/A       N/A
+open                           demo.box.Box                           2   N/A       N/A
+open                           demo.box.Box                           2   N/A       N/A
+shut                           demo.box.Box                           2   N/A       N/A
+secret                         demo.sample.Hidden                     2   N/A       N/A
+second                         src.calc.edges                         2   N/A       N/A
+choose                         app                                    1   N/A       N/A
+run                            board                                  1   N/A       N/A
+literal                        demo                                   1   N/A       N/A
+f                              demo.app                               1   N/A       N/A
+arrow                          demo.declarations                      1   N/A       N/A
+choose                         demo.namespace                         1   N/A       N/A
+factory                        demo.sample                            1   N/A       N/A
+f                              python                                 1   N/A       N/A
+run                            python.app.main                        1   N/A       N/A
+Account:deposit                src.calc.edges                         1   N/A       N/A
+M.bar                          src.calc.edges                         1   N/A       N/A
+global_fn                      src.calc.edges                         1   N/A       N/A
+literal                        src.calc.edges                         1   N/A       N/A
+local_start                    src.calc.edges                         1   N/A       N/A
+choose                         trailing                               1   N/A       N/A
+view                           typescript.ui.view                     1   N/A       N/A
+view                           typescript.ui.view                     1   N/A       N/A
+view                           typescript.ui.view                     1   N/A       N/A

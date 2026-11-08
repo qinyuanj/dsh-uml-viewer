@@ -1,0 +1,11 @@
+CRAP Report
+===========
+Languages: typescript
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+loadBook                       book                                   1   N/A       N/A
+show                           editor.view                            1   N/A       N/A
+wordCount                      model                                  1   N/A       N/A
+nodeFs                         nodeFs                                 1   N/A       N/A
+allowBook                      tauriFs                                1   N/A       N/A

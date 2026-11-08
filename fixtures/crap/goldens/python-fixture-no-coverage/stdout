@@ -1,0 +1,13 @@
+CRAP Report
+===========
+Languages: python
+
+Function                       Namespace                             CC    Cov%     CRAP
+----------------------------------------------------------------------------------------
+load                           app.extra                              1   N/A       N/A
+read                           app.fs.Fs                              1   N/A       N/A
+_hidden                        app.model                              1   N/A       N/A
+walk                           app.model                              1   N/A       N/A
+speak                          app.model.Animal                       1   N/A       N/A
+all_animals                    app.service                            1   N/A       N/A
+load                           app.service                            1   N/A       N/A

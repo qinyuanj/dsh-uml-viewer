@@ -1,0 +1,9 @@
+{:entries [
+  {:name "load", :namespace "app.extra", :complexity 1, :coverage nil, :crap nil}
+  {:name "read", :namespace "app.fs.Fs", :complexity 1, :coverage nil, :crap nil}
+  {:name "_hidden", :namespace "app.model", :complexity 1, :coverage nil, :crap nil}
+  {:name "walk", :namespace "app.model", :complexity 1, :coverage nil, :crap nil}
+  {:name "speak", :namespace "app.model.Animal", :complexity 1, :coverage nil, :crap nil}
+  {:name "all_animals", :namespace "app.service", :complexity 1, :coverage nil, :crap nil}
+  {:name "load", :namespace "app.service", :complexity 1, :coverage nil, :crap nil}
+]}

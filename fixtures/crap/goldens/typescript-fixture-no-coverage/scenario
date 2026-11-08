@@ -1,0 +1,2 @@
+project typescript-fixture
+arg --no-coverage

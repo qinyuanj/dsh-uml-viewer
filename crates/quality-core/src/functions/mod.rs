@@ -6,7 +6,10 @@ use std::path::Path;
 
 use crate::language::Language;
 
+mod lua;
+mod python;
 mod rust;
+mod typescript;
 
 /// One function or method.
 #[derive(Clone, Debug, PartialEq)]
@@ -22,11 +25,13 @@ pub struct Function {
     pub language: Language,
 }
 
-/// Whether this port reads `language` yet. The others arrive with
-/// qinyuanj/dsh-uml-viewer#4 (Python, TypeScript, Lua) and #5 (Go, Java,
-/// Clojure).
+/// Whether crapper can extract this language. Go, Java and Clojure arrive
+/// with qinyuanj/dsh-uml-viewer#5; their registrations merge additively.
 pub fn supported(language: Language) -> bool {
-    matches!(language, Language::Rust)
+    matches!(
+        language,
+        Language::Rust | Language::Python | Language::TypeScript | Language::Lua
+    )
 }
 
 /// Functions in one file. `path` is project-relative (either separator);
@@ -40,6 +45,9 @@ pub fn functions_in_file(
     let path = path.replace('\\', "/");
     match language {
         Language::Rust => rust::functions(source, &path, project_root),
+        Language::Python => python::functions(source, &path, project_root),
+        Language::TypeScript => typescript::functions(source, &path, project_root),
+        Language::Lua => lua::functions(source, &path, project_root),
         _ => Vec::new(),
     }
 }

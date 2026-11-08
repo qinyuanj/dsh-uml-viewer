@@ -52,6 +52,8 @@ fn prepare(scenario: &Path, project: &Project) -> Vec<String> {
                 let source = match rest {
                     "rust" => crap.join("rust"),
                     "rust-fixture" => repo().join("rust-fixture"),
+                    "python-fixture" | "typescript-fixture" | "lua-fixture" => repo().join(rest),
+                    "language-edges" => crap.join("language-edges"),
                     other => panic!("unknown project {other}"),
                 };
                 copy_tree(&source, &project.root);
