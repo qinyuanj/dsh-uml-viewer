@@ -155,6 +155,15 @@ masks it. Canvas clients must resolve the fill role at alpha 1 and apply
 `dimAlpha` only to the outline, rather than reducing the whole head's
 `globalAlpha`. An `open` head has no fill.
 
+## Shared inspector summaries
+
+The window-free `frame::inspector` API also supplies `class_summary(&detail::Model)`
+and `package_summary(&scene, &id)`. Each returns display-ordered `SummaryLine`s:
+`Label { text, color }` or `Segments { parts, color }`. Colors are semantic roles;
+metric segments wrap only between complete statistics. These functions own
+identity/member text, quality formatting, no-data lines and the current view's
+package class count. Native and panel adapters only render the supplied lines.
+
 ## Chrome items (viewport points)
 
 | kind | fields | drawing |
