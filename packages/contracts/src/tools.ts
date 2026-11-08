@@ -1,7 +1,10 @@
-/** ADR 0001 version-1 fields. Quality tools will return this record directly. */
-export interface ToolResultRecord {
+export type QualityOperation = 'crap' | 'mutate' | 'dry'
+
+/** ADR 0001 version-1 fields. The operation value distinguishes IR from the
+ * quality operations, so only the latter can participate in the #20 gate. */
+export interface ToolResultRecord<Operation extends 'ir' | QualityOperation = 'ir' | QualityOperation> {
   version: 1
-  operation: 'ir' | 'crap' | 'mutate' | 'dry'
+  operation: Operation
   projectRoot: string
   exitCode: number | null
   validResult: boolean
