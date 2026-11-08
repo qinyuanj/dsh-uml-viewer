@@ -614,6 +614,15 @@ mod linux {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// A marker file beside the project, so concurrent tests and repeated
+    /// runs cannot share one.
+    fn marker_for(root: &Path) -> PathBuf {
+        root.with_file_name(format!(
+            "{}-marker",
+            root.file_name().unwrap().to_string_lossy()
+        ))
+    }
+
     /// The full argument vector for one run: the root, the worker count, flags
     /// and the target files, in the order the original's CLI takes them.
     fn arguments_with(
@@ -753,59 +762,69 @@ mod linux {
             &marker,
             &["spec/add_spec.lua", "spec/double unit_spec.lua"],
         );
-        let run = run_with_arguments(&arguments_with(
-            &root,
-            2,
-            &["--mutate-all", "--lines", "4,8"],
-            &["src/calc.lua"],
-        ));
-        assert!(
-            run == ExitCode::SUCCESS || run == ExitCode::from(3),
-            "{run:?}"
-        );
-        let invocations = invocations(&marker);
-        let mutants: Vec<&Invocation> = invocations
-            .iter()
-            .filter(|invocation| invocation.mutant())
-            .collect();
-        assert!(!mutants.is_empty(), "the mutants really ran");
-        // `---` line 4 is M.add, line 8 is M.double: the covering spec is first.
-        let commands: std::collections::BTreeSet<Vec<String>> = mutants
-            .iter()
-            .map(|invocation| invocation.args.clone())
-            .collect();
+        // One line at a time, so the covering spec is a strict subset of the
+        // suite: line 4 is M.add (covered by add_spec) and line 8 M.double
+        // (covered by the spec whose file name contains a space).
+        let mut commands: Vec<Vec<String>> = Vec::new();
+        for line in ["4", "8"] {
+            let _ = std::fs::remove_file(&marker);
+            let run = run_with_arguments(&arguments_with(
+                &root,
+                2,
+                &["--mutate-all", "--lines", line],
+                &["src/calc.lua"],
+            ));
+            assert!(
+                run == ExitCode::SUCCESS || run == ExitCode::from(3),
+                "line {line}: {run:?}"
+            );
+            let mutants: Vec<Invocation> = invocations(&marker)
+                .into_iter()
+                .filter(|invocation| invocation.mutant())
+                .collect();
+            assert!(!mutants.is_empty(), "line {line}: the mutants really ran");
+            for invocation in &mutants {
+                assert_eq!(
+                    invocation.argc,
+                    invocation.args.len(),
+                    "Busted received the vector it was given: {:?}",
+                    invocation.args
+                );
+                assert_eq!(invocation.argc, 4, "{:?}", invocation.args);
+                assert!(
+                    !invocation
+                        .args
+                        .iter()
+                        .any(|arg| arg == "unit_spec.lua" || arg == "spec/double"),
+                    "the spaced spec was split: {:?}",
+                    invocation.args
+                );
+            }
+            let distinct: std::collections::BTreeSet<Vec<String>> = mutants
+                .into_iter()
+                .map(|invocation| invocation.args)
+                .collect();
+            assert_eq!(distinct.len(), 1, "one command per file's selection");
+            commands.push(distinct.into_iter().next().unwrap());
+        }
         assert_eq!(
             commands,
-            std::collections::BTreeSet::from([
+            vec![
                 vec![
+                    "--ignore-lua".to_string(),
                     "--no-keep-going".to_string(),
                     "spec/add_spec.lua".to_string(),
                     "spec/double unit_spec.lua".to_string(),
                 ],
                 vec![
+                    "--ignore-lua".to_string(),
                     "--no-keep-going".to_string(),
                     "spec/double unit_spec.lua".to_string(),
                     "spec/add_spec.lua".to_string(),
                 ],
-            ])
+            ],
+            "the covering spec comes first"
         );
-        for invocation in mutants {
-            assert_eq!(
-                invocation.argc,
-                invocation.args.len(),
-                "Busted received the vector it was given: {:?}",
-                invocation.args
-            );
-            assert_eq!(invocation.argc, 3, "{:?}", invocation.args);
-            assert!(
-                !invocation
-                    .args
-                    .iter()
-                    .any(|arg| arg == "unit_spec.lua" || arg == "spec/double"),
-                "the spaced spec was split: {:?}",
-                invocation.args
-            );
-        }
         remove(&directory);
     }
 
@@ -826,7 +845,7 @@ mod linux {
         let b = "local M = {}\n\nfunction M.triple(x)\n  return x * 3\nend\n\nreturn M\n";
         std::fs::write(root.join("src/a.lua"), a).unwrap();
         std::fs::write(root.join("src/b.lua"), b).unwrap();
-        let marker = root.parent().unwrap().join("interleave-marker");
+        let marker = marker_for(&root);
         std::fs::write(
             root.join("spec/queue_spec.lua"),
             format!(
@@ -1007,7 +1026,7 @@ mod linux {
             "local M = {}\n\nfunction M.add(x)\n  return x + 1\nend\n\nreturn M\n",
         )
         .unwrap();
-        let marker = root.parent().unwrap().join("baseline-marker");
+        let marker = marker_for(&root);
         std::fs::write(
             root.join("spec/calc_spec.lua"),
             format!(
@@ -1096,8 +1115,10 @@ mod linux {
     }
 
     /// Ported from the original `test_engine_edit_during_the_queue_keeps_it_and_
-    /// the_other_snapshots`: a source edited or deleted during the run keeps
-    /// the other file's snapshot and exits 4, never restoring the edit.
+    /// the_other_snapshots`: something outside the run — here this process, as
+    /// the original's editing runner — edits or deletes a source while one of
+    /// its mutants is held in a view. That file publishes nothing and the call
+    /// exits 4, the other file still publishes, and the edit is never undone.
     #[test]
     fn a_source_edited_during_the_queue_keeps_the_other_files_snapshot() {
         for (case, delete) in [("edited", false), ("deleted", true)] {
@@ -1117,30 +1138,83 @@ mod linux {
                 "local M = {}\n\nfunction M.triple(x)\n  return x * 3\nend\n\nreturn M\n",
             )
             .unwrap();
-            let action = if delete {
-                format!("os.remove([[{}]])", a.display())
-            } else {
-                format!(
-                    "local file = io.open([[{}]], 'w')\n  if file then file:write([[{}-- edited by the test\n]]) file:close() end",
-                    a.display(),
-                    original
-                )
-            };
+            // A write made inside a view only reaches that view's overlay, so
+            // the change has to come from outside the run. The spec asks for it
+            // only when the view holds the `a.lua` mutant and then waits for
+            // it, so the edit is certain to land before that file's last
+            // mutant finishes and its snapshot is published.
+            let request = marker_for(&root);
+            let acknowledgement = request.with_extension("ack");
+            let _ = std::fs::remove_file(&request);
+            let _ = std::fs::remove_file(&acknowledgement);
             std::fs::write(
                 root.join("spec/ab_spec.lua"),
                 format!(
-                    "local a = require('a')\nlocal b = require('b')\nlocal source = io.open('src/a.lua')\nlocal text = source and source:read('*a') or ''\nif source then source:close() end\nif text ~= [[{original}]] then\n  {action}\nend\ndescribe('both', function()\n  it('adds', function() assert.equal(2, a.add(1)) end)\n  it('triples', function() assert.equal(6, b.triple(2)) end)\nend)\n",
-                    original = original,
-                    action = action,
+                    concat!(
+                        "local view = os.getenv('MUTATOR_VIEW')\n",
+                        "local held = view and io.open(view .. '/upper/src/a.lua')\n",
+                        "if held then\n",
+                        "  held:close()\n",
+                        "  local request = io.open([[{request}]], 'a')\n",
+                        "  if request then request:write('change a.lua\\n') request:close() end\n",
+                        "  local waited, done = 0, false\n",
+                        "  while not done and waited < 2000 do\n",
+                        "    local ack = io.open([[{acknowledgement}]])\n",
+                        "    if ack then\n",
+                        "      ack:close()\n",
+                        "      done = true\n",
+                        "    else\n",
+                        "      waited = waited + 1\n",
+                        "      os.execute('sleep 0.01')\n",
+                        "    end\n",
+                        "  end\n",
+                        "  if not done then error('the test never changed the source') end\n",
+                        "end\n",
+                        "local a = require('a')\n",
+                        "local b = require('b')\n",
+                        "describe('both', function()\n",
+                        "  it('adds', function() assert.equal(2, a.add(1)) end)\n",
+                        "  it('triples', function() assert.equal(6, b.triple(2)) end)\n",
+                        "end)\n",
+                    ),
+                    request = request.display(),
+                    acknowledgement = acknowledgement.display(),
                 ),
             )
             .unwrap();
+            let edited = format!("{original}-- edited by the test\n");
+            let watcher = {
+                let request = request.clone();
+                let acknowledgement = acknowledgement.clone();
+                let target = a.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..1000 {
+                        if request.exists() {
+                            if delete {
+                                std::fs::remove_file(&target).unwrap();
+                            } else {
+                                std::fs::write(&target, &edited).unwrap();
+                            }
+                            std::fs::write(&acknowledgement, "changed\n").unwrap();
+                            return true;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    false
+                })
+            };
             let run = run_with_arguments(&arguments_with(
                 &root,
                 1,
                 &["--no-coverage", "--mutate-all"],
                 &["src/a.lua", "src/b.lua"],
             ));
+            assert!(
+                watcher.join().unwrap(),
+                "{case}: the run really held a.lua's mutant"
+            );
+            let _ = std::fs::remove_file(&request);
+            let _ = std::fs::remove_file(&acknowledgement);
             assert_eq!(run, ExitCode::from(4), "{case}");
             assert!(
                 !root.join(".metrics/mutate/a.edn").exists(),
@@ -1164,26 +1238,31 @@ mod linux {
         }
     }
 
-    /// Ported from the original `test_lua_shared_state.py`: specs that share
-    /// state make an outcome depend on which specs run, so `--select-specs`
-    /// (which assumes independent specs) can change a result. Here the full
-    /// suite runs the preparing spec and the asserting one and kills both
-    /// mutants, while the selected subset runs only the preparing spec and
-    /// leaves them alive. The original's opposite-direction case needs an
-    /// index-less full suite, which the CLI never produces for full-suite Lua
-    /// mutants (the whole suite plus covering specs always runs).
+    /// Ported from the original `test_lua_shared_state.py`: one spec caches a
+    /// result another spec asserts, so the covering spec on its own cannot
+    /// judge a mutant. `--select-specs` runs that spec, leaves the mutant
+    /// surviving, and survivor confirmation re-runs the full suite and kills
+    /// it, so the outcomes and the published bytes stay the full suite's.
     #[test]
-    fn lua_shared_state_can_change_outcomes_under_spec_selection() {
+    fn shared_state_keeps_full_suite_kills_under_spec_selection() {
         let root = scratch("shared-state", &[]);
         std::fs::create_dir_all(root.join("spec")).unwrap();
         std::fs::write(
             root.join(".busted"),
-            "return { default = { lpath = './?.lua;' .. package.path, helper = 'helper.lua' } }\n",
+            "return { default = { lpath = './?.lua;' .. package.path, helper = 'helper.lua', sort = true } }\n",
         )
         .unwrap();
-        std::fs::write(root.join("helper.lua"), "package.loaded['shared'] = {}\n").unwrap();
-        let source = "local M = {}\nfunction M.first(x)\n  return x + 1\nend\nreturn M\n";
+        // The cached result the asserting spec expects, so that spec also
+        // passes when it is the only spec of an instrumented coverage shard.
+        std::fs::write(
+            root.join("helper.lua"),
+            "package.loaded['shared'] = {value = 11}\n",
+        )
+        .unwrap();
+        let source = "local shared = require('shared')\nlocal M = {}\nfunction M.first(x)\n  shared.value = x + 1\n  return shared.value\nend\nreturn M\n";
         std::fs::write(root.join("calc.lua"), source).unwrap();
+        // Only the preparing spec runs the mutated line; the asserting spec
+        // never calls it.
         std::fs::write(
             root.join("spec/a_spec.lua"),
             "local calc = require('calc')\nlocal shared = require('shared')\nit('prepares a cached result', function() shared.value = calc.first(10) end)\n",
@@ -1194,28 +1273,183 @@ mod linux {
             "local shared = require('shared')\nit('checks the cached result', function() assert.equal(11, shared.value) end)\n",
         )
         .unwrap();
+        let marker = marker_for(&root);
+        mark_specs(&root, &marker, &["spec/a_spec.lua", "spec/b_spec.lua"]);
         let snapshot = root.join(".metrics/mutate/calc.edn");
-        let full = run_with_arguments(&arguments_with(&root, 1, &["--mutate-all"], &["calc.lua"]));
-        assert_eq!(full, ExitCode::SUCCESS, "the full suite kills both");
-        let text = std::fs::read_to_string(&snapshot).unwrap();
+        let full = run_with_arguments(&arguments_with(
+            &root,
+            1,
+            &["--no-coverage", "--mutate-all"],
+            &["calc.lua"],
+        ));
+        assert_eq!(full, ExitCode::SUCCESS, "the full suite kills the mutant");
+        let expected = std::fs::read(&snapshot).unwrap();
+        let text = String::from_utf8_lossy(&expected).into_owned();
+        // Both sites of the function — the operator and the literal — are
+        // judged by the asserting spec, not by the covering one.
         assert!(text.contains(":killed 2 :survived 0"), "{text}");
+        // The premise of the case: the preparing spec really runs first.
+        let marked = invocations(&marker);
+        let order: Vec<&str> = marked
+            .iter()
+            .map(|invocation| invocation.spec.as_str())
+            .collect();
+        assert!(!order.is_empty());
+        assert!(
+            order
+                .chunks(2)
+                .all(|pair| pair == ["a_spec.lua", "b_spec.lua"]),
+            "the cached result only exists when a_spec runs first: {order:?}"
+        );
+        let _ = std::fs::remove_file(&marker);
         let selected = run_with_arguments(&arguments_with(
             &root,
             1,
             &["--mutate-all", "--select-specs"],
             &["calc.lua"],
         ));
+        assert_eq!(selected, ExitCode::SUCCESS, "confirmation keeps the kill");
         assert_eq!(
-            selected,
-            ExitCode::from(3),
-            "selection drops the asserting spec and the mutants survive"
+            std::fs::read(&snapshot).unwrap(),
+            expected,
+            "spec selection publishes the full suite's outcome"
         );
-        let text = std::fs::read_to_string(&snapshot).unwrap();
-        assert!(text.contains(":killed 0 :survived 2"), "{text}");
+        let marked = invocations(&marker);
+        let mutants: Vec<&Invocation> = marked
+            .iter()
+            .filter(|invocation| invocation.mutant())
+            .collect();
+        assert!(!mutants.is_empty(), "the selected route really ran mutants");
+        let (confirmation, earlier) = mutants.split_last().unwrap();
+        assert!(
+            !earlier.is_empty()
+                && earlier
+                    .iter()
+                    .all(|invocation| !invocation.args.iter().any(|arg| arg == "spec/b_spec.lua")),
+            "the covering spec ran alone before the confirmation: {:?}",
+            mutants
+                .iter()
+                .map(|invocation| &invocation.args)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            !confirmation.args.iter().any(|arg| arg.starts_with("spec/")),
+            "the confirmation ran the whole suite, not a subset: {:?}",
+            confirmation.args
+        );
+        // The confirmation really executed both specs, the asserting one last:
+        // Busted's default suite order names no spec files at all.
+        let tail: Vec<&str> = marked
+            .iter()
+            .rev()
+            .take(2)
+            .map(|invocation| invocation.spec.as_str())
+            .collect();
+        assert_eq!(
+            tail,
+            vec!["b_spec.lua", "a_spec.lua"],
+            "the last run was the full suite: {:?}",
+            marked
+                .iter()
+                .map(|invocation| invocation.spec.as_str())
+                .collect::<Vec<_>>()
+        );
         assert_eq!(
             std::fs::read_to_string(root.join("calc.lua")).unwrap(),
             source
         );
+        let _ = std::fs::remove_file(&marker);
+        remove_scratch(&root);
+    }
+
+    /// The other half of the original's shared-state pair: selection assumes
+    /// independent specs, so with shared state the subset can kill a mutant the
+    /// full suite lets survive. Selection is opt-in (`--select-specs`), which
+    /// is the documented caveat; the full-suite default keeps its verdict.
+    #[test]
+    fn spec_selection_can_kill_a_full_suite_survivor_with_shared_state() {
+        let root = scratch("shared-caveat", &[]);
+        std::fs::create_dir_all(root.join("spec")).unwrap();
+        std::fs::write(
+            root.join(".busted"),
+            "return { default = { lpath = './?.lua;' .. package.path, helper = 'helper.lua', sort = true } }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("helper.lua"),
+            "package.loaded['shared'] = {offset = 1}\n",
+        )
+        .unwrap();
+        let source = "local shared = require('shared')\nlocal M = {}\nfunction M.first(x)\n  return x + shared.offset\nend\nreturn M\n";
+        std::fs::write(root.join("calc.lua"), source).unwrap();
+        std::fs::write(
+            root.join("spec/a_spec.lua"),
+            "local shared = require('shared')\nit('prepares shared state', function() shared.offset = 0 end)\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("spec/b_spec.lua"),
+            "local shared = require('shared')\nlocal calc = require('calc')\nit('checks the calculation', function()\n  assert.equal(10 + shared.offset, calc.first(10))\nend)\n",
+        )
+        .unwrap();
+        let marker = marker_for(&root);
+        mark_specs(&root, &marker, &["spec/a_spec.lua", "spec/b_spec.lua"]);
+        let snapshot = root.join(".metrics/mutate/calc.edn");
+        let full = run_with_arguments(&arguments_with(
+            &root,
+            1,
+            &["--no-coverage", "--mutate-all"],
+            &["calc.lua"],
+        ));
+        assert_eq!(full, ExitCode::from(3), "the full suite leaves a survivor");
+        let text = std::fs::read_to_string(&snapshot).unwrap();
+        assert!(text.contains(":killed 0 :survived 1"), "{text}");
+        // The premise of the case: the preparing spec really runs first.
+        let marked = invocations(&marker);
+        let order: Vec<&str> = marked
+            .iter()
+            .map(|invocation| invocation.spec.as_str())
+            .collect();
+        assert!(!order.is_empty());
+        assert!(
+            order
+                .chunks(2)
+                .all(|pair| pair == ["a_spec.lua", "b_spec.lua"]),
+            "the shared state only differs when a_spec runs first: {order:?}"
+        );
+        let _ = std::fs::remove_file(&marker);
+        let selected = run_with_arguments(&arguments_with(
+            &root,
+            1,
+            &["--mutate-all", "--select-specs"],
+            &["calc.lua"],
+        ));
+        assert_eq!(selected, ExitCode::SUCCESS, "the covering spec kills it");
+        let text = std::fs::read_to_string(&snapshot).unwrap();
+        assert!(text.contains(":killed 1 :survived 0"), "{text}");
+        let mutants: Vec<Invocation> = invocations(&marker)
+            .into_iter()
+            .filter(|invocation| invocation.mutant())
+            .collect();
+        assert!(
+            !mutants.is_empty(),
+            "the selected route really ran the mutant"
+        );
+        assert!(
+            mutants
+                .iter()
+                .all(|invocation| !invocation.args.iter().any(|arg| arg == "spec/a_spec.lua")),
+            "the subset ran the covering spec alone, with no full-suite confirmation: {:?}",
+            mutants
+                .iter()
+                .map(|invocation| &invocation.args)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("calc.lua")).unwrap(),
+            source
+        );
+        let _ = std::fs::remove_file(&marker);
         remove_scratch(&root);
     }
 
