@@ -23,7 +23,7 @@ import time
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'scripts'))
 from test_posix_entries import native_program  # noqa: E402
-from uml_posix import proc_identity  # noqa: E402
+from uml_posix import digest, proc_identity  # noqa: E402
 from uml_windows import close_window  # noqa: E402
 from compare_ir import parse, canonical  # noqa: E402
 
@@ -87,6 +87,24 @@ def alive(pid, start=None):
 def run(argv, env, cwd=None, timeout=30):
     return subprocess.run(argv, env=env, cwd=cwd, capture_output=True, text=True,
                           encoding='utf-8', errors='replace', timeout=timeout)
+
+
+def pin(exe):
+    """The exe's SHA-256 at start, printed with its path: a shared release exe
+    rebuilt mid-run must not pass as this run's binary."""
+    assert exe.is_file(), f'{exe} is missing; build it with cargo build --release --locked'
+    pinned = digest(exe)
+    print(f'uml-viewer.exe: {exe} sha256 {pinned}', flush=True)
+    return pinned
+
+
+def exe_changed(exe, pinned):
+    """None while `exe` still has the pinned hash, else the failure naming both."""
+    now = digest(exe) if exe.is_file() else 'missing'
+    if now == pinned:
+        return None
+    return (f'{exe} changed during the e2e: sha256 {pinned} at start, {now} at end; '
+            'the results mix two binaries. Rerun with an exe nothing else rebuilds.')
 
 
 def inventory(env):
@@ -326,6 +344,8 @@ def main():
     parser.add_argument('--tool-root', type=Path, default=REPO)
     parser.add_argument('--quality-project', type=Path, help='installed empty scratch project; writes fixture sources')
     args = parser.parse_args()
+    exe = (args.tool_root / 'target/release/uml-viewer.exe').resolve()
+    pinned = pin(exe)
     evidence = args.evidence or Path(tempfile.mkdtemp(prefix='uml-uv5-evidence-'))
     evidence.mkdir(parents=True, exist_ok=True)
     root = Path(tempfile.mkdtemp(prefix='uml uv5 中文 ')).resolve()
@@ -409,10 +429,18 @@ def main():
     finally:
         for project in reversed(projects):
             project.cleanup()
+        changed = exe_changed(exe, pinned)
+        if changed:
+            # Printed even when another failure is already propagating.
+            print('FAIL ' + changed, flush=True)
+            result['ok'] = False
+            result['exe-changed'] = changed
         (evidence / 'result.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
         print('evidence: ' + str(evidence), flush=True)
         if result['ok']:
             shutil.rmtree(root)
+    if changed:
+        raise AssertionError(changed)
     return 0
 
 
