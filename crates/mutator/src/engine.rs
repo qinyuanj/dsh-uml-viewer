@@ -107,6 +107,10 @@ impl Command {
     }
 }
 
+/// One baseline run's outcome: exit code, duration and captured output, keyed
+/// by the command and directory it ran in.
+type Baselines = BTreeMap<(Command, PathBuf), Result<(i32, Duration, String), Failure>>;
+
 pub struct Prepared {
     pub file: PathBuf,
     pub key: String,
@@ -766,8 +770,7 @@ pub fn mutate(
         println!("No mutations selected; keeping the previous snapshots.");
         return 0;
     }
-    let mut baselines: BTreeMap<(Command, PathBuf), Result<(i32, Duration, String), Failure>> =
-        BTreeMap::new();
+    let mut baselines: Baselines = BTreeMap::new();
     let mut status = 0;
     let mut survived_any = false;
     // One pool for the whole call: its slots are the workers every target

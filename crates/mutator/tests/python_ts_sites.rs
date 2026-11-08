@@ -31,7 +31,7 @@ fn discovered(label: &str, relative: &str) -> (Value, Value) {
     let root = base(label);
     let path = root.join(relative);
     let source = std::fs::read_to_string(&path).unwrap();
-    let (sites, mut forms) = mutator::sites::discover(&source, &path, &root, relative);
+    let (sites, mut forms) = mutator::sites::discover(&source, &path, &root, relative).unwrap();
     let sites: Vec<Value> = sites
         .iter()
         .map(|site| {
@@ -141,7 +141,8 @@ fn original_site_cases_hold_for_python_and_typescript() {
         assert_eq!(pairs(relative), shift, "{relative}");
         let root = base("sites");
         let source = std::fs::read_to_string(root.join(relative)).unwrap();
-        let (sites, _) = mutator::sites::discover(&source, &root.join(relative), &root, relative);
+        let (sites, _) =
+            mutator::sites::discover(&source, &root.join(relative), &root, relative).unwrap();
         assert_eq!(
             mutator::sites::apply_site(&source, &sites[0]),
             "export function mix(a: number, b: number) { return a << b; }\n"
@@ -172,7 +173,8 @@ fn original_site_cases_hold_for_python_and_typescript() {
         &root.join("src/demo/utf8.py"),
         &root,
         "src/demo/utf8.py",
-    );
+    )
+    .unwrap();
     assert_eq!(sites.len(), 1);
     assert_eq!(
         mutator::sites::apply_site(&source, &sites[0]),
