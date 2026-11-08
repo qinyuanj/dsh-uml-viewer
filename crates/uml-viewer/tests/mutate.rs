@@ -526,11 +526,11 @@ fn python_and_typescript_projects_mutate_through_the_real_binary() {
             .join("../../fixtures/mutate")
             .join(language);
         copy(&fixture.join("project"), &root);
-        if let Some(venv) = &venv {
-            if language == "python" {
-                std::os::unix::fs::symlink(venv, root.join(".venv")).unwrap();
-                std::os::unix::fs::symlink(venv, root.join("legacy/.venv")).unwrap();
-            }
+        if language == "python"
+            && let Some(venv) = &venv
+        {
+            std::os::unix::fs::symlink(venv, root.join(".venv")).unwrap();
+            std::os::unix::fs::symlink(venv, root.join("legacy/.venv")).unwrap();
         }
         let targets: &[&str] = match language {
             "python" => &["src/shapes/geometry.py", "legacy/tally/core.py"],

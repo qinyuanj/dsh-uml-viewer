@@ -120,7 +120,7 @@ impl Fixture {
     fn new(language: &'static str) -> Option<Self> {
         let venv = match language {
             "python" => python_venv(),
-            "typescript" => node_available().then(|| PathBuf::new()),
+            "typescript" => node_available().then(PathBuf::new),
             _ => unreachable!(),
         }?;
         let directory = std::env::temp_dir().join(format!(
@@ -131,7 +131,6 @@ impl Fixture {
         let project = directory.join("project");
         copy(&fixture_dir().join(language).join("project"), &project);
         if language == "python" {
-            let venv = venv;
             for package in [PathBuf::from("."), PathBuf::from("legacy")] {
                 std::os::unix::fs::symlink(&venv, project.join(package).join(".venv")).unwrap();
             }
