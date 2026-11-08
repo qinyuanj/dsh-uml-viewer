@@ -446,6 +446,32 @@ const LCOV_REPORTS: &[&str] = &[
 /// `root.glob(pattern)` for patterns of literal segments with at most one
 /// `**`; directory entries are visited in name order.
 fn glob(root: &Path, pattern: &str) -> Vec<PathBuf> {
+    if pattern.starts_with("*/") || pattern.starts_with("*/*/") {
+        let depth = usize::from(pattern.starts_with("*/*/")) + 1;
+        let rest = pattern.splitn(depth + 1, '/').next_back().unwrap();
+        let mut found = Vec::new();
+        fn children_at(root: &Path, depth: usize, found: &mut Vec<PathBuf>) {
+            if depth == 0 {
+                found.push(root.to_path_buf());
+                return;
+            }
+            let Ok(entries) = fs::read_dir(root) else {
+                return;
+            };
+            let mut entries: Vec<_> = entries.flatten().map(|entry| entry.path()).collect();
+            entries.sort();
+            for entry in entries {
+                if entry.is_dir() {
+                    children_at(&entry, depth - 1, found);
+                }
+            }
+        }
+        children_at(root, depth, &mut found);
+        return found
+            .into_iter()
+            .flat_map(|directory| glob(&directory, rest))
+            .collect();
+    }
     let Some((prefix, rest)) = pattern.split_once("/**/") else {
         let path = root.join(pattern);
         return if path.exists() {
