@@ -25,11 +25,11 @@ use crate::real_input::{
 };
 use crate::render_cache::RenderCache;
 use crate::search_box::SearchBox;
-use crate::theme::Role;
-use crate::viewer_session::{
+use crate::shell_session::{
     Action as SessionAction, Canvas, Chrome, Effects, Event, Launch, Now, POLL_INTERVAL, Repaint,
     ViewerSession, WINDOW_MIN, window_size,
 };
+use crate::theme::Role;
 use crate::{cli::Options, fonts, mail_watch, paint, signal, strings};
 use crate::{theme, watch};
 
@@ -1906,16 +1906,16 @@ mod tests {
     }
 
     /// A helper that settles only when told to; it records its stops.
-    struct HeldLink(std::rc::Rc<std::cell::RefCell<(bool, Vec<crate::viewer_session::Stop>)>>);
+    struct HeldLink(std::rc::Rc<std::cell::RefCell<(bool, Vec<crate::shell_session::Stop>)>>);
 
-    impl crate::viewer_session::CompanionLink for HeldLink {
+    impl crate::shell_session::CompanionLink for HeldLink {
         fn launch_status(&self) -> Option<String> {
             None
         }
-        fn poll(&mut self) -> crate::viewer_session::LinkPoll {
+        fn poll(&mut self) -> crate::shell_session::LinkPoll {
             Default::default()
         }
-        fn stop(&mut self, stop: crate::viewer_session::Stop) -> Result<(), String> {
+        fn stop(&mut self, stop: crate::shell_session::Stop) -> Result<(), String> {
             self.0.borrow_mut().1.push(stop);
             Ok(())
         }
@@ -1952,7 +1952,7 @@ mod tests {
         );
         assert!(!app.quit);
         assert_eq!(
-            vec![crate::viewer_session::Stop::ReleaseCompanion],
+            vec![crate::shell_session::Stop::ReleaseCompanion],
             link.borrow().1,
             "the normal close releases the companion"
         );

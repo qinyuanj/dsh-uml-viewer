@@ -7,10 +7,10 @@ use edn::Value;
 use scene::Snapshot;
 use std::path::{Path, PathBuf};
 
-use crate::watch;
+use frame::watch;
 
 fn canonical(path: &Path) -> PathBuf {
-    crate::project_files::canonical(path)
+    frame::project_files::canonical(path)
 }
 
 /// The directory holding `.metrics`, walking up from the diagram path;

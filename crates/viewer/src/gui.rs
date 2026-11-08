@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use edn::Value;
-use edn::record::{get, local_name, num};
+use edn::record::{get, local_name};
 use egui::{
     Align2, Color32, CursorIcon, FontFamily, FontId, Id, Pos2, Rect as ERect, RichText, Sense, Vec2,
 };
@@ -160,10 +160,6 @@ fn text_w(ctx: &egui::Context, font: &FontId, text: &str) -> f32 {
             .size()
             .x
     })
-}
-
-fn one(n: f64) -> String {
-    format!("{n:.1}")
 }
 
 fn themed_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
@@ -611,9 +607,11 @@ impl Gui {
                             .max_height(summary_h)
                             .auto_shrink([false, true])
                             .show(ui, |ui| match &summary {
-                                Some((_, Some((model, _)), _)) => class_summary(ui, model),
+                                Some((_, Some((model, _)), _)) => {
+                                    paint_summary(ui, inspector::class_summary(model))
+                                }
                                 Some((id, None, Some(kind))) if kind == "package" => {
-                                    package_summary(ui, state, id)
+                                    paint_summary(ui, inspector::package_summary(&state.scene, id))
                                 }
                                 _ => {
                                     let message = inspector::empty_explanation(state)
@@ -1293,119 +1291,11 @@ fn segments(ui: &mut egui::Ui, parts: Vec<String>, color: Role) {
     });
 }
 
-fn mutation_line(c: &Value) -> Option<Vec<String>> {
-    let (k, s) = (
-        get(c, "killed").and_then(num),
-        get(c, "survived").and_then(num),
-    );
-    if k.is_none() && s.is_none() {
-        return None;
-    }
-    let mut parts = vec![format!(
-        "{} killed / {} survived",
-        k.unwrap_or(0.0) as i64,
-        s.unwrap_or(0.0) as i64
-    )];
-    if let Some(u) = get(c, "uncovered").and_then(num).filter(|u| *u > 0.0) {
-        parts.push(format!("{} uncovered", u as i64));
-    }
-    Some(parts)
-}
-
-/// `Crap μ 44.0`, `max 870.0`, `σ 115.0`: one segment per statistic.
-fn crap_summary(crap: &Value) -> Option<Vec<String>> {
-    let mu = get(crap, "mu").and_then(num)?;
-    let max = get(crap, "max").and_then(num).unwrap_or(mu);
-    let sigma = get(crap, "sigma").and_then(num).unwrap_or(0.0);
-    Some(
-        strings::CRAP_LINE
-            .split_inclusive("%s")
-            .zip([mu, max, sigma])
-            .map(|(part, x)| part.trim().replace("%s", &one(x)))
-            .collect(),
-    )
-}
-
-/// Selected class summary: identity, quality lines, member lines.
-fn class_summary(ui: &mut egui::Ui, model: &detail::Model) {
-    let c = &model.class;
-    let text = |v: Option<&Value>| match v {
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::Integer(n)) => n.to_string(),
-        Some(Value::Float(x)) => x.to_string(),
-        Some(other) => local_name(other).unwrap_or_default().to_owned(),
-        None => String::new(),
-    };
-    label(ui, text(get(c, "name")), Role::Ink);
-    if let Some(package) = model.package_label() {
-        label(ui, format!("{}{package}", strings::PACKAGE), Role::Muted);
-    }
-    if let Some(level) = get(c, "level").filter(|v| **v != Value::Nil) {
-        label(
-            ui,
-            format!("{}{}", strings::LEVEL, text(Some(level))),
-            Role::Muted,
-        );
-    }
-    if let Some(stereo) = get(c, "stereotype") {
-        label(
-            ui,
-            format!("«{}»", local_name(stereo).unwrap_or_default().to_owned()),
-            Role::Muted,
-        );
-    }
-    let crap = get(c, "crap");
-    let mut measured = false;
-    if let Some(n) = crap.and_then(num) {
-        label(
-            ui,
-            strings::CRAP_SINGLE.replace("%s", &one(n)),
-            Role::Accent,
-        );
-        measured = true;
-    } else if let Some(parts) = crap.and_then(crap_summary) {
-        segments(ui, parts, Role::Accent);
-        measured = true;
-    }
-    if let Some(parts) = mutation_line(c) {
-        segments(ui, parts, Role::Muted);
-    }
-    for line in edn::record::seq(get(c, "lines")) {
-        let kind = get(line, "kind")
-            .and_then(local_name)
-            .unwrap_or_default()
-            .to_owned();
-        if kind == "field" || kind == "op" {
-            label(ui, text(get(line, "text")), Role::Ink);
+fn paint_summary(ui: &mut egui::Ui, lines: Vec<inspector::SummaryLine>) {
+    for line in lines {
+        match line {
+            inspector::SummaryLine::Label { text, color } => label(ui, text, color),
+            inspector::SummaryLine::Segments { parts, color } => segments(ui, parts, color),
         }
-    }
-    if !measured {
-        label(ui, strings::NO_DATA, Role::NoData);
-    }
-}
-
-fn package_summary(ui: &mut egui::Ui, state: &ViewState, id: &Value) {
-    let Some(p) = scene::hit::package_by_id(&state.scene, id) else {
-        return;
-    };
-    let title = match get(p, "label") {
-        Some(Value::String(s)) => s.clone(),
-        _ => local_name(id).unwrap_or_default().to_owned(),
-    };
-    label(ui, title, Role::Ink);
-    let crap = get(p, "crap");
-    if let Some(parts) = crap.and_then(crap_summary) {
-        segments(ui, parts, Role::Accent);
-    }
-    if let Some(parts) = mutation_line(p) {
-        segments(ui, parts, Role::Muted);
-    }
-    let count = edn::record::seq(get(&state.scene, "classes"))
-        .iter()
-        .filter(|c| get(c, "package") == Some(id))
-        .count();
-    label(ui, format!("{}{count}", strings::CLASS_COUNT), Role::Muted);
-    if crap.is_none() {
-        label(ui, strings::NO_DATA, Role::NoData);
     }
 }

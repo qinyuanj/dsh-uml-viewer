@@ -64,3 +64,48 @@ qinyuanj/dsh-uml-viewer 承接全部插件开发，uml-viewer 冻结在现有的
   违背“无数据显示为红、不隐藏”。
 - **把三个 TypeScript 包合成一个源**：`contracts` 被 host 和 client 共同依赖，合并后看不到
   这条依赖方向，也与每个 crate 一个源的约定不一致。
+
+## 附录：交互边界（2026-11-09，#17）
+
+viewer 会话（`crates/viewer-session`）不再依赖 companion 与邮件，二进制以 `uml-viewer
+resident` 长驻：stdin 收动作，stdout 发场景帧与事件，均为逐行 JSON，协议见
+[docs/resident-protocol.md](../resident-protocol.md)，帧见
+[docs/scene-frame.md](../scene-frame.md)。面板（#21–#27）与二进制之间的分工如下。
+
+### 决定
+
+- **客户端独立完成**：平移、缩放、悬停命中。场景帧带着世界坐标的全部图元、各自的
+  细节层级（`lod`）与包围盒，客户端在本地变换相机、按层级与视口裁剪、对 `world` 图元
+  做悬停命中并画出悬停反馈，不往返 host。相机变化以 `camera` 动作告知会话，只为保存
+  视图状态，二进制不回帧。
+- **往返 host**：下钻（`drill-in`、`back`、**P** 即 `namespace-tree`）、选中
+  （`select`，帧里带出**依赖链高亮**与**关系淡化**）、搜索（`search` 与 `locate`）、
+  切换**讨论上下文**（`context`）、展示（`display`）、箭头模式（`declutter`）。这些
+  要重排版面、沿依赖边求闭包或读 IR 全文，结果是一张新帧（或搜索结果）。
+- **讨论上下文**：`context` 动作先回 `context` 事件、再回新帧；host 把该事件变成
+  **面板请求**（`session.prompt`），会话本身不写邮件。
+- **状态归宿**：视图状态与讨论上下文由 `save` 以数据形式交给 host
+  （`dsh-uml-viewer/session-state` 版本 1），随 DSH 会话保存；`open` 带回即恢复。
+  项目内不再写会话快照。
+- **热重载**：二进制每 250 ms 检查 IR 与 `.metrics/` 快照，变化时主动推一帧
+  （`seq` 为 null）。
+- **egui 窗口**：过渡期仍是同一 viewer 会话的另一个外壳；companion 链接、邮件、
+  进程身份、`--restart` 与正常关闭只留在窗口的适配层（`viewer::shell_session`），
+  由 #18 删除。没有 companion 时窗口单独运行并热重载 EDN（driver `standalone`）。
+
+### 理由
+
+- 平移、缩放、悬停每秒几十次，往返 host 与子进程会让指针跟手性取决于管道延迟；它们只
+  改相机或临时反馈，不改语义状态，客户端已有绘制所需的全部几何。
+- 下钻与选中要重新编译视图（`scene::document::compile_view`）或沿出向依赖边求闭包，
+  搜索要读整份 IR；这些是场景核心的纯逻辑，放在 Rust 一处，面板与 egui 窗口的行为才
+  一致（spec 接缝 ③ 对照 egui 窗口验收）。
+- 依赖链与淡化随选中写入帧（`selected`、`dimmed`、`dependency-chain` 色角色），客户端
+  不需要知道依赖规则。
+
+### 被否决的方案
+
+- **悬停也往返 host**：每次指针移动都要经子进程回一整帧 JSON，帧随图的大小增长。
+- **客户端在 TypeScript 里重写下钻与依赖链**：同一逻辑两份实现，迟早分叉。
+- **会话状态仍写 `.uml-viewer/session.edn`**：与“项目内只留 policy、提案与 `.metrics/`”
+  （ADR 0011）冲突，也无法区分同一项目的多个会话。
