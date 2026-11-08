@@ -15,8 +15,9 @@ Scenario lines: `project rust|rust-fixture`, `file <fixture> <project path>`
 CRLF line ends, as a Windows autocrlf checkout would), `arg <value>`.
 `{COPY_FRESH_LCOV}` in an arg is the host shell command that copies
 `fixture.lcov` to `coverage/lcov.info`. stderr is normalized: the project root
-becomes `<ROOT>`, backslashes become slashes, and the `+ (cwd) command` echo
-lines, which name the host shell, are dropped.
+becomes `<ROOT>`, and the `+ (cwd) command` echo
+lines, which name the host shell, are dropped. Native separators on `Wrote`
+and other root-bearing lines become `<SEP>`; all other bytes stay exact.
 """
 
 from __future__ import annotations
@@ -77,7 +78,13 @@ def prepare(project: str, steps: list[tuple[str, str]], target: Path) -> None:
 def normalize(stderr: str, root: Path) -> str:
     for form in (str(root), root.as_posix()):
         stderr = stderr.replace(form, "<ROOT>")
-    lines = [line for line in stderr.replace("\\", "/").split("\n") if not line.startswith("+ (")]
+    lines = []
+    for line in stderr.replace("\r\n", "\n").split("\n"):
+        if line.startswith("+ ("):
+            continue
+        if line.startswith("Wrote ") or "<ROOT>" in line:
+            line = line.replace(os.sep, "<SEP>")
+        lines.append(line)
     return "\n".join(lines)
 
 

@@ -14,6 +14,7 @@
 //! - [`atomic`]: atomic snapshot publication.
 //! - [`snapshot`]: the `.metrics` EDN writer (number format, key order).
 //! - [`paths`]: Python-compatible `resolve` / `as_posix`.
+//! - [`platform`]: the shared pre-selection refusal and WSL `/mnt` warning.
 //! - [`number`]: Python `float()` for number options; [`digits`] is the
 //!   Unicode decimal digit table it shares with dryer's `int()` counts.
 
@@ -30,6 +31,7 @@ pub mod grammar;
 pub mod language;
 pub mod number;
 pub mod paths;
+pub mod platform;
 pub mod process;
 pub mod runner;
 mod runner_clojure;

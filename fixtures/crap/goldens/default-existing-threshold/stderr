@@ -1,2 +1,2 @@
-Wrote <ROOT>/.metrics/crap.edn
+Wrote <ROOT><SEP>.metrics<SEP>crap.edn
 CRAP threshold exceeded: 30.0 > 5.0
