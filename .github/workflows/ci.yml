@@ -123,7 +123,7 @@ jobs:
         run: |
           cargo test -p mutator --locked
           cargo test -p uml-viewer --test integration mutate --locked
-          cargo test -p uml-viewer --test integration crap_goldens dry_ --locked
+          cargo test -p uml-viewer --test integration --locked -- crap_goldens dry_
           cargo test -p dryer -p crapper --locked
 
   linux:
