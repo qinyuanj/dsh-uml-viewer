@@ -56,9 +56,6 @@ full suite before it counts. `--busted-task` selects a named `.busted` task for
 both collection and mutation, and a `--test-command` string bypasses the whole
 Lua plan, as the original does.
 
-## Write contract (stronger than the original baseline)
-with the single-worker run and with the original's goldens.
-
 ## Worker slots and the write contract (stronger than the original baseline)
 
 One call creates one private scratch root and a pool of worker slots
