@@ -145,7 +145,10 @@ that language's files uncovered with the original's N/A message; a file absent
 from every report is reported as
 `No coverage data for <file>; its sites are uncovered. Pass --no-coverage to run them anyway.`
 A custom `npm run coverage` report is read from the root's `coverage/lcov.info`
-without anchoring, as the original's `load_bundle` does.
+without anchoring, as the original's `load_bundle` does. A run with only
+`--test-command` still measures Python and TypeScript coverage with the
+project's own suite, as the original's `_prepare_coverage` does; the Rust path
+keeps this port's earlier behavior.
 
 `fixtures/mutate/{python,typescript}` hold the oracle projects and the pinned
 original's raw snapshot bytes; `scripts/mutate_goldens_python_ts.py` regenerates
