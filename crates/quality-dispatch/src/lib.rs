@@ -24,8 +24,9 @@ const USAGE: &str = "usage: uml-viewer quality <crap|mutate|dry> [--root <path>]
 
 Run the project's configured quality tool (uml-quality.json) and print the
 version-1 result record as one JSON line on stdout; the tool's own report
-goes to stderr. Remaining arguments go to the tool (mutate: target files or
---changed, all in one call).
+goes to stderr. --root must directly follow the operation; every later
+argument goes to the tool verbatim (mutate: target files or --changed, all
+in one call).
 
   --root <path>   Project root holding uml-quality.json (default: .).
 
@@ -86,23 +87,19 @@ fn parse(args: &[String]) -> Result<(Operation, PathBuf, Vec<String>), String> {
         return Err("missing operation".to_string());
     };
     let operation = Operation::parse(first).ok_or_else(|| format!("unknown operation {first}"))?;
-    let mut root = PathBuf::from(".");
-    let mut forward = Vec::new();
-    let mut index = 1;
-    while index < args.len() {
-        if args[index] == "--root" {
-            let value = args
-                .get(index + 1)
-                .filter(|value| !value.is_empty())
-                .ok_or("--root requires a value")?;
-            root = PathBuf::from(value);
-            index += 2;
-        } else {
-            forward.push(args[index].clone());
-            index += 1;
-        }
-    }
-    Ok((operation, root, forward))
+    // Only the dispatcher's own leading --root selects the project. Anything
+    // after the first forwarded argument belongs to the tool verbatim (an
+    // operations command may itself take --root).
+    let (root, forwarded_at) = if args.get(1).is_some_and(|arg| arg == "--root") {
+        let value = args
+            .get(2)
+            .filter(|value| !value.is_empty())
+            .ok_or("--root requires a value")?;
+        (PathBuf::from(value), 3)
+    } else {
+        (PathBuf::from("."), 1)
+    };
+    Ok((operation, root, args[forwarded_at..].to_vec()))
 }
 
 /// A refusal before any tool ran: an explicit error record, never an empty

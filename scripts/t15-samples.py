@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory() as scratch:
     (root / 'crates/a/src/lib.rs').write_text('pub fn a(x: i64) -> i64 { x + 1 }\n')
 
     def record(operation, *args):
-        result = subprocess.run([str(binary), 'quality', operation, *args, '--root', str(root)],
+        result = subprocess.run([str(binary), 'quality', operation, '--root', str(root), *args],
                                 cwd=scratch, capture_output=True, text=True, check=False)
         return json.loads(result.stdout)
 

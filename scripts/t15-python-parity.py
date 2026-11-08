@@ -27,7 +27,7 @@ BINARY = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / 'target/de
 
 
 def rust(root, operation, *args):
-    result = subprocess.run([str(BINARY), 'quality', operation, *args, '--root', str(root)],
+    result = subprocess.run([str(BINARY), 'quality', operation, '--root', str(root), *args],
                             cwd=root.parent, capture_output=True, text=True, check=False)
     record = json.loads(result.stdout)
     record['projectRoot'] = '<root>'

@@ -8,6 +8,10 @@ side is `parseQualityResult` in `packages/contracts`.
 uml-viewer quality <crap|mutate|dry> [--root <path>] [args]
 ```
 
+`--root` is the dispatcher's option and must directly follow the operation.
+Every later argument is forwarded verbatim; in particular an `operations`
+command may receive its own `--root`.
+
 The dispatcher reads `<root>/uml-quality.json` (default root: the current
 directory) and runs the requested operation:
 

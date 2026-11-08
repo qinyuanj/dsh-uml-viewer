@@ -52,11 +52,13 @@ impl Project {
     }
 
     fn quality_in(&self, cwd: &Path, args: &[&str]) -> Output {
+        let mut argv = args.to_vec();
+        if !argv.is_empty() {
+            argv.splice(1..1, ["--root", self.root.to_str().unwrap()]);
+        }
         Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
             .arg("quality")
-            .args(args)
-            .arg("--root")
-            .arg(&self.root)
+            .args(argv)
             .current_dir(cwd)
             .env_remove("DISPLAY")
             .env_remove("WAYLAND_DISPLAY")
@@ -140,11 +142,11 @@ fn a_whole_tree_crap_run_publishes_its_snapshot_and_a_valid_record() {
 /// `uml-viewer quality <args> --root <root>` from a different directory.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn quality_at(cwd: &Path, root: &Path, args: &[&str]) -> Output {
+    let mut argv = args.to_vec();
+    argv.splice(1..1, ["--root", root.to_str().unwrap()]);
     Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
         .arg("quality")
-        .args(args)
-        .arg("--root")
-        .arg(root)
+        .args(argv)
         .current_dir(cwd)
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")
