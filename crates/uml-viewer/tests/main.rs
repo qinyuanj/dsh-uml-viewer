@@ -11,6 +11,7 @@ mod crap_goldens;
 mod crap_process;
 mod crap_stamp;
 mod dispatch;
+mod resident;
 mod scene_cli;
 
 use std::ffi::OsStr;

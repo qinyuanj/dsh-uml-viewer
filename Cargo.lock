@@ -2755,7 +2755,9 @@ dependencies = [
  "frame",
  "ir",
  "scene",
+ "serde_json",
  "viewer",
+ "viewer-session",
 ]
 
 [[package]]
@@ -2848,7 +2850,18 @@ dependencies = [
  "libc",
  "scene",
  "serde_json",
+ "viewer-session",
  "winit",
+]
+
+[[package]]
+name = "viewer-session"
+version = "0.1.0"
+dependencies = [
+ "edn",
+ "frame",
+ "scene",
+ "serde_json",
 ]
 
 [[package]]

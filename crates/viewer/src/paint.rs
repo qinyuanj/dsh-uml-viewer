@@ -504,7 +504,7 @@ fn paint_edges(
                     *tip,
                     *behind,
                     stroke_of(ink(*color, *dimmed), *width),
-                    ink(*fill, *dimmed),
+                    crate::color::color(*fill),
                 );
             }
             EdgeCommand::Indicator {

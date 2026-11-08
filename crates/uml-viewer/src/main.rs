@@ -28,6 +28,11 @@ const ROLES: &[(&str, &str, Entry)] = &[
         |_, args| frame::run_scene(args),
     ),
     (
+        "resident",
+        "viewer session over stdin/stdout: JSON actions in, scene frames and events out",
+        |_, args| viewer_session::run_resident(args),
+    ),
+    (
         "crap",
         "score every function with the CRAP metric, .metrics/crap.edn",
         |_, args| crapper::run(args),
