@@ -213,33 +213,41 @@ test('resident dependency chain, relation dimming and temporary client class/edg
     await visibleFull(lane, panel)
     const options = { root: lane.projects.nexus, home: lane.home }
     let frame = await producerFrame(panel, options)
-    const hub = frame.world.find(i => i.kind === 'class' && i.id === ':hub')
-    const [x, y] = center(frame, hub)
+    const selected = frame.world.find(i => i.kind === 'class' && i.id === ':dependency')
+    const [x, y] = center(frame, selected)
     await panel.canvas.click({ position: { x, y } })
-    await expect(panel.summary).toHaveAttribute('data-selected', ':hub')
+    await expect(panel.summary).toHaveAttribute('data-selected', ':dependency')
     await settle(panel)
-    frame = await producerFrame(panel, { ...options, select: '{:kind :class :id :hub}' })
-    const chain = frame.edges.filter(e => e.kind === 'stroke' && e.stroke.role === 'dependency-chain')
-    const dimmed = frame.edges.filter(e => e.kind === 'stroke' && e.dimmed)
-    expect(chain.map(e => [e.from, e.to])).toEqual([[':hub', ':dependency']])
-    expect(dimmed).toHaveLength(5)
+    frame = await producerFrame(panel, { ...options, select: '{:kind :class :id :dependency}' })
+    // :dependency -> :hub is the only dependency and it violates the declared
+    // levels, so the chain keeps 违规关系色 rather than turning blue.
+    const onChain = frame.edges.filter(e => e.kind === 'stroke' && !e.dimmed)
+    expect(onChain.length).toBeGreaterThan(0)
+    expect(new Set(onChain.map(e => `${e.from}->${e.to}:${e.stroke.role}:${e.width}`)))
+      .toEqual(new Set([':dependency->:hub:violation-hot:2.4']))
+    const hidden = frame.edges.filter(e => e.kind === 'stroke' && e.dimmed)
+    expect(hidden.length).toBeGreaterThan(0)
+    expect(hidden.every(e => e.from === ':hub')).toBe(true)
+    expect(hidden.some(e => e.stroke.role === 'dependency-chain')).toBe(false)
     const colors = await hostColors(panel)
-    for (const edge of chain) expect(await near(panel, shaftProbe(frame, edge).s, rgb(palettes.dark.chain), 35)).toBe(true)
-    // The exact dimmed appearance comes from the producer's dimAlpha, applied
-    // over the real canvas. #25 edges.spec separately asserts opaque hollow heads.
-    const edge = dimmed.find(e => e.to === ':association')
+    for (const edge of onChain) expect(await near(panel, shaftProbe(frame, edge).s, rgb(palettes.dark.hot), 40)).toBe(true)
+    // 关系淡化: the unrelated relations paint at the producer's dimAlpha over
+    // the real canvas. #25 edges.spec separately asserts opaque hollow heads.
+    const edge = hidden.find(e => e.to === ':association')
     expect(edge).toBeTruthy()
     const probe = shaftProbe(frame, edge)
     expect(await near(panel, probe.s, mix(colors.canvas, colors.relation, frame.style.dimAlpha / 255), 22, 1)).toBe(true)
     await panel.canvas.hover({ position: { x: probe.s[0], y: probe.s[1] } })
     expect(await near(panel, probe.s, colors.hover, 35)).toBe(true)
     // Selection belongs to the resident and stays the same under local hover.
-    await expect(panel.summary).toHaveAttribute('data-selected', ':hub')
+    await expect(panel.summary).toHaveAttribute('data-selected', ':dependency')
     await settle(panel)
     expect(await near(panel, probe.s, mix(colors.canvas, colors.relation, frame.style.dimAlpha / 255), 22, 1)).toBe(true)
-    await panel.canvas.hover({ position: { x, y } })
-    // Class hover warms every touching relation, including violating reverse edge.
-    for (const e of frame.edges.filter(e => e.kind === 'stroke')) {
+    const [hubX, hubY] = center(frame, frame.world.find(i => i.kind === 'class' && i.id === ':hub'))
+    await panel.canvas.hover({ position: { x: hubX, y: hubY } })
+    // Class hover warms every relation touching the class: ordinary relations
+    // turn white, the violating dependency stays the brighter red.
+    for (const e of frame.edges.filter(edge => edge.kind === 'stroke')) {
       const violating = ['violation', 'violation-hot'].includes(e.stroke.role)
       expect(await near(panel, shaftProbe(frame, e).s, violating ? rgb(palettes.dark.hot) : colors.hover, 35), `${e.from}->${e.to} warm`).toBe(true)
     }
@@ -253,11 +261,12 @@ test('resident dependency chain, relation dimming and temporary client class/edg
     expect(entry.rows.length).toBeGreaterThan(0)
     const popup = tooltip.chrome.find(c => c.kind === 'popup')
     expect(popup.rows).toEqual(entry.rows)
+    const rowInk = entry.rows[0].ink.role === 'violation' ? rgb(palettes.dark.violation) : colors.hover
     await panel.canvas.hover({ position: { x: probePoint[0], y: probePoint[1] } })
-    // The only violating row is the first one, inked in 违规关系色 over the popup.
     const firstRow = { x: popup.rect.x + 8, y: popup.rect.y + 8, w: popup.rect.w - 16, h: 18 }
-    expect(await regionHas(panel, firstRow, rgb(palettes.dark.violation), 60), 'dependency tooltip row ink').toBe(true)
+    expect(await regionHas(panel, firstRow, rowInk, 60), 'dependency tooltip row ink').toBe(true)
     await lane.screenshot(panel, 'dependency-chain-class-hover')
     expect(panel.problems).toEqual([])
   } finally { await lane.close() }
 })
+
