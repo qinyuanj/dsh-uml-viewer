@@ -214,6 +214,34 @@ fn installed_vitest_uses_its_native_node_entry_and_literal_argv() {
     let _ = fs::remove_dir_all(root);
 }
 
+/// `cmd.exe` reads its `/c` text from the raw command line, not from CRT argv:
+/// quoting the switch (`"/c" "set"`) leaves a stray quote after it, so cmd runs
+/// `"set` and exits 1. Mutator's environment probe reaches cmd through this
+/// boundary, so quoting an argument that needs no quotes broke that probe.
+#[cfg(windows)]
+#[test]
+fn cmd_slash_c_switch_reaches_cmd_unquoted() {
+    let root = directory();
+    let argv = ["cmd.exe", "/d", "/c", "set"].map(str::to_string).to_vec();
+    let output = output(&Program::Argv(&argv), &root).unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        Some(0),
+        output.status.code(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // `set` without a name prints the child's environment.
+    assert!(
+        stdout
+            .to_ascii_lowercase()
+            .lines()
+            .any(|line| line.starts_with("path=")),
+        "{stdout}"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
 #[cfg(windows)]
 fn ended(pid: u32) -> bool {
     #[link(name = "kernel32")]
