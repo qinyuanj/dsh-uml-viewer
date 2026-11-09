@@ -140,7 +140,17 @@ export function withHover(frame: SceneFrame, hit: HoverHit | null, pointer: Poin
     ? frame.world
     : frame.world.map(item => (item.kind === 'class' && item.id === hoveredClass ? { ...item, hovered: true } : item))
   const popup = pointer === null ? null : hoverPopup(frame, hit, pointer)
-  return { ...frame, world, edges, chrome: popup ? [...frame.chrome, popup] : frame.chrome }
+  return { ...frame, world, edges, chrome: popup ? withPopup(frame.chrome, popup) : frame.chrome }
+}
+
+/**
+ * The popup sits after the title/back chrome and before the hint/status line,
+ * the order `frame::chrome` builds (`commands::chrome`, then hint and status).
+ */
+function withPopup(chrome: readonly ChromeItem[], popup: ChromeItem): ChromeItem[] {
+  const index = chrome.findIndex(item => item.kind === 'hint' || item.kind === 'status')
+  if (index < 0) return [...chrome, popup]
+  return [...chrome.slice(0, index), popup, ...chrome.slice(index)]
 }
 
 /** Bundled-edge `via-ids` by `from to`, when the resident sent the capability. */
