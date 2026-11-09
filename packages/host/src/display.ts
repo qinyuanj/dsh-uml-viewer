@@ -39,7 +39,7 @@ export async function runDisplay(
   if (!gated.ok) return displayResult(root, { status: 'refused', path, reason: gated.reason })
   try {
     root = await realpath(await services.workingDirectory.ensure(agent, exec.signal))
-    const event = await sessions.refresh(agent, exec.signal,
+    const { event, note } = await sessions.refresh(agent, exec.signal,
       request.path === undefined ? { action: 'reload' } : { action: 'display', path: request.path }, true)
     if (event.event === 'error') return displayResult(root, { status: 'error', path, reason: event.message })
     if (event.event !== 'frame') {
@@ -49,7 +49,7 @@ export async function runDisplay(
       return displayResult(root, { status: 'error', path,
         reason: 'the resident found no diagram in the project; check the policy :out path, run uml_ir again, then uml_display' })
     }
-    return displayResult(root, { status: 'ok', validResult: true, path })
+    return displayResult(root, { status: 'ok', validResult: true, path, reason: note })
   } catch (error) {
     const status = error instanceof Refusal ? 'refused' : 'error'
     return displayResult(root, { status, path, reason: error instanceof Error ? error.message : String(error) })

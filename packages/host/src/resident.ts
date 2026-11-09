@@ -14,6 +14,15 @@ const READY_TIMEOUT_MS = 20_000
 const ACTION_TIMEOUT_MS = 20_000
 const STOP_TIMEOUT_MS = 3_000
 
+const SOURCE_CONTEXT: DiscussionContext = { kind: 'real', edn: '{:context :real}' }
+export const STALE_CONTEXT_REASON = 'previous proposal no longer exists; showing source diagram'
+
+/** A display refresh: the final event, plus why a persisted context was dropped. */
+export interface RefreshOutcome {
+  event: ResidentEvent
+  note: string | null
+}
+
 /** A panel cannot be served; the reason is shown in the panel. */
 export class Refusal extends Error {}
 
@@ -69,7 +78,7 @@ export class ResidentConnection {
   refs = 0
   seq = 0
   private readonly subscribers = new Set<Queue<ResidentEvent>>()
-  private readonly pending = new Map<number, (event: ResidentEvent) => void>()
+  private readonly pending = new Map<number, { resolve: (event: ResidentEvent) => void; quietError: boolean }>()
   private buffer = ''
   private settled = false
   readonly exited: Promise<void>
@@ -119,18 +128,23 @@ export class ResidentConnection {
     else if (event.event === 'state') this.latestState = event.state
     else if (event.event === 'context') this.latestContext = event.context
     const seq = typeof event.seq === 'number' ? event.seq : null
+    let quiet = false
     if (seq !== null) {
-      const resolver = this.pending.get(seq)
-      if (resolver) {
+      const pending = this.pending.get(seq)
+      if (pending) {
         this.pending.delete(seq)
-        resolver(event)
+        quiet = pending.quietError && event.event === 'error'
+        pending.resolve(event)
       }
     }
-    for (const queue of this.subscribers) queue.push(event)
+    // A fallback request's expected error is handled by its caller; showing it
+    // in every panel would turn a recovered display into a visible failure.
+    if (!quiet) for (const queue of this.subscribers) queue.push(event)
   }
 
   /** Send one action and resolve with the first event that answers its `seq`. */
-  request(action: { action: string } & Record<string, unknown>, timeoutMs = ACTION_TIMEOUT_MS): Promise<ResidentEvent> {
+  request(action: { action: string } & Record<string, unknown>, timeoutMs = ACTION_TIMEOUT_MS,
+    options: { quietError?: boolean } = {}): Promise<ResidentEvent> {
     const stdin = this.child.stdin
     if (!stdin) return Promise.reject(new Error('the resident session has no stdin channel'))
     const seq = ++this.seq
@@ -139,10 +153,10 @@ export class ResidentConnection {
         this.pending.delete(seq)
         reject(new Error(`uml-viewer resident did not answer ${action.action} within ${Math.round(timeoutMs / 1000)}s`))
       }, timeoutMs)
-      this.pending.set(seq, event => {
+      this.pending.set(seq, { quietError: options.quietError === true, resolve: event => {
         clearTimeout(timer)
         resolve(event)
-      })
+      } })
       try {
         stdin.write(`${residentAction(action, seq)}\n`)
       } catch (error) {
@@ -310,24 +324,54 @@ export class ResidentSessions {
    * Send one action to this session's resident (starting and stopping it when
    * no panel is open). A display also re-applies the persisted proposal
    * context: showing a diagram resets the resident to the source view, while
-   * the session's discussion context may still be a proposal.
+   * the session's discussion context may still be a proposal. A proposal that
+   * no longer exists is stale view state, not a failed display: keep the source
+   * frame, drop the persisted context and say so in the result's note.
    */
   async refresh(agent: Agent, signal: AbortSignal, action: { action: string } & Record<string, unknown>,
-    restoreContext = false): Promise<ResidentEvent> {
+    restoreContext = false): Promise<RefreshOutcome> {
     const connection = await this.open(agent, signal)
     try {
       let event = await connection.request(action, ACTION_TIMEOUT_MS)
+      let note: string | null = null
       const context = connection.latestContext
       if (restoreContext && context?.kind === 'proposal' && context.proposalId && event.event === 'frame') {
-        const switched = await connection.request({ action: 'context', proposalId: context.proposalId }, ACTION_TIMEOUT_MS)
-        if (switched.event === 'error') return switched
+        // This error is the stale-state signal, not a panel failure: handle it
+        // here so the display can recover and no watching panel sees it.
+        const switched = await connection.request({ action: 'context', proposalId: context.proposalId },
+          ACTION_TIMEOUT_MS, { quietError: true })
+        if (switched.event === 'error') {
+          note = STALE_CONTEXT_REASON
+          await this.clearStaleContext(connection)
+          // Tell the resident and any open panel that the source is the context
+          // now. The frame from the display itself is already the source frame.
+          try {
+            await connection.request({ action: 'context', proposalId: null }, ACTION_TIMEOUT_MS, { quietError: true })
+          } catch {
+            // A resident that cannot reset the context still displayed the source.
+          }
+          return { event, note }
+        }
         // `context` answers with a context event; `reload` returns the frame
         // now rendered in that discussion context.
         event = await connection.request({ action: 'reload' }, ACTION_TIMEOUT_MS)
       }
-      return event
+      return { event, note }
     } finally {
       await this.release(connection)
+    }
+  }
+
+  /** Persisted view state that names a vanished proposal must stop naming it. */
+  private async clearStaleContext(connection: ResidentConnection): Promise<void> {
+    connection.latestContext = SOURCE_CONTEXT
+    try {
+      const state = await this.states.read(connection.id)
+      if (state) {
+        await this.states.write(connection.id, { ...state, context: SOURCE_CONTEXT, proposalId: null, openLayer: null })
+      }
+    } catch {
+      // Best effort: the resident's next `save` carries the reset context too.
     }
   }
 

@@ -182,6 +182,57 @@ fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Result<std::proc
     }
 }
 
+/// A command whose lifetime a caller supervises (mutator's copies).
+///
+/// Native Windows uses the same creation path as [`output`]: the suspended
+/// process joins a kill-on-close Job Object through
+/// `PROC_THREAD_ATTRIBUTE_JOB_LIST` before its primary thread is resumed. The
+/// job is therefore what ends descendants on timeout, on a stop request, on an
+/// error return, and when this process dies abruptly.
+///
+/// `environment` adds to (and replaces entries of) the inherited environment.
+/// Both streams go to `output`, which the caller owns.
+#[cfg(windows)]
+pub struct Supervised(process_windows::Running);
+
+/// The supervised command's end: its own exit code, or the reason it was
+/// stopped (the original's timeout exit is 124; a stop is an interrupt).
+#[cfg(windows)]
+pub enum Ended {
+    Exited(i32),
+    Timeout,
+    Stopped,
+}
+
+/// Start `program` in `cwd` under its own Job Object; never a blocking wait.
+#[cfg(windows)]
+pub fn start_supervised(
+    program: &Program,
+    cwd: &Path,
+    environment: &[(std::ffi::OsString, std::ffi::OsString)],
+    output: &std::fs::File,
+) -> io::Result<Supervised> {
+    process_windows::start(program, cwd, environment, output).map(Supervised)
+}
+
+/// Wait for a supervised command, polling `stop` and the timeout in 25 ms
+/// steps. Returning ends the whole job, including daemon descendants.
+#[cfg(windows)]
+pub fn supervise(
+    running: Supervised,
+    timeout: Option<std::time::Duration>,
+    stop: impl Fn() -> bool,
+) -> io::Result<Ended> {
+    let start = std::time::Instant::now();
+    process_windows::supervise(running.0, move || start.elapsed(), timeout, stop).map(|ended| {
+        match ended {
+            process_windows::Ended::Exited(code) => Ended::Exited(code),
+            process_windows::Ended::Killed("timeout") => Ended::Timeout,
+            process_windows::Ended::Killed(_) => Ended::Stopped,
+        }
+    })
+}
+
 /// `shutil.which`: the first `name` on PATH (with PATHEXT on Windows).
 pub fn which(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;

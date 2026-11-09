@@ -164,6 +164,18 @@ async function contentActions(root: string): Promise<string[]> {
   return (await actionLog(root)).map(entry => entry.action).filter(action => action !== 'save' && action !== 'quit')
 }
 
+async function seedState(home: string, session: string, patch: Record<string, unknown>): Promise<string> {
+  const states = path.join(home, 'dsh-uml-viewer', 'sessions')
+  await mkdir(states, { recursive: true })
+  const file = path.join(states, `${session}.json`)
+  await writeFile(file, JSON.stringify({
+    schema: 'dsh-uml-viewer/session-state', version: 1, diagram: null, context: null,
+    focus: [], proposalId: null, openLayer: null, declutter: null,
+    camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null, ...patch,
+  }))
+  return file
+}
+
 /** Read a JSON file another process writes, once it exists and is complete. */
 async function readJson(file: string): Promise<Record<string, unknown>> {
   return timeout(new Promise((resolve) => {
@@ -233,6 +245,60 @@ it('reports a resident error instead of claiming the panel refreshed', async () 
   expect(await tool('uml_display', {}, 'session-a')).toMatchObject({ status: 'error',
     reason: expect.stringMatching(/unreadable IR/) })
   expect(await contentActions(projects['session-a']!)).toEqual(['open', 'reload'])
+})
+
+it('falls back to the source diagram when the persisted proposal no longer exists', async () => {
+  const { home, projects, stream, tool } = await setup({ resident: { unknownProposals: [':p-stale'] } })
+  const stored = await seedState(home, 'session-a', {
+    context: { kind: 'proposal', proposalId: ':p-stale', name: 'Deleted proposal', edn: '{:context :proposal :proposal-id :p-stale}' },
+    proposalId: ':p-stale',
+  })
+  const reader = stream('session-a')
+  expect((await timeout(reader.next())).value).toMatchObject({ kind: 'ready' })
+  expect((await timeout(reader.next())).value).toMatchObject({ kind: 'context',
+    context: { kind: 'proposal', proposalId: ':p-stale' } })
+  expect((await timeout(reader.next())).value).toMatchObject({ kind: 'frame' })
+
+  expect(await tool('uml_ir', {}, 'session-a')).toMatchObject({ validResult: true })
+  const shown = await tool('uml_display', {}, 'session-a') as unknown as Record<string, unknown>
+  expect(shown).toMatchObject({ status: 'ok', validResult: true,
+    reason: expect.stringMatching(/previous proposal no longer exists; showing source diagram/) })
+  const refreshed = await timeout(reader.next())
+  expect(refreshed.value).toMatchObject({ kind: 'frame' })
+  if (refreshed.value?.kind === 'frame') expect(refreshed.value.frame.waiting).toBe(false)
+  expect((await timeout(reader.next())).value).toEqual({ kind: 'context', context: { kind: 'real', edn: '{:context :real}' } })
+  expect(await contentActions(projects['session-a']!)).toEqual(['open', 'reload', 'context', 'context'])
+  expect(JSON.parse(await readFile(stored, 'utf8'))).toMatchObject({
+    context: { kind: 'real', edn: '{:context :real}' }, proposalId: null,
+  })
+  await reader.close()
+})
+
+it('restores an existing persisted proposal after showing a diagram', async () => {
+  const { home, projects, tool } = await setup()
+  const stored = await seedState(home, 'session-a', {
+    context: { kind: 'proposal', proposalId: ':p-ledger', name: 'Ledger proposal', edn: '{:context :proposal :proposal-id :p-ledger}' },
+    proposalId: ':p-ledger',
+  })
+  expect(await tool('uml_ir', {}, 'session-a')).toMatchObject({ validResult: true })
+  expect(await tool('uml_display', {}, 'session-a')).toMatchObject({ status: 'ok', validResult: true, reason: null })
+  expect(await contentActions(projects['session-a']!)).toEqual(['open', 'reload', 'context', 'reload'])
+  expect(JSON.parse(await readFile(stored, 'utf8'))).toMatchObject({
+    context: { kind: 'proposal', proposalId: ':p-ledger' }, proposalId: ':p-ledger',
+  })
+})
+
+it('still refuses uml_display after failed IR even when the persisted proposal is stale', async () => {
+  const { home, projects, tool } = await setup({ resident: { unknownProposals: [':p-stale'] } })
+  await seedState(home, 'session-a', {
+    context: { kind: 'proposal', proposalId: ':p-stale', name: 'Deleted proposal', edn: '{:context :proposal :proposal-id :p-stale}' },
+    proposalId: ':p-stale',
+  })
+  await writeFile(path.join(projects['session-a']!, 'fake-binary.json'), JSON.stringify({ exitCode: 1, stderr: 'bad policy\\n' }))
+  expect(await tool('uml_ir', {}, 'session-a')).toMatchObject({ status: 'error', validResult: false })
+  expect(await tool('uml_display', {}, 'session-a')).toMatchObject({ status: 'refused', validResult: false,
+    reason: expect.stringMatching(/latest uml_ir in this session failed/) })
+  expect(existsSync(path.join(projects['session-a']!, 'resident-invocation.json'))).toBe(false)
 })
 
 it('refuses the panel stream and uml_display in read-only, spawning nothing', async () => {

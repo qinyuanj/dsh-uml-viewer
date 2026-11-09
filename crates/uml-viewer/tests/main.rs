@@ -17,6 +17,7 @@ mod dry;
 mod dry_goldens;
 mod dry_languages;
 mod mutate;
+mod mutate_windows;
 mod quality;
 mod quality_selection;
 mod resident;

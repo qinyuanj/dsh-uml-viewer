@@ -23,6 +23,7 @@ pub fn name(signum: i32) -> &'static str {
     match signum {
         2 => "SIGINT",
         15 => "SIGTERM",
+        21 => "SIGBREAK",
         _ => "a stop signal",
     }
 }
@@ -81,11 +82,62 @@ mod armed {
 #[cfg(target_os = "linux")]
 pub use armed::Armed;
 
+/// Windows delivers Ctrl+C and Ctrl+Break as console control events on their
+/// own thread (the original's SIGINT/SIGBREAK). The handler only records the
+/// signal; the command poll loop terminates the Job Object and the run cleans
+/// up its copies before exiting 128 + signal.
+#[cfg(windows)]
+mod armed {
+    use super::STOP;
+    use std::sync::atomic::Ordering;
+
+    const CTRL_C_EVENT: u32 = 0;
+    const CTRL_BREAK_EVENT: u32 = 1;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn SetConsoleCtrlHandler(
+            handler: Option<unsafe extern "system" fn(u32) -> i32>,
+            add: i32,
+        ) -> i32;
+    }
+    unsafe extern "system" fn stop(event: u32) -> i32 {
+        let signum = match event {
+            CTRL_C_EVENT => 2,
+            CTRL_BREAK_EVENT => 21,
+            _ => return 0, // close/logoff/shutdown keep their default
+        };
+        STOP.store(signum, Ordering::Relaxed);
+        1
+    }
+
+    /// The console handler for one run; dropping it removes it again.
+    pub struct Armed;
+    impl Armed {
+        pub fn new() -> Self {
+            STOP.store(0, Ordering::Relaxed);
+            unsafe {
+                SetConsoleCtrlHandler(Some(stop), 1);
+            }
+            Self
+        }
+    }
+    impl Drop for Armed {
+        fn drop(&mut self) {
+            unsafe {
+                SetConsoleCtrlHandler(Some(stop), 0);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+pub use armed::Armed;
+
 /// Other platforms refuse mutation before a command runs; no handler is needed.
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 pub struct Armed;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 impl Armed {
     pub fn new() -> Self {
         Self
