@@ -21,10 +21,13 @@ export function panelEvent(event: ResidentEvent): PanelEvent | null {
     case 'search':
       return { kind: 'search', query: event.query, results: event.results }
     // #27: inspector/card/source are answers to one panel's action and travel
-    // on that action's ack, never into every watching panel's stream.
+    // on that action's ack, never into every watching panel's stream. #28's
+    // quality-target is the same kind of private answer: the host asked for it
+    // through a quiet request and queues the message itself.
     case 'inspector':
     case 'card':
     case 'source':
+    case 'quality-target':
       return null
     case 'error':
       return { kind: 'failed', reason: event.message }

@@ -29,7 +29,7 @@ write({
   stateSchema: 'dsh-uml-viewer/session-state', stateVersion: 1,
   actions: ['open', 'viewport', 'camera', 'display', 'reload', 'drill-in', 'back', 'namespace-tree',
     'select', 'search', 'locate', 'context', 'declutter', 'save', 'quit',
-    'inspector', 'card', 'open-card', 'close-card', 'scroll-card', 'open-source'],
+    'inspector', 'card', 'open-card', 'close-card', 'scroll-card', 'open-source', 'quality-target'],
 })
 
 function exit(reason) {
@@ -84,6 +84,19 @@ function handle(action) {
       return config.sourceError
         ? answer(action.seq, { event: 'error', message: config.sourceError })
         : answer(action.seq, { event: 'source', source: config.source })
+    // #28: the test supplies one entry per element id. A raw target is
+    // answered as it stands (so a malformed one reaches the host validator);
+    // `error` is a refusal, as the real resident's is.
+    case 'quality-target': {
+      const entry = (config.qualityTargets ?? {})[action.id]
+      if (!entry) {
+        return answer(action.seq, { event: 'error',
+          message: `no class or namespace component ${action.id} in the shown diagram` })
+      }
+      if (entry.error) return answer(action.seq, { event: 'error', message: entry.error })
+      return answer(action.seq, { event: 'quality-target',
+        target: { id: entry.id ?? action.id, kind: entry.kind, files: entry.files } })
+    }
     case 'quit':
       exit('quit')
       answer(action.seq, { event: 'ack' })
