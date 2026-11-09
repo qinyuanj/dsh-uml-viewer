@@ -49,6 +49,9 @@ export const OVERLAY_STYLE = `
 @media (max-width: 600px) { .dsh-uml-inspector { width: 180px; padding: 8px; } .dsh-uml-card,.dsh-uml-source { left: 0; max-width: 100%; } }
 `
 
+/** The inspector's new-proposal control, `frame::strings::NEW_PROPOSAL`. */
+const NEW_PROPOSAL = '新建提案'
+
 export function Inspector({ state, controller, theme = resolveTheme(document.body) }: { state: OverlaySnapshot; controller: OverlayController; theme?: Theme }): unknown {
   const model = state.inspector
   if (!model) return null
@@ -58,6 +61,8 @@ export function Inspector({ state, controller, theme = resolveTheme(document.bod
       index === 1 ? h('div', { style: { color: 'var(--dsw-alias-label-tertiary)' } }, model.labels.proposals) : null,
       h('button', { type: 'button', 'aria-pressed': entry.active, style: { width: '100%' },
         onClick: () => { void controller.choose(entry.id) } }, entry.label)))),
+    // strings::NEW_PROPOSAL; the companion adds the proposal to the policy.
+    h('button', { type: 'button', onClick: () => { void controller.newProposal(new Date()) } }, NEW_PROPOSAL),
     h('button', { type: 'button', onClick: () => { void controller.namespaceTree() } }, model.labels.pHint),
     h('button', { type: 'button', onClick: () => { void controller.declutter() } }, model.declutterLabel),
     h('div', { className: 'dsh-uml-summary-lines', 'data-summary-kind': model.summary.kind }, ...model.summary.lines.map((line, index) =>

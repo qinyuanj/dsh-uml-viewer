@@ -23,6 +23,7 @@
  *   cannot overwrite a fresher outcome.
  */
 import type { CardModel, InspectorModel, PanelAck, PanelAction, SourceModel } from '@dsh-uml-viewer/contracts'
+import { defaultProposalName } from '@dsh-uml-viewer/contracts'
 
 export interface SourceWindow {
   serial: number
@@ -224,6 +225,18 @@ export class OverlayController {
   /** Choose the source diagram (null) or a proposal as the discussion context. */
   public async choose(id: string | null): Promise<void> {
     await this.changeCard({ action: 'context', proposalId: id })
+  }
+
+  /**
+   * 新建提案 (#29): ask the companion for a proposal named `name`, or with
+   * the local time to the second. The proposal list changes only when the
+   * companion's regenerated IR is displayed, so nothing here changes now.
+   */
+  public async newProposal(now: Date, name?: string): Promise<void> {
+    if (this.closed) return
+    const intent = ++this.intent
+    const ack = await this.request({ action: 'new-proposal', name: name ?? defaultProposalName(now) }, () => true, intent)
+    if (ack?.accepted) this.succeed(intent)
   }
 
   /** **P**: back to the source diagram's namespace tree. */

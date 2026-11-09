@@ -23,7 +23,8 @@ const LABELS: Record<QualityRequestOp, string> = {
 }
 
 /**
- * Attach a quality menu to one panel. It sends only a validated element id to
+ * Attach the element menu to one panel: the quality refreshes (#28) and Hide
+ * (#29, `omit`). It sends only a validated element id to
  * that panel's `action` API; the host resolves the files and queues the visible
  * message. It uses no composer API and never focuses or changes a draft.
  */
@@ -35,22 +36,27 @@ export function mountQualityMenu(host: HTMLElement, canvas: HTMLCanvasElement, o
   const menu = document.createElement('div')
   menu.className = 'dsh-uml-quality-menu'
   menu.setAttribute('role', 'menu')
-  menu.setAttribute('aria-label', 'Quality refresh')
+  menu.setAttribute('aria-label', 'Element requests')
   menu.hidden = true
   let target: string | null = null
   let disposed = false
   const hide = (): void => { menu.hidden = true; target = null }
-  for (const op of QUALITY_REQUESTS) {
+  // The three quality refreshes (#28), then Hide (#29): each sends the bound id only.
+  const entries: [string, (id: string) => PanelAction][] = [
+    ...QUALITY_REQUESTS.map((op): [string, (id: string) => PanelAction] => [LABELS[op], id => ({ action: 'quality-request', request: op, id })]),
+    ['Hide', id => ({ action: 'omit', id })],
+  ]
+  for (const [label, action] of entries) {
     const button = document.createElement('button')
     button.type = 'button'
     button.setAttribute('role', 'menuitem')
-    button.textContent = LABELS[op]
+    button.textContent = label
     button.addEventListener('click', () => {
       const id = target
       hide()
       if (id === null) return
       options.report(null)
-      void options.send({ action: 'quality-request', request: op, id }).then(ack => {
+      void options.send(action(id)).then(ack => {
         if (!disposed && ack && !ack.accepted) options.report(ack.reason ?? 'The request was not accepted.')
       }, error => {
         if (!disposed) options.report(error instanceof Error ? error.message : String(error))
@@ -73,7 +79,7 @@ export function mountQualityMenu(host: HTMLElement, canvas: HTMLCanvasElement, o
     if (!element || (element.kind === 'class' && element.shape === 'oval')) return
     target = id
     menu.style.left = `${Math.max(0, Math.min(event.offsetX, bounds.width - 230))}px`
-    menu.style.top = `${Math.max(0, Math.min(event.offsetY, bounds.height - 110)) + (canvas.offsetTop ?? 0)}px`
+    menu.style.top = `${Math.max(0, Math.min(event.offsetY, bounds.height - 140)) + (canvas.offsetTop ?? 0)}px`
     menu.hidden = false
   }
   const dismiss = (event: Event): void => {
