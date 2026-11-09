@@ -167,6 +167,26 @@ immutable. The real package producer rejects a binary whose version differs.
 The source copy is removed afterward. No release versions, tags or registry
 publication are involved. The script refuses execution outside GitHub Actions.
 
+CI12 failed after `install_bundle` answered `applied` 1.0.1: the lane's
+`plugin-state/current.json` stayed 1.0.0. In the pinned DSH 0.2.2-rc.1 the
+`--patch` overlay survives every manager reconcile (`profileContext.overlays`),
+so a lost `home` is unlikely. The probable cause is upstream. DSH imports the
+re-inserted row by bare name through Node's own ESM resolver, and dsh-hmr
+evicts only Node's module load cache. Node's resolver keeps a process-lifetime
+realpath cache, so `node_modules/dsh-uml-viewer` still resolves to the removed
+1.0.0 copy while that copy is on disk. The old host code then runs again and
+pins 1.0.0. An offline Node 24 junction-retarget check reproduces the stale
+resolution; the CI run itself did not record which copy loaded. To decide it,
+`upgrade-evidence.mjs` (offline tests in `upgrade-evidence.test.mjs`) records
+`afterRemoval`, `afterPlatform`, `afterInstall` and, when the 1.0.1 poll
+fails, `afterPoll` into `upgrade-acceptance.json` before the assertion fails.
+Each record lists every version store directly under the scratch DSH home
+(its `current.json` and version directories, including a default
+`dsh-uml-viewer` store), the real targets and versions of the profile's main
+and platform links, and every dsh-uml-viewer copy in the virtual store.
+Assertions, polls and budgets are unchanged; while the stale resolution holds,
+this case cannot pass without a host restart, which it does not perform.
+
 This case has been authored and checked offline; installed-upgrade browser
 acceptance remains **NOT RUN until CI executes it**. Source or Node fixture
 checks do not establish this outcome.

@@ -7,6 +7,7 @@ import { test, expect } from '@playwright/test'
 import { packageInputs } from './dsh-web.mjs'
 import { launchViewerLane } from './lane.mjs'
 import { UPGRADE_PROMPTS, upgradeReply } from './upgrade-reply.mjs'
+import { installEvidence } from './upgrade-evidence.mjs'
 
 const initial = packageInputs()
 const next = process.env.UML_VIEWER_UPGRADE_MAIN || process.env.UML_VIEWER_UPGRADE_PLATFORM
@@ -107,11 +108,13 @@ test('installed update keeps the busy vN resident until explicit Close/Open, the
     // Either scripted outcome ends the wait; the tool's own result decides.
     await answerApprovals(shop.page, shop.page.getByText(/^Isolated removal (applied|did not apply)$/).last())
     evidence.removal = observed.removal
+    evidence.afterRemoval = await installEvidence(lane.home)
     expect(observed.removal?.application).toBe('applied')
     // 2. The 1.0.1 platform tarball as a plain dependency. With the bundle
     // removed nothing maps it, so replacing it cannot be `package-moved`; it
     // activates nothing by itself (CI11: an external CLI add never did).
     lane.installPlatform(next.platform)
+    evidence.afterPlatform = await installEvidence(lane.home)
     expect(JSON.parse(await fs.readFile(path.join(home, 'current.json'), 'utf8')).version).toBe('1.0.0')
     // 3. Public plugin_manager install_bundle with the absolute 1.0.1 main
     // tarball. The profile's direct dependencies then differ only in
@@ -126,9 +129,18 @@ test('installed update keeps the busy vN resident until explicit Close/Open, the
     evidence.install = observed.install
     expect(observed.install?.application).toBe('applied')
     expect(observed.install).toMatchObject({ bundle: 'dsh-uml-viewer', version: '1.0.1' })
+    evidence.afterInstall = await installEvidence(lane.home)
     // No host restart, page reload, private ctx or installed-file copying.
-    await expect.poll(async () => JSON.parse(await fs.readFile(path.join(home, 'current.json'), 'utf8')).version,
-      { timeout: 10_000 }).toBe('1.0.1')
+    try {
+      await expect.poll(async () => JSON.parse(await fs.readFile(path.join(home, 'current.json'), 'utf8')).version,
+        { timeout: 10_000 }).toBe('1.0.1')
+    } catch (error) {
+      // CI12: which store the activation pinned, and which package copy the
+      // re-inserted row could import, decide between a lost `home` and a
+      // stale 1.0.0 module (docs/e2e-harness.md); recorded before rethrowing.
+      evidence.afterPoll = await installEvidence(lane.home)
+      throw error
+    }
     expect(new URL(lane.host.url).origin).toBe(origin)
     expect(lane.host.pid).toBe(hostPid)
     expect(alive(hostPid)).toBe(true)
