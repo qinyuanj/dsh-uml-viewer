@@ -64,7 +64,8 @@ fn compact_len(value: &Json) -> usize {
 
 /// An element id as the frame writes it: its EDN text, which round-trips.
 fn edn_text(id: &Value) -> Option<String> {
-    edn::encode(id).ok()
+    let text = edn::encode(id).ok()?;
+    (text.len() <= MAX_TEXT_BYTES).then_some(text)
 }
 
 fn id_text(record: &Value, key: &str) -> Option<String> {
@@ -73,10 +74,10 @@ fn id_text(record: &Value, key: &str) -> Option<String> {
 
 /// `scene::highlight::touches`'s third clause: the classes a bundled relation
 /// passes through. The scene writes them as `:via-ids`.
-fn via_ids(edge: &Value) -> Vec<String> {
+fn via_ids(edge: &Value) -> Option<Vec<String>> {
     match get(edge, "via-ids") {
-        Some(Value::Vector(ids)) => ids.iter().filter_map(edn_text).collect(),
-        _ => Vec::new(),
+        Some(Value::Vector(ids)) => ids.iter().map(edn_text).collect(),
+        _ => Some(Vec::new()),
     }
 }
 
@@ -116,12 +117,12 @@ fn build(scene: &Value) -> Option<(Vec<Json>, Vec<Json>)> {
         return None;
     }
     let mut total_rows = 0usize;
+    let mut bytes = 0usize;
     let mut seen: HashSet<(String, String)> = HashSet::new();
     let mut edge_entries = Vec::new();
     for edge in edges {
-        let (Some(from), Some(to)) = (id_text(edge, "from"), id_text(edge, "to")) else {
-            continue;
-        };
+        let from = id_text(edge, "from")?;
+        let to = id_text(edge, "to")?;
         // Every stroke of one relation carries the same metadata; keep one.
         if !seen.insert((from.clone(), to.clone())) {
             continue;
@@ -131,7 +132,7 @@ fn build(scene: &Value) -> Option<(Vec<Json>, Vec<Json>)> {
         {
             return None;
         }
-        let via = via_ids(edge);
+        let via = via_ids(edge)?;
         let raw_deps = scene::hit::deps_of(edge);
         let deps = rows(seq(raw_deps.as_ref()))?;
         if deps.len() > MAX_ROWS_PER_ITEM {
@@ -146,13 +147,16 @@ fn build(scene: &Value) -> Option<(Vec<Json>, Vec<Json>)> {
         object.insert("to".into(), json!(to));
         object.insert("viaIds".into(), json!(via));
         object.insert("rows".into(), rows_json(&deps));
-        edge_entries.push(Json::Object(object));
+        let entry = Json::Object(object);
+        bytes = bytes.saturating_add(compact_len(&entry));
+        if bytes > MAX_METADATA_BYTES {
+            return None;
+        }
+        edge_entries.push(entry);
     }
     let mut indicator_entries = Vec::new();
     for indicator in indicators {
-        let Some(id) = id_text(indicator, "id") else {
-            continue;
-        };
+        let id = id_text(indicator, "id")?;
         let triangle: Vec<[f64; 2]> = seq(get(indicator, "triangle"))
             .iter()
             .filter_map(scene::vec2)
@@ -184,7 +188,12 @@ fn build(scene: &Value) -> Option<(Vec<Json>, Vec<Json>)> {
             ),
         );
         object.insert("rows".into(), rows_json(&deps));
-        indicator_entries.push(Json::Object(object));
+        let entry = Json::Object(object);
+        bytes = bytes.saturating_add(compact_len(&entry));
+        if bytes > MAX_METADATA_BYTES {
+            return None;
+        }
+        indicator_entries.push(entry);
     }
     if total_rows > MAX_ROWS {
         return None;
