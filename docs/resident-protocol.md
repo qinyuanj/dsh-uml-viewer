@@ -66,6 +66,7 @@ An event:
 | `inspector` | answers `inspector` | `inspector`: the [inspector model](#inspector) (#27) |
 | `card` | answers `card` | `card`: the open [class card](#class-card) (#27) |
 | `source` | answers `open-source` | `source`: the [opened source](#source-window) (#27) |
+| `quality-target` | answers `quality-target` | `target`: the [resolved quality target](#quality-target) (#28) |
 | `ack` | answers `camera` and `quit` | — |
 | `error` | a line that is not an object, has another `version`, names no or an unknown action, or has invalid fields | `message`; `seq` when the line had one, else null |
 
@@ -95,6 +96,7 @@ An `error` changes nothing; the session keeps running.
 | `open-card` | `id` (EDN) or `at` (world point) | `frame` | **double-click**: a namespace or proposal layer is entered, a class is selected and its card opens (`scene::events::on_double_press`). With `id` the class's card opens without moving the view. |
 | `close-card` | — | `frame` | close the class card; the selection stays |
 | `scroll-card` | `delta` (wheel notches), `viewHeight` | `frame` | a wheel over the card: `frame::inspector::scroll` owns the 48-point step and both clamps |
+| `quality-target` | `id` (canonical EDN text) | `quality-target` | resolve the class or component to source files from the CURRENT loaded session document and shown proposal, without changing view or discussion state. Unknown, foreign, omitted or sourceless targets are an `error`; a partial or empty success is never returned. |
 | `open-source` | `id` (EDN), `member?` | `source` | open the class's source: the whole module, or one member's declaration line. The resident reads the file from the session project; an unknown class, file, language or member, or a source over the [source window limits](#source-window-limits), is an `error`. |
 
 The child polls the diagram and the `.metrics/` quality snapshots every
@@ -217,6 +219,59 @@ contracts. It does not broadcast these payloads to the panel watch streams:
 opening source in one panel must not create a window in another panel of the
 same session. View mutations still return and broadcast the existing `frame`
 event. Panels request a fresh inspector/card model after a new frame.
+
+## Quality target
+
+The host sends this read-only action through its quiet request path and validates
+its answer before admitting the visible panel request. It never reads the IR
+file again and never computes namespace or proposal membership in TypeScript.
+The client menu and `quality-request` operation still carry only the op and id;
+client-supplied filenames are ignored. The approved `sessionController.prompt`
+call remains one visible message with `mode: "queue"`, admitted FIFO per session,
+without touching the composer draft.
+
+```jsonl
+{"version":1,"seq":17,"action":"quality-target","id":":core"}
+{"version":1,"seq":17,"event":"quality-target","target":{"id":":core","kind":"component","files":["src/core/a.rs","src/core/b.rs"]}}
+{"version":1,"seq":18,"action":"quality-target","id":":proposal.domain"}
+{"version":1,"seq":18,"event":"quality-target","target":{"id":":proposal.domain","kind":"component","files":["src/api.rs","src/core/a.rs"]}}
+{"version":1,"seq":19,"action":"quality-target","id":":quil"}
+{"version":1,"seq":19,"event":"error","message":"no class or namespace component :quil in the shown diagram"}
+```
+
+These are authored examples, not real-binary captures. IDs are canonical EDN
+text as carried by the scene frame. A class takes its own source file. A
+namespace component includes its namespace subtree, including its own module
+when it has one. Proposal layers, nested groups and `:proposal.unassigned` use
+the existing Rust scene hierarchy's actual members: exact module first,
+otherwise subtree, with policy/proposal `:omit` and foreign classes excluded.
+The answer uses the session's loaded document and current view context, so
+replacing the IR file after load cannot change a target until the resident
+accepts a reload. No action-specific on-disk IR read occurs.
+
+`target` has `id`, `kind` (`class` or `component`) and `files`. Every file is an
+existing canonical project-relative path with forward slashes. The resident
+resolves symlinks/junctions before checking project containment; path escapes,
+absolute paths, control characters, dot segments and command options are
+refused. Files are sorted by UTF-8 path bytes and deduplicated by canonical
+path. A missing file or any member without source refuses the whole target.
+
+The resident (`crates/viewer-session/src/targets.rs`, `QUALITY_TARGET_*`) and the
+contracts validator (`packages/contracts/src/requests.ts`, `QUALITY_TARGET_LIMITS`)
+share these bounds. The id is checked when the answer arrives, because the
+resident only echoes an id it already resolved:
+
+| bound | limit |
+|---|---|
+| files | 4096 |
+| each file path | 4096 UTF-8 bytes |
+| one `quality-target` payload | 1048320 bytes (1 MiB minus 256 bytes reserved for the envelope) |
+| the canonical EDN id (contracts) | 4096 UTF-8 bytes |
+
+An oversized answer is an explicit refusal and is never truncated. The host
+checks the returned id matches the requested id, bounds, paths, uniqueness and
+order; it neither adds nor removes files. The answer and expected refusals are
+private to the requesting action and do not broadcast onto panel watch streams.
 
 ## Discussion context
 
