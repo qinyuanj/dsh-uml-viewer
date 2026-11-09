@@ -230,7 +230,7 @@ fn collect_strings<'a>(value: &'a Json, out: &mut Vec<&'a str>) {
 
 #[cfg(test)]
 mod tests {
-    //! Source-only tests (#26): NOT RUN under the current resource restriction.
+    //! Source-only tests (#26).
     use super::*;
 
     fn kw(name: &str) -> Value {

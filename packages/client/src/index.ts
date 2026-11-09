@@ -2,7 +2,7 @@
  * The plugin's browser half: one right-sidebar tab bound to the session the
  * sidebar belongs to, and the same panel as a full-width `main` page.
  *
- * React comes from the host's platform module table (DECISIONS.md D1): this
+ * React comes from the host's platform module table (ADR 0013, D1): this
  * bundle requires it, never embeds it, and imports no
  * `dsh-client-ui-primitives`. The chrome is plain markup styled from host
  * theme tokens, which is why the panel reads tokens for its Canvas 2D colors

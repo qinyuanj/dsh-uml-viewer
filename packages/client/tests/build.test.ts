@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
  * The checks that can only be made on the built artifact: the browser bundle
  * is `lib/client.js`, produced by `pnpm build`. They assert the client facet
  * the host serves, and that React and the UI primitives never enter the
- * payload (DECISIONS.md D1).
+ * payload (ADR 0013, D1).
  */
 const root = path.resolve(fileURLToPath(new URL('../../..', import.meta.url)))
 const bundlePath = path.join(root, 'lib', 'client.js')

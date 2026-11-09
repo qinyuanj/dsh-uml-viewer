@@ -58,14 +58,14 @@ dependency tooltip rows, and the overview class-name popup clearing on leave.
 The producer oracle accepts `hover`, `pointer` and `--hover-metadata`, so tooltip
 expectations come from Rust; no frames are injected.
 
-Under the current resource restriction these cases are **authored, NOT RUN**:
-there is no existing matching binary. Do not follow the build commands above to
-make one. A later authorized run must provide an existing matching executable and
-set **both** environment variables for browser installation and tests:
+These cases are **authored, not yet run** in this repository: the lane never
+builds, so a run needs an existing matching executable supplied from outside.
+Do not follow the build commands above to make one inside the lane. A run sets
+**both** environment variables for browser installation and tests:
 
 ```powershell
-$env:UML_VIEWER_E2E_SCRATCH = 'D:/dev/github/spec203-notes/scratch-t26'
-$env:PLAYWRIGHT_BROWSERS_PATH = 'D:/dev/github/spec203-notes/scratch-t26/browsers'
+$env:UML_VIEWER_E2E_SCRATCH = '<scratch>/e2e-uml-viewer'
+$env:PLAYWRIGHT_BROWSERS_PATH = '<scratch>/e2e-uml-viewer/browsers'
 $env:UML_VIEWER_BIN = 'D:/absolute/path/to/existing/uml-viewer.exe'
 # Only when a matching existing binary is available:
 pnpm e2e:install
@@ -354,9 +354,9 @@ Run only these cases after the plugin and binary have been built and scratch
 Chromium has been installed. For the native Windows t27 scratch lane:
 
 ```powershell
-$env:PLAYWRIGHT_BROWSERS_PATH = 'D:/dev/github/spec203-notes/scratch-t27/browsers'
-$env:UML_VIEWER_E2E_SCRATCH = 'D:/dev/github/spec203-notes/scratch-t27'
-$env:UML_VIEWER_BIN = 'D:/dev/github/dsh-uml-viewer-wt/t27/target/debug/uml-viewer.exe'
+$env:PLAYWRIGHT_BROWSERS_PATH = '<scratch>/e2e-uml-viewer/browsers'
+$env:UML_VIEWER_E2E_SCRATCH = '<scratch>/e2e-uml-viewer'
+$env:UML_VIEWER_BIN = '<absolute path to an existing uml-viewer.exe>'
 pnpm --filter @dsh-uml-viewer/e2e test:e2e overlays.spec.mjs
 ```
 

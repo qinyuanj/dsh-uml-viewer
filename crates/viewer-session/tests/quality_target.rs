@@ -1,8 +1,5 @@
 //! Quality refresh targets (#28) as the resident answers them: canonical
 //! project-relative files, deduplicated, bounded, or an explicit refusal.
-//! Authored under the RESOURCE-POLICY of spec #203 and **NOT RUN**: no Rust
-//! test binary may be built or executed in this session. Run
-//! `cargo test -p viewer-session --locked` when the policy allows it.
 
 use std::fs;
 use std::path::{Path, PathBuf};

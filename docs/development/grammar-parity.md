@@ -25,7 +25,7 @@ Use Python 3.11+ with `tree-sitter-language-pack==1.21.0` installed, and the
 repository Rust toolchain:
 
 ```sh
-python scripts/check-grammar-parity.py --ref-root D:/dev/github/spec203-notes/ref
+python scripts/check-grammar-parity.py --ref-root <spec203-notes>/ref
 ```
 
 The script builds a temporary Rust dumper using the exact dependency

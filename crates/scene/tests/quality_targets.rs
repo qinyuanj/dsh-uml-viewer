@@ -2,10 +2,6 @@
 //! with the scene's own grouping rules — source class, namespace component,
 //! proposal layer, nested proposal group, `:proposal.unassigned`, `:omit`,
 //! foreign and unknown ids.
-//!
-//! Authored under the RESOURCE-POLICY of spec #203 and **NOT RUN**: no Rust
-//! test binary may be built or executed in this session. Run
-//! `cargo test -p scene --locked` when the policy allows it.
 
 use edn::Value;
 use scene::targets::{Kind, Target, resolve};

@@ -5,11 +5,11 @@ import { launchViewerLane } from './lane.mjs'
 import { producerFrame, toScreen } from './canvas.mjs'
 
 /**
- * #29: authored under RESOURCE-POLICY.md and NOT RUN (no current binary and no
- * browser binary when it was written). Run only with an EXISTING binary:
+ * #29: not yet run against a real binary or browser. Run only with an
+ * EXISTING binary:
  * UML_VIEWER_BIN=<absolute existing exe>
- * UML_VIEWER_E2E_SCRATCH=D:/dev/github/spec203-notes/scratch-t29
- * PLAYWRIGHT_BROWSERS_PATH=D:/dev/github/spec203-notes/scratch-t29/browsers
+ * UML_VIEWER_E2E_SCRATCH=<scratch>/e2e-uml-viewer
+ * PLAYWRIGHT_BROWSERS_PATH=<scratch>/e2e-uml-viewer/browsers
  * (set the last two for BOTH browser install and test invocations).
  *
  * The scripted LLM stands in for the companion: for :omit and :new-proposal

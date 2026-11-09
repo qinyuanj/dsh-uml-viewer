@@ -419,7 +419,6 @@ fn opened_title(member: Option<&str>, model: &detail::Model) -> String {
     }
 }
 
-// Authored under the resource restriction of spec #203: NOT RUN.
 #[cfg(test)]
 mod source_bound_tests {
     use super::*;

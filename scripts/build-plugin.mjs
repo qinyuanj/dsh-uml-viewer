@@ -15,7 +15,7 @@ await build({
 })
 
 // The browser half. React comes from the host's platform module table, so it
-// is an external `require`, never embedded (DECISIONS.md D1). The output is the
+// is an external `require`, never embedded (ADR 0013, D1). The output is the
 // closure-factory handoff `dsh.client` packages must use.
 await build({
   entryPoints: ['packages/client/src/index.ts'],

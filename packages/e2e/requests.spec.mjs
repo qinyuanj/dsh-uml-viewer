@@ -5,10 +5,10 @@ import { launchViewerLane } from './lane.mjs'
 import { producerFrame, toScreen } from './canvas.mjs'
 
 /**
- * #28: authored under RESOURCE-POLICY.md. Run only with an EXISTING binary:
+ * #28: not yet run against a real binary. Run only with an EXISTING binary:
  * UML_VIEWER_BIN=<absolute existing exe>
- * UML_VIEWER_E2E_SCRATCH=D:/dev/github/spec203-notes/scratch-t28
- * PLAYWRIGHT_BROWSERS_PATH=D:/dev/github/spec203-notes/scratch-t28/browsers
+ * UML_VIEWER_E2E_SCRATCH=<scratch>/e2e-uml-viewer
+ * PLAYWRIGHT_BROWSERS_PATH=<scratch>/e2e-uml-viewer/browsers
  * (set the last two for BOTH browser install and test invocations).
  *
  * The fixture quality operation is Node, explicitly configured in the scratch
