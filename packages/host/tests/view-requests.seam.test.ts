@@ -335,3 +335,12 @@ it('withdraws the id of a request DSH did not admit', async () => {
   expect(await s.tool('uml_ir', { request: requestIdOf(seen) })).toMatchObject({ status: 'refused',
     reason: expect.stringMatching(/unknown or was already used/) })
 })
+
+it('carries the #29 request formats and the request-id rule in the embedded companion rules', async () => {
+  const rules = await readFile(new URL('../../../docs/companion-rules.md', import.meta.url), 'utf8')
+  expect(rules).not.toContain('\r')
+  for (const phrase of ['{:op :omit :target', '{:op :new-proposal :name', '{:op :context :context', 'uml_ir({request: "<id>"})',
+    'Each id works once', 'in place', 'keep its comments']) {
+    expect(rules).toContain(phrase)
+  }
+})

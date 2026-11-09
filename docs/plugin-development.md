@@ -142,6 +142,22 @@ the binary's own path and policy validation still apply. With no policy argument
 `examples/*.policy.edn`, otherwise `policy.edn`. With no output argument the
 binary uses the policy's `:out`, otherwise `diagram.edn`.
 
+`uml_ir` also takes `request`, the 32-hex `:request` id of a panel request that
+needs no quality refresh (#29: Hide sends `:omit`, 新建提案 sends
+`:new-proposal`). The host issues the id (128 random bits) when it queues the
+visible message, bound to that session; the first `uml_ir` that presents it
+consumes it, whatever the IR outcome. It skips only the "latest quality call
+failed" refusal: the IR still waits behind a quality call in progress, and
+`uml_display` still needs that IR to succeed. An unknown, used or other-session
+id is refused with a reason. A session keeps at most 32 pending ids (oldest
+dropped), an id DSH did not admit is withdrawn, and all ids end with the plugin
+activation, so after a plugin reload or a DSH restart the companion runs
+`uml_ir` without one. Choosing the discussion context switches the resident
+first and then queues `{:op :context …}`; it changes no file and carries no id.
+All panel requests of a session (quality, Hide, context, 新建提案) are
+admitted one at a time in click order through `sessionController.prompt`
+with `mode: 'queue'`, so the composer draft is never touched.
+
 Each call resolves `ctx.sandboxPolicy` with the actual session. Read-only
 refuses with a reason and no child. Workspace-write uses
 `ctx.sandbox.confine(argv, policy, signal)` and spawns only the returned argv;
