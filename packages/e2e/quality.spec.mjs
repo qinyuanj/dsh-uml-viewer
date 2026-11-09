@@ -157,7 +157,9 @@ test('quality colors, C/M dots and no-data survive light/dark and changed skin t
         expect(await near(panel, [c[0] - r, c[1]], ramp(dot.stroke.grade, palette.stroke), 35, 1), `${dot.id} ${dot.text} ring`).toBe(true)
         const letter = await panel.canvas.evaluate((canvas, { c, r, markerInk }) => {
           const ctx = canvas.getContext('2d'), s = canvas.width / canvas.getBoundingClientRect().width
-          const d = ctx.getImageData(Math.floor((c[0] - r / 2) * s), Math.floor((c[1] - r / 2) * s), Math.max(1, Math.floor(r * s)), Math.max(1, Math.floor(r * s))).data
+          // Include the glyph's top and bottom: its thin antialiased centre
+          // can have no fully covered ink pixel at a reading zoom below 1.
+          const d = ctx.getImageData(Math.floor((c[0] - r) * s), Math.floor((c[1] - r) * s), Math.max(1, Math.ceil(2 * r * s)), Math.max(1, Math.ceil(2 * r * s))).data
           // Compare actual marker ink inside the disc, not brightness: the
           // light-mode disc is itself bright and must not satisfy this test.
           let count = 0
@@ -225,18 +227,22 @@ test('resident dependency chain, relation dimming and temporary client class/edg
     await expect(panel.summary).toHaveAttribute('data-selected', ':dependency')
     await settle(panel)
     frame = await producerFrame(panel, { ...options, select: '{:kind :class :id :dependency}' })
-    // :dependency -> :hub is the only dependency and it violates the declared
-    // levels, so the chain keeps 违规关系色 rather than turning blue.
+    // The fixture has a dependency cycle: :dependency -> :hub violates the
+    // declared levels and stays red; :hub -> :dependency is an ordinary blue
+    // chain edge. The five reclassified Hub relations remain dimmed.
     const onChain = frame.edges.filter(e => e.kind === 'stroke' && !e.dimmed)
     expect(onChain.length).toBeGreaterThan(0)
     expect(new Set(onChain.map(e => `${e.from}->${e.to}:${e.stroke.role}:${e.width}`)))
-      .toEqual(new Set([':dependency->:hub:violation-hot:2.4']))
+      .toEqual(new Set([':dependency->:hub:violation-hot:2.4', ':hub->:dependency:dependency-chain:1.6']))
     const hidden = frame.edges.filter(e => e.kind === 'stroke' && e.dimmed)
-    expect(hidden.length).toBeGreaterThan(0)
+    expect(hidden).toHaveLength(5)
     expect(hidden.every(e => e.from === ':hub')).toBe(true)
     expect(hidden.some(e => e.stroke.role === 'dependency-chain')).toBe(false)
     const colors = await hostColors(panel)
-    for (const edge of onChain) expect(await near(panel, shaftProbe(frame, edge).s, rgb(palettes.dark.hot), 40)).toBe(true)
+    for (const edge of onChain) {
+      const color = edge.stroke.role === 'violation-hot' ? palettes.dark.hot : palettes.dark.chain
+      expect(await near(panel, shaftProbe(frame, edge).s, rgb(color), 40)).toBe(true)
+    }
     // 关系淡化: the unrelated relations paint at the producer's dimAlpha over
     // the real canvas. #25 edges.spec separately asserts opaque hollow heads.
     const edge = hidden.find(e => e.to === ':association')

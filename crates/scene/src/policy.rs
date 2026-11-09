@@ -232,6 +232,23 @@ pub fn apply_edge_kinds(edges: &[Value], kinds: Option<&Value>, omit: Option<&Va
             && edn::record::truthy(Some(k))
         {
             edn::record::put(&mut c, "kind", k.clone());
+            // The override replaces the relation represented by this pair,
+            // including leaves cached before merging. Highlighting traverses
+            // those leaves, so retaining scanned kinds would contradict it.
+            if let Some(Value::Vector(deps)) = get(&c, "deps") {
+                let deps = deps
+                    .iter()
+                    .map(|dep| {
+                        let mut dep = dep.clone();
+                        edn::record::put(&mut dep, "kind", k.clone());
+                        if k != &Value::keyword("dependency") {
+                            dep = drop_keys(&dep, &["violating"]);
+                        }
+                        dep
+                    })
+                    .collect();
+                edn::record::put(&mut c, "deps", Value::Vector(deps));
+            }
         }
         if get(&c, "kind") != Some(&Value::keyword("dependency")) {
             c = drop_keys(&c, &["violating"]);

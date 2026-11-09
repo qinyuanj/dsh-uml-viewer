@@ -86,7 +86,8 @@ function blankPoint(frame) {
     return x >= sx && y >= sy && x <= sx + item.rect.w * z && y <= sy + item.rect.h * z
   })())
   for (let y = frame.viewport.height - 30; y > 80; y -= 20) {
-    for (let x = 30; x < frame.viewport.width - 140; x += 20) {
+    // Both ends of the 100px leftward drag must remain on the canvas.
+    for (let x = 130; x < frame.viewport.width - 140; x += 20) {
       if (!inside([x, y]) && !inside([x - 100, y - 50])) return [x, y]
     }
   }

@@ -36,6 +36,51 @@ fn load(text: &str) -> ViewState {
 }
 
 #[test]
+fn policy_relation_kinds_control_the_compiled_dependency_chain() {
+    // Scanned imports are dependencies before the view's policy override.
+    // Selection must follow the policy relation, including the reverse override.
+    for (scanned, kind, on_chain) in [
+        ("dependency", "association", false),
+        ("dependency", "inheritance", false),
+        ("dependency", "implements", false),
+        ("dependency", "aggregation", false),
+        ("dependency", "composition", false),
+        ("association", "dependency", true),
+    ] {
+        let state = load(&format!(
+            "{{:hierarchical true :classes [{{:id :a}} {{:id :b}} {{:id :c}}] \
+             :edges [{{:from :a :to :b :kind :dependency}} \
+                     {{:from :b :to :c :kind :{scanned}}}] \
+             :edge-kinds {{[:b :c] :{kind}}}}}"
+        ));
+        let selected = parse("{:kind :class :id :a}").unwrap();
+        let highlight = scene::Highlight::new(&state.scene, Some(&selected), None);
+        let edges = seq(&state.scene, "edges");
+        let edge = |from: &str| {
+            edges
+                .iter()
+                .find(|edge| get(edge, "from") == Some(&kw(from)))
+                .unwrap()
+        };
+        assert!(highlight.on_chain(edge("a")), "a still depends on b");
+        assert_eq!(Some(&kw(kind)), get(edge("b"), "kind"));
+        assert_eq!(on_chain, highlight.on_chain(edge("b")), "{scanned} -> {kind}");
+        assert_eq!(!on_chain, highlight.dimmed(&kw("c")), "{kind}");
+    }
+    // A naturally bundled association can still carry a real parallel
+    // dependency. Only an explicit policy override replaces leaf semantics.
+    let state = load(
+        "{:hierarchical true :classes [{:id :a} {:id :b}] \
+         :edges [{:from :a :to :b :kind :association} \
+                 {:from :a :to :b :kind :dependency}]}",
+    );
+    let selected = parse("{:kind :class :id :a}").unwrap();
+    let highlight = scene::Highlight::new(&state.scene, Some(&selected), None);
+    assert!(highlight.on_chain(&seq(&state.scene, "edges")[0]));
+    assert!(!highlight.dimmed(&kw("b")));
+}
+
+#[test]
 fn reload_retains_the_last_valid_scene_on_invalid_edits() {
     let first = r#"{:packages [{:label "P" :classes [{:id :a :ops ["public" {:text "secret" :private true}]}]}]}"#;
     let state = load(first);
