@@ -34,7 +34,12 @@ export async function launchViewerLane(browser) {
       await page.goto(host.url, { waitUntil: 'domcontentloaded', timeout: 60_000 })
       await dismissOverlays(page)
       if (project !== 'shop') {
-        await page.getByRole('button', { name: 'New session', exact: true }).first().click()
+        const newSession = page.getByRole('button', { name: 'New session', exact: true }).first()
+        // A late Preview Notice can arrive after the initial quiet period.
+        await newSession.click({ timeout: 2000 }).catch(async () => {
+          await dismissOverlays(page)
+          await newSession.click({ timeout: 30_000 })
+        })
         await page.getByRole('button', { name: 'Choose workspace' }).click()
         await page.locator('[role="menu"], [role="dialog"]').getByText(project, { exact: true }).last().click()
         await expect(page.getByRole('button', { name: 'Choose workspace' })).toContainText(project)

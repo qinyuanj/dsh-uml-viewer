@@ -65,16 +65,21 @@ state.
 
 ## Sample projects
 
-`packages/e2e/projects.mjs` copies three TypeScript projects into the
+`packages/e2e/projects.mjs` copies four TypeScript projects into the
 scratch home: `shop`, `ledger` and `atlas` (the panel-primitives sample of
 #24: an interface, a CJK-named module, two architecture levels and `react` as
 a foreign package, all unmeasured). Each has its own `policy.edn`, source files
-and proposal. The scripted agent runs the real binary's `ir` subcommand, so the
+and proposal where needed. `nexus` (#25) scans six imports from a hub and uses
+the supported policy `:edge-kinds` overrides to produce association, dependency,
+inheritance, implements, aggregation and composition. A reverse dependency
+violates the declared architecture levels; an unrelated observer supplies a
+selection that dims every relation. Policy `:edges` is deliberately not used:
+the IR command rejects it as generated-IR input. The scripted agent runs the real binary's `ir` subcommand, so the
 scene comes from real IR and the real resident, not a checked-in SceneFrame.
 The Rust scene-frame goldens remain the contract for the frame validator and
 Canvas tests; the lane does not inject their JSON.
 
-The two workspaces are pre-registered in the scratch home. The first session
+The sample workspaces are pre-registered in the scratch home. The first session
 uses Shop. The second selects Ledger in DSH's new-session workspace chooser.
 For Ledger the lane restores a proposal discussion context from persisted
 session state before opening the panel. The panel summary therefore proves the
@@ -117,6 +122,24 @@ ports appear only in a drilled-in view, which the panel cannot reach until
 #23 adds drill-in, so they are asserted against the `core-port-selected`
 golden in that unit suite.
 
+`edges.spec.mjs` (#25) is the Playwright form of the edge-related egui
+settings in `route_library.edn`, `route_proposal.edn`, `route_shots.edn` and
+the edge lines visible across `lod_shots.edn` / the triangles half of
+`navigation.edn`. It reads the real Nexus panel canvas against an independent
+`scene --frame` producer oracle. It checks all six head shapes, continuous
+curved shafts, normal relation ink and violating red. Closed-head interiors
+must mask the shaft with opaque canvas/ink fill, including when the relation
+is dimmed and at the native mesh scale below 0.6. Triangles mode must paint
+both incoming and outgoing dependency indicators, retaining red for violations.
+The test clicks the isolated Observer class to dim relations, then uses the
+accessible declutter control to reach triangles mode; no frame is injected.
+The Ledger proposal case checks the proposal banner, its real `api → orders`
+shaft at the full and frames tiers, and its disappearance in blocks after
+real wheel gestures. The producer supplies geometry for each camera and tier.
+Failure evidence and the Playwright trace stay under the run's scratch root.
+Native fixed-input screenshot scripts remain available for the egui shell;
+these cases cover the corresponding panel behavior.
+
 This ticket does not assert survival across a DSH restart. The `uml_display`
 gate is process-local (#21 residual); cross-restart restoration belongs to #23.
 
@@ -132,7 +155,7 @@ host bootstrap.
 | `home` | run-scoped `DSH_HOME` with projects, logs, traces |
 | `host` | `{ url, stop, exited, output }` for the isolated DSH |
 | `mock` | `{ url, requests, stop }`; inspect the exact model requests |
-| `projects` | `{ shop, ledger }` absolute sample roots |
+| `projects` | `{ shop, ledger, atlas, nexus }` absolute sample roots |
 | `openPanel(name)` | create/select that session, open the sidebar tab, render IR, and return `{ page, panel, canvas, summary, before, problems }` |
 | `pan(panel)` | real pointer drag on that panel's canvas |
 | `wheel(panel, notches)` | real wheel notches over the canvas centre; positive zooms out |
@@ -150,7 +173,8 @@ Lower-level helpers are exported from `dsh-web.mjs` (`startDshWeb`,
 `bootDshWeb`, `dismissOverlays`), `mock-llm.mjs` (`startMockLlm`),
 `projects.mjs` (`makeProjects`) and `canvas.mjs` (`producerFrame`,
 `panelCamera`, `sample`, `inkCount`: canvas pixel reads against the producer
-oracle). A later ticket that needs another project
+oracle; `producerFrame` accepts optional `extra` and `select` EDN for the same
+selected/declutter view). A later ticket that needs another project
 should add it to `makeProjects` and the workspace registry rather than editing
 the host bootstrap.
 

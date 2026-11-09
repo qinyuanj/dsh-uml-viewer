@@ -254,7 +254,7 @@ describe('relation edges from the producer goldens', () => {
 describe('移除箭头 compact dependency indicators', () => {
   const frame = golden('root-triangles-selected')
 
-  it('draws only triangles, in the producer’s exact points, red when violating, dimmed outlines only', () => {
+  it('draws exact producer triangles, red when violating, and dims unrelated indicators', () => {
     expect(frame.edges.length).toBeGreaterThan(0)
     expect(frame.edges.every(e => e.kind === 'indicator')).toBe(true)
     const roles = new Set(frame.edges.flatMap(e => e.kind === 'indicator' ? [e.fill.role] : []))
