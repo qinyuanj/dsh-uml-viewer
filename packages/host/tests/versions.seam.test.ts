@@ -2,7 +2,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -34,7 +34,8 @@ afterEach(async () => {
 })
 
 async function scratch(label: string): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), `uml versions ${label} `))
+  // Node resolves the resident's __filename through symlinked temp parents.
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), `uml versions ${label} `)))
   roots.push(root)
   return root
 }

@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -83,11 +83,12 @@ async function setup(options: {
 } = {}) {
   let mode = options.mode ?? 'danger-full-access'
   let spawns = 0
-  const home = await mkdtemp(path.join(os.tmpdir(), 'uml panel home '))
+  // Match the canonical paths used by the host and resident child.
+  const home = await realpath(await mkdtemp(path.join(os.tmpdir(), 'uml panel home ')))
   roots.push(home)
   const projects: Record<string, string> = {}
   for (const id of ['session-a', 'session-b']) {
-    const root = await mkdtemp(path.join(os.tmpdir(), `uml panel ${id} `))
+    const root = await realpath(await mkdtemp(path.join(os.tmpdir(), `uml panel ${id} `)))
     roots.push(root)
     projects[id] = root
     await writeFile(path.join(root, 'fake-binary.json'), JSON.stringify({ exitCode: 0 }))

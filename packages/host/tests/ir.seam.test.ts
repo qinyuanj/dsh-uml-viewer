@@ -1,6 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import { spawn } from 'node:child_process'
-import { mkdtemp, mkdir, readFile, rm, writeFile, readdir, lstat, utimes } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile, readdir, lstat, utimes } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -43,7 +43,8 @@ function localSubprocess(spec: SpawnSpec) {
 }
 
 async function setup(mode: 'read-only' | 'workspace-write' | 'danger-full-access' = 'danger-full-access') {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'uml project & '))
+  // tmpdir may contain a symlink (macOS /var -> /private/var).
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'uml project & ')))
   roots.push(root)
   await writeFile(path.join(root, 'fake-binary.json'), JSON.stringify({ exitCode: 0 }))
   await mkdir(path.join(root, 'examples'))

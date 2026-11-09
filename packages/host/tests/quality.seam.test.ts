@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -78,13 +78,14 @@ async function setup(options: {
   quality?: Record<string, unknown>
   resident?: Record<string, unknown>
 } = {}) {
-  const home = await mkdtemp(path.join(os.tmpdir(), 'uml quality home '))
+  // Injected records must name the same canonical root as the real child.
+  const home = await realpath(await mkdtemp(path.join(os.tmpdir(), 'uml quality home ')))
   roots.push(home)
   const projects: Record<string, string> = {}
   const prompts: Record<string, FakeSystemPrompt> = {}
   const agents: Record<string, Agent> = {}
   for (const id of ['session-a', 'session-b']) {
-    const root = await mkdtemp(path.join(os.tmpdir(), `uml quality ${id} `))
+    const root = await realpath(await mkdtemp(path.join(os.tmpdir(), `uml quality ${id} `)))
     roots.push(root)
     projects[id] = root
     await writeFile(path.join(root, 'quality-binary.json'), JSON.stringify(options.quality ?? {}))
