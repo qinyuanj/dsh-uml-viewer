@@ -607,13 +607,19 @@ mod bounded_token_tests {
     #[test]
     fn refuses_punctuation_amplification_without_truncating() {
         assert!(tokens_bounded(&";".repeat(513), "rust", 512).is_none());
-        assert_eq!(tokens_bounded(&";".repeat(512), "rust", 512).unwrap().len(), 512);
+        assert_eq!(
+            tokens_bounded(&";".repeat(512), "rust", 512).unwrap().len(),
+            512
+        );
     }
 
     #[test]
     fn bounded_runs_preserve_unicode_and_native_tokens() {
         let text = "pub fn 中文() { // 注释";
-        assert_eq!(tokens_bounded(text, "rust", 512).unwrap(), tokens(text, "rust"));
+        assert_eq!(
+            tokens_bounded(text, "rust", 512).unwrap(),
+            tokens(text, "rust")
+        );
         assert!(tokens_bounded("x", "rust", 0).is_none());
         assert_eq!(tokens_bounded("", "rust", 0), Some(vec![]));
     }

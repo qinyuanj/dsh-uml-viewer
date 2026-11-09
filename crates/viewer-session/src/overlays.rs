@@ -78,7 +78,10 @@ fn read_bounded(path: &std::path::Path, max: u64) -> Result<Option<String>, Stri
 fn check_body(body: &str) -> Result<(), String> {
     let rows = body.bytes().filter(|b| *b == b'\n').count() + 1;
     if rows > SOURCE_MAX_ROWS {
-        return Err(too_large("file", format!("has {rows} rows; the limit is {SOURCE_MAX_ROWS}")));
+        return Err(too_large(
+            "file",
+            format!("has {rows} rows; the limit is {SOURCE_MAX_ROWS}"),
+        ));
     }
     for (index, line) in body.split('\n').enumerate() {
         let line = line.strip_suffix('\r').unwrap_or(line);
@@ -86,7 +89,10 @@ fn check_body(body: &str) -> Result<(), String> {
         if line.len() > SOURCE_MAX_LINE_BYTES {
             return Err(too_large(
                 &format!("line {number}"),
-                format!("has {} bytes; the limit is {SOURCE_MAX_LINE_BYTES}", line.len()),
+                format!(
+                    "has {} bytes; the limit is {SOURCE_MAX_LINE_BYTES}",
+                    line.len()
+                ),
             ));
         }
         let painted = line.len() + line.bytes().filter(|b| *b == b'\t').count();
@@ -165,7 +171,10 @@ fn serializes_within(value: &Json, max: usize) -> bool {
 
 fn check_text(what: &str, text: &str, max: usize) -> Result<(), String> {
     if text.len() > max {
-        return Err(too_large(what, format!("has {} bytes; the limit is {max}", text.len())));
+        return Err(too_large(
+            what,
+            format!("has {} bytes; the limit is {max}", text.len()),
+        ));
     }
     Ok(())
 }
@@ -371,7 +380,10 @@ pub fn source_json(session: &Session, id: &Value, member: Option<&str>) -> Resul
     });
     let budget = SOURCE_MAX_EVENT_BYTES - SOURCE_ENVELOPE_BYTES;
     if !serializes_within(&payload, budget) {
-        return Err(too_large("event", format!("serializes over {budget} bytes")));
+        return Err(too_large(
+            "event",
+            format!("serializes over {budget} bytes"),
+        ));
     }
     Ok(payload)
 }
@@ -462,7 +474,10 @@ mod source_bound_tests {
         assert!(check_body(&at).is_ok());
         let over = "\n".repeat(SOURCE_MAX_ROWS);
         let error = check_body(&over).unwrap_err();
-        assert!(error.contains("has 4001 rows; the limit is 4000"), "{error}");
+        assert!(
+            error.contains("has 4001 rows; the limit is 4000"),
+            "{error}"
+        );
     }
 
     #[test]
