@@ -3,7 +3,7 @@
 use super::typescript::anchor;
 use crate::coverage::{Records, read_fresh_lcov};
 use crate::paths::{relative_posix, resolve};
-use crate::process::{Program, capture, which};
+use crate::process::{Program, output, which};
 use crate::runner::{CoverageError, coverage_report, run_shell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -75,7 +75,7 @@ pub fn interpreter() -> Option<PathBuf> {
     ["lua5.4", "lua"].iter().find_map(|name| {
         let path = which(name)?;
         let argv = strings(&[path.to_str()?, "-e", "io.write(_VERSION)"]);
-        let output = capture(&Program::Argv(&argv), &std::env::current_dir().ok()?).ok()?;
+        let output = output(&Program::Argv(&argv), &std::env::current_dir().ok()?).ok()?;
         (String::from_utf8_lossy(&output.stdout).trim() == "Lua 5.4").then_some(resolve(&path))
     })
 }
@@ -83,7 +83,7 @@ pub fn interpreter() -> Option<PathBuf> {
 pub fn require_cluacov(lua: &Path) -> Result<(), CoverageError> {
     let code = "pcall(require, 'luarocks.loader'); local ok, v = pcall(require, 'cluacov.version'); if ok and type(v) == 'string' then io.write(v) end";
     let argv = strings(&[lua.to_str().unwrap_or("lua"), "-e", code]);
-    let found = capture(
+    let found = output(
         &Program::Argv(&argv),
         &std::env::current_dir().unwrap_or_default(),
     )
@@ -208,7 +208,7 @@ pub fn module_specs_for_task(lua: &Path, module: &Path, task: Option<&str>) -> V
         None => SPECS.to_string(),
     };
     let argv = strings(&[lua.to_str().unwrap_or("lua"), "-e", &script]);
-    match capture(&Program::Argv(&argv), module) {
+    match output(&Program::Argv(&argv), module) {
         Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
             .lines()
             .filter(|s| !s.is_empty())
@@ -401,7 +401,7 @@ fn prepare(
                     count,
                     lua.display()
                 );
-                let output = capture(&Program::Argv(&command), &module)
+                let output = output(&Program::Argv(&command), &module)
                     .map_err(|e| error(format!("Coverage command failed to start: {e}")))?;
                 if !output.status.success() {
                     exit = output.status.code().unwrap_or(1);

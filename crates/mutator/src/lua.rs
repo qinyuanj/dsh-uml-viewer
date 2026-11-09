@@ -14,7 +14,7 @@ use crate::isolation::View;
 use crate::sites::Site;
 use quality_core::coverage::{Records, read_fresh_lcov};
 use quality_core::paths::{relative_posix, resolve};
-use quality_core::process::{Program, capture, which};
+use quality_core::process::{Program, output, which};
 use quality_core::runners::lua;
 use quality_core::serde_json::{self, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -319,7 +319,7 @@ fn rocks_trees() -> &'static [String] {
             "config".into(),
             "rocks_trees".into(),
         ];
-        let Ok(output) = capture(
+        let Ok(output) = output(
             &Program::Argv(&argv),
             &std::env::current_dir().unwrap_or_default(),
         ) else {

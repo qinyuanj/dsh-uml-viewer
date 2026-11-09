@@ -96,12 +96,6 @@ pub fn output(program: &Program, cwd: &Path) -> io::Result<std::process::Output>
     execute(program, cwd, true)
 }
 
-/// The captured process boundary: the same job/process-group containment as
-/// [`output`], retained as a named alias for callers with captured children.
-pub fn capture(program: &Program, cwd: &Path) -> io::Result<std::process::Output> {
-    execute(program, cwd, true)
-}
-
 #[cfg(windows)]
 fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Result<std::process::Output> {
     process_windows::execute(program, cwd, capture)

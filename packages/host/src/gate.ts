@@ -43,11 +43,6 @@ export class QualityGate {
     })
   }
 
-  forget(sessionId: string): void {
-    this.latest.delete(sessionId)
-    this.tails.delete(sessionId)
-  }
-
   check(sessionId: string): { ok: true; record: QualityRecord | null } | { ok: false; reason: string } {
     const record = this.latest.get(sessionId)
     if (!record || record.validResult) return { ok: true, record: record ?? null }
@@ -58,9 +53,6 @@ export class QualityGate {
     }
   }
 }
-
-/** What the panel showed before a fresh resident starts. */
-export interface StoredView { diagram: string | null; declutter: string | null }
 
 export interface IrRecord {
   validResult: boolean
@@ -81,11 +73,6 @@ export class IrGate {
 
   record(sessionId: string, record: IrRecord): void {
     this.sessions.set(sessionId, record)
-  }
-
-  /** Forget a session, e.g. when its agent is disposed. */
-  forget(sessionId: string): void {
-    this.sessions.delete(sessionId)
   }
 
   check(sessionId: string): { ok: true; record: IrRecord } | { ok: false; reason: string } {

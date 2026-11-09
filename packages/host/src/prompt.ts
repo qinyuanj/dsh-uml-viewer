@@ -46,13 +46,6 @@ export class PanelPrompts {
     existing.dispose()
   }
 
-  forget(sessionId: string): void {
-    const existing = this.open.get(sessionId)
-    if (!existing) return
-    this.open.delete(sessionId)
-    existing.dispose()
-  }
-
   /** Second owner: plugin unload removes every section it registered. */
   disposeAll(): void {
     for (const entry of [...this.open.values()]) entry.dispose()

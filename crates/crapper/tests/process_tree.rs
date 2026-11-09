@@ -1,9 +1,9 @@
-//! Windows argv and extensionless launcher behavior through process::capture.
+//! Windows argv and extensionless launcher behavior through process::output.
 //! External-CLI descendant tests live in uml-viewer/tests/crap_process.rs.
 #![cfg(any(windows, unix))]
 #![allow(clippy::disallowed_methods)]
 
-use quality_core::process::{Program, capture};
+use quality_core::process::{Program, output};
 #[cfg(windows)]
 use std::ffi::c_void;
 use std::fs;
@@ -28,7 +28,7 @@ fn posix_normal_exit_ends_process_group_and_inherited_pipes() {
     let root = directory();
     let command = "sleep 120 & echo $! > descendant.pid; printf leader-output; printf leader-error >&2; exit 7";
     let start = std::time::Instant::now();
-    let output = capture(&Program::Shell(command), &root).unwrap();
+    let output = output(&Program::Shell(command), &root).unwrap();
     assert_eq!(Some(7), output.status.code());
     assert_eq!(b"leader-output", output.stdout.as_slice());
     assert_eq!(b"leader-error", output.stderr.as_slice());
@@ -97,7 +97,7 @@ fn main() {
     let argv = std::iter::once(extensionless.to_string_lossy().into_owned())
         .chain(args.iter().map(|arg| arg.to_string()))
         .collect::<Vec<_>>();
-    let output = capture(&Program::Argv(&argv), &root).unwrap();
+    let output = output(&Program::Argv(&argv), &root).unwrap();
     assert!(output.status.success());
     assert_eq!(output.stdout, [0, b'x', 0xff]);
     let expected: Vec<u8> = args
@@ -142,7 +142,7 @@ fn batch_arguments_are_literal_through_percent_star() {
     let argv = std::iter::once(root.join("probe.cmd").to_string_lossy().into_owned())
         .chain(args.iter().map(|arg| arg.to_string()))
         .collect::<Vec<_>>();
-    let output = capture(&Program::Argv(&argv), &root).unwrap();
+    let output = output(&Program::Argv(&argv), &root).unwrap();
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(
         output.status.success(),
@@ -167,7 +167,7 @@ fn explicit_extensionless_batch_path_uses_its_launcher() {
     fs::write(root.join("probe.cmd"), "@exit /b 0\r\n").unwrap();
     let argv = vec![root.join("probe").to_string_lossy().into_owned()];
     assert!(
-        capture(&Program::Argv(&argv), &root)
+        output(&Program::Argv(&argv), &root)
             .unwrap()
             .status
             .success()
@@ -201,7 +201,7 @@ fn installed_vitest_uses_its_native_node_entry_and_literal_argv() {
     let argv = std::iter::once(launcher.to_string_lossy().into_owned())
         .chain(args.iter().map(|arg| arg.to_string()))
         .collect::<Vec<_>>();
-    let output = capture(&Program::Argv(&argv), &root).unwrap();
+    let output = output(&Program::Argv(&argv), &root).unwrap();
     assert!(
         output.status.success(),
         "{}",
