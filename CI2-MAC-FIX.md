@@ -6,7 +6,7 @@
 
 - CI：run `42585882825`，job `129055477147`；输入为外部只读日志 `D:/dev/github/spec203-notes/CI2-typescript-mac.log`。
 - 指定工作树：`D:/dev/github/dsh-uml-viewer-wt/tcimac`，分支 `tci-macos-fixtures`，起点 `0d115b2`。
-- 已合并最新本地 `spec-203`：`3d329e5d04b7ce7a974c6647b88a23b56f78f261`，fast-forward；该提交含 lead 的一行 clippy 修正。本分支没有自行修改生产源码。
+- 验证前 fast-forward 合并 `spec-203` 的 `3d329e5d04b7ce7a974c6647b88a23b56f78f261`（lead 的一行 clippy 修正）；提交修复 `4754d5c` 后，报告前再次合并最新 `spec-203` 的 `8d4b04d79b21783725843bdf2d62064d4b90c440`，产生 merge `a0f51493e1422e865465eb49038b15adf1b4df3b`。后一次只带入其他 agent 的 Rust Windows 测试修正，TS 输入未改变，既有 TS 证据仍适用。本分支没有自行修改生产源码。
 - CI 原结果：host 15 个文件中 4 失败、11 通过；171 个测试中 12 失败、157 通过、2 个 Windows 专属测试跳过。contracts 74、client 152 均通过。
 
 ## 根因与逐项证据
