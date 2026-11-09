@@ -5,7 +5,7 @@ import {
   REMOTE_SERVICE, parseDisplayRequest, parseIrRequest, parseQualityToolRequest,
 } from '@dsh-uml-viewer/contracts'
 import type { QualityOperation, QualityToolResult } from '@dsh-uml-viewer/contracts'
-import type { BinaryPlatform, Config } from './binary.js'
+import type { ActivatedBinary, BinaryPlatform, Config } from './binary.js'
 import { activationBinary, packageRoot } from './binary.js'
 import { displayResult, runDisplay } from './display.js'
 import type { HostServices, ToolRunContext } from './dsh.js'
@@ -40,7 +40,17 @@ export function applyWithPlatform(ctx: Context, config: Config = {}, platform: A
   })
   // Resolve before any effects, injected fibers or services can be registered.
   // The argv copy also pins trusted dev launchers and environment overrides.
-  const effectiveConfig: Config = { ...config, binary: activationBinary(config, home, platform) }
+  const pinned = activationBinary(config, home, platform)
+  try {
+    register(ctx, config, home, pinned)
+  } catch (error) {
+    pinned.release()
+    throw error
+  }
+}
+
+function register(ctx: Context, config: Config, home: string | undefined, pinned: ActivatedBinary): void {
+  const effectiveConfig: Config = { ...config, binary: pinned.argv }
 
   // Every service is resolved when it is used, never snapshotted at apply
   // time: a profile may activate an optional row (sandbox, typert, webServer)
@@ -190,6 +200,11 @@ export function applyWithPlatform(ctx: Context, config: Config = {}, platform: A
 
   ctx.effect(() => async () => {
     prompts.disposeAll()
-    await sessions.dispose()
+    try {
+      await sessions.dispose()
+    } finally {
+      // Only after its residents stopped may this activation's version go.
+      pinned.release()
+    }
   }, 'dsh-uml-viewer: panel lifetime')
 }

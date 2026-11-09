@@ -1,5 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -85,7 +85,7 @@ it.each([['win32', 'x64', 'uml-viewer.exe'], ['linux', 'x64', 'uml-viewer'],
   'copies the %s/%s executable to the host plugin home before publishing tools', async (platform, arch, name) => {
   const { home, definitions, load, call, spawns } = await setup(platform, arch)
   await load()
-  const binary = path.join(home, 'dsh-uml-viewer', 'versions', '1.0.0', name)
+  const binary = path.join(home, 'dsh-uml-viewer', '1.0.0', name)
   expect(await readFile(binary, 'utf8')).toBe('packaged executable bytes')
   expect(definitions.size).toBe(5)
   expect(await call()).toMatchObject({ validResult: true })
@@ -137,17 +137,47 @@ it('uses an explicitly configured plugin home for the packaged executable', asyn
   const home = path.join(root, 'explicit-plugin-home')
   await load({ home })
   expect(await call()).toMatchObject({ validResult: true })
-  expect(spawns[0]!.argv[0]).toBe(path.join(home, 'versions', '1.0.0', 'uml-viewer.exe'))
+  expect(spawns[0]!.argv[0]).toBe(path.join(home, '1.0.0', 'uml-viewer.exe'))
 })
 
-it('preserves a version already pinned by another host instead of overwriting it', async () => {
-  const { home, load } = await setup()
-  const directory = path.join(home, 'dsh-uml-viewer', 'versions', '1.0.0')
+it('reuses a matching version another host already pinned without rewriting it', async () => {
+  const { home, load, call, spawns } = await setup()
+  const directory = path.join(home, 'dsh-uml-viewer', '1.0.0')
   await mkdir(directory, { recursive: true })
   const binary = path.join(directory, 'uml-viewer.exe')
-  await writeFile(binary, 'already pinned executable')
+  await writeFile(binary, 'packaged executable bytes')
+  const earlier = new Date('2026-01-01T00:00:00Z')
+  await utimes(binary, earlier, earlier)
   await load()
-  expect(await readFile(binary, 'utf8')).toBe('already pinned executable')
+  expect((await stat(binary)).mtimeMs).toBe(earlier.getTime())
+  expect(await call()).toMatchObject({ validResult: true })
+  expect(spawns[0]!.argv[0]).toBe(binary)
+})
+
+it('replaces an unleased same-version directory whose bytes differ from the payload', async () => {
+  const { home, load, call, spawns } = await setup()
+  const binary = path.join(home, 'dsh-uml-viewer', '1.0.0', 'uml-viewer.exe')
+  await mkdir(path.dirname(binary), { recursive: true })
+  await writeFile(binary, 'truncated')
+  await load()
+  expect(await readFile(binary, 'utf8')).toBe('packaged executable bytes')
+  expect(await call()).toMatchObject({ validResult: true })
+  expect(spawns[0]!.argv[0]).toBe(binary)
+})
+
+it('refuses before tools when another live host leases a same-version directory with other bytes', async () => {
+  const { home, load, definitions } = await setup()
+  const plugin = path.join(home, 'dsh-uml-viewer')
+  const binary = path.join(plugin, '1.0.0', 'uml-viewer.exe')
+  await mkdir(path.dirname(binary), { recursive: true })
+  await writeFile(binary, 'other bytes in use')
+  await mkdir(path.join(plugin, 'leases', '1.0.0'), { recursive: true })
+  await writeFile(path.join(plugin, 'leases', '1.0.0', 'other-host.lease'), '{}')
+  await expect(load()).rejects.toThrow(/1\.0\.0 is already pinned with different bytes and is in use/)
+  expect(definitions.size).toBe(0)
+  expect(await readFile(binary, 'utf8')).toBe('other bytes in use')
+  // The refused activation leaves no lease of its own behind.
+  expect(await readdir(path.join(plugin, 'leases', '1.0.0'))).toEqual(['other-host.lease'])
 })
 
 it('refuses an installed platform dependency from a different version', async () => {
