@@ -221,25 +221,81 @@ fn installed_vitest_uses_its_native_node_entry_and_literal_argv() {
 #[cfg(windows)]
 #[test]
 fn cmd_slash_c_switch_reaches_cmd_unquoted() {
+    capture_with_watchdog("cmd_slash_c_switch_reaches_cmd_unquoted", |root| {
+        let argv = ["cmd.exe", "/d", "/c", "set"].map(str::to_string).to_vec();
+        let output = output(&Program::Argv(&argv), root).unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            Some(0),
+            output.status.code(),
+            "{stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        // `set` without a name prints the child's environment.
+        assert!(
+            stdout
+                .to_ascii_lowercase()
+                .lines()
+                .any(|line| line.starts_with("path=")),
+            "{stdout}"
+        );
+    });
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_capture_drains_large_stdout_and_stderr_before_waiting() {
+    capture_with_watchdog(
+        "windows_capture_drains_large_stdout_and_stderr_before_waiting",
+        |root| {
+            // Each stream exceeds the pipe capacity independently. Reading only
+            // stdout before waiting would still deadlock on stderr.
+            let command =
+                "for /l %i in (1,1,8192) do @(echo stdout-payload& 1>&2 echo stderr-payload)";
+            let output = output(&Program::Shell(command), root).unwrap();
+            assert!(output.status.success());
+            assert_eq!(output.stdout, b"stdout-payload\r\n".repeat(8192));
+            assert_eq!(output.stderr, b"stderr-payload\r\n".repeat(8192));
+        },
+    );
+}
+
+/// Run capture in a disposable copy of this test process so a pipe deadlock
+/// fails this test within 15 seconds instead of hanging the entire CI job.
+#[cfg(windows)]
+fn capture_with_watchdog(name: &str, check: impl FnOnce(&std::path::Path)) {
+    const CHILD: &str = "CRAPPER_CAPTURE_WATCHDOG_CHILD";
+    if let Some(root) = std::env::var_os(CHILD) {
+        check(&PathBuf::from(root));
+        return;
+    }
+
     let root = directory();
-    let argv = ["cmd.exe", "/d", "/c", "set"].map(str::to_string).to_vec();
-    let output = output(&Program::Argv(&argv), &root).unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(
-        Some(0),
-        output.status.code(),
-        "{stdout}\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    // `set` without a name prints the child's environment.
-    assert!(
-        stdout
-            .to_ascii_lowercase()
-            .lines()
-            .any(|line| line.starts_with("path=")),
-        "{stdout}"
-    );
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", name, "--nocapture"])
+        .env(CHILD, &root)
+        .spawn()
+        .unwrap();
+    let started = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break Some(status);
+        }
+        if started.elapsed() >= std::time::Duration::from_secs(15) {
+            // Killing the helper closes its kill-on-close job and ends the
+            // blocked command too. Do not join a thread stuck inside output.
+            child.kill().unwrap();
+            child.wait().unwrap();
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    };
     let _ = fs::remove_dir_all(root);
+    assert!(
+        status.is_some(),
+        "captured output exceeded the 15-second watchdog"
+    );
+    assert!(status.unwrap().success(), "captured-output helper failed");
 }
 
 #[cfg(windows)]

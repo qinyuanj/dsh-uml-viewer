@@ -568,7 +568,7 @@ pub(super) struct Running {
     // The inherited ends stay alive until the command has been reaped.
     handles: [OwnedHandle; 3],
     attributes: Attributes,
-    // Captured pipes are read only after the job has ended every writer.
+    // Capture readers drain while the command runs and reach EOF after cleanup.
     out: Option<File>,
     err: Option<File>,
 }
@@ -793,6 +793,10 @@ pub(super) fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Resul
         out,
         err,
     } = running;
+    // Drain both pipes before waiting: a child can fill either pipe and block
+    // before it exits. Joining readers still waits until every writer is closed.
+    let out = reader(out);
+    let err = reader(err);
     let waited = unsafe { WaitForSingleObject(process.0.as_raw_handle(), INFINITE) };
     if waited != WAIT_OBJECT_0 {
         return Err(io::Error::last_os_error());
@@ -807,8 +811,8 @@ pub(super) fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Resul
     drop(job);
     drop(handles);
     drop(attributes);
-    let out = finish(reader(out));
-    let err = finish(reader(err));
+    let out = finish(out);
+    let err = finish(err);
     Ok(Output {
         status: ExitStatus::from_raw(code),
         stdout: out?,
