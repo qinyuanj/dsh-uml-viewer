@@ -4,6 +4,7 @@ import { expect } from '@playwright/test'
 import { SCRATCH, bootDshWeb, dismissOverlays, packageInputs, startDshWeb } from './dsh-web.mjs'
 import { startMockLlm } from './mock-llm.mjs'
 import { makeProjects } from './projects.mjs'
+import { chooseWorkspace } from './workspace.mjs'
 
 /**
  * Reusable #22–#29 browser lane: one scratch host/mock model, one browser
@@ -151,20 +152,10 @@ export async function launchViewerLane(browser, options = {}) {
           await dismissOverlays(page)
           await newSession.click({ timeout: 30_000 })
         })
-        await page.getByRole('button', { name: 'Choose workspace' }).click()
-        await page.locator('[role="menu"], [role="dialog"]').getByText(project, { exact: true }).last().click()
-        await expect(page.getByRole('button', { name: 'Choose workspace' })).toContainText(project)
-        // Workspace selection replaces the new-session composer asynchronously;
-        // the composer assertion below proves which session receives the prompt.
+        await chooseWorkspace(page, project)
       }
       const composer = page.locator('[data-composer-input][contenteditable="true"]:visible').last()
       await composer.click({ timeout: 30_000 })
-      if (project !== 'shop') {
-        const chosen = await page.getByRole('button', { name: 'Choose workspace' }).innerText()
-        if (!chosen.toLowerCase().includes(project)) {
-          throw new Error(`workspace selection did not settle: expected ${project}, got ${chosen}`)
-        }
-      }
       records.get(page).stage = 'submit-open-prompt'
       await composer.fill(`Open the ${project} sample project`)
       await composer.press('Enter')

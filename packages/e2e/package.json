@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test *.test.mjs",
     "test:e2e": "playwright test",
     "install:chromium": "node install-chromium.mjs"
   },

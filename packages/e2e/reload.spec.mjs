@@ -3,6 +3,7 @@ import path from 'node:path'
 import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
 import { producerFrame, toScreen } from './canvas.mjs'
+import { panBesideInspector } from './gestures.mjs'
 
 /**
  * The panel equivalents of the deleted standalone.edn and metrics.edn
@@ -31,6 +32,7 @@ test('a metric-only snapshot edit reloads quality without rewriting the IR', asy
   const shop = await lane.openPanel('shop')
   const root = lane.projects.shop
   const diagram = path.join(root, 'diagram.edn')
+  await panBesideInspector(shop)
   const frame = await producerFrame(shop, { root, home: lane.home })
   const orders = frame.world.find(item => item.id === ':orders' && (item.kind === 'class' || item.kind === 'package'))
   expect(orders, 'the shop root shows the orders module').toBeTruthy()

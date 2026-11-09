@@ -164,6 +164,21 @@ bounds with the saved producer frame and panel camera summary. Keep the
 existing readiness, selection and pixel assertions: these observations are
 for diagnosing a failed run, never an alternative acceptance condition.
 
+## Offline fixture checks
+
+`pnpm --filter @dsh-uml-viewer/e2e test` runs Node-only fixture regressions;
+it starts no DSH host, browser or native viewer. Workspace selection waits for
+the visible conversation's session id to change when the chosen workspace
+changes. The chooser label alone updates before the new conversation mounts.
+The delayed-transition check keeps those two states separate.
+
+The Shop DPI and metrics-reload cases pan left by the measured inspector width
+before asking the producer for a fresh frame. Their previous target was under
+the floating inspector, so a raw page click reached the inspector rather than
+the canvas. The gesture check replays the CI CSS geometry at both DPR values;
+the browser cases still require real selection, resize and metrics changes.
+Node fixture checks do not establish browser acceptance.
+
 ## Sample projects
 
 `packages/e2e/projects.mjs` copies five TypeScript projects into the
