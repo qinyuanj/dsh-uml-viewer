@@ -46,7 +46,10 @@ it.
 
 ## Resource-limited #26 verification
 
-`quality.spec.mjs` converts the quality/highlight scenarios to the existing lane:
+`quality.spec.mjs` converts the quality/highlight egui driver scenarios
+(`class_boxes.edn`, `lod_shots.edn` and `metrics.edn` for 质量色, C/M 圆点 and
+无数据; `navigation.edn` for 依赖链高亮 and 关系淡化, whose resident selection
+`navigation.spec.mjs` already exercises) to the existing lane:
 independent C/M dots and quality fills, missing CRAP/mutation/both data, red no-data
 ink, unchanged quality/violation hues with changed host skin tokens in both modes,
 resident selection/chain/dimming, local relation/class hover with the producer's
