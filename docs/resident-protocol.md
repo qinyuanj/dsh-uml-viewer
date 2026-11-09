@@ -95,7 +95,7 @@ An `error` changes nothing; the session keeps running.
 | `open-card` | `id` (EDN) or `at` (world point) | `frame` | **double-click**: a namespace or proposal layer is entered, a class is selected and its card opens (`scene::events::on_double_press`). With `id` the class's card opens without moving the view. |
 | `close-card` | — | `frame` | close the class card; the selection stays |
 | `scroll-card` | `delta` (wheel notches), `viewHeight` | `frame` | a wheel over the card: `frame::inspector::scroll` owns the 48-point step and both clamps |
-| `open-source` | `id` (EDN), `member?` | `source` | open the class's source: the whole module, or one member's declaration line. The resident reads the file from the session project; an unknown class, file, language or member is an `error`. |
+| `open-source` | `id` (EDN), `member?` | `source` | open the class's source: the whole module, or one member's declaration line. The resident reads the file from the session project; an unknown class, file, language or member, or a source over the [source window limits](#source-window-limits), is an `error`. |
 
 The child polls the diagram and the `.metrics/` quality snapshots every
 250 ms while no action is pending; a change produces a `frame` with
@@ -172,6 +172,44 @@ A trailing newline leaves one empty last row, as the native window shows.
 
 The resident reads the file from the session project. The client never reads
 source from disk; windows, their scrolling and their z-order are panel-local.
+
+### Source window limits
+
+`open-source` is bounded so one large or minified file cannot become an
+unbounded event, host buffer or DOM. The resident
+(`crates/viewer-session/src/overlays.rs`, `SOURCE_*`) and the contracts
+validator (`packages/contracts/src/overlays.ts`, `SOURCE_LIMITS`) use the same
+numbers; byte counts are UTF-8:
+
+| bound | limit | checked |
+|---|---|---|
+| file size | 262144 bytes (256 KiB) | from file metadata before reading; the read stops one byte past the limit |
+| rows | 4000 (a trailing newline counts its empty last row) | on the body before declaration lookup |
+| one row (`text`, CR trimmed) | 4096 bytes | on the body before declaration lookup |
+| one painted row (`display`, a tab paints two spaces) | 8192 bytes | on the body before declaration lookup |
+| token runs in one row | 512 | while tokenizing, before allocating run 513 |
+| token runs in the source | 20000 | while tokenizing, before allocating run 20001 |
+| `source` event line | 2097152 bytes (2 MiB), newline excluded | measured against a stopping writer before the event is written (256 bytes reserved for the envelope) |
+| `file`, `title` | 4096 bytes each | before rows are built |
+| `lang` | 64 bytes | before rows are built |
+
+A source over any bound is an `error` (`source too large to open: …`) and the
+view, discussion context and card stay unchanged, as for any failed
+`open-source`. The window is never silently truncated; a non-UTF-8 file stays
+"could not open". The contracts validator also refuses the same bounds, row
+numbers that are not exactly `1..n`, a `line` that is not `null` or an
+existing row, a marked row other than `line`, an unknown token kind, and
+token runs that do not join to the row's `display`.
+
+The host additionally caps every resident stdout JSONL record at 16777216
+bytes (16 MiB, `RESIDENT_LINE_MAX_BYTES`, newline and CR excluded). It is a
+transport safety cap far above normal frames, not a source limit: the
+unterminated tail is counted as chunks arrive, so memory stops at the cap. A
+record over it stops that resident: every pending request rejects with the
+reason, every watching panel receives one `error` and its stream ends, the
+child is terminated, and the next panel open starts a fresh resident. Stdout
+bytes are decoded incrementally, so a UTF-8 character split between chunks is
+not corrupted.
 
 The host's Remote action returns `inspector`, `card` or `source` as an optional
 field on that action's `PanelAck` (`{accepted, reason, ...payload}`), validated by

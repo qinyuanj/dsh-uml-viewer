@@ -2,6 +2,8 @@ import { buildSync } from 'esbuild'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 import { describe, expect, it, vi } from 'vitest'
+import { DARK_HUES, resolveTheme } from '../src/theme.js'
+import { fakeCanvas, DARK_TOKENS } from './fakes.js'
 
 /** Host React element seam: exercise the exported components with the host's
  * createElement boundary. Actual layout/scroll/selection runs in Playwright. */
@@ -25,11 +27,12 @@ function all(tree: Element, predicate: (e: Element) => boolean): Element[] {
 function text(tree: Element): string {
   return tree.children.map(v => typeof v === 'object' ? text(v) : String(v)).join('')
 }
+const theme = () => resolveTheme(fakeCanvas({ tokens: DARK_TOKENS, dark: true }))
 const labels = { inspector: '检查器', proposals: '提案', pHint: 'P：返回命名空间树' }
 
 it('renders supplied inspector summary lines and proposal choices with host tokens', () => {
   const choose = vi.fn(), namespaceTree = vi.fn()
-  const tree = elements().Inspector!({ controller: { choose, namespaceTree }, state: { inspector: {
+  const tree = elements().Inspector!({ theme: theme(), controller: { choose, namespaceTree }, state: { inspector: {
     labels, declutterLabel: '精简：无',
     entries: [{ id: null, label: 'Shop', active: false }, { id: ':plan', label: 'Plan', active: true }],
     summary: { kind: 'class', lines: [
@@ -45,7 +48,9 @@ it('renders supplied inspector summary lines and proposal choices with host toke
   expect(choose).toHaveBeenCalledWith(':plan')
   all(tree, e => e.type === 'button' && text(e) === labels.pHint)[0]!.props.onClick()
   expect(namespaceTree).toHaveBeenCalled()
-  expect(all(tree, e => e.type === 'p')[0]!.props.style.color).toBe('var(--dsw-alias-state-error-primary)')
+  // 无数据 is the fixed no-data red from the shared resolver, not a host error token.
+  expect(all(tree, e => e.type === 'p')[0]!.props.style.color).toBe(DARK_HUES.noData)
+  expect(all(tree, e => e.props.className === 'dsh-uml-summary-segments')[0]!.props.style.color).toBe('#e8c448')
 })
 
 it('renders producer rows and sends member/module/relationship activations through the controller', () => {
@@ -53,7 +58,7 @@ it('renders producer rows and sends member/module/relationship activations throu
   const item = { kind: 'stats', y: 134, h: 18, text: '+ target()', color: { role: 'ink' }, titleFont: false,
     x: 30, clipRight: 242, cells: [{ id: 'crap', text: '4.0', left: 252, right: 308, center: false, color: { role: 'accent' }, tip: 'risk' }],
     bars: [], stripe: true, swatch: null, clickable: true, module: false, opName: 'target', rel: null }
-  const tree = elements().ClassCard!({ controller: { openSource, locate, closeCard }, state: { card: {
+  const tree = elements().ClassCard!({ theme: theme(), controller: { openSource, locate, closeCard }, state: { card: {
     id: ':order', title: 'Order', scroll: 0, contentHeight: 400, items: [item,
       { ...item, module: true, opName: null, text: 'order.rs' },
       { ...item, kind: 'rel', opName: null, rel: ':other', text: '依赖 other' }],
@@ -83,4 +88,64 @@ it('renders source tokens, declaration marker and unselectable gutter without re
   expect(all(tree, e => e.props.className === 'dsh-uml-source-gutter')[0]!.props['aria-hidden']).toBe(true)
   all(tree, e => e.props['aria-label'] === '关闭源码窗口')[0]!.props.onClick()
   expect(closeSource).toHaveBeenCalledWith(7)
+})
+
+it('colours card cells, bars and swatches through the shared role resolver with producer grade/ratio', () => {
+  const resolved = theme()
+  const base = { kind: 'stats', y: 0, h: 18, text: 'x', color: { role: 'ink' }, titleFont: false, x: 30, clipRight: null,
+    bars: [], stripe: false, swatch: null, clickable: false, module: false, opName: null, rel: null }
+  const cells = [
+    { id: 'cov-hi', text: '90%', left: 0, right: 40, center: false, color: { role: 'coverage', ratio: 0.9 }, tip: null },
+    { id: 'cov-mid', text: '60%', left: 40, right: 80, center: false, color: { role: 'coverage', ratio: 0.6 }, tip: null },
+    { id: 'cov-lo', text: '20%', left: 80, right: 120, center: false, color: { role: 'coverage', ratio: 0.2 }, tip: null },
+    { id: 'q6', text: '6', left: 120, right: 160, center: false, color: { role: 'quality-stroke', grade: 6 }, tip: null },
+  ]
+  const tree = elements().ClassCard!({ theme: resolved, controller: {}, state: { card: {
+    id: ':x', title: 'X', scroll: 0, contentHeight: 40, items: [{ ...base, cells,
+      swatch: { role: 'quality-fill', grade: 7.5 },
+      bars: [{ id: 'b', left: 0, right: 100, fraction: 0.5, color: { role: 'violation' } }] }],
+  } } })
+  const colour = (label: string) => all(tree, e => e.props.className === 'dsh-uml-card-cell' && text(e) === label)[0]!.props.style.color
+  expect(colour('90%')).toBe(resolved.frame('coverage', null, 0.9))
+  expect(colour('60%')).toBe(resolved.frame('coverage', null, 0.6))
+  expect(colour('20%')).toBe(resolved.frame('coverage', null, 0.2))
+  expect(new Set([colour('90%'), colour('60%'), colour('20%')]).size).toBe(3)
+  expect(colour('6')).toBe(resolved.frame('quality-stroke', 6))
+  expect(colour('6')).not.toMatch(/var\(/)
+  const swatch = all(tree, e => e.props.style?.width === 10)[0]!
+  expect(swatch.props.style.background).toBe(resolved.frame('quality-fill', 7.5))
+  const bar = all(tree, e => e.props.style?.width === '50%')[0]!
+  expect(bar.props.style.background).toBe(DARK_HUES.violation)
+})
+
+describe('bounded source DOM', () => {
+  const big = (count: number, line: number | null) => ({ title: 'big.ts', line, rows: Array.from({ length: count }, (_, i) => ({
+    number: i + 1, marked: line === i + 1, tokens: [{ kind: 'ink', text: `line ${i + 1}` }],
+  })) })
+
+  it('renders only a bounded row window of a long file, around the declaration line', () => {
+    const view = elements() as unknown as Record<string, any>
+    const tree = view.SourceView({ index: 0, controller: {}, window: { serial: 1, model: big(4000, 3000) } })
+    const rows = all(tree, e => e.props['data-source-line'] !== undefined)
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows.length).toBeLessThanOrEqual(view.SOURCE_MAX_RENDERED_ROWS)
+    expect(rows.some(e => e.props['data-source-line'] === 3000 && e.props['data-marked'] === true)).toBe(true)
+    const scroll = all(tree, e => e.props.className === 'dsh-uml-source-scroll')[0]!
+    expect(scroll.props['data-source-rows']).toBe(4000)
+    // Spacers keep the full scroll height: rendered + spacer rows = file rows.
+    const spacers = scroll.children.filter((e: any) => e.props['aria-hidden'] === true && e.props.style?.height !== undefined)
+    const spacerRows = spacers.reduce((sum: number, e: any) => sum + e.props.style.height, 0) / view.SOURCE_ROW_HEIGHT
+    expect(spacerRows + rows.length).toBe(4000)
+  })
+
+  it('computes the visible window per scroll offset with fixed bounds', () => {
+    const { sourceRowWindow, SOURCE_OVERSCAN_ROWS, SOURCE_MAX_RENDERED_ROWS } = elements() as unknown as Record<string, any>
+    expect(sourceRowWindow(84, 0, 600)).toEqual({ start: 0, end: 84 })
+    expect(sourceRowWindow(4000, 0, 600)).toEqual({ start: 0, end: 31 + 2 * SOURCE_OVERSCAN_ROWS })
+    expect(sourceRowWindow(4000, 2000, 400)).toEqual({ start: 100 - SOURCE_OVERSCAN_ROWS, end: 100 - SOURCE_OVERSCAN_ROWS + 21 + 2 * SOURCE_OVERSCAN_ROWS })
+    expect(sourceRowWindow(4000, 79990, 600).end).toBe(4000)
+    const huge = sourceRowWindow(4000, 0, 1e6)
+    expect(huge.end - huge.start).toBe(SOURCE_MAX_RENDERED_ROWS)
+    expect(sourceRowWindow(10, Number.NaN, Number.NaN)).toEqual({ start: 0, end: 10 })
+  })
 })

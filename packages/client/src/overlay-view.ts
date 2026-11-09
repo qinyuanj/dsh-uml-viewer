@@ -1,20 +1,11 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import type { CardItem, FrameColor } from '@dsh-uml-viewer/contracts'
 import { OverlayController, type OverlaySnapshot, type SourceWindow } from './overlays.js'
+import { resolveTheme, type Theme } from './theme.js'
 
-/** Overlay chrome uses only host tokens. Quality roles choose semantic host
- * states; figures, grades and text remain the Rust producer's. */
-export function roleStyle(color: FrameColor): string {
-  const tokens: Record<string, string> = {
-    ink: 'label-primary', muted: 'label-tertiary', accent: 'state-business-primary',
-    marker: 'label-primary', good: 'state-success-primary', 'no-data': 'state-error-primary',
-    violation: 'state-error-primary', coverage: 'state-warn-primary',
-    'quality-stroke': 'state-error-primary',
-  }
-  if (color.role === 'quality-stroke' && color.grade != null) {
-    return `var(--dsw-alias-${color.grade >= 8 ? 'state-success-primary' : color.grade >= 5 ? 'state-warn-primary' : 'state-error-primary'})`
-  }
-  return `var(--dsw-alias-${tokens[color.role] ?? 'label-primary'})`
+/** Map the Rust-provided semantic role through the Canvas palette too. */
+export function roleStyle(color: FrameColor, theme: Theme = resolveTheme(document.body)): string {
+  return theme.frame(color.role, color.grade, color.ratio)
 }
 
 export const OVERLAY_STYLE = `
@@ -58,7 +49,7 @@ export const OVERLAY_STYLE = `
 @media (max-width: 600px) { .dsh-uml-inspector { width: 180px; padding: 8px; } .dsh-uml-card,.dsh-uml-source { left: 0; max-width: 100%; } }
 `
 
-export function Inspector({ state, controller }: { state: OverlaySnapshot; controller: OverlayController }): unknown {
+export function Inspector({ state, controller, theme = resolveTheme(document.body) }: { state: OverlaySnapshot; controller: OverlayController; theme?: Theme }): unknown {
   const model = state.inspector
   if (!model) return null
   return h('aside', { className: 'dsh-uml-inspector', 'aria-label': model.labels.inspector },
@@ -71,26 +62,26 @@ export function Inspector({ state, controller }: { state: OverlaySnapshot; contr
     h('button', { type: 'button', onClick: () => { void controller.declutter() } }, model.declutterLabel),
     h('div', { className: 'dsh-uml-summary-lines', 'data-summary-kind': model.summary.kind }, ...model.summary.lines.map((line, index) =>
       line.type === 'label'
-        ? h('p', { key: index, style: { color: roleStyle(line.color) } }, line.text)
-        : h('div', { key: index, className: 'dsh-uml-summary-segments', style: { color: roleStyle(line.color) } },
+        ? h('p', { key: index, style: { color: roleStyle(line.color, theme) } }, line.text)
+        : h('div', { key: index, className: 'dsh-uml-summary-segments', style: { color: roleStyle(line.color, theme) } },
           ...line.parts.map((part, n) => h('span', { key: n }, part))))))
 }
 
-function CardRow({ item, id, controller }: { item: CardItem; id: string; controller: OverlayController }): unknown {
+function CardRow({ item, id, controller, theme }: { item: CardItem; id: string; controller: OverlayController; theme: Theme }): unknown {
   const contents = [
     item.swatch ? h('span', { key: 'swatch', style: { position: 'absolute', left: 16, top: 4, width: 10,
-      height: item.h - 8, background: roleStyle(item.swatch) } }) : null,
+      height: item.h - 8, background: roleStyle(item.swatch, theme) } }) : null,
     item.text === null ? null : h('span', { key: 'text', className: 'dsh-uml-card-text', style: {
       left: item.x, right: item.clipRight === null ? 0 : undefined,
       width: item.clipRight === null ? undefined : item.clipRight - item.x,
-      color: roleStyle(item.color), fontSize: item.titleFont ? 16 : 12,
+      color: roleStyle(item.color, theme), fontSize: item.titleFont ? 16 : 12,
     } }, item.text),
     ...item.cells.map((cell, n) => h('span', { key: `cell-${n}`, className: 'dsh-uml-card-cell', title: cell.tip ?? undefined,
       style: { left: cell.left, width: cell.right - cell.left, textAlign: cell.center ? 'center' : 'right',
-        color: roleStyle(cell.color) } }, cell.text)),
+        color: roleStyle(cell.color, theme) } }, cell.text)),
     ...item.bars.map((bar, n) => h('span', { key: `bar-${n}`, className: 'dsh-uml-card-bar',
       style: { left: bar.left, width: bar.right - bar.left } }, h('span', {
-      style: { width: `${bar.fraction * 100}%`, background: roleStyle(bar.color) },
+      style: { width: `${bar.fraction * 100}%`, background: roleStyle(bar.color, theme) },
     }))),
   ]
   return h('div', { className: 'dsh-uml-card-row', 'data-stripe': item.stripe,
@@ -102,7 +93,7 @@ function CardRow({ item, id, controller }: { item: CardItem; id: string; control
   }, ...contents) : contents)
 }
 
-export function ClassCard({ state, controller }: { state: OverlaySnapshot; controller: OverlayController }): unknown {
+export function ClassCard({ state, controller, theme = resolveTheme(document.body) }: { state: OverlaySnapshot; controller: OverlayController; theme?: Theme }): unknown {
   const model = state.card
   const scrollRef = useRef<HTMLElement | null>(null)
   const nativeScrolling = useRef(false)
@@ -161,32 +152,88 @@ export function ClassCard({ state, controller }: { state: OverlaySnapshot; contr
         }
       },
     }, h('div', { className: 'dsh-uml-card-plan', style: { width, height: model.contentHeight } },
-      ...model.items.map((item, index) => h(CardRow, { key: index, item, id: model.id, controller })))))
+      ...model.items.map((item, index) => h(CardRow, { key: index, item, id: model.id, controller, theme })))))
+}
+
+/** Source rows are a fixed 20 CSS px (`.dsh-uml-source-line`). */
+export const SOURCE_ROW_HEIGHT = 20
+/** Rows rendered beyond each edge of the visible range. */
+export const SOURCE_OVERSCAN_ROWS = 30
+/** Hard ceiling on rows in the DOM per source window, whatever the box height. */
+export const SOURCE_MAX_RENDERED_ROWS = 240
+/** Box height assumed before the first measurement. */
+const SOURCE_DEFAULT_VIEW = 600
+
+/**
+ * The bounded `[start, end)` row range a source window renders. Only the
+ * visible rows plus overscan become DOM, so the node count is independent of
+ * the file length (the producer's row limit bounds the model itself).
+ */
+export function sourceRowWindow(rowCount: number, scrollTop: number, viewHeight: number): { start: number; end: number } {
+  const top = Number.isFinite(scrollTop) ? Math.max(0, scrollTop) : 0
+  const height = Number.isFinite(viewHeight) && viewHeight > 0 ? viewHeight : SOURCE_DEFAULT_VIEW
+  const visible = Math.ceil(height / SOURCE_ROW_HEIGHT) + 1
+  // Past the end (stale offset) still shows the tail rather than nothing.
+  const first = Math.min(Math.floor(top / SOURCE_ROW_HEIGHT), Math.max(0, rowCount - visible))
+  const start = Math.max(0, Math.min(rowCount, first - SOURCE_OVERSCAN_ROWS))
+  const end = Math.min(rowCount, start + Math.min(SOURCE_MAX_RENDERED_ROWS, visible + 2 * SOURCE_OVERSCAN_ROWS))
+  return { start, end }
+}
+
+/** Scroll offset that puts the marked declaration row a quarter down the box. */
+export function sourceJumpOffset(rows: readonly { number: number }[], line: number | null, viewHeight: number): number {
+  if (line === null) return 0
+  const index = rows.findIndex(row => row.number === line)
+  return Math.max(0, (index < 0 ? 0 : index) * SOURCE_ROW_HEIGHT - viewHeight / 4)
 }
 
 export function SourceView({ window, controller, index }: { window: SourceWindow; controller: OverlayController; index: number }): unknown {
   const scrollRef = useRef<HTMLElement | null>(null)
   const model = window.model
+  const [view, setView] = useState<{ top: number; height: number }>({
+    top: sourceJumpOffset(model.rows, model.line, SOURCE_DEFAULT_VIEW), height: SOURCE_DEFAULT_VIEW })
   useEffect(() => {
     const element = scrollRef.current
     if (!element) return
-    element.scrollTop = model.line === null ? 0 : Math.max(0, (model.line - 1) * 20 - element.clientHeight / 4)
+    const top = sourceJumpOffset(model.rows, model.line, element.clientHeight)
+    element.scrollTop = top
+    setView({ top: element.scrollTop, height: element.clientHeight })
   }, [model])
+  const rows = sourceRowWindow(model.rows.length, view.top, view.height)
   return h('section', { className: 'dsh-uml-window dsh-uml-source', role: 'dialog',
     'aria-label': `源码窗口 ${model.title}`, style: { left: index * 16, top: 16 + index * 16, zIndex: index + 2, maxWidth: `calc(100% - ${index * 16}px)` } },
     h('header', { className: 'dsh-uml-window-header' }, h('strong', null, model.title),
       h('button', { type: 'button', 'aria-label': '关闭源码窗口', onClick: () => controller.closeSource(window.serial) }, '×')),
-    h('div', { className: 'dsh-uml-source-scroll', ref: scrollRef }, ...model.rows.map(row =>
+    h('div', { className: 'dsh-uml-source-scroll', ref: scrollRef, 'data-source-rows': model.rows.length,
+      onScroll: (event: { currentTarget: HTMLElement }) => {
+        const element = event.currentTarget
+        setView({ top: element.scrollTop, height: element.clientHeight })
+      } },
+    h('div', { key: 'before', 'aria-hidden': true, style: { height: rows.start * SOURCE_ROW_HEIGHT } }),
+    ...model.rows.slice(rows.start, rows.end).map(row =>
       h('div', { key: row.number, className: 'dsh-uml-source-line', 'data-source-line': row.number, 'data-marked': row.marked },
         h('span', { className: 'dsh-uml-source-gutter', 'aria-hidden': true }, String(row.number)),
-        h('code', null, ...row.tokens.map((token, n) => h('span', { key: n, 'data-token': token.kind }, token.text)))))))
+        h('code', null, ...row.tokens.map((token, n) => h('span', { key: n, 'data-token': token.kind }, token.text))))),
+    h('div', { key: 'after', 'aria-hidden': true, style: { height: (model.rows.length - rows.end) * SOURCE_ROW_HEIGHT } })))
 }
 
 export function Overlays({ controller }: { controller: OverlayController }): unknown {
   const [state, setState] = useState<OverlaySnapshot>(controller.current)
-  useEffect(() => controller.subscribe(() => setState(controller.current)), [controller])
-  return h('div', { className: 'dsh-uml-overlay-root' },
-    h(Inspector, { state, controller }), h(ClassCard, { state, controller }),
+  const root = useRef<HTMLElement | null>(null)
+  const [theme, setTheme] = useState<Theme>(resolveTheme(document.body))
+  useEffect(() => {
+    const update = () => setTheme(resolveTheme(root.current ?? document.body))
+    update()
+    const observer = new MutationObserver(update)
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-ds-dark-theme'] })
+    return () => observer.disconnect()
+  }, [])
+  useEffect(() => {
+    setState(controller.current)
+    return controller.subscribe(() => setState(controller.current))
+  }, [controller])
+  return h('div', { className: 'dsh-uml-overlay-root', ref: root },
+    h(Inspector, { state, controller, theme }), h(ClassCard, { state, controller, theme }),
     ...state.sources.map((window, index) => h(SourceView, { key: window.serial, window, controller, index })),
     state.failure ? h('div', { role: 'status', className: 'dsh-uml-overlay-failure' }, state.failure) : null)
 }

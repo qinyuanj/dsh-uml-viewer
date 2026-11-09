@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
-  parsePanelAction, parseResidentLine, validateCardModel, validateInspectorModel, validateSourceModel,
+  parsePanelAction, parseResidentLine, RESIDENT_LINE_MAX_BYTES, SOURCE_LIMITS, validateCardModel,
+  validateInspectorModel, validateSourceModel,
 } from '../src/index.js'
 
 /**
@@ -68,19 +69,22 @@ const card = {
 
 const source = {
   file: 'D:/project/src/order.rs',
-  title: 'src/order.rs:9',
-  line: 9,
+  title: 'src/order.rs:1',
+  line: 1,
   lang: 'rust',
   rows: [
     {
-      number: 9, text: '\tpub fn place(&mut self) -> u64 {', display: '  pub fn place(&mut self) -> u64 {',
+      number: 1, text: '\tpub fn place(&mut self) -> u64 {', display: '  pub fn place(&mut self) -> u64 {',
       marked: true,
       tokens: [
         { text: '  ', kind: 'ink' }, { text: 'pub', kind: 'keyword' }, { text: ' ', kind: 'ink' },
         { text: 'fn', kind: 'keyword' }, { text: ' place(&mut self) -> u64 {', kind: 'ink' },
       ],
     },
-    { number: 10, text: '\t\tself.id', display: '    self.id', marked: false, tokens: [] },
+    {
+      number: 2, text: '\t\tself.id', display: '    self.id', marked: false,
+      tokens: [{ text: '    ', kind: 'ink' }, { text: 'self', kind: 'keyword' }, { text: '.', kind: 'ink' }, { text: 'id', kind: 'ink' }],
+    },
   ],
 }
 
@@ -114,7 +118,56 @@ describe('overlay validators', () => {
 
   it('accepts an opened source with marked rows and token runs', () => {
     expect(validateSourceModel(source)).toEqual(source)
-    expect(validateSourceModel({ ...source, line: null }).line).toBeNull()
+    const whole = { ...source, line: null, rows: source.rows.map(row => ({ ...row, marked: false })) }
+    expect(validateSourceModel(whole).line).toBeNull()
+  })
+
+  it('shares the documented source bounds with the resident', () => {
+    expect(SOURCE_LIMITS).toEqual({
+      maxFileBytes: 262_144, maxRows: 4000, maxLineBytes: 4096, maxDisplayBytes: 8192,
+      maxRunsPerRow: 512, maxRuns: 20_000, maxEventBytes: 2_097_152, maxPathBytes: 4096, maxLangBytes: 64,
+    })
+    expect(RESIDENT_LINE_MAX_BYTES).toBe(16_777_216)
+    expect(Object.isFrozen(SOURCE_LIMITS)).toBe(true)
+  })
+
+  it('refuses source rows and target lines that are not real row positions', () => {
+    for (const line of [0, -1, 1.5, 3]) {
+      expect(() => validateSourceModel({ ...source, line })).toThrow(/source\.line/)
+    }
+    const renumbered = { ...source, rows: [source.rows[0], { ...source.rows[1], number: 3 }] }
+    expect(() => validateSourceModel(renumbered)).toThrow(/rows\[1\]\.number: must be 2/)
+    expect(() => validateSourceModel({ ...source, rows: [{ ...source.rows[0], number: 0.5 }] })).toThrow(/rows\[0\]\.number/)
+    const twoMarks = { ...source, rows: source.rows.map(row => ({ ...row, marked: true })) }
+    expect(() => validateSourceModel(twoMarks)).toThrow(/rows\[1\]\.marked/)
+    expect(() => validateSourceModel({ ...source, rows: [{ ...source.rows[0], tokens: [] }, source.rows[1]] }))
+      .toThrow(/rows\[0\]\.tokens: must join/)
+    expect(() => validateSourceModel({
+      ...source, rows: [{ ...source.rows[0], tokens: [{ text: source.rows[0]!.display, kind: 'bold' }] }, source.rows[1]],
+    })).toThrow(/kind/)
+  })
+
+  it('refuses a source over each row, line, token and metadata bound', () => {
+    const row = (number: number, text = 'x') => ({ number, text, display: text, marked: false, tokens: text ? [{ text, kind: 'ink' }] : [] })
+    const sized = (count: number) => ({ ...source, line: null, rows: Array.from({ length: count }, (_, i) => row(i + 1, '')) })
+    expect(validateSourceModel(sized(SOURCE_LIMITS.maxRows)).rows).toHaveLength(SOURCE_LIMITS.maxRows)
+    expect(() => validateSourceModel(sized(SOURCE_LIMITS.maxRows + 1))).toThrow(/rows: has 4001 items; the limit is 4000/)
+    const long = 'é'.repeat(SOURCE_LIMITS.maxLineBytes / 2)
+    expect(validateSourceModel({ ...source, line: null, rows: [row(1, long)] }).rows[0]!.text).toBe(long)
+    expect(() => validateSourceModel({ ...source, line: null, rows: [{ ...row(1, long), text: `${long}x` }] }))
+      .toThrow(/rows\[0\]\.text: exceeds 4096 UTF-8 bytes/)
+    const wide = ' '.repeat(SOURCE_LIMITS.maxDisplayBytes + 1)
+    expect(() => validateSourceModel({ ...source, line: null, rows: [{ ...row(1), display: wide, tokens: [{ text: wide, kind: 'ink' }] }] }))
+      .toThrow(/rows\[0\]\.display/)
+    const punct = ';'.repeat(SOURCE_LIMITS.maxRunsPerRow + 1)
+    const amplified = { ...row(1, punct), tokens: [...punct].map(text => ({ text, kind: 'ink' })) }
+    expect(() => validateSourceModel({ ...source, line: null, rows: [amplified] })).toThrow(/tokens: has 513 items/)
+    const busy = ';'.repeat(SOURCE_LIMITS.maxRunsPerRow)
+    const busyRows = Array.from({ length: 40 }, (_, i) => ({ ...row(i + 1, busy), tokens: [...busy].map(text => ({ text, kind: 'ink' })) }))
+    expect(() => validateSourceModel({ ...source, line: null, rows: busyRows })).toThrow(/exceed 20000 token runs/)
+    expect(() => validateSourceModel({ ...source, file: 'f'.repeat(4097) })).toThrow(/source\.file/)
+    expect(() => validateSourceModel({ ...source, title: 't'.repeat(4097) })).toThrow(/source\.title/)
+    expect(() => validateSourceModel({ ...source, lang: 'l'.repeat(65) })).toThrow(/source\.lang/)
   })
 
   it('refuses malformed payloads instead of guessing', () => {

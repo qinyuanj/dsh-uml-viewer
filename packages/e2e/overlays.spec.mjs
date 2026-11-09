@@ -153,6 +153,8 @@ test('module source, exact member line, native copy, same-file reuse and indepen
   await expect(sources(panel)).toHaveCount(1)
   const source = sources(panel).first()
   await expect(source).toHaveAttribute('aria-label', /源码窗口 .*catalog\.ts$/)
+  // The whole 84-line model fits inside one bounded DOM window (overscan included).
+  await expect(source.locator('.dsh-uml-source-scroll')).toHaveAttribute('data-source-rows', '84')
   await expect(source.locator('[data-source-line]')).toHaveCount(84)
   await expect(source.locator('[data-marked=true]')).toHaveCount(0)
   expect((await metrics(source.locator('.dsh-uml-source-scroll'))).top).toBe(0)

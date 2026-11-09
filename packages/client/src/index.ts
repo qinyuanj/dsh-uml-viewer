@@ -15,6 +15,7 @@ import { UML_VIEWER_REMOTE } from '@dsh-uml-viewer/contracts'
 import { FONT_FAMILY, loadSarasa } from './font.js'
 import { PanelController, type PanelRemoteApi } from './panel.js'
 import { paintFrame } from './paint.js'
+import { cssToWorld } from './fit.js'
 import { DECLUTTER_STYLE, mountDeclutterControl } from './declutter.js'
 
 export const TAB_ID = 'dsh-uml-viewer'
@@ -156,10 +157,10 @@ export async function mountPanel(host: HTMLElement, options: {
   const onDoubleClick = (event: MouseEvent): void => {
     const frame = controller.current.frame
     if (!frame) return
-    const bounds = canvas.getBoundingClientRect()
-    const scale = Math.min(bounds.width / frame.viewport.width, bounds.height / frame.viewport.height)
-    const zoom = frame.camera.zoom * scale
-    void overlays?.openCardAt([frame.camera.x + event.offsetX / zoom, frame.camera.y + event.offsetY / zoom])
+    // One open-card dispatch; Rust decides class detail vs. layer drill-in.
+    // CSS stretches the frame-sized bitmap per axis, so map each axis.
+    const world = cssToWorld(frame, canvas.getBoundingClientRect(), event.offsetX, event.offsetY)
+    if (world) void overlays?.openCardAt(world)
   }
   canvas.addEventListener('dblclick', onDoubleClick)
   // Keyboard input belongs to this panel; never capture the chat composer.
@@ -215,18 +216,31 @@ export async function mountPanel(host: HTMLElement, options: {
 /** One panel component, used by both the sidebar tab and the `main` page. */
 export function makePanelComponent(ctx: ClientContext): (props: ClientPanelProps) => unknown {
   return function UmlViewerPanel(props: ClientPanelProps): unknown {
-    const disposeRef = useRef<(() => void) | null>(null)
+    // One live mount per attach. A detach or rebind while `mountPanel` is
+    // still awaiting invalidates that mount: its late disposer runs at once
+    // and its overlay controller is never published.
+    const mountRef = useRef<{ dispose: (() => void) | null } | null>(null)
     const [overlays, setOverlays] = useState<OverlayController | null>(null)
     const attach = useCallback((element: HTMLElement | null): void => {
       if (!element) {
-        disposeRef.current?.()
-        disposeRef.current = null
+        const mount = mountRef.current
+        mountRef.current = null
+        mount?.dispose?.()
+        setOverlays(null)
         return
       }
-      if (disposeRef.current) return
+      if (mountRef.current) return
       const sessionId = props.sessionId
       if (typeof sessionId !== 'string') return
-      void mountPanel(element, { sessionId, ctx, onOverlays: setOverlays }).then(dispose => { disposeRef.current = dispose })
+      const mount: { dispose: (() => void) | null } = { dispose: null }
+      mountRef.current = mount
+      void mountPanel(element, {
+        sessionId, ctx,
+        onOverlays: controller => { if (mountRef.current === mount) setOverlays(controller) },
+      }).then(dispose => {
+        if (mountRef.current === mount) mount.dispose = dispose
+        else dispose()
+      })
     }, [ctx, props.sessionId])
     return createElement('div', { className: 'dsh-uml-viewer-panel', 'data-font': FONT_FAMILY },
       createElement('div', { className: 'dsh-uml-viewer-canvas-host', ref: attach,

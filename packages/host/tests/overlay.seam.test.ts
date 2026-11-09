@@ -34,9 +34,14 @@ const card = {
   }],
 }
 const source = {
-  file: 'D:/project/src/order.rs', title: 'src/order.rs:9', line: 9, lang: 'rust',
-  rows: [{ number: 9, text: '\tpub fn place()', display: '  pub fn place()', marked: true,
-    tokens: [{ text: 'pub', kind: 'keyword' }] }],
+  // A whole, contiguous source model (rows 1..n, tokens joining `display`),
+  // as the bounded contracts validator requires.
+  file: 'D:/project/src/order.rs', title: 'src/order.rs:2', line: 2, lang: 'rust',
+  rows: [
+    { number: 1, text: '// order', display: '// order', marked: false, tokens: [{ text: '// order', kind: 'comment' }] },
+    { number: 2, text: '\tpub fn place()', display: '  pub fn place()', marked: true,
+      tokens: [{ text: '  ', kind: 'ink' }, { text: 'pub', kind: 'keyword' }, { text: ' fn place()', kind: 'ink' }] },
+  ],
 }
 
 const roots: string[] = []

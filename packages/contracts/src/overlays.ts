@@ -98,6 +98,49 @@ export interface SourceModel {
   rows: SourceRow[]
 }
 
+/**
+ * Source window bounds shared with the resident (`crates/viewer-session/src/
+ * overlays.rs`, `SOURCE_*` constants; the two lists must stay equal). The
+ * resident refuses a source over any bound with an `error` before it reads
+ * past `maxFileBytes`, tokenizes or serializes; nothing is truncated. These
+ * validators refuse the same bounds so a panel never builds an oversized view.
+ * Byte counts are UTF-8.
+ */
+export const SOURCE_LIMITS = Object.freeze({
+  /** Whole source file. */
+  maxFileBytes: 256 * 1024,
+  /** Rows in one source (a trailing newline counts its empty last row). */
+  maxRows: 4000,
+  /** One source row, CR trimmed. */
+  maxLineBytes: 4096,
+  /** One tab-expanded row (each tab paints two spaces). */
+  maxDisplayBytes: 8192,
+  /** Token runs in one row. */
+  maxRunsPerRow: 512,
+  /** Token runs in the whole source. */
+  maxRuns: 20_000,
+  /** One serialized `source` event line, newline excluded. */
+  maxEventBytes: 2 * 1024 * 1024,
+  /** `file` and `title`. */
+  maxPathBytes: 4096,
+  /** `lang`. */
+  maxLangBytes: 64,
+})
+
+/**
+ * Transport safety cap for any one resident stdout JSONL record, newline
+ * excluded. Frames of normal diagrams are far below it; it only stops an
+ * unbounded line from growing host memory.
+ */
+export const RESIDENT_LINE_MAX_BYTES = 16 * 1024 * 1024
+
+const utf8 = new TextEncoder()
+
+/** UTF-8 byte length of a string. */
+export function utf8Bytes(text: string): number {
+  return utf8.encode(text).length
+}
+
 class Invalid extends Error {}
 
 function at(label: string, message: string): never {
@@ -127,6 +170,19 @@ function bool(value: unknown, label: string): boolean {
 function list(value: unknown, label: string): unknown[] {
   if (!Array.isArray(value)) at(label, 'must be an array')
   return value
+}
+
+function bounded(value: unknown, label: string, maxBytes: number): string {
+  const text = str(value, label)
+  // UTF-16 length bounds UTF-8 bytes from below; skip encoding huge strings.
+  if (text.length > maxBytes || utf8Bytes(text) > maxBytes) at(label, `exceeds ${maxBytes} UTF-8 bytes`)
+  return text
+}
+
+function boundedList(value: unknown, label: string, max: number): unknown[] {
+  const items = list(value, label)
+  if (items.length > max) at(label, `has ${items.length} items; the limit is ${max}`)
+  return items
 }
 
 function optionalString(value: unknown, label: string): string | null {
@@ -264,32 +320,55 @@ export function validateCardModel(value: unknown, label = 'card'): CardModel {
   }
 }
 
-/** Validate the opened source of an `open-source` answer. */
+const TOKEN_KINDS = new Set(['keyword', 'string', 'comment', 'ink'])
+
+/**
+ * Validate the opened source of an `open-source` answer, within
+ * `SOURCE_LIMITS`: rows are numbered 1..n contiguously, `line` is null or an
+ * existing row and only that row is marked, and each row's token runs join to
+ * exactly its `display` text.
+ */
 export function validateSourceModel(value: unknown, label = 'source'): SourceModel {
   try {
     const source = record(value, label)
+    const line = optionalNumber(source.line, `${label}.line`)
+    const items = boundedList(source.rows, `${label}.rows`, SOURCE_LIMITS.maxRows)
+    if (line !== null && (!Number.isInteger(line) || line < 1 || line > items.length)) {
+      at(`${label}.line`, `must be null or a row number from 1 to ${items.length}`)
+    }
+    let runs = 0
+    const rows = items.map((row, index): SourceRow => {
+      const where = `${label}.rows[${index}]`
+      const item = record(row, where)
+      const number = num(item.number, `${where}.number`)
+      if (number !== index + 1) at(`${where}.number`, `must be ${index + 1}`)
+      const display = bounded(item.display, `${where}.display`, SOURCE_LIMITS.maxDisplayBytes)
+      const marked = bool(item.marked, `${where}.marked`)
+      if (marked !== (number === line)) at(`${where}.marked`, 'must mark exactly the declaration line')
+      const tokenItems = boundedList(item.tokens, `${where}.tokens`, SOURCE_LIMITS.maxRunsPerRow)
+      runs += tokenItems.length
+      if (runs > SOURCE_LIMITS.maxRuns) at(`${label}.rows`, `exceed ${SOURCE_LIMITS.maxRuns} token runs`)
+      const tokens = tokenItems.map((token, tokenIndex) => {
+        const run = record(token, `${where}.tokens[${tokenIndex}]`)
+        const kind = str(run.kind, `${where}.tokens[${tokenIndex}].kind`)
+        if (!TOKEN_KINDS.has(kind)) at(`${where}.tokens[${tokenIndex}].kind`, `unknown token kind ${JSON.stringify(kind)}`)
+        return { text: str(run.text, `${where}.tokens[${tokenIndex}].text`), kind }
+      })
+      if (tokens.map(run => run.text).join('') !== display) at(`${where}.tokens`, 'must join to the display text')
+      return {
+        number,
+        text: bounded(item.text, `${where}.text`, SOURCE_LIMITS.maxLineBytes),
+        display,
+        marked,
+        tokens,
+      }
+    })
     return {
-      file: str(source.file, `${label}.file`),
-      title: str(source.title, `${label}.title`),
-      line: optionalNumber(source.line, `${label}.line`),
-      lang: str(source.lang, `${label}.lang`),
-      rows: list(source.rows, `${label}.rows`).map((row, index) => {
-        const at = `${label}.rows[${index}]`
-        const item = record(row, at)
-        return {
-          number: num(item.number, `${at}.number`),
-          text: str(item.text, `${at}.text`),
-          display: str(item.display, `${at}.display`),
-          marked: bool(item.marked, `${at}.marked`),
-          tokens: list(item.tokens, `${at}.tokens`).map((token, tokenIndex) => {
-            const run = record(token, `${at}.tokens[${tokenIndex}]`)
-            return {
-              text: str(run.text, `${at}.tokens[${tokenIndex}].text`),
-              kind: str(run.kind, `${at}.tokens[${tokenIndex}].kind`),
-            }
-          }),
-        }
-      }),
+      file: bounded(source.file, `${label}.file`, SOURCE_LIMITS.maxPathBytes),
+      title: bounded(source.title, `${label}.title`, SOURCE_LIMITS.maxPathBytes),
+      line,
+      lang: bounded(source.lang, `${label}.lang`, SOURCE_LIMITS.maxLangBytes),
+      rows,
     }
   } catch (error) {
     if (error instanceof Invalid) throw new Error(error.message)
