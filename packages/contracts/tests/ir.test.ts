@@ -13,6 +13,21 @@ describe('IR request', () => {
     expect(parseIrRequest({ policy: String.raw`examples\a\policy.edn` })).toEqual({ policy: String.raw`examples\a\policy.edn` })
   })
 
+  it('refuses one project-relative path rule everywhere: streams, device names, trailing dots and spaces', () => {
+    for (const [path, message] of [
+      ['a:b', /normalized relative path/],
+      ['dir/ab:c.ts', /alternate data stream/],
+      ['dir/CON', /device name/],
+      ['con.edn', /device name/],
+      ['lpt1/x.ts', /device name/],
+      ['x.', /dot or a space/],
+      ['x ', /dot or a space/],
+      ['a/./b.ts', /normalized relative path/],
+    ] as const) {
+      expect(() => parseIrRequest({ policy: path, output: 'diagram.edn' }), path).toThrow(message)
+    }
+  })
+
   it('uses explicit DSH types for constant and enum result fields', () => {
     for (const [field, schema] of Object.entries(IR_RESULT_SCHEMA.properties)) {
       if ('const' in schema || 'enum' in schema) expect(schema, field).toHaveProperty('type')

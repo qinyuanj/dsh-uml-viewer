@@ -35,6 +35,12 @@ describe('quality panel requests', () => {
     expect(() => validatePanelRequest({ ...request, files: ['../outside.ts'] })).toThrow(/relative/)
     expect(() => validatePanelRequest({ ...request, files: ['D:/abs.ts'] })).toThrow(/relative/)
     expect(() => validatePanelRequest({ ...request, files: ['src/a.ts', 'src/a.ts'] })).toThrow(/duplicate/)
+    // One rule for every project-relative path (#review M1a): the same
+    // refusals as the model's IR arguments, not a second validator.
+    expect(() => validatePanelRequest({ ...request, files: ['src/ab:c.ts'] })).toThrow(/alternate data stream/)
+    expect(() => validatePanelRequest({ ...request, files: ['CON'] })).toThrow(/device name/)
+    expect(() => validatePanelRequest({ ...request, files: ['src/x.'] })).toThrow(/dot or a space/)
+    expect(() => validatePanelRequest({ ...request, files: ['src/x '] })).toThrow(/dot or a space/)
   })
 
   it('renders one visible user message whose body is the structured EDN request', () => {

@@ -43,8 +43,20 @@ export function parseRequestId(value: unknown, label: string): string {
   return value
 }
 
+/** Windows device names cannot name a file, with or without an extension. */
+const DEVICE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
+
 /**
  * Validate one project-relative path argument.
+ *
+ * This is the ONE rule for every project-relative path the plugin accepts or
+ * receives: the model's `policy`/`output`/`targets`, the panel request files the
+ * host queues and the resident's `quality-target` answer (#review M1a). Beyond
+ * absolute paths, `..`, `.`, empty segments and a bare drive prefix it refuses
+ * what Windows would silently reinterpret — an NTFS alternate data stream
+ * (`a:b`), a reserved device name (`CON`, `con.edn`) and a segment that ends in
+ * a dot or a space — so no caller can reintroduce a second, weaker spelling.
+ *
  * @param field the argument name used in messages.
  * @param value the model's value.
  * @returns the same normalized relative path.
@@ -53,9 +65,15 @@ export function normalizeRelativePath(field: string, value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || value.includes(String.fromCharCode(0))) {
     throw new Error(`${field} must be a nonempty path without NUL`)
   }
+  if (/[\u0001-\u001f\u007f]/.test(value)) throw new Error(`${field} must not contain control characters`)
   const parts = value.replaceAll('\\', '/').split('/')
-  if (value.startsWith('/') || /^[a-zA-Z]:/.test(value) || parts.includes('..') || parts.includes('')) {
+  if (value.startsWith('/') || /^[a-zA-Z]:/.test(value) || parts.includes('..') || parts.includes('.') || parts.includes('')) {
     throw new Error(`${field} must be a normalized relative path inside the session cwd`)
+  }
+  if (value.includes(':')) throw new Error(`${field} must not name an alternate data stream`)
+  for (const part of parts) {
+    if (part.endsWith('.') || part.endsWith(' ')) throw new Error(`${field} must not end a path segment in a dot or a space`)
+    if (DEVICE_NAME.test(part)) throw new Error(`${field} must not be a Windows device name`)
   }
   return value
 }

@@ -124,8 +124,9 @@ export function validateQualityTarget(value: unknown, label = 'quality target', 
   const files = source.files.map((file, index) => normalizeRelativePath(`${label} files[${index}]`, file))
   let previous: Uint8Array | null = null
   files.forEach((file, index) => {
+    // Everything but the separator spelling is `normalizeRelativePath`'s rule
+    // (#review M1a): no second, weaker validator lives here.
     if (file.includes('\\')) throw new Error(`${label} files[${index}] must use forward slashes`)
-    if (file.split('/').includes('.') || /[\u0000-\u001f\u007f:]/.test(file)) throw new Error(`${label} files[${index}] must be a canonical relative path`)
     if (file.startsWith('-')) throw new Error(`${label} files[${index}] must not be a command option`)
     const bytes = encoder.encode(file)
     if (bytes.length > QUALITY_TARGET_LIMITS.pathBytes) {
