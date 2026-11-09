@@ -123,13 +123,14 @@ fn rows_json(rows: &[PopupRow]) -> Json {
 
 /// One `[x, y]` of a scene point vector, if it is one.
 fn point_of(value: &Value) -> Option<[f64; 2]> {
-    let Value::Vector(items) = value else {
-        return None;
+    let items = match value {
+        Value::Vector(items) => items,
+        _ => return None,
     };
-    let [Value::Float(x), Value::Float(y)] = items.as_slice() else {
-        return None;
-    };
-    Some([*x, *y])
+    match items.as_slice() {
+        [Value::Float(x), Value::Float(y)] => Some([*x, *y]),
+        _ => None,
+    }
 }
 
 /// Build the capability, or `None` when any bound is exceeded.
