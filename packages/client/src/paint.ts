@@ -25,8 +25,22 @@ interface Painter {
   theme: ReturnType<typeof resolveTheme>
   measure: Measure
   frame: SceneFrame
+  /** The tier of the zoom on screen (a local pan/zoom keeps the producer's items). */
+  lod: SceneFrame['lod']
   /** Overview class names, drawn after every world item (native `names`). */
   deferred: (() => void)[] | null
+}
+
+/**
+ * The tier for the camera's zoom (`style.lodZoom`, like the native
+ * `lod::tier`). The producer tags every item with its coarsest tier, so a
+ * frame drawn after a local wheel zoom paints exactly the window's tier.
+ */
+export function tierOf(frame: SceneFrame): SceneFrame['lod'] {
+  const zoom = frame.camera.zoom > 0 ? frame.camera.zoom : 1
+  if (zoom < frame.style.lodZoom.frames) return 'blocks'
+  if (zoom < frame.style.lodZoom.full) return 'frames'
+  return 'full'
 }
 
 function dimAlpha(frame: SceneFrame): number {
@@ -188,9 +202,10 @@ export function paintFrame(frame: SceneFrame, canvas: HTMLCanvasElement): void {
 
   const theme = resolveTheme(canvas)
   const view = viewTransform(frame, frame.viewport.width, frame.viewport.height)
+  const lod = tierOf(frame)
   const p: Painter = {
     ctx, view, width: frame.viewport.width, height: frame.viewport.height, theme,
-    measure: new Measure(ctx), frame, deferred: frame.lod === 'full' ? null : [],
+    measure: new Measure(ctx), frame, lod, deferred: lod === 'full' ? null : [],
   }
 
   ctx.globalAlpha = 1
@@ -212,7 +227,7 @@ export function paintFrame(frame: SceneFrame, canvas: HTMLCanvasElement): void {
 
 function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
   const { ctx, view, theme, frame } = p
-  const lod = frame.lod
+  const lod = p.lod
   const zoom = view.zoom
   const atOrBelow = (tier: 'blocks' | 'frames' | 'full'): boolean =>
     lod === 'blocks' ? tier === 'blocks' : lod === 'frames' ? tier !== 'full' : true
@@ -383,7 +398,7 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
 
 function paintEdge(p: Painter, edge: SceneFrame['edges'][number]): void {
   const { ctx, view, theme, frame } = p
-  const lod = frame.lod
+  const lod = p.lod
   const colorOf = (c: { role: string; grade?: number | null; ratio?: number | null }): string =>
     theme.frame(c.role, c.grade ?? null, c.ratio ?? null)
 

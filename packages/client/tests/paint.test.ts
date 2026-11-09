@@ -213,7 +213,7 @@ describe('Canvas 2D namespace tree', () => {
     const frame = golden('core-triangles-blocks.frame.json')
     const indicator = frame.edges.find(edge => edge.kind === 'indicator')!
     const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true })
-    paintFrame({ ...frame, lod: 'full', world: [], edges: [indicator], chrome: [] }, canvas)
+    paintFrame({ ...frame, camera: { ...frame.camera, zoom: 1 }, world: [], edges: [indicator], chrome: [] }, canvas)
     const fill = canvas.recording.ops.find(op => op.op === 'fill')
     const outline = canvas.recording.ops.find(op => op.op === 'stroke')
     expect(fill).toBeDefined()

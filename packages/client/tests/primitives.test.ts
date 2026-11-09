@@ -7,12 +7,12 @@
  * `screen = (world - camera) * zoom`, font px `round(size * zoom)`, inside
  * strokes for rects, middle strokes for ellipses and lines.
  */
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { SceneFrame } from '@dsh-uml-viewer/contracts'
-import { paintFrame } from '../src/paint.js'
+import { paintFrame, tierOf } from '../src/paint.js'
 import { readFontMetrics } from './font-metrics.js'
 import { DARK_TOKENS, type DrawOp, fakeCanvas } from './fakes.js'
 
@@ -295,6 +295,41 @@ describe('overview tiers', () => {
     const names = new Set(frame.world.filter(i => i.kind === 'text' && i.line === 'name').map(i => (i as { text: string }).text))
     const firstName = ops.findIndex(op => op.op === 'fillText' && names.has(op.text ?? ''))
     expect(firstName).toBeGreaterThan(lastBox)
+  })
+})
+
+describe('tier from the camera zoom', () => {
+  it('paints at the tier of the zoom the panel shows, not the tier the frame was produced at', () => {
+    // A local wheel zoom keeps the producer frame (every item, tagged with its
+    // coarsest tier) and replaces only the camera; lodZoom decides the tier.
+    const frame = golden('core-port-selected.frame.json')
+    expect(frame.lod).toBe('full')
+    const levels = frame.world.filter(i => i.kind === 'level').length
+    expect(levels).toBe(4)
+    const count = (zoom: number): { level: number; name: number; quality: number } => {
+      const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true })
+      paintFrame({ ...frame, camera: { x: 0, y: 0, zoom }, edges: [], chrome: [] }, canvas)
+      const drawn = texts(canvas.recording.ops).map(op => op.text)
+      return {
+        level: drawn.filter(t => t === '0').length,
+        name: drawn.filter(t => t === 'Order').length,
+        quality: painted(canvas.recording.ops).filter(p => p.path.some(op => op.op === 'arc')).length,
+      }
+    }
+    // full (zoom >= 0.4): levels drawn; frames (0.15 <= zoom < 0.4): names and dots but no
+    // levels; blocks: neither.
+    expect(count(0.6).level).toBe(4)
+    expect(count(0.3)).toEqual({ level: 0, name: 2, quality: 20 })
+    expect(count(0.12)).toEqual({ level: 0, name: 0, quality: 0 })
+  })
+
+  it('agrees with the producer tier on every golden', () => {
+    const names = readdirSync(framesDir).filter(name => name.endsWith('.frame.json'))
+    expect(names).toHaveLength(6)
+    for (const name of names) {
+      const frame = golden(name)
+      expect(tierOf(frame), name).toBe(frame.lod)
+    }
   })
 })
 
