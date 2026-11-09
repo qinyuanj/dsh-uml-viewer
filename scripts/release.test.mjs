@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, rm, chmod } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
@@ -98,6 +98,52 @@ function jobBlock(text, name) {
   return lines.slice(start, end).join('\n')
 }
 
+// The shell body of one workflow step, so the real publish loop can be executed
+// against a stubbed `npm` instead of being asserted as text.
+function stepScript(text, stepName) {
+  const lines = text.split(/\r?\n/)
+  const start = lines.findIndex(line => line.trim() === `- name: ${stepName}`)
+  assert.notEqual(start, -1, `workflow step ${stepName} is missing`)
+  const runIndex = lines.findIndex((line, index) => index > start && /^\s+run: \|\s*$/.test(line))
+  assert.notEqual(runIndex, -1, `workflow step ${stepName} has no run script`)
+  const indent = lines[runIndex].match(/^\s*/)[0].length
+  const body = []
+  for (let index = runIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (line.trim() !== '' && line.match(/^\s*/)[0].length <= indent) break
+    body.push(line)
+  }
+  return body.join('\n')
+}
+
+// Runs a workflow shell step with a stub `npm` that records its arguments, so a
+// publish never reaches a registry.
+async function runStep(directory, script) {
+  const bin = path.join(directory, 'stub-bin')
+  await mkdir(bin, { recursive: true })
+  const log = path.join(directory, 'npm-calls.txt')
+  const stub = [
+    '#!/bin/sh',
+    '{ printf \'%s\' "$1"; shift; for arg in "$@"; do printf \'\\t%s\' "$arg"; done; printf \'\\n\'; } >> "$NPM_LOG"',
+    '',
+  ].join('\n')
+  await writeFile(path.join(bin, 'npm'), stub)
+  await chmod(path.join(bin, 'npm'), 0o755)
+  const result = spawnSync('bash', ['-euo', 'pipefail', '-c', script], {
+    cwd: root, encoding: 'utf8',
+    env: {
+      ...process.env, RUNNER_TEMP: directory, NPM_LOG: log,
+      PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+    },
+  })
+  let calls = []
+  try {
+    calls = (await readFile(log, 'utf8')).trim().split(/\r?\n/).filter(Boolean)
+      .map(line => { const [command, ...args] = line.split('\t'); return { command, args } })
+  } catch { /* the step produced no npm call */ }
+  return { result, calls }
+}
+
 test('each delivered platform is assembled on a runner of the same OS and CPU', async () => {
   assert.deepEqual(platforms.map(entry => entry.platform), ['win32-x64', 'linux-x64', 'darwin-arm64', 'darwin-x64'])
   assert.equal(mainPlatform, 'linux-x64')
@@ -167,6 +213,80 @@ test('the publish job guards the tag, verifies the inventory, and publishes plat
   assert.match(publish, /wc -l < "\$RUNNER_TEMP\/publish-order\.txt"/)
   assert.match(publish, /test "\$planned" -eq 5/)
   assert.match(publish, /while IFS= read -r archive; do/)
+})
+
+test('the publish step really publishes the five staged archives in plan order', async t => {
+  const probe = spawnSync('bash', ['-c', 'true'], { encoding: 'utf8' })
+  if (probe.error || probe.status !== 0) {
+    t.skip('bash is unavailable, so the workflow shell cannot be executed here')
+    return
+  }
+  const directory = await scratch()
+  try {
+    const version = await releaseVersion()
+    await inventoryFixture(directory)
+    const script = stepScript(await workflow(), 'Publish the platform packages, then the main package')
+    const { result, calls } = await runStep(directory, script)
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(calls.length, 5)
+    for (const call of calls) {
+      assert.equal(call.command, 'publish')
+      assert.deepEqual(call.args.slice(1), ['--provenance', '--access', 'public', '--ignore-scripts'])
+    }
+    const archives = path.join(directory, 'artifacts')
+    assert.deepEqual(calls.map(call => call.args[0]), [
+      ...platforms.map(entry => path.join(archives, `package-${entry.platform}`, `dsh-uml-viewer-${entry.platform}-${version}.tgz`)),
+      path.join(archives, `package-${mainPlatform}`, `dsh-uml-viewer-${version}.tgz`),
+    ])
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('the pull-request step only dry-runs the same plan order', async t => {
+  const probe = spawnSync('bash', ['-c', 'true'], { encoding: 'utf8' })
+  if (probe.error || probe.status !== 0) {
+    t.skip('bash is unavailable, so the workflow shell cannot be executed here')
+    return
+  }
+  const directory = await scratch()
+  try {
+    await inventoryFixture(directory)
+    const script = stepScript(await workflow(), 'npm publish dry run')
+    const { result, calls } = await runStep(directory, script)
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(calls.length, 5)
+    for (const call of calls) {
+      assert.equal(call.command, 'publish')
+      assert.deepEqual(call.args.slice(1), ['--dry-run', '--access', 'public', '--ignore-scripts', '--provenance=false'])
+    }
+    assert.match(calls.at(-1).args[0], new RegExp(`dsh-uml-viewer-\\d+\\.\\d+\\.\\d+\\.tgz$`))
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('a short publish plan stops the workflow before any publish', async t => {
+  const probe = spawnSync('bash', ['-c', 'true'], { encoding: 'utf8' })
+  if (probe.error || probe.status !== 0) {
+    t.skip('bash is unavailable, so the workflow shell cannot be executed here')
+    return
+  }
+  const directory = await scratch()
+  try {
+    await inventoryFixture(directory)
+    // A plan with four lines must fail instead of publishing four archives.
+    const version = await releaseVersion()
+    const artifacts = path.join(directory, 'artifacts')
+    const plan = path.join(directory, 'publish-order.txt')
+    await writeFile(plan, [
+      path.join(artifacts, 'package-win32-x64', `dsh-uml-viewer-win32-x64-${version}.tgz`),
+      path.join(artifacts, 'package-linux-x64', `dsh-uml-viewer-linux-x64-${version}.tgz`),
+      path.join(artifacts, 'package-darwin-arm64', `dsh-uml-viewer-darwin-arm64-${version}.tgz`),
+      path.join(artifacts, 'package-darwin-x64', `dsh-uml-viewer-darwin-x64-${version}.tgz`),
+    ].join('\n') + '\n')
+    const script = stepScript(await workflow(), 'Publish the platform packages, then the main package')
+      .replace(/node scripts\/release\.mjs plan[^\n]*\n/, '')
+    const { result, calls } = await runStep(directory, script)
+    assert.notEqual(result.status, 0)
+    assert.deepEqual(calls, [])
+  } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
 test('a release tag must be v<workspace version>', async () => {
