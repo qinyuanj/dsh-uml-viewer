@@ -44,6 +44,41 @@ with `exitCode 127`, so `uml_ir` fails and the panel ends on
 `data-kind="closed"` instead of `"frame"`. Only the display assertion catches
 it.
 
+## Resource-limited #26 verification
+
+`quality.spec.mjs` converts the quality/highlight egui driver scenarios
+(`class_boxes.edn`, `lod_shots.edn` and `metrics.edn` for 质量色, C/M 圆点 and
+无数据; `navigation.edn` for 依赖链高亮 and 关系淡化, whose resident selection
+`navigation.spec.mjs` already exercises) to the existing lane:
+independent C/M dots and quality fills, missing CRAP/mutation/both data, red no-data
+ink, unchanged quality/violation hues with changed host skin tokens in both modes,
+resident selection/chain/dimming, local relation/class hover with the producer's
+dependency tooltip rows, and the overview class-name popup clearing on leave.
+`edges.spec.mjs` also checks that dimming preserves opaque hollow-head interiors.
+The producer oracle accepts `hover`, `pointer` and `--hover-metadata`, so tooltip
+expectations come from Rust; no frames are injected.
+
+Under the current resource restriction these cases are **authored, NOT RUN**:
+there is no existing matching binary. Do not follow the build commands above to
+make one. A later authorized run must provide an existing matching executable and
+set **both** environment variables for browser installation and tests:
+
+```powershell
+$env:UML_VIEWER_E2E_SCRATCH = 'D:/dev/github/spec203-notes/scratch-t26'
+$env:PLAYWRIGHT_BROWSERS_PATH = 'D:/dev/github/spec203-notes/scratch-t26/browsers'
+$env:UML_VIEWER_BIN = 'D:/absolute/path/to/existing/uml-viewer.exe'
+# Only when a matching existing binary is available:
+pnpm e2e:install
+pnpm --filter @dsh-uml-viewer/e2e test:e2e quality.spec.mjs
+```
+
+Changed host tokens exercise the skin boundary without installing a skin in the
+user's live profile. This does not claim an installed dsh-claude-style browser
+run. Hover metadata (bundled-edge `viaIds`, dependency tooltip rows) is an
+optional frame field (`docs/scene-frame.md`), so an older binary degrades to
+endpoint-only hover; raw child-row hover still lacks a separate hit record (see
+ADR 0013 #26 appendix).
+
 ## Packaged install/remove acceptance (#31)
 
 The same bootstrap also accepts a local main tarball and the matching local

@@ -164,8 +164,9 @@ impl std::io::Write for Budget {
 }
 
 /// True when `value` serializes to at most `max` bytes. The measurement
-/// stops at the limit instead of allocating the oversized text.
-fn serializes_within(value: &Json, max: usize) -> bool {
+/// stops at the limit instead of allocating the oversized text. The quality
+/// target answer (#28, [`crate::targets`]) is bounded the same way.
+pub(crate) fn serializes_within(value: &Json, max: usize) -> bool {
     serde_json::to_writer(Budget { left: max }, value).is_ok()
 }
 
@@ -391,7 +392,8 @@ pub fn source_json(session: &Session, id: &Value, member: Option<&str>) -> Resul
 /// The source boundary resolves links/junctions before checking containment.
 /// Reject parent traversal explicitly, even when a later component returns to
 /// the project, so source resolution cannot depend on an escaping prefix.
-fn project_source(
+/// The quality target answer (#28) uses the same boundary for its files.
+pub(crate) fn project_source(
     project: &std::path::Path,
     candidate: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {

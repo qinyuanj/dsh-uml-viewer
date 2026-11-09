@@ -10,6 +10,8 @@ import type { SceneFrame } from './scene-frame.js'
 import { validateSceneFrame } from './scene-frame.js'
 import type { CardModel, InspectorModel, SourceModel } from './overlays.js'
 import { validateCardModel, validateInspectorModel, validateSourceModel } from './overlays.js'
+import type { QualityTarget } from './requests.js'
+import { validateQualityTarget } from './requests.js'
 
 export const RESIDENT_SCHEMA = 'dsh-uml-viewer/resident'
 export const RESIDENT_VERSION = 1
@@ -51,12 +53,15 @@ export type ResidentEvent =
   | { version: 1; seq: unknown; event: 'inspector'; inspector: InspectorModel }
   | { version: 1; seq: unknown; event: 'card'; card: CardModel }
   | { version: 1; seq: unknown; event: 'source'; source: SourceModel }
+  | { version: 1; seq: unknown; event: 'quality-target'; target: QualityTarget }
   | { version: 1; seq: unknown; event: 'ack' }
   | { version: 1; seq: unknown; event: 'error'; message: string }
 
 const EVENTS: ReadonlySet<string> = new Set(['ready', 'frame', 'search', 'context', 'state', 'ack', 'error',
   // #27 overlays: additive, version 1 is unchanged.
-  'inspector', 'card', 'source'])
+  'inspector', 'card', 'source',
+  // #28 panel request targets: additive, version 1 is unchanged.
+  'quality-target'])
 
 class Invalid extends Error {}
 
@@ -181,6 +186,8 @@ export function validateResidentEvent(value: unknown, label = 'resident event'):
         return { version: RESIDENT_VERSION, seq, event, card: validateCardModel(source.card, `${label}.card`) }
       case 'source':
         return { version: RESIDENT_VERSION, seq, event, source: validateSourceModel(source.source, `${label}.source`) }
+      case 'quality-target':
+        return { version: RESIDENT_VERSION, seq, event, target: validateQualityTarget(source.target, `${label}.target`) }
       case 'ack':
         return { version: RESIDENT_VERSION, seq, event }
       default:

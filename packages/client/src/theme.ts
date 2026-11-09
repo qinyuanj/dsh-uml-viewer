@@ -7,7 +7,9 @@
  * host theme exactly, including light/dark.
  *
  * Two groups cannot come from the host theme: the 质量色 quality ramp and the
- * 违规关系色 violation color. Their **hue is fixed** (docs/scene-frame.md) and
+ * 违规关系色 violation color, together with 无数据 and the 依赖链高亮 blue, which
+ * the egui window paints and a skin's accent token must not repaint (#26).
+ * Their **hue is fixed** (docs/scene-frame.md) and
  * only their lightness adapts to light/dark, so they come from this module's
  * two literal palettes. Every returned color keeps the same hue in both modes.
  */
@@ -38,7 +40,7 @@ const TOKENS: Readonly<Record<string, string | null>> = {
   'no-data': null,
   relation: '--dsw-alias-label-tertiary',
   'relation-hover': '--dsw-alias-label-primary',
-  'dependency-chain': '--dsw-alias-state-business-primary',
+  'dependency-chain': null,
   violation: null,
   'violation-hot': null,
   indicator: '--dsw-alias-label-tertiary',
@@ -71,6 +73,8 @@ export interface HuePalette {
   violation: string
   violationHot: string
   noData: string
+  /** 依赖链高亮: the selection's dependency chain (`frame::theme` RELATED). */
+  chain: string
   /** Unmeasured quality: neutral fill and neutral stroke (`#243430`/`#5a6e64`). */
   neutralFill: string
   neutralStroke: string
@@ -82,6 +86,7 @@ export const DARK_HUES: HuePalette = {
   violation: '#c42a24',
   violationHot: '#ff4030',
   noData: '#c42a24',
+  chain: '#3e98ec',
   neutralFill: '#243430',
   neutralStroke: '#5a6e64',
 }
@@ -93,6 +98,7 @@ export const LIGHT_HUES: HuePalette = {
   violation: '#b52721',
   violationHot: '#f01300',
   noData: '#b52721',
+  chain: '#136ec3',
   neutralFill: '#c6dbd5',
   neutralStroke: '#587f75',
 }
@@ -218,6 +224,8 @@ export function resolveTheme(el: HTMLElement): Theme {
         return hues.violationHot
       case 'no-data':
         return hues.noData
+      case 'dependency-chain':
+        return hues.chain
       case 'coverage':
         if (ratio === null) return read(TOKENS.relation!) ?? read(TOKENS.ink!) ?? ''
         if (ratio >= 0.8) return read(TOKENS.good!) ?? read(TOKENS.ink!) ?? ''

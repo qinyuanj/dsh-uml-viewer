@@ -17,7 +17,7 @@ export async function launchViewerLane(browser, options = {}) {
   const home = await fs.mkdtemp(path.join(SCRATCH, 'run-'))
   const projects = await makeProjects(home)
   await options.prepareProjects?.(projects)
-  const mock = await startMockLlm({ log: path.join(home, 'mock-requests') })
+  const mock = await startMockLlm({ log: path.join(home, 'mock-requests'), reply: options.reply })
   let installed
   let host
   try {

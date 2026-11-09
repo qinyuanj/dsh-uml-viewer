@@ -21,7 +21,7 @@ use edn::Value;
 use scene::events::Dims;
 use serde_json::{Value as Json, json};
 
-use crate::{Action, Canvas, POLL_INTERVAL, Session, Start, overlays, state};
+use crate::{Action, Canvas, POLL_INTERVAL, Session, Start, overlays, state, targets};
 
 pub const SCHEMA: &str = "dsh-uml-viewer/resident";
 pub const VERSION: i64 = 1;
@@ -50,6 +50,8 @@ pub const ACTIONS: &[&str] = &[
     "close-card",
     "scroll-card",
     "open-source",
+    // #28: the panel request targets the host queues (additive).
+    "quality-target",
 ];
 
 const USAGE: &str = "usage: uml-viewer resident [--project <dir>]";
@@ -199,7 +201,11 @@ impl Resident {
             session.hint(),
             session.status(),
         );
-        event("frame", seq, json!({"frame": built.to_json()}))
+        // The panel needs the optional bounded hover metadata (#26) to reproduce
+        // the window's dependency tooltip and bundled-edge (`via-ids`) warming;
+        // both are derived from the scene here, never inferred by the client.
+        let frame = built.to_json_with_hover(&session.state().scene);
+        event("frame", seq, json!({"frame": frame}))
     }
 
     /// A poll without input: a hot reload answers with an unprompted frame.
@@ -459,6 +465,18 @@ impl Resident {
                 };
                 let source = overlays::source_json(self.session()?, &id, member)?;
                 return Ok(vec![event("source", seq, json!({"source": source}))]);
+            }
+            // #28: what this resident's loaded diagram shows for one panel
+            // target. Read from the session's own model, never from a later
+            // read of the IR file, and answered to the caller alone.
+            "quality-target" => {
+                let id = edn_field(action, "id")?;
+                let target = targets::quality_target_json(self.session()?, &id)?;
+                return Ok(vec![event(
+                    "quality-target",
+                    seq,
+                    json!({"target": target}),
+                )]);
             }
             other => return Err(format!("unknown action {other}")),
         }

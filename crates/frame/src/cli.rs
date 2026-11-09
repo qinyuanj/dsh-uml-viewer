@@ -5,7 +5,7 @@
 //!                  [--wide [--aspect <w/h>]] [--extra <edn map>]
 //!                  [--width <pt>] [--height <pt>] [--zoom <z> --camera <x>,<y>]
 //!                  [--select <edn hit>] [--hover <edn hit>] [--pointer <x>,<y>]
-//!                  [--output <file>]
+//!                  [--hover-metadata] [--output <file>]
 //! ```
 //!
 //! Without `--frame` the arguments go to the scene geometry export
@@ -24,7 +24,7 @@ use scene::events::{self, Dims};
 const USAGE: &str = "usage: uml-viewer scene --frame --ir <file.edn> [--focus <edn>] \
 [--metrics-root <dir>] [--wide [--aspect <w/h>]] [--extra <edn map>] [--width <pt>] \
 [--height <pt>] [--zoom <z> --camera <x>,<y>] [--select <edn hit>] [--hover <edn hit>] \
-[--pointer <x>,<y>] [--output <file>]";
+[--pointer <x>,<y>] [--hover-metadata] [--output <file>]";
 
 const EX_USAGE: u8 = 2;
 const EX_FAILURE: u8 = 1;
@@ -46,6 +46,8 @@ struct Options {
     select: Option<Value>,
     hover: Option<Value>,
     pointer: Option<(f64, f64)>,
+    /// The optional bounded hover metadata (#26); off for the goldens.
+    hover_metadata: bool,
     output: Option<PathBuf>,
 }
 
@@ -102,6 +104,7 @@ fn parse(args: &[OsString]) -> Result<Options, String> {
     let mut select = None;
     let mut hover = None;
     let mut pointer = None;
+    let mut hover_metadata = false;
     let mut output = None;
     let mut i = 0;
     while i < args.len() {
@@ -147,6 +150,7 @@ fn parse(args: &[OsString]) -> Result<Options, String> {
             "--select" => select = Some(edn_arg(&next(arg)?, arg)?),
             "--hover" => hover = Some(edn_arg(&next(arg)?, arg)?),
             "--pointer" => pointer = Some(pair(&next(arg)?, arg)?),
+            "--hover-metadata" => hover_metadata = true,
             "--output" => output = Some(PathBuf::from(next(arg)?)),
             other => return Err(format!("unknown option {other}")),
         }
@@ -181,6 +185,7 @@ fn parse(args: &[OsString]) -> Result<Options, String> {
         select,
         hover,
         pointer,
+        hover_metadata,
         output,
     })
 }
@@ -224,7 +229,13 @@ fn execute(opts: &Options) -> Result<(), String> {
     state.hover = opts.hover.clone();
     state.pointer = opts.pointer;
     let frame = crate::frame::build(&state, opts.width, opts.height, None, None);
-    let json = frame.to_json_string();
+    // The goldens are written without the optional capability; --hover-metadata
+    // adds the same field the resident sends.
+    let json = if opts.hover_metadata {
+        frame.to_json_string_with_hover(&state.scene)
+    } else {
+        frame.to_json_string()
+    };
     match &opts.output {
         Some(path) => std::fs::write(path, &json)
             .map_err(|e| format!("cannot write {}: {e}", path.display()))?,

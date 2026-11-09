@@ -1,0 +1,176 @@
+# Release packaging for the four native platform packages plus the single
+# platform-independent main package (#33). Each package is assembled on the OS
+# and CPU it ships to, because scripts/package.mjs runs the supplied binary as
+# `--version`; a foreign target binary is never executed on this host.
+#
+# Pull requests stop at `npm publish --dry-run`. A `v<workspace version>` tag on
+# the canonical repository is the only publishing path, and it uses npm trusted
+# publishing (OIDC), so no token, .npmrc or registry secret is authored here.
+# Maintainer setup and the bootstrap for a brand-new package: docs/releasing.md.
+name: package-release
+
+on:
+  pull_request:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  # A tag run must never cancel another release; the registry rejects a
+  # duplicate version anyway.
+  group: package-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  assemble:
+    name: assemble (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: win32-x64
+            runner: windows-latest
+            binary: target/release/uml-viewer.exe
+          - platform: linux-x64
+            runner: ubuntu-latest
+            binary: target/release/uml-viewer
+          - platform: darwin-arm64
+            runner: macos-latest
+            binary: target/release/uml-viewer
+          - platform: darwin-x64
+            runner: macos-15-intel
+            binary: target/release/uml-viewer
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Rust toolchain pinned by rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Cargo and npm release version consistency
+        run: pnpm version:check
+      - name: Package contract, stale-payload gate and release guards
+        run: pnpm test:package
+      - name: Build the plugin and the native release binary
+        run: |
+          pnpm build
+          cargo build --release --locked -p uml-viewer
+      - name: Assemble the main and the current-platform archives
+        shell: bash
+        run: node scripts/package.mjs --binary "$GITHUB_WORKSPACE/${{ matrix.binary }}" --out "$RUNNER_TEMP/packages"
+      # The platform archive is uploaded by every runner; the main archive only
+      # by the one runner named in scripts/release.mjs, so font, license and the
+      # rest of the main bundle are uploaded exactly once.
+      - name: Stage the release archives
+        shell: bash
+        env:
+          MAIN_RUNNER: ${{ matrix.platform == 'linux-x64' }}
+        run: |
+          set -euo pipefail
+          arguments=(--package-dir "$RUNNER_TEMP/packages" --platform "${{ matrix.platform }}" --upload-dir "$RUNNER_TEMP/upload")
+          if [ "$MAIN_RUNNER" = "true" ]; then
+            node scripts/release.mjs stage "${arguments[@]}" --main
+          else
+            node scripts/release.mjs stage "${arguments[@]}"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.platform }}
+          path: ${{ runner.temp }}/upload
+          if-no-files-found: error
+          retention-days: 7
+
+  # One place decides whether the release is publishable: four distinct platform
+  # archives at the workspace version, exactly one main archive, the same main
+  # file inventory on every runner (one recorded main hash per runner, not byte
+  # identity), every archive opened and checked against its report and the source
+  # manifest, and no stray or stale archive.
+  inventory:
+    name: inventory and registry dry run
+    needs: assemble
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/artifacts
+      - name: Cargo and npm release version consistency
+        run: node scripts/version.mjs --check
+      - name: Verify the release artifact inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release.mjs verify --artifacts "$RUNNER_TEMP/artifacts" --out "$RUNNER_TEMP/release-inventory.json"
+          cat "$RUNNER_TEMP/release-inventory.json"
+      - name: npm publish dry run
+        if: github.event_name == 'pull_request'
+        shell: bash
+        # No credentials and no OIDC on the pull-request path: this only reads
+        # the staged archives and prints what a publish would contain.
+        run: |
+          set -euo pipefail
+          node scripts/release.mjs plan --artifacts "$RUNNER_TEMP/artifacts" --out "$RUNNER_TEMP/publish-order.txt"
+          planned=$(wc -l < "$RUNNER_TEMP/publish-order.txt")
+          test "$planned" -eq 5
+          while IFS= read -r archive; do
+            npm publish "$archive" --dry-run --access public --ignore-scripts --provenance=false
+          done < "$RUNNER_TEMP/publish-order.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-inventory
+          path: ${{ runner.temp }}/release-inventory.json
+          if-no-files-found: error
+          retention-days: 30
+
+  # Canonical repository, matching `v<workspace version>` tag, approved `release`
+  # environment, OIDC provenance. Platform packages are published before the
+  # main package so its optional dependencies already exist.
+  publish:
+    name: publish ${{ github.ref_name }}
+    needs: inventory
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'qinyuanj/dsh-uml-viewer'
+    runs-on: ubuntu-latest
+    environment: release
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/artifacts
+      - name: The tag matches the Cargo workspace version
+        run: node scripts/release.mjs check-tag "$GITHUB_REF_NAME"
+      - name: Verify the release artifact inventory
+        run: node scripts/release.mjs verify --artifacts "$RUNNER_TEMP/artifacts" --out "$RUNNER_TEMP/release-inventory.json"
+      - name: Publish the platform packages, then the main package
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release.mjs plan --artifacts "$RUNNER_TEMP/artifacts" --out "$RUNNER_TEMP/publish-order.txt"
+          planned=$(wc -l < "$RUNNER_TEMP/publish-order.txt")
+          test "$planned" -eq 5
+          while IFS= read -r archive; do
+            npm publish "$archive" --provenance --access public --ignore-scripts
+          done < "$RUNNER_TEMP/publish-order.txt"

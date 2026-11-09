@@ -88,7 +88,8 @@ function texts(ops: DrawOp[]): DrawOp[] {
 
 const SELECTED = '#ecece4' // selected -> --dsw-alias-label-primary (dark)
 const MUTED = '#9db8a8' // muted -> --dsw-alias-label-tertiary
-const CHAIN = '#e8c448' // dependency-chain -> --dsw-alias-state-business-primary
+const CHAIN = '#3e98ec' // dependency-chain: hue-fixed egui blue (frame::theme RELATED)
+const ACCENT = '#e8c448' // accent (package titles) -> --dsw-alias-state-business-primary
 
 describe('class boxes (core-port-selected, zoom 0.6, camera 0,40)', () => {
   const frame = golden('core-port-selected.frame.json')
@@ -207,7 +208,7 @@ describe('component (package) boxes', () => {
     expect(stroke!.op.lineWidth).toBe(2)
     const [title] = texts(ops)
     // (56 + 12, 56 + 8) -> (40.8, 14.4); px = round(16 * 0.6) = 10, italic, accent.
-    expect(title).toMatchObject({ text: 'core', textAlign: 'left', textBaseline: 'top', fillStyle: CHAIN })
+    expect(title).toMatchObject({ text: 'core', textAlign: 'left', textBaseline: 'top', fillStyle: ACCENT })
     expect(title!.x).toBeCloseTo(40.8, 9)
     expect(title!.y).toBeCloseTo(14.4, 9)
     expect(title!.font).toMatch(/^italic 10px /)

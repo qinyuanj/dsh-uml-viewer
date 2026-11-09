@@ -1,7 +1,7 @@
 import { realpath } from 'node:fs/promises'
 import { StringDecoder } from 'node:string_decoder'
-import type { DiscussionContext, ResidentEvent, SceneFrame, SessionState } from '@dsh-uml-viewer/contracts'
-import { parseResidentLine, RESIDENT_LINE_MAX_BYTES, residentAction } from '@dsh-uml-viewer/contracts'
+import type { DiscussionContext, QualityTarget, ResidentEvent, SceneFrame, SessionState } from '@dsh-uml-viewer/contracts'
+import { parseResidentLine, RESIDENT_LINE_MAX_BYTES, residentAction, validateQualityTarget } from '@dsh-uml-viewer/contracts'
 import { binaryArgv } from './binary.js'
 import type { Config } from './binary.js'
 import type { Agent, HostServices, Policy, SubprocessHandle } from './dsh.js'
@@ -581,6 +581,32 @@ export class ResidentSessions {
     } finally {
       // Save the final view, including any restored discussion context.
       if (SAVED_ACTIONS.has(action.action)) await this.save(connection)
+      await this.release(connection)
+    }
+  }
+
+  /**
+   * What this session's resident says one panel target covers (#28): the
+   * files are resolved from the diagram the resident has loaded, never from
+   * a later read of the IR file and never from client input. A quiet request:
+   * the answer belongs to the caller, no watching panel sees it and nothing
+   * is persisted.
+   */
+  async qualityTarget(agent: Agent, signal: AbortSignal, id: string): Promise<QualityTarget> {
+    const connection = await this.open(agent, signal)
+    try {
+      if (connection.latestFrame?.waiting) {
+        throw new Error('no diagram: the panel shows nothing yet; run uml_ir and uml_display first')
+      }
+      const answer = await connection.request({ action: 'quality-target', id }, ACTION_TIMEOUT_MS, { quiet: true })
+      if (answer.event === 'error') throw new Error(answer.message)
+      if (answer.event !== 'quality-target') {
+        throw new Error(`uml-viewer resident answered quality-target with ${answer.event}`)
+      }
+      // The carrier validated the line; this is the caller's own check that
+      // the answer is about the element it asked for, inside the bounds.
+      return validateQualityTarget(answer.target, 'quality target', id)
+    } finally {
       await this.release(connection)
     }
   }

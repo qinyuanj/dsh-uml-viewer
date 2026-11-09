@@ -22,7 +22,8 @@ type Edge = SceneFrame['edges'][number]
 const RELATION_COLORS: Record<string, string> = {
   relation: '#9db8a8',
   'relation-hover': '#ecece4',
-  'dependency-chain': '#e8c448',
+  // Hue-fixed like the egui window (frame::theme RELATED), not a host token.
+  'dependency-chain': '#3e98ec',
   violation: '#c42a24',
   'violation-hot': '#ff4030',
   indicator: '#9db8a8',

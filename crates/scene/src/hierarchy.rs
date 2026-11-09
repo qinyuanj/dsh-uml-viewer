@@ -28,7 +28,9 @@ fn path_name(path: &[Value]) -> String {
     path.iter().map(name).collect::<Vec<_>>().join(".")
 }
 
-fn under(x: &Value, parent: &Value) -> bool {
+/// Is `x` `parent` itself or a dotted descendant of it? The one subtree rule
+/// the namespace views and quality targets share.
+pub(crate) fn under(x: &Value, parent: &Value) -> bool {
     let (x, parent) = (name(x), name(parent));
     x == parent || x.starts_with(&format!("{parent}."))
 }
