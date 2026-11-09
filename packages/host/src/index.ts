@@ -13,6 +13,7 @@ import { registerFontRoute } from './font.js'
 import { IrGate, QualityGate } from './gate.js'
 import { PanelPrompts } from './prompt.js'
 import { qualityResult, runQuality } from './quality.js'
+import { PanelRequests } from './requests.js'
 import { ResidentSessions } from './resident.js'
 import { irResult, runIr } from './runner.js'
 import { SessionStates, pluginHome } from './state.js'
@@ -22,9 +23,10 @@ export type { Config } from './binary.js'
 export const name = 'dsh-uml-viewer'
 export const inject = ['tools', 'sandboxPolicy', 'workingDirectory', 'subprocess']
 
-/** The DSH services this plugin uses; `sandbox`, `typert`, `webServer` and `dshHomePath` are optional. */
+/** The DSH services this plugin uses; `sandbox`, `typert`, `webServer`, `dshHomePath` and
+ * `sessionController` (panel request messages, #28) are optional. */
 const SERVICE_KEYS = new Set(['tools', 'sandboxPolicy', 'workingDirectory', 'subprocess', 'sandbox',
-  'typert', 'webServer', 'dshHomePath'])
+  'typert', 'webServer', 'dshHomePath', 'sessionController'])
 
 export type ActivationPlatform = BinaryPlatform
 
@@ -55,7 +57,7 @@ export function applyWithPlatform(ctx: Context, config: Config = {}, platform: A
   const states = new SessionStates(home)
   const sessions = new ResidentSessions(services, effectiveConfig, states)
   const prompts = new PanelPrompts()
-  const viewer = new ViewerService(sessions, prompts)
+  const viewer = new ViewerService(sessions, prompts, new PanelRequests(services, sessions))
 
   ctx.effect(() => services.tools.register({
     name: 'uml_ir',

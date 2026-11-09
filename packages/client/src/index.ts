@@ -21,6 +21,7 @@ import { PanelController, type PanelRemoteApi, type PanelStatus } from './panel.
 import { paintFrame } from './paint.js'
 import { cssToWorld } from './fit.js'
 import { DECLUTTER_STYLE, mountDeclutterControl } from './declutter.js'
+import { REQUEST_MENU_STYLE, mountQualityMenu } from './requests.js'
 
 export const TAB_ID = 'dsh-uml-viewer'
 export const TAB_KIND = 'dsh-uml-viewer'
@@ -28,7 +29,7 @@ export const PANEL_PATH = 'dsh-uml-viewer'
 export const GUIDE_ORDER = 30
 const REMOTE_NAMESPACE = 'umlViewer'
 
-const STYLE = `${DECLUTTER_STYLE}
+const STYLE = `${DECLUTTER_STYLE}${REQUEST_MENU_STYLE}
 .dsh-uml-viewer-panel { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; width: 100%; }
 .dsh-uml-viewer-canvas-host { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
 .dsh-uml-viewer-panel > .dsh-uml-overlay-root { top: var(--dsh-uml-toolbar-height, 0px); }
@@ -293,6 +294,11 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
       }
     },
   })
+  const disposeQualityMenu = mountQualityMenu(host, canvas, {
+    frame: () => controller.current.frame,
+    send: action => controller.send(action),
+    report(reason) { status.textContent = reason ?? ''; status.style.display = reason ? '' : 'none' },
+  })
   overlays = new OverlayController(action => controller.send(action))
   options.onOverlays?.(overlays)
   /** **P** and the toolbar's tree button: one dispatch, through the overlays so
@@ -345,6 +351,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   const observer = resize ? new resize(() => onResize()) : null
   observer?.observe(host)
   const onPointerDown = (event: PointerEvent): void => {
+    if (event.button !== undefined && event.button !== 0) return
     canvas.focus({ preventScroll: true })
     controller.pointerDown(event.offsetX, event.offsetY)
   }
@@ -422,6 +429,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     overlays = null
     if (panelElement !== host) panelElement.removeEventListener('keydown', onPanelKey)
     disposeDeclutter()
+    disposeQualityMenu()
     unsubscribe()
     canvas.removeEventListener('pointerdown', onPointerDown)
     canvas.removeEventListener('pointermove', onPointerMove)

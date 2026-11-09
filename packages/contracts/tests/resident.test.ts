@@ -48,6 +48,22 @@ describe('resident protocol', () => {
     for (const line of lines) expect(validateResidentEvent(line), JSON.stringify(line).slice(0, 40)).toEqual(line)
   })
 
+  it('accepts the quality-target answer and refuses a malformed target', () => {
+    // #28: the answer the host validates before it queues a panel request.
+    const line = { version: 1, seq: 17, event: 'quality-target',
+      target: { id: ':core', kind: 'component', files: ['src/core/a.rs', 'src/core/b.rs'] } }
+    expect(parseResidentLine(JSON.stringify(line))).toEqual(line)
+    for (const target of [
+      { id: 'core', kind: 'component', files: ['src/core/a.rs'] },
+      { id: ':core', kind: 'layer', files: ['src/core/a.rs'] },
+      { id: ':core', kind: 'component', files: [] },
+      { id: ':core', kind: 'component', files: ['src/core/b.rs', 'src/core/a.rs'] },
+      { id: ':core', kind: 'component', files: ['../outside.ts'] },
+    ]) {
+      expect(() => validateResidentEvent({ ...line, target }), JSON.stringify(target)).toThrow(/target/)
+    }
+  })
+
   it('validates the persisted session state the panel restores', () => {
     const state = { schema: SESSION_STATE_SCHEMA, version: 1, diagram: null,
       context: { kind: 'real', edn: '{:context :real}' }, focus: [], proposalId: null, openLayer: null,

@@ -2,3 +2,4 @@
 //! Cargo.toml): each file below is a module of it.
 
 mod no_companion;
+mod quality_target;

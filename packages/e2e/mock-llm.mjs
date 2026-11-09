@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 /** A Messages-compatible scripted endpoint. No request leaves the test host. */
-export async function startMockLlm({ log }) {
+export async function startMockLlm({ log, reply: scriptedReply }) {
   await fs.mkdir(log, { recursive: true })
   const requests = []
   const server = http.createServer((req, res) => {
@@ -21,7 +21,7 @@ export async function startMockLlm({ log }) {
       }
       const request = JSON.parse(body)
       const serialized = JSON.stringify(request.messages ?? [])
-      const reply = !request.tools?.length
+      const reply = scriptedReply?.(request) ?? (!request.tools?.length
         ? { text: 'Isolated UML session' }
         : !serialized.includes('"name":"uml_ir"')
           ? { tool: { name: 'uml_ir', input: {} } }
@@ -29,7 +29,7 @@ export async function startMockLlm({ log }) {
             ? { text: 'Generated the sample project IR.' }
             : !serialized.includes('"name":"uml_display"')
               ? { tool: { name: 'uml_display', input: { path: 'diagram.edn' } } }
-              : { text: 'The isolated mock model displayed the generated IR. No real model was called.' }
+              : { text: 'The isolated mock model displayed the generated IR. No real model was called.' })
       res.writeHead(200, {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',

@@ -117,4 +117,19 @@ export interface HostServices {
   webServer?: { register(route: WebRoute): () => void }
   /** Optional: DSH's own home-path helper, so plugin state lands beside the profile. */
   dshHomePath?: (...segments: string[]) => string
+  /**
+   * Optional: the Host service behind `ctx.remote.session` (inspected on
+   * 0.2.2-rc.1: `prompt(request: SessionPromptRequest, signal)`). Panel
+   * requests are admitted through it as visible queued user messages.
+   */
+  sessionController?: { prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<{ accepted: true }> }
+}
+
+/** DSH's `SessionPromptRequest`, limited to the text content this plugin sends. */
+export interface SessionPromptRequest {
+  readonly requestId: string
+  readonly sessionId: string
+  readonly mode: 'queue' | 'steer'
+  readonly content: readonly { readonly type: 'text'; readonly text: string }[]
+  readonly clientTimeZone?: string
 }

@@ -11,6 +11,7 @@
 //! - `display` (how a displayed diagram loads), `metrics` (quality snapshot
 //!   loading and the reload stamp);
 //! - `state`: the session state as JSON data the host persists;
+//! - `targets`: what a panel's quality refresh covers (#28);
 //! - `resident`: the `resident` role (`docs/resident-protocol.md`).
 
 use std::path::{Path, PathBuf};
@@ -27,6 +28,7 @@ pub mod metrics;
 pub mod overlays;
 pub mod resident;
 pub mod state;
+pub mod targets;
 
 pub use resident::run as run_resident;
 
