@@ -64,7 +64,11 @@ fn policy_relation_kinds_control_the_compiled_dependency_chain() {
         };
         assert!(highlight.on_chain(edge("a")), "a still depends on b");
         assert_eq!(Some(&kw(kind)), get(edge("b"), "kind"));
-        assert_eq!(on_chain, highlight.on_chain(edge("b")), "{scanned} -> {kind}");
+        assert_eq!(
+            on_chain,
+            highlight.on_chain(edge("b")),
+            "{scanned} -> {kind}"
+        );
         assert_eq!(!on_chain, highlight.dimmed(&kw("c")), "{kind}");
     }
     // A naturally bundled association can still carry a real parallel
