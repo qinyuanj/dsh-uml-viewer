@@ -19,7 +19,7 @@
 use std::collections::HashSet;
 
 use edn::Value;
-use edn::record::{get, seq};
+use edn::record::{get, local_name, seq};
 use serde_json::{Map, Value as Json, json};
 
 use crate::commands::{self, PopupRow};
@@ -80,33 +80,20 @@ fn via_ids(edge: &Value) -> Vec<String> {
     }
 }
 
-/// `scene::hit::deps_of`: the relation's collapsed `:deps`, else a single leaf
-/// record built from its own endpoints.
-fn deps_of(edge: &Value) -> Vec<Value> {
-    if let Some(Value::Vector(items)) = get(edge, "deps")
-        && !items.is_empty()
-    {
-        return items.clone();
-    }
-    let (Some(from), Some(to)) = (get(edge, "from"), get(edge, "to")) else {
-        return Vec::new();
-    };
-    vec![Value::Map(vec![
-        (Value::keyword("from"), from.clone()),
-        (Value::keyword("to"), to.clone()),
-        (
-            Value::keyword("violating"),
-            Value::Bool(edn::record::flag(edge, "violating")),
-        ),
-    ])]
-}
-
 /// The tooltip rows of one relation or indicator: `commands::dependency_rows`.
-fn rows(deps: &[Value]) -> Vec<PopupRow> {
-    if deps.is_empty() {
-        return Vec::new();
+fn rows(deps: &[Value]) -> Option<Vec<PopupRow>> {
+    if deps.len() > MAX_ROWS_PER_ITEM {
+        return None;
     }
-    commands::dependency_rows(deps)
+    // Bound before dependency_rows allocates its formatted labels.
+    for dep in deps {
+        let from = get(dep, "from").and_then(local_name).unwrap_or_default();
+        let to = get(dep, "to").and_then(local_name).unwrap_or_default();
+        if from.len().saturating_add(to.len()).saturating_add(4) > MAX_TEXT_BYTES {
+            return None;
+        }
+    }
+    Some(commands::dependency_rows(deps))
 }
 
 fn row_json(row: &PopupRow) -> Json {
@@ -119,18 +106,6 @@ fn row_json(row: &PopupRow) -> Json {
 
 fn rows_json(rows: &[PopupRow]) -> Json {
     Json::Array(rows.iter().map(row_json).collect())
-}
-
-/// One `[x, y]` of a scene point vector, if it is one.
-fn point_of(value: &Value) -> Option<[f64; 2]> {
-    let items = match value {
-        Value::Vector(items) => items,
-        _ => return None,
-    };
-    match items.as_slice() {
-        [Value::Float(x), Value::Float(y)] => Some([*x, *y]),
-        _ => None,
-    }
 }
 
 /// Build the capability, or `None` when any bound is exceeded.
@@ -151,15 +126,21 @@ fn build(scene: &Value) -> Option<(Vec<Json>, Vec<Json>)> {
         if !seen.insert((from.clone(), to.clone())) {
             continue;
         }
-        let via = via_ids(edge);
-        if via.len() > MAX_VIA_IDS {
+        if seq(get(edge, "via-ids")).len() > MAX_VIA_IDS
+            || seq(get(edge, "deps")).len() > MAX_ROWS_PER_ITEM
+        {
             return None;
         }
-        let deps = rows(&deps_of(edge));
+        let via = via_ids(edge);
+        let raw_deps = scene::hit::deps_of(edge);
+        let deps = rows(seq(raw_deps.as_ref()))?;
         if deps.len() > MAX_ROWS_PER_ITEM {
             return None;
         }
         total_rows += deps.len();
+        if total_rows > MAX_ROWS {
+            return None;
+        }
         let mut object = Map::new();
         object.insert("from".into(), json!(from));
         object.insert("to".into(), json!(to));
@@ -174,20 +155,23 @@ fn build(scene: &Value) -> Option<(Vec<Json>, Vec<Json>)> {
         };
         let triangle: Vec<[f64; 2]> = seq(get(indicator, "triangle"))
             .iter()
-            .filter_map(point_of)
+            .filter_map(scene::vec2)
             .collect();
         if triangle.len() != 3 {
             continue;
         }
-        let rows_src: Vec<Value> = match get(indicator, "deps") {
-            Some(Value::Vector(items)) => items.clone(),
-            _ => Vec::new(),
-        };
-        let deps = rows(&rows_src);
+        let rows_src = seq(get(indicator, "deps"));
+        if rows_src.len() > MAX_ROWS_PER_ITEM {
+            return None;
+        }
+        let deps = rows(rows_src)?;
         if deps.len() > MAX_ROWS_PER_ITEM {
             return None;
         }
         total_rows += deps.len();
+        if total_rows > MAX_ROWS {
+            return None;
+        }
         let mut object = Map::new();
         object.insert("id".into(), json!(id));
         object.insert(
@@ -324,9 +308,9 @@ mod tests {
             (
                 Value::keyword("triangle"),
                 Value::Vector(vec![
-                    Value::Vector(vec![Value::Float(10.0), Value::Float(20.0)]),
-                    Value::Vector(vec![Value::Float(16.0), Value::Float(24.0)]),
-                    Value::Vector(vec![Value::Float(10.0), Value::Float(28.0)]),
+                    Value::Vector(vec![Value::Integer(10), Value::Integer(20)]),
+                    Value::Vector(vec![Value::Float(16.5), Value::Integer(24)]),
+                    Value::Vector(vec![Value::Integer(10), Value::Float(28.5)]),
                 ]),
             ),
             (
@@ -338,7 +322,7 @@ mod tests {
             metadata(&scene(vec![], vec![indicator]))["indicators"],
             json!([{
                 "id": ":core",
-                "points": [[10.0, 20.0], [16.0, 24.0], [10.0, 28.0]],
+                "points": [[10.0, 20.0], [16.5, 24.0], [10.0, 28.5]],
                 "rows": [{"text": "core -> util", "violating": true, "ink": {"role": "violation"}}],
             }])
         );

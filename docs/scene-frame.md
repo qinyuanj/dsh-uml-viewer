@@ -210,7 +210,7 @@ goldens omit it, so a consumer must treat it as a capability.
 | `edges[]` | one entry per visible relation: `from`/`to` (EDN ids, as in the strokes), `viaIds` (the classes it passes through, `scene::highlight::touches`), `rows` (the `from -> to` tooltip rows, violations first) |
 | `indicators[]` | one entry per 精简依赖标记: `id`, its `points` (the two indicators of one class are told apart by their triangle) and its tooltip `rows` |
 
-The tooltip rows are `frame::commands::hover_rows` output verbatim (`text`,
+The dependency tooltip rows reuse `frame::commands::dependency_rows` verbatim (`text`,
 `violating`, `ink` role); the client renders them and never composes one. A
 hovered relation, or its indicator, shows them at the pointer; hovering a class
 at the overview tiers names the class, as before.
