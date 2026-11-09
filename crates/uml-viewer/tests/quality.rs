@@ -612,10 +612,23 @@ fn all_quality_languages_reach_the_built_in_tools() {
     {
         let output = project.quality(&["mutate", "--scan", "src/main.go"]);
         let record = checked(&output, "mutate", &project.root);
-        assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
-        assert_eq!(record["validResult"], true);
-        assert!(String::from_utf8_lossy(&output.stdout).contains("Scan: 1 mutation sites"));
-        assert!(!stderr(&output).contains("No source files"));
+        let report = stderr(&output);
+        let diagnostics = format!(
+            "status: {}\nstdout: {}\nstderr: {report}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+        );
+        assert_eq!(output.status.code(), Some(0), "{diagnostics}");
+        assert_eq!(record["validResult"], true, "{diagnostics}");
+        // quality reserves stdout for the checked result record; the built-in
+        // mutator's report is redirected to stderr, including this boolean site.
+        assert!(
+            report.contains("Scan: 1 mutation sites in src/main.go"),
+            "{diagnostics}"
+        );
+        assert!(report.contains("src/main.go:3 true -> false"), "{diagnostics}");
+        assert!(report.contains("[defn-/value]"), "{diagnostics}");
+        assert!(!report.contains("No source files"), "{diagnostics}");
         assert!(!project.root.join(".metrics").exists());
     }
     // After #7, dryer reads every ported language: the same mixed project is

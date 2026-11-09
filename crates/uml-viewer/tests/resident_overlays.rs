@@ -386,6 +386,10 @@ fn selecting_a_package_summarizes_its_class_count_and_missing_quality() {
         .into_iter()
         .find(|p| p["id"] == ":view")
         .expect("the root draws its view package");
+    // Native package commands keep missing quality visible even when the
+    // inspector displays the pooled CRAP summary for the collapsed view.
+    assert_eq!(json!("red"), package["band"], "{package}");
+    assert_eq!(json!(true), package["missing"], "{package}");
     let r = &package["rect"];
     let at = [
         r["x"].as_f64().unwrap() + 12.0,
@@ -393,10 +397,20 @@ fn selecting_a_package_summarizes_its_class_count_and_missing_quality() {
     ];
     resident.ask(3, json!({"action": "select", "at": at}), "frame");
     let inspector = resident.ask(4, json!({"action": "inspector"}), "inspector");
-    assert_eq!(json!("package"), inspector["inspector"]["summary"]["kind"]);
+    assert_eq!(
+        json!("package"),
+        inspector["inspector"]["summary"]["kind"],
+        "{inspector}"
+    );
     let texts: Vec<String> = summary_lines(&inspector).iter().map(line_text).collect();
-    assert!(texts.contains(&"类数：4".to_owned()), "{texts:?}");
-    assert!(texts.contains(&"无数据".to_owned()), "{texts:?}");
+    // Each unmeasured function contributes CRAP 20 in the native pool, so
+    // this package has a summary. The standalone 无数据 line is reserved for
+    // a package without any CRAP record (frame::inspector::package_summary).
+    assert_eq!(
+        vec!["Shop", "Crap μ 20.0 max 20.0 σ 0.0", "类数：4"],
+        texts,
+        "{inspector}"
+    );
     resident.finish();
     let _ = std::fs::remove_dir_all(dir);
 }
