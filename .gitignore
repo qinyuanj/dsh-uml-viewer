@@ -1,6 +1,7 @@
 .DS_Store
 .uml-viewer/
 .scratch/
+.scratch-*/
 # Browser-acceptance lane (#22): per-run scratch homes, traces and captures.
 /run-*
 target/
