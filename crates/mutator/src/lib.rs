@@ -9,9 +9,12 @@ mod interrupts;
 mod isolation;
 pub mod lua;
 mod metrics;
+mod operators;
+mod python;
 pub mod queue;
 mod scratch;
 pub mod sites;
+mod typescript;
 mod workers;
 
 /// Whether this port mutates `language` yet: Rust and Lua (Go, Java and
@@ -142,10 +145,15 @@ fn run_mutation(
     files.retain(|path| {
         if !matches!(
             quality_core::language::language_of(path),
-            Some(quality_core::language::Language::Rust | quality_core::language::Language::Lua)
+            Some(
+                quality_core::language::Language::Rust
+                    | quality_core::language::Language::Lua
+                    | quality_core::language::Language::Python
+                    | quality_core::language::Language::TypeScript
+            )
         ) {
             eprintln!(
-                "Skipping {}; this Linux mutation build mutates Rust and Lua sources.",
+                "Skipping {}; this Linux mutation build mutates Rust, Lua, Python and TypeScript sources.",
                 path.display()
             );
             return false;

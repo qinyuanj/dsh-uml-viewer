@@ -1,3 +1,63 @@
+import type { QualityOperation, QualityToolResult } from '@dsh-uml-viewer/contracts'
+
+export interface QualityRecord {
+  operation: QualityOperation
+  validResult: boolean
+  exitCode: number | null
+  reason: string | null
+}
+
+/**
+ * Per-session FIFO for quality calls (and `uml_ir`, which queues behind them)
+ * plus the latest quality outcome.
+ *
+ * `uml_ir` is refused only after a quality call in that session ended without
+ * `validResult: true`; with no quality call, IR remains available for requests
+ * that need no refresh (for example :omit or a proposal). Every completed
+ * quality invocation replaces the previous one, including refusals and
+ * malformed invocations.
+ */
+export class QualityGate {
+  private readonly latest = new Map<string, QualityRecord>()
+  private readonly tails = new Map<string, Promise<void>>()
+
+  /** Queue work behind earlier quality calls in the same session, in call order. */
+  run<T>(sessionId: string, task: () => Promise<T>): Promise<T> {
+    const previous = this.tails.get(sessionId) ?? Promise.resolve()
+    const result = previous.then(task, task)
+    const tail = result.then(() => undefined, () => undefined)
+    this.tails.set(sessionId, tail)
+    void tail.then(() => {
+      if (this.tails.get(sessionId) === tail) this.tails.delete(sessionId)
+    })
+    return result
+  }
+
+  record(sessionId: string, result: QualityToolResult): void {
+    this.latest.set(sessionId, {
+      operation: result.operation,
+      validResult: result.validResult,
+      exitCode: result.exitCode,
+      reason: result.reason,
+    })
+  }
+
+  forget(sessionId: string): void {
+    this.latest.delete(sessionId)
+    this.tails.delete(sessionId)
+  }
+
+  check(sessionId: string): { ok: true; record: QualityRecord | null } | { ok: false; reason: string } {
+    const record = this.latest.get(sessionId)
+    if (!record || record.validResult) return { ok: true, record: record ?? null }
+    const exit = record.exitCode === null ? 'no exit code' : `exit ${record.exitCode}`
+    return {
+      ok: false,
+      reason: `the latest quality call in this session failed (${record.operation}, ${exit}${record.reason ? `: ${record.reason}` : ''}); fix the cause and run that quality tool again before uml_ir`,
+    }
+  }
+}
+
 /** What the panel showed before a fresh resident starts. */
 export interface StoredView { diagram: string | null; declutter: string | null }
 

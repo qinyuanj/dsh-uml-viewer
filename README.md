@@ -1,9 +1,10 @@
 # UML viewer
 
-The DeepSeek Harness host skeleton is in development. See
+The DeepSeek Harness plugin host is in development. See
 [Plugin host development](docs/plugin-development.md) for the pnpm workspace,
-`uml_ir`, binary location and Cordis seam tests. The legacy flow below remains
-available during the ADR 0013 transition.
+`uml_ir`, `uml_crap`, `uml_mutate`, `uml_dry`, their IR gate, binary location
+and Cordis seam tests. The legacy flow below remains available during the
+ADR 0013 transition.
 
 ## Abstract
 

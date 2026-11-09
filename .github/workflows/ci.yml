@@ -206,5 +206,18 @@ jobs:
           CRAPPER_REQUIRE_TOOLCHAINS: '1'
         run: cargo test -p uml-viewer --test integration crap_languages -- --test-threads=1
 
+      # Mutation needs the project's own virtualenv, never a global install.
+      - name: Isolated Python mutation virtualenv
+        run: |
+          python -m venv "$RUNNER_TEMP/mutator-venv"
+          "$RUNNER_TEMP/mutator-venv/bin/python" -m pip install coverage pytest
+      - name: Python and TypeScript mutation tests
+        env:
+          MUTATOR_TEST_PYTHON_VENV: ${{ runner.temp }}/mutator-venv
+          MUTATOR_REQUIRE_TOOLCHAINS: '1'
+        run: |
+          cargo test -p mutator --locked --test python_ts --test python_ts_sites -- --test-threads=1
+          cargo test -p uml-viewer --test integration mutate:: quality_selection:: --locked -- --test-threads=1
+
       - name: scripts/check.py (cargo test --workspace --locked + Python suites)
         run: python3 -I scripts/check.py

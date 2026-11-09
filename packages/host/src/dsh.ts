@@ -1,4 +1,4 @@
-import type { DisplayResult, IrResult } from '@dsh-uml-viewer/contracts'
+import type { DisplayResult, IrResult, QualityToolResult } from '@dsh-uml-viewer/contracts'
 
 /** Narrow, structural DSH boundary, verified with Host Service Inspect on
  * 0.2.2-rc.1. No value imports of DSH service packages at plugin load time. */
@@ -102,7 +102,7 @@ export interface ToolDefinition {
     schema: unknown
     render(args: unknown, value: unknown): { type: 'text'; text: string }[]
   }
-  execute(args: unknown, exec: ToolRunContext): Promise<IrResult | DisplayResult>
+  execute(args: unknown, exec: ToolRunContext): Promise<IrResult | DisplayResult | QualityToolResult>
 }
 
 export interface HostServices {

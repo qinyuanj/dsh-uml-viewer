@@ -4,7 +4,9 @@ use crate::{
     isolation::{self, Failure, View},
     lua::{self, Index},
     metrics::{self, Decision},
+    python,
     sites::{self, Form, Site},
+    typescript,
     workers::{self, Workers},
 };
 use quality_core::{
@@ -77,6 +79,14 @@ impl Command {
                 .join(" "),
         }
     }
+    /// Whether this is the generated `cargo test` whose compile step runs
+    /// untimed before the baseline (the original's `build_command`).
+    fn is_cargo_test(&self) -> bool {
+        match self {
+            Command::Shell(command) => command == "cargo test",
+            Command::Argv(argv) => argv.starts_with(&["cargo".to_string(), "test".to_string()]),
+        }
+    }
     /// `[*command, *tail]` for both command shapes.
     fn extend(&self, tail: &[String]) -> Self {
         match self {
@@ -96,6 +106,10 @@ impl Command {
         }
     }
 }
+
+/// One baseline run's outcome: exit code, duration and captured output, keyed
+/// by the command and directory it ran in.
+type Baselines = BTreeMap<(Command, PathBuf), Result<(i32, Duration, String), Failure>>;
 
 pub struct Prepared {
     pub file: PathBuf,
@@ -123,6 +137,16 @@ fn plan(root: &Path, options: &Options, source: &Path) -> (Command, PathBuf) {
             module,
         );
     }
+    // A generated Python or TypeScript plan is an argument vector too, so a
+    // package path stays one argument.
+    let planned = match language_of(source) {
+        Some(Language::Python) => Some(python::test_plan(root, source)),
+        Some(Language::TypeScript) => Some(typescript::test_plan(root, source)),
+        _ => None,
+    };
+    if let Some((argv, directory)) = planned {
+        return (Command::Argv(argv), directory);
+    }
     (
         Command::Shell("cargo test".into()),
         nearest(source, "Cargo.toml", root).unwrap_or_else(|| root.to_path_buf()),
@@ -145,7 +169,7 @@ fn execute(
     command: &Command,
     site: Option<(&Path, &str)>,
     timeout: Option<Duration>,
-) -> Result<(i32, Duration), Failure> {
+) -> Result<(i32, Duration, String), Failure> {
     let run = match command {
         Command::Shell(text) => view.run(root, cwd, text, site, timeout),
         Command::Argv(argv) => view.run_argv(root, cwd, argv, site, timeout),
@@ -160,7 +184,7 @@ fn execute(
     if !result.output.is_empty() {
         eprint!("{}", result.output);
     }
-    Ok((result.code, result.elapsed))
+    Ok((result.code, result.elapsed, result.output))
 }
 
 /// `os.path.relpath`: `path` as seen from `base`, both absolute.
@@ -259,6 +283,10 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
     if !standard {
         let command = options.value("--coverage-command");
         let Some(command) = command else {
+            // Only --test-command was given: the original still measures the
+            // languages crapper measures, so Python and TypeScript do.
+            python_coverage(root, files, &mut coverage.records)?;
+            typescript_coverage(root, files, &mut coverage.records)?;
             return Ok(coverage);
         };
         // Stale reports are removed before the command, in the host shell's
@@ -296,13 +324,22 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
         coverage.records.update(fresh);
         return Ok(coverage);
     }
+    rust_coverage(root, files, &mut coverage.records)?;
+    python_coverage(root, files, &mut coverage.records)?;
+    typescript_coverage(root, files, &mut coverage.records)?;
+    Ok(coverage)
+}
+
+/// Every Rust module's LCOV report, each in its own view. A missing tool or a
+/// failed run is the original's fatal coverage error.
+fn rust_coverage(root: &Path, files: &[PathBuf], records: &mut Records) -> Result<(), i32> {
     let rust_files: Vec<PathBuf> = files
         .iter()
         .filter(|file| language_of(file) == Some(Language::Rust))
         .cloned()
         .collect();
     if rust_files.is_empty() {
-        return Ok(coverage);
+        return Ok(());
     }
     if quality_core::process::which("cargo-llvm-cov").is_none() {
         eprintln!("cargo-llvm-cov is required; mutation does not install tools.");
@@ -361,9 +398,75 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
             eprintln!("Coverage report unavailable: {error}");
             2
         })?;
-        coverage.records.update(parse_lcov(&text));
+        records.update(parse_lcov(&text));
     }
-    Ok(coverage)
+    Ok(())
+}
+
+/// One generated coverage command in a package's own overlay view.
+fn view_step(view: &View, root: &Path, cwd: &Path, script: &str) -> Result<(i32, String), i32> {
+    view.run(root, cwd, script, None, None)
+        .map_err(|failure| match failure {
+            Failure::Interrupted => 2,
+            Failure::Message(error) | Failure::Unavailable(error) => {
+                eprintln!("Isolation unavailable: {error}");
+                1
+            }
+        })
+        .inspect(|result| eprint!("{}", result.output))
+        .map(|result| (result.code, result.output))
+}
+
+/// Read a report from the view's upper layer, anchored as crapper's runner
+/// anchors it, and merge it into the records.
+fn merge_report(records: &mut Records, view: &View, report: &Path, package: &Path, anchor: bool) {
+    let path = isolation::report_path(view, report);
+    let Ok(text) = fs::read_to_string(&path) else {
+        return;
+    };
+    let text = if anchor {
+        quality_core::runners::typescript::anchor_text(&text, package)
+    } else {
+        text
+    };
+    records.update(parse_lcov(&text));
+}
+
+/// `runners._python_coverage` per package, inside views. A missing module or a
+/// failed run leaves that language uncovered, as the original's N/A does.
+fn python_coverage(root: &Path, files: &[PathBuf], records: &mut Records) -> Result<(), i32> {
+    for package in python::coverage_roots(root, files) {
+        let coverage = python::coverage(root, &package, files);
+        let view = View::new(root).map_err(|error| {
+            eprintln!("{error}");
+            1
+        })?;
+        view_step(&view, root, &package, &coverage.script)?;
+        merge_report(records, &view, &coverage.report, &package, true);
+    }
+    Ok(())
+}
+
+/// `runners._typescript_coverage` per package, inside views. `npm run coverage`
+/// owns its report location and is read without anchoring; the generated
+/// commands' reports are anchored to the package.
+fn typescript_coverage(root: &Path, files: &[PathBuf], records: &mut Records) -> Result<(), i32> {
+    for package in typescript::coverage_roots(root, files) {
+        let Some(coverage) = typescript::coverage(root, &package, files) else {
+            eprintln!(
+                "No package.json test script in {}; skipping TypeScript coverage.",
+                package.display()
+            );
+            continue;
+        };
+        let view = View::new(root).map_err(|error| {
+            eprintln!("{error}");
+            1
+        })?;
+        view_step(&view, root, &package, &coverage.script)?;
+        merge_report(records, &view, &coverage.report, &package, !coverage.custom);
+    }
+    Ok(())
 }
 
 /// The lines a report records a hit for, or None when the file is absent.
@@ -657,10 +760,6 @@ struct Published {
     survived: bool,
 }
 
-/// One call's pristine-run cache: the original's `baselines`, keyed by the
-/// command and the working directory it runs in.
-type Baselines = BTreeMap<(Command, PathBuf), Result<(i32, Duration), Failure>>;
-
 /// One pristine run per command and working directory, shared by every target
 /// file in this call. The pool's first slot runs it; every worker's view is
 /// built the same way, so a per-worker repeat would only repeat the same run.
@@ -699,8 +798,27 @@ fn pristine(
         baselines.insert(key.clone(), result);
     }
     match baselines.get(&key) {
-        Some(Ok((0, duration))) => Ok(duration.as_secs_f64()),
-        Some(Ok((code, _))) => Err(Failure::Message(format!("exit {code}"))),
+        // unittest before 3.12 exits 0 when discovery finds nothing;
+        // every mutant would then survive a suite that tests nothing.
+        Some(Ok((0, _, output)))
+            if output
+                .lines()
+                .any(|line| line.starts_with("Ran 0 tests in ")) =>
+        {
+            Err(Failure::Message(
+                output
+                    .lines()
+                    .rev()
+                    .take(20)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ))
+        }
+        Some(Ok((0, duration, _))) => Ok(duration.as_secs_f64()),
+        Some(Ok((code, _, _))) => Err(Failure::Message(format!("exit {code}"))),
         Some(Err(Failure::Unavailable(error))) => Err(Failure::Unavailable(error.clone())),
         Some(Err(Failure::Message(error))) => Err(Failure::Message(error.clone())),
         Some(Err(Failure::Interrupted)) => Err(Failure::Interrupted),
@@ -864,10 +982,15 @@ fn mutate_queued(
             run_cwd = index.directory.clone();
             if index.fresh {
                 // The fresh coverage run already proved the pristine suite
-                // passes; its duration is the timeout base (ADR 0001).
+                // passes; its duration is the timeout base (ADR 0001). There is
+                // no captured output to inspect for an empty suite.
                 baselines
                     .entry((command.clone(), index.directory.clone()))
-                    .or_insert(Ok((0, Duration::from_secs_f64(index.seconds))));
+                    .or_insert(Ok((
+                        0,
+                        Duration::from_secs_f64(index.seconds),
+                        String::new(),
+                    )));
             }
         }
         let seconds = match pristine(
@@ -939,7 +1062,7 @@ fn mutate_queued(
                 Some((&job.file, &mutated)),
                 Some(Duration::from_secs_f64(job.timeout)),
             )
-            .map(|(code, _)| code != 0)
+            .map(|(code, _, _)| code != 0)
         },
         |index, outcomes| {
             let item = lock(&items)[index]
@@ -1151,7 +1274,11 @@ pub fn mutate(
                     // passes; its duration is the timeout base (ADR 0001).
                     baselines
                         .entry((command.clone(), index.directory.clone()))
-                        .or_insert(Ok((0, Duration::from_secs_f64(index.seconds))));
+                        .or_insert(Ok((
+                            0,
+                            Duration::from_secs_f64(index.seconds),
+                            String::new(),
+                        )));
                 }
             }
             let run_cwd = if standard_lua {
@@ -1178,7 +1305,7 @@ pub fn mutate(
                     timeout,
                 )
             };
-            let build = !standard_lua && options.value("--test-command").is_none();
+            let build = !standard_lua && command.is_cargo_test();
             let seconds = match baseline(&command, build, None) {
                 Ok(seconds) => seconds,
                 Err(error) => return baseline_exit(&item, &command, error),
@@ -1246,7 +1373,7 @@ pub fn mutate(
                     Some((file, &mutated)),
                     Some(Duration::from_secs_f64(site_timeout)),
                 )
-                .map(|(code, _)| code)
+                .map(|(code, _, _)| code)
             });
             let mut outcomes = match outcomes {
                 Ok(outcomes) => outcomes,
@@ -1288,7 +1415,7 @@ pub fn mutate(
                             Some(Duration::from_secs_f64(full_timeout)),
                         );
                         let code = match result {
-                            Ok((code, _)) => code,
+                            Ok((code, _, _)) => code,
                             Err(Failure::Interrupted) => return 2,
                             Err(Failure::Message(error)) => {
                                 eprintln!("{error}");

@@ -1,0 +1,3087 @@
+{
+ "sites/src/demo/annotation.py": {
+  "sites": [],
+  "forms": [
+   {
+    "namespace": "demo.annotation",
+    "id": "defn/identity",
+    "line": 1,
+    "end_line": 3,
+    "name": "identity",
+    "private": false,
+    "hash": "00740e0a7b21054419a2cdc7d0b0fab40b613ff80bfb35468317c9d35fd56413"
+   }
+  ]
+ },
+ "sites/src/demo/app.py": {
+  "sites": [
+   {
+    "file": "src/demo/app.py",
+    "namespace": "demo.app",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 2,
+    "start": 23,
+    "end": 24,
+    "original": ">",
+    "mutant": ">=",
+    "category": "comparison",
+    "mutation_id": "[\"src/demo/app.py\",\"demo.app\",\"defn/place\",23,24,\">\",\">=\"]"
+   },
+   {
+    "file": "src/demo/app.py",
+    "namespace": "demo.app",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 2,
+    "start": 25,
+    "end": 26,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/demo/app.py\",\"demo.app\",\"defn/place\",25,26,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/demo/app.py",
+    "namespace": "demo.app",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 2,
+    "start": 27,
+    "end": 30,
+    "original": "and",
+    "mutant": "or",
+    "category": "logical",
+    "mutation_id": "[\"src/demo/app.py\",\"demo.app\",\"defn/place\",27,30,\"and\",\"or\"]"
+   },
+   {
+    "file": "src/demo/app.py",
+    "namespace": "demo.app",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 3,
+    "start": 55,
+    "end": 56,
+    "original": "+",
+    "mutant": "-",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/demo/app.py\",\"demo.app\",\"defn/place\",55,56,\"+\",\"-\"]"
+   },
+   {
+    "file": "src/demo/app.py",
+    "namespace": "demo.app",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 3,
+    "start": 57,
+    "end": 58,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/demo/app.py\",\"demo.app\",\"defn/place\",57,58,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/demo/app.py",
+    "namespace": "demo.app",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 4,
+    "start": 66,
+    "end": 69,
+    "original": "not",
+    "mutant": "",
+    "category": "unary",
+    "mutation_id": "[\"src/demo/app.py\",\"demo.app\",\"defn/place\",66,69,\"not\",\"\"]"
+   },
+   {
+    "file": "src/demo/app.py",
+    "namespace": "demo.app",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 5,
+    "start": 89,
+    "end": 90,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/demo/app.py\",\"demo.app\",\"defn/place\",89,90,\"0\",\"1\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "demo.app",
+    "id": "defn/place",
+    "line": 1,
+    "end_line": 5,
+    "name": "place",
+    "private": false,
+    "hash": "aa36a88ce8f1f102130f2578d51c348d881f8fe45169a5793379d8200f9332d8"
+   }
+  ]
+ },
+ "sites/src/demo/assign.py": {
+  "sites": [],
+  "forms": [
+   {
+    "namespace": "demo.assign",
+    "id": "defn/mix",
+    "line": 1,
+    "end_line": 9,
+    "name": "mix",
+    "private": false,
+    "hash": "0c02eb6acbb3d32b0ad7080a5b9bd4c56085b7dbb9a22cda0d8ae4647280a2e2"
+   }
+  ]
+ },
+ "sites/src/demo/bitwise.py": {
+  "sites": [
+   {
+    "file": "src/demo/bitwise.py",
+    "namespace": "demo.bitwise",
+    "form_id": "defn/mix",
+    "name": "mix",
+    "line": 2,
+    "start": 30,
+    "end": 31,
+    "original": "^",
+    "mutant": "|",
+    "category": "bitwise",
+    "mutation_id": "[\"src/demo/bitwise.py\",\"demo.bitwise\",\"defn/mix\",30,31,\"^\",\"|\"]"
+   },
+   {
+    "file": "src/demo/bitwise.py",
+    "namespace": "demo.bitwise",
+    "form_id": "defn/mix",
+    "name": "mix",
+    "line": 2,
+    "start": 35,
+    "end": 36,
+    "original": "&",
+    "mutant": "|",
+    "category": "bitwise",
+    "mutation_id": "[\"src/demo/bitwise.py\",\"demo.bitwise\",\"defn/mix\",35,36,\"&\",\"|\"]"
+   },
+   {
+    "file": "src/demo/bitwise.py",
+    "namespace": "demo.bitwise",
+    "form_id": "defn/mix",
+    "name": "mix",
+    "line": 2,
+    "start": 40,
+    "end": 41,
+    "original": "|",
+    "mutant": "&",
+    "category": "bitwise",
+    "mutation_id": "[\"src/demo/bitwise.py\",\"demo.bitwise\",\"defn/mix\",40,41,\"|\",\"&\"]"
+   },
+   {
+    "file": "src/demo/bitwise.py",
+    "namespace": "demo.bitwise",
+    "form_id": "defn/mix",
+    "name": "mix",
+    "line": 2,
+    "start": 46,
+    "end": 48,
+    "original": "<<",
+    "mutant": ">>",
+    "category": "bitwise",
+    "mutation_id": "[\"src/demo/bitwise.py\",\"demo.bitwise\",\"defn/mix\",46,48,\"<<\",\">>\"]"
+   },
+   {
+    "file": "src/demo/bitwise.py",
+    "namespace": "demo.bitwise",
+    "form_id": "defn/mix",
+    "name": "mix",
+    "line": 2,
+    "start": 53,
+    "end": 55,
+    "original": ">>",
+    "mutant": "<<",
+    "category": "bitwise",
+    "mutation_id": "[\"src/demo/bitwise.py\",\"demo.bitwise\",\"defn/mix\",53,55,\">>\",\"<<\"]"
+   },
+   {
+    "file": "src/demo/bitwise.py",
+    "namespace": "demo.bitwise",
+    "form_id": "defn/mix",
+    "name": "mix",
+    "line": 2,
+    "start": 59,
+    "end": 60,
+    "original": "%",
+    "mutant": "*",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/demo/bitwise.py\",\"demo.bitwise\",\"defn/mix\",59,60,\"%\",\"*\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "demo.bitwise",
+    "id": "defn/mix",
+    "line": 1,
+    "end_line": 2,
+    "name": "mix",
+    "private": false,
+    "hash": "33d4ce57da52907334689fb3ca894613b29399d2d95e4f0454c0cec7bfeffb36"
+   }
+  ]
+ },
+ "sites/src/demo/board.py": {
+  "sites": [
+   {
+    "file": "src/demo/board.py",
+    "namespace": "demo.board.Board",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 3,
+    "start": 54,
+    "end": 55,
+    "original": ">",
+    "mutant": ">=",
+    "category": "comparison",
+    "mutation_id": "[\"src/demo/board.py\",\"demo.board.Board\",\"defn/place\",54,55,\">\",\">=\"]"
+   },
+   {
+    "file": "src/demo/board.py",
+    "namespace": "demo.board.Board",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 3,
+    "start": 56,
+    "end": 57,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/demo/board.py\",\"demo.board.Board\",\"defn/place\",56,57,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/demo/board.py",
+    "namespace": "demo.board.Board",
+    "form_id": "defn-/_hide",
+    "name": "_hide",
+    "line": 5,
+    "start": 94,
+    "end": 99,
+    "original": "False",
+    "mutant": "True",
+    "category": "boolean",
+    "mutation_id": "[\"src/demo/board.py\",\"demo.board.Board\",\"defn-/_hide\",94,99,\"False\",\"True\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "demo.board.Board",
+    "id": "defn/place",
+    "line": 2,
+    "end_line": 3,
+    "name": "place",
+    "private": false,
+    "hash": "f7cfab1d4efdfa30cece7b3552c5e0e684e1e2c5bb8794383ad53314101ee887"
+   },
+   {
+    "namespace": "demo.board.Board",
+    "id": "defn-/_hide",
+    "line": 4,
+    "end_line": 5,
+    "name": "_hide",
+    "private": true,
+    "hash": "3e6f3053cd112de0518ca703049b6bd9d21bb61601e9a92cf2902de6baff7448"
+   }
+  ]
+ },
+ "sites/src/demo/extra.py": {
+  "sites": [
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/__dunder__",
+    "name": "__dunder__",
+    "line": 5,
+    "start": 51,
+    "end": 53,
+    "original": "==",
+    "mutant": "!=",
+    "category": "equality",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/__dunder__\",51,53,\"==\",\"!=\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/__dunder__",
+    "name": "__dunder__",
+    "line": 5,
+    "start": 54,
+    "end": 55,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/__dunder__\",54,55,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/decorated",
+    "name": "decorated",
+    "line": 10,
+    "start": 107,
+    "end": 108,
+    "original": "-",
+    "mutant": "",
+    "category": "unary",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/decorated\",107,108,\"-\",\"\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/decorated",
+    "name": "decorated",
+    "line": 10,
+    "start": 110,
+    "end": 111,
+    "original": "+",
+    "mutant": "-",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/decorated\",110,111,\"+\",\"-\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/decorated",
+    "name": "decorated",
+    "line": 10,
+    "start": 115,
+    "end": 116,
+    "original": "-",
+    "mutant": "+",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/decorated\",115,116,\"-\",\"+\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/waiter",
+    "name": "waiter",
+    "line": 14,
+    "start": 168,
+    "end": 170,
+    "original": "or",
+    "mutant": "and",
+    "category": "logical",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/waiter\",168,170,\"or\",\"and\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/waiter",
+    "name": "waiter",
+    "line": 14,
+    "start": 182,
+    "end": 185,
+    "original": "and",
+    "mutant": "or",
+    "category": "logical",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/waiter\",182,185,\"and\",\"or\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/waiter",
+    "name": "waiter",
+    "line": 14,
+    "start": 186,
+    "end": 189,
+    "original": "not",
+    "mutant": "",
+    "category": "unary",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/waiter\",186,189,\"not\",\"\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/waiter",
+    "name": "waiter",
+    "line": 14,
+    "start": 193,
+    "end": 195,
+    "original": "!=",
+    "mutant": "==",
+    "category": "equality",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/waiter\",193,195,\"!=\",\"==\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/nested",
+    "name": "nested",
+    "line": 19,
+    "start": 259,
+    "end": 260,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/nested\",259,260,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/nested",
+    "name": "nested",
+    "line": 20,
+    "start": 279,
+    "end": 280,
+    "original": "*",
+    "mutant": "/",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/nested\",279,280,\"*\",\"/\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/nested",
+    "name": "nested",
+    "line": 20,
+    "start": 281,
+    "end": 282,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/nested\",281,282,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/nested",
+    "name": "nested",
+    "line": 20,
+    "start": 299,
+    "end": 301,
+    "original": ">=",
+    "mutant": ">",
+    "category": "comparison",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/nested\",299,301,\">=\",\">\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/nested",
+    "name": "nested",
+    "line": 20,
+    "start": 302,
+    "end": 303,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/nested\",302,303,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/nested",
+    "name": "nested",
+    "line": 20,
+    "start": 305,
+    "end": 307,
+    "original": "or",
+    "mutant": "and",
+    "category": "logical",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/nested\",305,307,\"or\",\"and\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/nested",
+    "name": "nested",
+    "line": 20,
+    "start": 317,
+    "end": 319,
+    "original": "<=",
+    "mutant": "<",
+    "category": "comparison",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/nested\",317,319,\"<=\",\"<\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/nested",
+    "name": "nested",
+    "line": 20,
+    "start": 324,
+    "end": 326,
+    "original": "or",
+    "mutant": "and",
+    "category": "logical",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/nested\",324,326,\"or\",\"and\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/nested",
+    "name": "nested",
+    "line": 20,
+    "start": 331,
+    "end": 332,
+    "original": "<",
+    "mutant": "<=",
+    "category": "comparison",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/nested\",331,332,\"<\",\"<=\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/nested",
+    "name": "nested",
+    "line": 20,
+    "start": 340,
+    "end": 345,
+    "original": "False",
+    "mutant": "True",
+    "category": "boolean",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/nested\",340,345,\"False\",\"True\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra.Outer.Inner",
+    "form_id": "defn-/_private",
+    "name": "_private",
+    "line": 26,
+    "start": 456,
+    "end": 457,
+    "original": "%",
+    "mutant": "*",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra.Outer.Inner\",\"defn-/_private\",456,457,\"%\",\"*\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra.Outer.Inner",
+    "form_id": "defn-/_private",
+    "name": "_private",
+    "line": 26,
+    "start": 460,
+    "end": 462,
+    "original": "==",
+    "mutant": "!=",
+    "category": "equality",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra.Outer.Inner\",\"defn-/_private\",460,462,\"==\",\"!=\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra.Outer.Inner",
+    "form_id": "defn-/_private",
+    "name": "_private",
+    "line": 26,
+    "start": 463,
+    "end": 464,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra.Outer.Inner\",\"defn-/_private\",463,464,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra.Outer",
+    "form_id": "defn/__init__",
+    "name": "__init__",
+    "line": 29,
+    "start": 512,
+    "end": 513,
+    "original": "<",
+    "mutant": "<=",
+    "category": "comparison",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra.Outer\",\"defn/__init__\",512,513,\"<\",\"<=\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra.Outer",
+    "form_id": "defn/__init__",
+    "name": "__init__",
+    "line": 29,
+    "start": 514,
+    "end": 515,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra.Outer\",\"defn/__init__\",514,515,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra.Outer",
+    "form_id": "defn/__init__",
+    "name": "__init__",
+    "line": 29,
+    "start": 516,
+    "end": 518,
+    "original": "<=",
+    "mutant": "<",
+    "category": "comparison",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra.Outer\",\"defn/__init__\",516,518,\"<=\",\"<\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/tail",
+    "name": "tail",
+    "line": 33,
+    "start": 549,
+    "end": 550,
+    "original": ">",
+    "mutant": ">=",
+    "category": "comparison",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/tail\",549,550,\">\",\">=\"]"
+   },
+   {
+    "file": "src/demo/extra.py",
+    "namespace": "demo.extra",
+    "form_id": "defn/tail",
+    "name": "tail",
+    "line": 33,
+    "start": 551,
+    "end": 552,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/demo/extra.py\",\"demo.extra\",\"defn/tail\",551,552,\"0\",\"1\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "demo.extra",
+    "id": "defn/__dunder__",
+    "line": 4,
+    "end_line": 5,
+    "name": "__dunder__",
+    "private": false,
+    "hash": "960419c8878c0bccbad170df2b33bda72df181f9f1b53687ba1da4c3fc3d695a"
+   },
+   {
+    "namespace": "demo.extra",
+    "id": "defn/decorated",
+    "line": 9,
+    "end_line": 10,
+    "name": "decorated",
+    "private": false,
+    "hash": "1fe483fb1aaa662fc135543f469d469951958443940745e8679174982382e392"
+   },
+   {
+    "namespace": "demo.extra",
+    "id": "defn/waiter",
+    "line": 13,
+    "end_line": 14,
+    "name": "waiter",
+    "private": false,
+    "hash": "a17e3bf8f995121d80a109528cc16003f49bfe3a20362caf91d094372a19094c"
+   },
+   {
+    "namespace": "demo.extra",
+    "id": "defn/nested",
+    "line": 17,
+    "end_line": 20,
+    "name": "nested",
+    "private": false,
+    "hash": "b31505c9cdc115a0c9769cc949ba3444f81d2fab901960f72feff924dd8f1f55"
+   },
+   {
+    "namespace": "demo.extra.Outer.Inner",
+    "id": "defn-/_private",
+    "line": 25,
+    "end_line": 26,
+    "name": "_private",
+    "private": true,
+    "hash": "42542f1396f15a1df34e72a7109e43e2b9033fa496a99b861a4ce4e38e5c5714"
+   },
+   {
+    "namespace": "demo.extra.Outer",
+    "id": "defn/__init__",
+    "line": 28,
+    "end_line": 29,
+    "name": "__init__",
+    "private": false,
+    "hash": "ee7bb1e4e3846a8122794a77a15f936bebac0dab958408fd6f8ea2bf30e0da59"
+   },
+   {
+    "namespace": "demo.extra",
+    "id": "defn/tail",
+    "line": 32,
+    "end_line": 33,
+    "name": "tail",
+    "private": false,
+    "hash": "29bb7be1e9d01da6fe596a8beb4f2e57f7c7f8453a576a5b0e52b78e528e0a4f"
+   }
+  ]
+ },
+ "sites/src/demo/identity.py": {
+  "sites": [],
+  "forms": [
+   {
+    "namespace": "demo.identity",
+    "id": "defn/identity",
+    "line": 1,
+    "end_line": 2,
+    "name": "identity",
+    "private": false,
+    "hash": "629d70e6ca7648ef5ad69bb33055f645ee60f0a78270153860ddfdff354ec2f9"
+   }
+  ]
+ },
+ "sites/src/demo/literals.py": {
+  "sites": [
+   {
+    "file": "src/demo/literals.py",
+    "namespace": "demo.literals",
+    "form_id": "defn/zero",
+    "name": "zero",
+    "line": 2,
+    "start": 23,
+    "end": 24,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/demo/literals.py\",\"demo.literals\",\"defn/zero\",23,24,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/demo/literals.py",
+    "namespace": "demo.literals",
+    "form_id": "defn/one",
+    "name": "one",
+    "line": 4,
+    "start": 47,
+    "end": 48,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/demo/literals.py\",\"demo.literals\",\"defn/one\",47,48,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/demo/literals.py",
+    "namespace": "demo.literals",
+    "form_id": "defn/yes",
+    "name": "yes",
+    "line": 6,
+    "start": 71,
+    "end": 75,
+    "original": "True",
+    "mutant": "False",
+    "category": "boolean",
+    "mutation_id": "[\"src/demo/literals.py\",\"demo.literals\",\"defn/yes\",71,75,\"True\",\"False\"]"
+   },
+   {
+    "file": "src/demo/literals.py",
+    "namespace": "demo.literals",
+    "form_id": "defn/no",
+    "name": "no",
+    "line": 8,
+    "start": 97,
+    "end": 102,
+    "original": "False",
+    "mutant": "True",
+    "category": "boolean",
+    "mutation_id": "[\"src/demo/literals.py\",\"demo.literals\",\"defn/no\",97,102,\"False\",\"True\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "demo.literals",
+    "id": "defn/zero",
+    "line": 1,
+    "end_line": 2,
+    "name": "zero",
+    "private": false,
+    "hash": "5de50902a1ab3b14010e62278e0ed0091eefc93fb0032d6b650dd1f09fc7c2f2"
+   },
+   {
+    "namespace": "demo.literals",
+    "id": "defn/one",
+    "line": 3,
+    "end_line": 4,
+    "name": "one",
+    "private": false,
+    "hash": "2f569ece593a815324af5329afac36c6cecc14c06c9d731815d8e31ee0e009cd"
+   },
+   {
+    "namespace": "demo.literals",
+    "id": "defn/yes",
+    "line": 5,
+    "end_line": 6,
+    "name": "yes",
+    "private": false,
+    "hash": "99ad81ec56321187e0bfbdec990e720e5b5e4aab7f6fd31420ada941e5ebd82c"
+   },
+   {
+    "namespace": "demo.literals",
+    "id": "defn/no",
+    "line": 7,
+    "end_line": 8,
+    "name": "no",
+    "private": false,
+    "hash": "bc4d947ffe27710bf9ed7f6fafedd4fda4fc226a3446ce986217911fe8a1852c"
+   }
+  ]
+ },
+ "sites/src/demo/strings.py": {
+  "sites": [],
+  "forms": [
+   {
+    "namespace": "demo.strings",
+    "id": "defn/place",
+    "line": 1,
+    "end_line": 2,
+    "name": "place",
+    "private": false,
+    "hash": "04a7c7c51c783dbf323d9ab17473f395fa2790c126f5ebbe7783f88cf50f343a"
+   }
+  ]
+ },
+ "sites/src/demo/union_runtime.py": {
+  "sites": [
+   {
+    "file": "src/demo/union_runtime.py",
+    "namespace": "demo.union_runtime",
+    "form_id": "defn/mask",
+    "name": "mask",
+    "line": 2,
+    "start": 60,
+    "end": 61,
+    "original": "|",
+    "mutant": "&",
+    "category": "bitwise",
+    "mutation_id": "[\"src/demo/union_runtime.py\",\"demo.union_runtime\",\"defn/mask\",60,61,\"|\",\"&\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "demo.union_runtime",
+    "id": "defn/mask",
+    "line": 1,
+    "end_line": 2,
+    "name": "mask",
+    "private": false,
+    "hash": "1c611a7001f08839eb274ef71bdcaf896bf62a4dc30dc07ee205e9ad78725031"
+   }
+  ]
+ },
+ "sites/src/demo/utf8.py": {
+  "sites": [
+   {
+    "file": "src/demo/utf8.py",
+    "namespace": "demo.utf8",
+    "form_id": "defn/mask",
+    "name": "mask",
+    "line": 3,
+    "start": 47,
+    "end": 48,
+    "original": "^",
+    "mutant": "|",
+    "category": "bitwise",
+    "mutation_id": "[\"src/demo/utf8.py\",\"demo.utf8\",\"defn/mask\",47,48,\"^\",\"|\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "demo.utf8",
+    "id": "defn/mask",
+    "line": 1,
+    "end_line": 3,
+    "name": "mask",
+    "private": false,
+    "hash": "588da3d32f65e7102b242b9166509794013b06e7521c76ddbec0928a443d53f2"
+   }
+  ]
+ },
+ "sites/src/ts/app.ts": {
+  "sites": [
+   {
+    "file": "src/ts/app.ts",
+    "namespace": "ts.app",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 2,
+    "start": 43,
+    "end": 44,
+    "original": ">",
+    "mutant": ">=",
+    "category": "comparison",
+    "mutation_id": "[\"src/ts/app.ts\",\"ts.app\",\"defn/place\",43,44,\">\",\">=\"]"
+   },
+   {
+    "file": "src/ts/app.ts",
+    "namespace": "ts.app",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 2,
+    "start": 45,
+    "end": 46,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/ts/app.ts\",\"ts.app\",\"defn/place\",45,46,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/ts/app.ts",
+    "namespace": "ts.app",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 2,
+    "start": 47,
+    "end": 49,
+    "original": "&&",
+    "mutant": "||",
+    "category": "logical",
+    "mutation_id": "[\"src/ts/app.ts\",\"ts.app\",\"defn/place\",47,49,\"&&\",\"||\"]"
+   },
+   {
+    "file": "src/ts/app.ts",
+    "namespace": "ts.app",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 2,
+    "start": 66,
+    "end": 67,
+    "original": "+",
+    "mutant": "-",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/ts/app.ts\",\"ts.app\",\"defn/place\",66,67,\"+\",\"-\"]"
+   },
+   {
+    "file": "src/ts/app.ts",
+    "namespace": "ts.app",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 2,
+    "start": 68,
+    "end": 69,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/ts/app.ts\",\"ts.app\",\"defn/place\",68,69,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/ts/app.ts",
+    "namespace": "ts.app",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 3,
+    "start": 80,
+    "end": 84,
+    "original": "true",
+    "mutant": "false",
+    "category": "boolean",
+    "mutation_id": "[\"src/ts/app.ts\",\"ts.app\",\"defn/place\",80,84,\"true\",\"false\"]"
+   },
+   {
+    "file": "src/ts/app.ts",
+    "namespace": "ts.app",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 3,
+    "start": 85,
+    "end": 88,
+    "original": "===",
+    "mutant": "!==",
+    "category": "equality",
+    "mutation_id": "[\"src/ts/app.ts\",\"ts.app\",\"defn/place\",85,88,\"===\",\"!==\"]"
+   },
+   {
+    "file": "src/ts/app.ts",
+    "namespace": "ts.app",
+    "form_id": "defn/place",
+    "name": "place",
+    "line": 3,
+    "start": 89,
+    "end": 94,
+    "original": "false",
+    "mutant": "true",
+    "category": "boolean",
+    "mutation_id": "[\"src/ts/app.ts\",\"ts.app\",\"defn/place\",89,94,\"false\",\"true\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "ts.app",
+    "id": "defn/place",
+    "line": 1,
+    "end_line": 4,
+    "name": "place",
+    "private": false,
+    "hash": "5b29fc17d2a23132accc8ce9ce1e45c607c14ce4fc9144b348a74dac869340ad"
+   }
+  ]
+ },
+ "sites/src/ts/assign.ts": {
+  "sites": [],
+  "forms": [
+   {
+    "namespace": "ts.assign",
+    "id": "defn/mix",
+    "line": 1,
+    "end_line": 1,
+    "name": "mix",
+    "private": false,
+    "hash": "a779fe1a19f215a5405e0d550020777a2b0af2d91bcc5839cf46bc76e635dee6"
+   }
+  ]
+ },
+ "sites/src/ts/bitwise.ts": {
+  "sites": [
+   {
+    "file": "src/ts/bitwise.ts",
+    "namespace": "ts.bitwise",
+    "form_id": "defn/mix",
+    "name": "mix",
+    "line": 2,
+    "start": 57,
+    "end": 58,
+    "original": "^",
+    "mutant": "|",
+    "category": "bitwise",
+    "mutation_id": "[\"src/ts/bitwise.ts\",\"ts.bitwise\",\"defn/mix\",57,58,\"^\",\"|\"]"
+   },
+   {
+    "file": "src/ts/bitwise.ts",
+    "namespace": "ts.bitwise",
+    "form_id": "defn/mix",
+    "name": "mix",
+    "line": 2,
+    "start": 62,
+    "end": 63,
+    "original": "&",
+    "mutant": "|",
+    "category": "bitwise",
+    "mutation_id": "[\"src/ts/bitwise.ts\",\"ts.bitwise\",\"defn/mix\",62,63,\"&\",\"|\"]"
+   },
+   {
+    "file": "src/ts/bitwise.ts",
+    "namespace": "ts.bitwise",
+    "form_id": "defn/mix",
+    "name": "mix",
+    "line": 2,
+    "start": 67,
+    "end": 68,
+    "original": "|",
+    "mutant": "&",
+    "category": "bitwise",
+    "mutation_id": "[\"src/ts/bitwise.ts\",\"ts.bitwise\",\"defn/mix\",67,68,\"|\",\"&\"]"
+   },
+   {
+    "file": "src/ts/bitwise.ts",
+    "namespace": "ts.bitwise",
+    "form_id": "defn/mix",
+    "name": "mix",
+    "line": 2,
+    "start": 73,
+    "end": 75,
+    "original": "<<",
+    "mutant": ">>",
+    "category": "bitwise",
+    "mutation_id": "[\"src/ts/bitwise.ts\",\"ts.bitwise\",\"defn/mix\",73,75,\"<<\",\">>\"]"
+   },
+   {
+    "file": "src/ts/bitwise.ts",
+    "namespace": "ts.bitwise",
+    "form_id": "defn/mix",
+    "name": "mix",
+    "line": 2,
+    "start": 80,
+    "end": 82,
+    "original": ">>",
+    "mutant": "<<",
+    "category": "bitwise",
+    "mutation_id": "[\"src/ts/bitwise.ts\",\"ts.bitwise\",\"defn/mix\",80,82,\">>\",\"<<\"]"
+   },
+   {
+    "file": "src/ts/bitwise.ts",
+    "namespace": "ts.bitwise",
+    "form_id": "defn/mix",
+    "name": "mix",
+    "line": 2,
+    "start": 86,
+    "end": 87,
+    "original": "%",
+    "mutant": "*",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/ts/bitwise.ts\",\"ts.bitwise\",\"defn/mix\",86,87,\"%\",\"*\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "ts.bitwise",
+    "id": "defn/mix",
+    "line": 1,
+    "end_line": 3,
+    "name": "mix",
+    "private": false,
+    "hash": "692f8822a43f56a0f37288ae45a6e234ed4dc4bee6933e6a7596fa871fb9d52e"
+   }
+  ]
+ },
+ "sites/src/ts/extra.ts": {
+  "sites": [
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra.Store",
+    "form_id": "defn-/drop",
+    "name": "drop",
+    "line": 12,
+    "start": 245,
+    "end": 247,
+    "original": "||",
+    "mutant": "&&",
+    "category": "logical",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra.Store\",\"defn-/drop\",245,247,\"||\",\"&&\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra.Store",
+    "form_id": "defn-/drop",
+    "name": "drop",
+    "line": 12,
+    "start": 253,
+    "end": 254,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra.Store\",\"defn-/drop\",253,254,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra.Store",
+    "form_id": "defn-/drop",
+    "name": "drop",
+    "line": 12,
+    "start": 255,
+    "end": 258,
+    "original": "===",
+    "mutant": "!==",
+    "category": "equality",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra.Store\",\"defn-/drop\",255,258,\"===\",\"!==\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra.Store",
+    "form_id": "defn/size",
+    "name": "size",
+    "line": 16,
+    "start": 334,
+    "end": 337,
+    "original": ">>>",
+    "mutant": "<<",
+    "category": "bitwise",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra.Store\",\"defn/size\",334,337,\">>>\",\"<<\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra.Store",
+    "form_id": "defn/size",
+    "name": "size",
+    "line": 16,
+    "start": 338,
+    "end": 339,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra.Store\",\"defn/size\",338,339,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra.Store",
+    "form_id": "defn/empty",
+    "name": "empty",
+    "line": 26,
+    "start": 502,
+    "end": 503,
+    "original": "!",
+    "mutant": "",
+    "category": "unary",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra.Store\",\"defn/empty\",502,503,\"!\",\"\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/checks",
+    "name": "checks",
+    "line": 31,
+    "start": 604,
+    "end": 605,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/checks\",604,605,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/checks",
+    "name": "checks",
+    "line": 32,
+    "start": 625,
+    "end": 628,
+    "original": "===",
+    "mutant": "!==",
+    "category": "equality",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/checks\",625,628,\"===\",\"!==\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/checks",
+    "name": "checks",
+    "line": 32,
+    "start": 638,
+    "end": 640,
+    "original": "&&",
+    "mutant": "||",
+    "category": "logical",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/checks\",638,640,\"&&\",\"||\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/checks",
+    "name": "checks",
+    "line": 32,
+    "start": 661,
+    "end": 663,
+    "original": "||",
+    "mutant": "&&",
+    "category": "logical",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/checks\",661,663,\"||\",\"&&\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/checks",
+    "name": "checks",
+    "line": 32,
+    "start": 673,
+    "end": 675,
+    "original": "||",
+    "mutant": "&&",
+    "category": "logical",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/checks\",673,675,\"||\",\"&&\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/checks",
+    "name": "checks",
+    "line": 32,
+    "start": 676,
+    "end": 677,
+    "original": "-",
+    "mutant": "",
+    "category": "unary",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/checks\",676,677,\"-\",\"\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/checks",
+    "name": "checks",
+    "line": 32,
+    "start": 679,
+    "end": 680,
+    "original": "<",
+    "mutant": "<=",
+    "category": "comparison",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/checks\",679,680,\"<\",\"<=\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/checks",
+    "name": "checks",
+    "line": 32,
+    "start": 684,
+    "end": 686,
+    "original": "&&",
+    "mutant": "||",
+    "category": "logical",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/checks\",684,686,\"&&\",\"||\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/checks",
+    "name": "checks",
+    "line": 32,
+    "start": 690,
+    "end": 693,
+    "original": "!==",
+    "mutant": "===",
+    "category": "equality",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/checks\",690,693,\"!==\",\"===\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/checks",
+    "name": "checks",
+    "line": 32,
+    "start": 694,
+    "end": 695,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/checks\",694,695,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/checks",
+    "name": "checks",
+    "line": 32,
+    "start": 696,
+    "end": 698,
+    "original": "&&",
+    "mutant": "||",
+    "category": "logical",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/checks\",696,698,\"&&\",\"||\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/checks",
+    "name": "checks",
+    "line": 32,
+    "start": 704,
+    "end": 706,
+    "original": "==",
+    "mutant": "!=",
+    "category": "equality",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/checks\",704,706,\"==\",\"!=\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/checks",
+    "name": "checks",
+    "line": 32,
+    "start": 712,
+    "end": 714,
+    "original": "||",
+    "mutant": "&&",
+    "category": "logical",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/checks\",712,714,\"||\",\"&&\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/checks",
+    "name": "checks",
+    "line": 32,
+    "start": 727,
+    "end": 728,
+    "original": ">",
+    "mutant": ">=",
+    "category": "comparison",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/checks\",727,728,\">\",\">=\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/checks",
+    "name": "checks",
+    "line": 32,
+    "start": 729,
+    "end": 730,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/checks\",729,730,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/arrow",
+    "name": "arrow",
+    "line": 35,
+    "start": 773,
+    "end": 775,
+    "original": "!=",
+    "mutant": "==",
+    "category": "equality",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/arrow\",773,775,\"!=\",\"==\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/arrow",
+    "name": "arrow",
+    "line": 35,
+    "start": 776,
+    "end": 777,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/arrow\",776,777,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/arrow",
+    "name": "arrow",
+    "line": 35,
+    "start": 782,
+    "end": 783,
+    "original": "%",
+    "mutant": "*",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/arrow\",782,783,\"%\",\"*\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/arrow",
+    "name": "arrow",
+    "line": 35,
+    "start": 788,
+    "end": 789,
+    "original": "-",
+    "mutant": "",
+    "category": "unary",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/arrow\",788,789,\"-\",\"\"]"
+   },
+   {
+    "file": "src/ts/extra.ts",
+    "namespace": "ts.extra",
+    "form_id": "defn/arrow",
+    "name": "arrow",
+    "line": 35,
+    "start": 789,
+    "end": 790,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/ts/extra.ts\",\"ts.extra\",\"defn/arrow\",789,790,\"1\",\"0\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "ts.extra.Store",
+    "id": "defn-/drop",
+    "line": 11,
+    "end_line": 13,
+    "name": "drop",
+    "private": true,
+    "hash": "4e480644bf4d6c328e44546188ac2747d76030b376fff1abd34dcec68304bd3f"
+   },
+   {
+    "namespace": "ts.extra.Store",
+    "id": "defn/size",
+    "line": 15,
+    "end_line": 17,
+    "name": "size",
+    "private": false,
+    "hash": "668d8c681593f4233f72c6a51b9ab1b133cd1e3955a5d258502a1354f7f2216e"
+   },
+   {
+    "namespace": "ts.extra.Store",
+    "id": "defn/make",
+    "line": 19,
+    "end_line": 23,
+    "name": "make",
+    "private": false,
+    "hash": "356c45b9533d5bf6d14efb8f6a2dd69f2a09980270c5a470be787736b59700b2"
+   },
+   {
+    "namespace": "ts.extra.Store",
+    "id": "defn/empty",
+    "line": 25,
+    "end_line": 27,
+    "name": "empty",
+    "private": false,
+    "hash": "ee1e35af0d18925757fa1ce9a5a3eeded2a54b24aa86958f76182ea05efa9b66"
+   },
+   {
+    "namespace": "ts.extra",
+    "id": "defn/checks",
+    "line": 30,
+    "end_line": 33,
+    "name": "checks",
+    "private": false,
+    "hash": "9f7cc8f990c96f39d2f93ae158ad9ae91c619c3edb113a6d836d35821cb474f9"
+   },
+   {
+    "namespace": "ts.extra",
+    "id": "defn/arrow",
+    "line": 35,
+    "end_line": 35,
+    "name": "arrow",
+    "private": false,
+    "hash": "c02d44caa3c19f2b1ea48b0d10a13d4db91e3c3760d4fdcfbd2d5c9d66c795db"
+   }
+  ]
+ },
+ "sites/src/ts/extra.tsx": {
+  "sites": [
+   {
+    "file": "src/ts/extra.tsx",
+    "namespace": "ts.extra",
+    "form_id": "defn/Panel",
+    "name": "Panel",
+    "line": 2,
+    "start": 85,
+    "end": 87,
+    "original": "&&",
+    "mutant": "||",
+    "category": "logical",
+    "mutation_id": "[\"src/ts/extra.tsx\",\"ts.extra\",\"defn/Panel\",85,87,\"&&\",\"||\"]"
+   },
+   {
+    "file": "src/ts/extra.tsx",
+    "namespace": "ts.extra",
+    "form_id": "defn/Panel",
+    "name": "Panel",
+    "line": 2,
+    "start": 101,
+    "end": 102,
+    "original": "!",
+    "mutant": "",
+    "category": "unary",
+    "mutation_id": "[\"src/ts/extra.tsx\",\"ts.extra\",\"defn/Panel\",101,102,\"!\",\"\"]"
+   },
+   {
+    "file": "src/ts/extra.tsx",
+    "namespace": "ts.extra",
+    "form_id": "defn/Panel",
+    "name": "Panel",
+    "line": 2,
+    "start": 127,
+    "end": 128,
+    "original": "+",
+    "mutant": "-",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/ts/extra.tsx\",\"ts.extra\",\"defn/Panel\",127,128,\"+\",\"-\"]"
+   },
+   {
+    "file": "src/ts/extra.tsx",
+    "namespace": "ts.extra",
+    "form_id": "defn/Panel",
+    "name": "Panel",
+    "line": 2,
+    "start": 129,
+    "end": 130,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/ts/extra.tsx\",\"ts.extra\",\"defn/Panel\",129,130,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/ts/extra.tsx",
+    "namespace": "ts.extra",
+    "form_id": "defn/Panel",
+    "name": "Panel",
+    "line": 2,
+    "start": 131,
+    "end": 132,
+    "original": ">",
+    "mutant": ">=",
+    "category": "comparison",
+    "mutation_id": "[\"src/ts/extra.tsx\",\"ts.extra\",\"defn/Panel\",131,132,\">\",\">=\"]"
+   },
+   {
+    "file": "src/ts/extra.tsx",
+    "namespace": "ts.extra",
+    "form_id": "defn/Panel",
+    "name": "Panel",
+    "line": 2,
+    "start": 133,
+    "end": 134,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/ts/extra.tsx\",\"ts.extra\",\"defn/Panel\",133,134,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/ts/extra.tsx",
+    "namespace": "ts.extra",
+    "form_id": "defn/Item",
+    "name": "Item",
+    "line": 5,
+    "start": 226,
+    "end": 227,
+    "original": "*",
+    "mutant": "/",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/ts/extra.tsx\",\"ts.extra\",\"defn/Item\",226,227,\"*\",\"/\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "ts.extra",
+    "id": "defn/Panel",
+    "line": 1,
+    "end_line": 3,
+    "name": "Panel",
+    "private": false,
+    "hash": "d40dda6378b4f44ca6df57d8502bef0f2a73c8867657ef46cbefa5d44fa9e376"
+   },
+   {
+    "namespace": "ts.extra",
+    "id": "defn/Item",
+    "line": 5,
+    "end_line": 5,
+    "name": "Item",
+    "private": false,
+    "hash": "465330b70fd0ee1aee9867b6e51d7116f282bf0d002d1729e7044d064960dc6e"
+   }
+  ]
+ },
+ "sites/src/ts/identity.ts": {
+  "sites": [],
+  "forms": [
+   {
+    "namespace": "ts.identity",
+    "id": "defn/identity",
+    "line": 1,
+    "end_line": 1,
+    "name": "identity",
+    "private": false,
+    "hash": "9f9a1741ab514dcbd9c5e783f397e386fc505b0a58a2f3633d51c92e1ef3240e"
+   }
+  ]
+ },
+ "sites/src/ts/literals.ts": {
+  "sites": [
+   {
+    "file": "src/ts/literals.ts",
+    "namespace": "ts.literals",
+    "form_id": "defn/zero",
+    "name": "zero",
+    "line": 1,
+    "start": 32,
+    "end": 33,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/ts/literals.ts\",\"ts.literals\",\"defn/zero\",32,33,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/ts/literals.ts",
+    "namespace": "ts.literals",
+    "form_id": "defn/one",
+    "name": "one",
+    "line": 2,
+    "start": 68,
+    "end": 69,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/ts/literals.ts\",\"ts.literals\",\"defn/one\",68,69,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/ts/literals.ts",
+    "namespace": "ts.literals",
+    "form_id": "defn/yes",
+    "name": "yes",
+    "line": 3,
+    "start": 104,
+    "end": 108,
+    "original": "true",
+    "mutant": "false",
+    "category": "boolean",
+    "mutation_id": "[\"src/ts/literals.ts\",\"ts.literals\",\"defn/yes\",104,108,\"true\",\"false\"]"
+   },
+   {
+    "file": "src/ts/literals.ts",
+    "namespace": "ts.literals",
+    "form_id": "defn/no",
+    "name": "no",
+    "line": 4,
+    "start": 142,
+    "end": 147,
+    "original": "false",
+    "mutant": "true",
+    "category": "boolean",
+    "mutation_id": "[\"src/ts/literals.ts\",\"ts.literals\",\"defn/no\",142,147,\"false\",\"true\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "ts.literals",
+    "id": "defn/zero",
+    "line": 1,
+    "end_line": 1,
+    "name": "zero",
+    "private": false,
+    "hash": "46c2977977570440759853cb4f369bf96d42e0c39faf3f0f26cdb70445acb146"
+   },
+   {
+    "namespace": "ts.literals",
+    "id": "defn/one",
+    "line": 2,
+    "end_line": 2,
+    "name": "one",
+    "private": false,
+    "hash": "89755ae91e1bd17bc71ea3319f8453bfe5035c3406849afa46bb290a5709ec91"
+   },
+   {
+    "namespace": "ts.literals",
+    "id": "defn/yes",
+    "line": 3,
+    "end_line": 3,
+    "name": "yes",
+    "private": false,
+    "hash": "083fa8078dc15917657f3ebf10c5a3cdde12d4b179c1745acec5a595b1cf61c1"
+   },
+   {
+    "namespace": "ts.literals",
+    "id": "defn/no",
+    "line": 4,
+    "end_line": 4,
+    "name": "no",
+    "private": false,
+    "hash": "8d150fee04fda266f3225164dd2c7ac42d5f8cf7ccdc85074c2cf3c0e05baad5"
+   }
+  ]
+ },
+ "sites/src/ts/shift.ts": {
+  "sites": [
+   {
+    "file": "src/ts/shift.ts",
+    "namespace": "ts.shift",
+    "form_id": "defn/mix",
+    "name": "mix",
+    "line": 1,
+    "start": 53,
+    "end": 56,
+    "original": ">>>",
+    "mutant": "<<",
+    "category": "bitwise",
+    "mutation_id": "[\"src/ts/shift.ts\",\"ts.shift\",\"defn/mix\",53,56,\">>>\",\"<<\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "ts.shift",
+    "id": "defn/mix",
+    "line": 1,
+    "end_line": 1,
+    "name": "mix",
+    "private": false,
+    "hash": "5b5d4910478a1adee08f239c09df9d9b07edde110b7502c3be8ed297b9947264"
+   }
+  ]
+ },
+ "sites/src/ts/shift.tsx": {
+  "sites": [
+   {
+    "file": "src/ts/shift.tsx",
+    "namespace": "ts.shift",
+    "form_id": "defn/mix",
+    "name": "mix",
+    "line": 1,
+    "start": 53,
+    "end": 56,
+    "original": ">>>",
+    "mutant": "<<",
+    "category": "bitwise",
+    "mutation_id": "[\"src/ts/shift.tsx\",\"ts.shift\",\"defn/mix\",53,56,\">>>\",\"<<\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "ts.shift",
+    "id": "defn/mix",
+    "line": 1,
+    "end_line": 1,
+    "name": "mix",
+    "private": false,
+    "hash": "5b5d4910478a1adee08f239c09df9d9b07edde110b7502c3be8ed297b9947264"
+   }
+  ]
+ },
+ "sites/src/ts/union.ts": {
+  "sites": [],
+  "forms": [
+   {
+    "namespace": "ts.union",
+    "id": "defn/identity",
+    "line": 1,
+    "end_line": 1,
+    "name": "identity",
+    "private": false,
+    "hash": "5cdeeee2157414d412dc2913aa5301f1effd08e6d0d6dad6adf0ea724f175844"
+   }
+  ]
+ },
+ "python/legacy/tally/__init__.py": {
+  "sites": [],
+  "forms": []
+ },
+ "python/legacy/tally/core.py": {
+  "sites": [
+   {
+    "file": "legacy/tally/core.py",
+    "namespace": "legacy.tally.core",
+    "form_id": "defn/total",
+    "name": "total",
+    "line": 2,
+    "start": 32,
+    "end": 33,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"legacy/tally/core.py\",\"legacy.tally.core\",\"defn/total\",32,33,\"0\",\"1\"]"
+   },
+   {
+    "file": "legacy/tally/core.py",
+    "namespace": "legacy.tally.core",
+    "form_id": "defn/total",
+    "name": "total",
+    "line": 4,
+    "start": 83,
+    "end": 84,
+    "original": "+",
+    "mutant": "-",
+    "category": "arithmetic",
+    "mutation_id": "[\"legacy/tally/core.py\",\"legacy.tally.core\",\"defn/total\",83,84,\"+\",\"-\"]"
+   },
+   {
+    "file": "legacy/tally/core.py",
+    "namespace": "legacy.tally.core",
+    "form_id": "defn-/_bump",
+    "name": "_bump",
+    "line": 9,
+    "start": 146,
+    "end": 147,
+    "original": "+",
+    "mutant": "-",
+    "category": "arithmetic",
+    "mutation_id": "[\"legacy/tally/core.py\",\"legacy.tally.core\",\"defn-/_bump\",146,147,\"+\",\"-\"]"
+   },
+   {
+    "file": "legacy/tally/core.py",
+    "namespace": "legacy.tally.core",
+    "form_id": "defn-/_bump",
+    "name": "_bump",
+    "line": 9,
+    "start": 148,
+    "end": 149,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"legacy/tally/core.py\",\"legacy.tally.core\",\"defn-/_bump\",148,149,\"1\",\"0\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "legacy.tally.core",
+    "id": "defn/total",
+    "line": 1,
+    "end_line": 5,
+    "name": "total",
+    "private": false,
+    "hash": "e7d343a94cc6eb3fef5084068130ecca94b89e683c3fcce0da538bc5d38fc3aa"
+   },
+   {
+    "namespace": "legacy.tally.core",
+    "id": "defn-/_bump",
+    "line": 8,
+    "end_line": 9,
+    "name": "_bump",
+    "private": true,
+    "hash": "827aeeaa7b4db5cb726f2108770887fe9c6304b7e6c6232779a4f4fefdc8dcf4"
+   }
+  ]
+ },
+ "python/legacy/test_tally.py": {
+  "sites": [
+   {
+    "file": "legacy/test_tally.py",
+    "namespace": "legacy.test_tally.TotalTest",
+    "form_id": "defn/test_total",
+    "name": "test_total",
+    "line": 8,
+    "start": 142,
+    "end": 143,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"legacy/test_tally.py\",\"legacy.test_tally.TotalTest\",\"defn/test_total\",142,143,\"1\",\"0\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "legacy.test_tally.TotalTest",
+    "id": "defn/test_total",
+    "line": 7,
+    "end_line": 8,
+    "name": "test_total",
+    "private": false,
+    "hash": "8ba962da52a3f56ce2deb7fd330ede94a3494f970d85c9c912682a4f7920da5d"
+   }
+  ]
+ },
+ "python/src/shapes/__init__.py": {
+  "sites": [],
+  "forms": []
+ },
+ "python/src/shapes/geometry.py": {
+  "sites": [
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry.Board",
+    "form_id": "defn/area",
+    "name": "area",
+    "line": 10,
+    "start": 257,
+    "end": 258,
+    "original": "*",
+    "mutant": "/",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry.Board\",\"defn/area\",257,258,\"*\",\"/\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry.Board",
+    "form_id": "defn/contains",
+    "name": "contains",
+    "line": 13,
+    "start": 335,
+    "end": 336,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry.Board\",\"defn/contains\",335,336,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry.Board",
+    "form_id": "defn/contains",
+    "name": "contains",
+    "line": 13,
+    "start": 337,
+    "end": 339,
+    "original": "<=",
+    "mutant": "<",
+    "category": "comparison",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry.Board\",\"defn/contains\",337,339,\"<=\",\"<\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry.Board",
+    "form_id": "defn/contains",
+    "name": "contains",
+    "line": 13,
+    "start": 342,
+    "end": 343,
+    "original": "<",
+    "mutant": "<=",
+    "category": "comparison",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry.Board\",\"defn/contains\",342,343,\"<\",\"<=\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry.Board",
+    "form_id": "defn/contains",
+    "name": "contains",
+    "line": 13,
+    "start": 355,
+    "end": 358,
+    "original": "and",
+    "mutant": "or",
+    "category": "logical",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry.Board\",\"defn/contains\",355,358,\"and\",\"or\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry.Board",
+    "form_id": "defn/contains",
+    "name": "contains",
+    "line": 13,
+    "start": 359,
+    "end": 360,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry.Board\",\"defn/contains\",359,360,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry.Board",
+    "form_id": "defn/contains",
+    "name": "contains",
+    "line": 13,
+    "start": 361,
+    "end": 363,
+    "original": "<=",
+    "mutant": "<",
+    "category": "comparison",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry.Board\",\"defn/contains\",361,363,\"<=\",\"<\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry.Board",
+    "form_id": "defn/contains",
+    "name": "contains",
+    "line": 13,
+    "start": 366,
+    "end": 367,
+    "original": "<",
+    "mutant": "<=",
+    "category": "comparison",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry.Board\",\"defn/contains\",366,367,\"<\",\"<=\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry.Board",
+    "form_id": "defn-/_edge",
+    "name": "_edge",
+    "line": 16,
+    "start": 435,
+    "end": 437,
+    "original": "==",
+    "mutant": "!=",
+    "category": "equality",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry.Board\",\"defn-/_edge\",435,437,\"==\",\"!=\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry.Board",
+    "form_id": "defn-/_edge",
+    "name": "_edge",
+    "line": 16,
+    "start": 438,
+    "end": 439,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry.Board\",\"defn-/_edge\",438,439,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry.Board",
+    "form_id": "defn-/_edge",
+    "name": "_edge",
+    "line": 16,
+    "start": 440,
+    "end": 442,
+    "original": "or",
+    "mutant": "and",
+    "category": "logical",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry.Board\",\"defn-/_edge\",440,442,\"or\",\"and\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry.Board",
+    "form_id": "defn-/_edge",
+    "name": "_edge",
+    "line": 16,
+    "start": 445,
+    "end": 447,
+    "original": "==",
+    "mutant": "!=",
+    "category": "equality",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry.Board\",\"defn-/_edge\",445,447,\"==\",\"!=\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry.Board",
+    "form_id": "defn-/_edge",
+    "name": "_edge",
+    "line": 16,
+    "start": 459,
+    "end": 460,
+    "original": "-",
+    "mutant": "+",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry.Board\",\"defn-/_edge\",459,460,\"-\",\"+\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry.Board",
+    "form_id": "defn-/_edge",
+    "name": "_edge",
+    "line": 16,
+    "start": 461,
+    "end": 462,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry.Board\",\"defn-/_edge\",461,462,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry",
+    "form_id": "defn/scale",
+    "name": "scale",
+    "line": 22,
+    "start": 576,
+    "end": 577,
+    "original": "*",
+    "mutant": "/",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry\",\"defn/scale\",576,577,\"*\",\"/\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry",
+    "form_id": "defn/flags",
+    "name": "flags",
+    "line": 26,
+    "start": 635,
+    "end": 636,
+    "original": "^",
+    "mutant": "|",
+    "category": "bitwise",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry\",\"defn/flags\",635,636,\"^\",\"|\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry",
+    "form_id": "defn/flags",
+    "name": "flags",
+    "line": 26,
+    "start": 640,
+    "end": 641,
+    "original": "|",
+    "mutant": "&",
+    "category": "bitwise",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry\",\"defn/flags\",640,641,\"|\",\"&\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry",
+    "form_id": "defn/flags",
+    "name": "flags",
+    "line": 26,
+    "start": 645,
+    "end": 646,
+    "original": "&",
+    "mutant": "|",
+    "category": "bitwise",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry\",\"defn/flags\",645,646,\"&\",\"|\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry",
+    "form_id": "defn/flags",
+    "name": "flags",
+    "line": 26,
+    "start": 650,
+    "end": 652,
+    "original": "<<",
+    "mutant": ">>",
+    "category": "bitwise",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry\",\"defn/flags\",650,652,\"<<\",\">>\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry",
+    "form_id": "defn/flags",
+    "name": "flags",
+    "line": 26,
+    "start": 653,
+    "end": 654,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry\",\"defn/flags\",653,654,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry",
+    "form_id": "defn/parity",
+    "name": "parity",
+    "line": 30,
+    "start": 697,
+    "end": 698,
+    "original": "%",
+    "mutant": "*",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry\",\"defn/parity\",697,698,\"%\",\"*\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry",
+    "form_id": "defn/negate",
+    "name": "negate",
+    "line": 38,
+    "start": 825,
+    "end": 828,
+    "original": "not",
+    "mutant": "",
+    "category": "unary",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry\",\"defn/negate\",825,828,\"not\",\"\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry",
+    "form_id": "defn/negate",
+    "name": "negate",
+    "line": 39,
+    "start": 850,
+    "end": 854,
+    "original": "True",
+    "mutant": "False",
+    "category": "boolean",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry\",\"defn/negate\",850,854,\"True\",\"False\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry",
+    "form_id": "defn/negate",
+    "name": "negate",
+    "line": 40,
+    "start": 866,
+    "end": 871,
+    "original": "False",
+    "mutant": "True",
+    "category": "boolean",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry\",\"defn/negate\",866,871,\"False\",\"True\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry",
+    "form_id": "defn/untested",
+    "name": "untested",
+    "line": 45,
+    "start": 945,
+    "end": 946,
+    "original": "-",
+    "mutant": "",
+    "category": "unary",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry\",\"defn/untested\",945,946,\"-\",\"\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry",
+    "form_id": "defn/untested",
+    "name": "untested",
+    "line": 45,
+    "start": 948,
+    "end": 949,
+    "original": "+",
+    "mutant": "-",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry\",\"defn/untested\",948,949,\"+\",\"-\"]"
+   },
+   {
+    "file": "src/shapes/geometry.py",
+    "namespace": "shapes.geometry",
+    "form_id": "defn/untested",
+    "name": "untested",
+    "line": 45,
+    "start": 964,
+    "end": 965,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/shapes/geometry.py\",\"shapes.geometry\",\"defn/untested\",964,965,\"1\",\"0\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "shapes.geometry.Board",
+    "id": "defn/__init__",
+    "line": 5,
+    "end_line": 7,
+    "name": "__init__",
+    "private": false,
+    "hash": "f2ea256f0d810c14b2eae011810edcafc28aabbb0c3ea2f16b7642374ae0d43e"
+   },
+   {
+    "namespace": "shapes.geometry.Board",
+    "id": "defn/area",
+    "line": 9,
+    "end_line": 10,
+    "name": "area",
+    "private": false,
+    "hash": "0e99ed3960b1dc627c252a6dc9b372253a64a089e008555d198cfda2380c43ba"
+   },
+   {
+    "namespace": "shapes.geometry.Board",
+    "id": "defn/contains",
+    "line": 12,
+    "end_line": 13,
+    "name": "contains",
+    "private": false,
+    "hash": "685164bc4cf1e3f65517627ab05eed7c35ea6bc42d261246e4986eebbb33bd7b"
+   },
+   {
+    "namespace": "shapes.geometry.Board",
+    "id": "defn-/_edge",
+    "line": 15,
+    "end_line": 16,
+    "name": "_edge",
+    "private": true,
+    "hash": "6bd38c2cd6876dfea42763dcea1fa5b23cc5d448705a049d43598e7ae512428d"
+   },
+   {
+    "namespace": "shapes.geometry",
+    "id": "defn/scale",
+    "line": 19,
+    "end_line": 22,
+    "name": "scale",
+    "private": false,
+    "hash": "5b36f95ef8d3a02813911d6dd68e7e16bbfd47c427d17b1671fef49e5c60c5bb"
+   },
+   {
+    "namespace": "shapes.geometry",
+    "id": "defn/flags",
+    "line": 25,
+    "end_line": 26,
+    "name": "flags",
+    "private": false,
+    "hash": "feec530f6f5255253bf10fcbcdcd7ad3a2aa756acf009000299024af0067b13b"
+   },
+   {
+    "namespace": "shapes.geometry",
+    "id": "defn/parity",
+    "line": 29,
+    "end_line": 30,
+    "name": "parity",
+    "private": false,
+    "hash": "49f6b895353b2afc0ce6b32e24eecfb69ea98e7972d5147c578f75765cced630"
+   },
+   {
+    "namespace": "shapes.geometry",
+    "id": "defn/is_member",
+    "line": 33,
+    "end_line": 34,
+    "name": "is_member",
+    "private": false,
+    "hash": "997d18692a464b53515c678456dd6776c7291028363ad07b2f260c3d12c38131"
+   },
+   {
+    "namespace": "shapes.geometry",
+    "id": "defn/negate",
+    "line": 37,
+    "end_line": 40,
+    "name": "negate",
+    "private": false,
+    "hash": "c9a79969ced36dacf5c0a14b85e478681227749166e7e58ed4d17989708e51f8"
+   },
+   {
+    "namespace": "shapes.geometry",
+    "id": "defn/untested",
+    "line": 43,
+    "end_line": 45,
+    "name": "untested",
+    "private": false,
+    "hash": "aa0ea92ac2c0f7a344666537c9b1b29b2c29eddba81545ff66b38a750b1d0f4d"
+   }
+  ]
+ },
+ "python/tests/test_geometry.py": {
+  "sites": [
+   {
+    "file": "tests/test_geometry.py",
+    "namespace": "tests.test_geometry",
+    "form_id": "defn/test_area",
+    "name": "test_area",
+    "line": 5,
+    "start": 124,
+    "end": 126,
+    "original": "==",
+    "mutant": "!=",
+    "category": "equality",
+    "mutation_id": "[\"tests/test_geometry.py\",\"tests.test_geometry\",\"defn/test_area\",124,126,\"==\",\"!=\"]"
+   },
+   {
+    "file": "tests/test_geometry.py",
+    "namespace": "tests.test_geometry",
+    "form_id": "defn/test_contains",
+    "name": "test_contains",
+    "line": 10,
+    "start": 199,
+    "end": 200,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"tests/test_geometry.py\",\"tests.test_geometry\",\"defn/test_contains\",199,200,\"0\",\"1\"]"
+   },
+   {
+    "file": "tests/test_geometry.py",
+    "namespace": "tests.test_geometry",
+    "form_id": "defn/test_contains",
+    "name": "test_contains",
+    "line": 10,
+    "start": 202,
+    "end": 203,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"tests/test_geometry.py\",\"tests.test_geometry\",\"defn/test_contains\",202,203,\"0\",\"1\"]"
+   },
+   {
+    "file": "tests/test_geometry.py",
+    "namespace": "tests.test_geometry",
+    "form_id": "defn/test_contains",
+    "name": "test_contains",
+    "line": 11,
+    "start": 216,
+    "end": 219,
+    "original": "not",
+    "mutant": "",
+    "category": "unary",
+    "mutation_id": "[\"tests/test_geometry.py\",\"tests.test_geometry\",\"defn/test_contains\",216,219,\"not\",\"\"]"
+   },
+   {
+    "file": "tests/test_geometry.py",
+    "namespace": "tests.test_geometry",
+    "form_id": "defn/test_contains",
+    "name": "test_contains",
+    "line": 11,
+    "start": 238,
+    "end": 239,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"tests/test_geometry.py\",\"tests.test_geometry\",\"defn/test_contains\",238,239,\"1\",\"0\"]"
+   },
+   {
+    "file": "tests/test_geometry.py",
+    "namespace": "tests.test_geometry",
+    "form_id": "defn/test_scale",
+    "name": "test_scale",
+    "line": 15,
+    "start": 287,
+    "end": 289,
+    "original": "==",
+    "mutant": "!=",
+    "category": "equality",
+    "mutation_id": "[\"tests/test_geometry.py\",\"tests.test_geometry\",\"defn/test_scale\",287,289,\"==\",\"!=\"]"
+   },
+   {
+    "file": "tests/test_geometry.py",
+    "namespace": "tests.test_geometry",
+    "form_id": "defn/test_scale",
+    "name": "test_scale",
+    "line": 16,
+    "start": 315,
+    "end": 317,
+    "original": "==",
+    "mutant": "!=",
+    "category": "equality",
+    "mutation_id": "[\"tests/test_geometry.py\",\"tests.test_geometry\",\"defn/test_scale\",315,317,\"==\",\"!=\"]"
+   },
+   {
+    "file": "tests/test_geometry.py",
+    "namespace": "tests.test_geometry",
+    "form_id": "defn/test_flags",
+    "name": "test_flags",
+    "line": 20,
+    "start": 363,
+    "end": 365,
+    "original": "==",
+    "mutant": "!=",
+    "category": "equality",
+    "mutation_id": "[\"tests/test_geometry.py\",\"tests.test_geometry\",\"defn/test_flags\",363,365,\"==\",\"!=\"]"
+   },
+   {
+    "file": "tests/test_geometry.py",
+    "namespace": "tests.test_geometry",
+    "form_id": "defn/test_parity",
+    "name": "test_parity",
+    "line": 24,
+    "start": 410,
+    "end": 412,
+    "original": "==",
+    "mutant": "!=",
+    "category": "equality",
+    "mutation_id": "[\"tests/test_geometry.py\",\"tests.test_geometry\",\"defn/test_parity\",410,412,\"==\",\"!=\"]"
+   },
+   {
+    "file": "tests/test_geometry.py",
+    "namespace": "tests.test_geometry",
+    "form_id": "defn/test_parity",
+    "name": "test_parity",
+    "line": 24,
+    "start": 413,
+    "end": 414,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"tests/test_geometry.py\",\"tests.test_geometry\",\"defn/test_parity\",413,414,\"1\",\"0\"]"
+   },
+   {
+    "file": "tests/test_geometry.py",
+    "namespace": "tests.test_geometry",
+    "form_id": "defn/test_negate",
+    "name": "test_negate",
+    "line": 32,
+    "start": 508,
+    "end": 513,
+    "original": "False",
+    "mutant": "True",
+    "category": "boolean",
+    "mutation_id": "[\"tests/test_geometry.py\",\"tests.test_geometry\",\"defn/test_negate\",508,513,\"False\",\"True\"]"
+   },
+   {
+    "file": "tests/test_geometry.py",
+    "namespace": "tests.test_geometry",
+    "form_id": "defn/test_negate",
+    "name": "test_negate",
+    "line": 32,
+    "start": 518,
+    "end": 522,
+    "original": "True",
+    "mutant": "False",
+    "category": "boolean",
+    "mutation_id": "[\"tests/test_geometry.py\",\"tests.test_geometry\",\"defn/test_negate\",518,522,\"True\",\"False\"]"
+   },
+   {
+    "file": "tests/test_geometry.py",
+    "namespace": "tests.test_geometry",
+    "form_id": "defn/test_negate",
+    "name": "test_negate",
+    "line": 33,
+    "start": 541,
+    "end": 545,
+    "original": "True",
+    "mutant": "False",
+    "category": "boolean",
+    "mutation_id": "[\"tests/test_geometry.py\",\"tests.test_geometry\",\"defn/test_negate\",541,545,\"True\",\"False\"]"
+   },
+   {
+    "file": "tests/test_geometry.py",
+    "namespace": "tests.test_geometry",
+    "form_id": "defn/test_negate",
+    "name": "test_negate",
+    "line": 33,
+    "start": 550,
+    "end": 555,
+    "original": "False",
+    "mutant": "True",
+    "category": "boolean",
+    "mutation_id": "[\"tests/test_geometry.py\",\"tests.test_geometry\",\"defn/test_negate\",550,555,\"False\",\"True\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "tests.test_geometry",
+    "id": "defn/test_area",
+    "line": 4,
+    "end_line": 5,
+    "name": "test_area",
+    "private": false,
+    "hash": "f8762f770f7b731dd9e7980ccc94134fd909c515546e02cb025bf20cde1d2084"
+   },
+   {
+    "namespace": "tests.test_geometry",
+    "id": "defn/test_contains",
+    "line": 8,
+    "end_line": 11,
+    "name": "test_contains",
+    "private": false,
+    "hash": "b21e8d5592e474bbd1e4b4da97f9aaf75d5300dbbf7c8272e5bd5feae06c4206"
+   },
+   {
+    "namespace": "tests.test_geometry",
+    "id": "defn/test_scale",
+    "line": 14,
+    "end_line": 16,
+    "name": "test_scale",
+    "private": false,
+    "hash": "e77f6360a429facd57ed2903ab1ad2956aaa57119126b5b285d0e9cfe3f8a354"
+   },
+   {
+    "namespace": "tests.test_geometry",
+    "id": "defn/test_flags",
+    "line": 19,
+    "end_line": 20,
+    "name": "test_flags",
+    "private": false,
+    "hash": "bedfb7b49b562365de06503f7f380b19664731fd4b14e747d583a1bef661225d"
+   },
+   {
+    "namespace": "tests.test_geometry",
+    "id": "defn/test_parity",
+    "line": 23,
+    "end_line": 24,
+    "name": "test_parity",
+    "private": false,
+    "hash": "47c310e1b97c36e24029ff2d6c1c98bd53660db8c23e3c30d72ff1e772405772"
+   },
+   {
+    "namespace": "tests.test_geometry",
+    "id": "defn/test_member",
+    "line": 27,
+    "end_line": 28,
+    "name": "test_member",
+    "private": false,
+    "hash": "f8848d6e049dd753b8813f5b0a767c3bb26ffed10f253568e6a7568d2a1dfdcc"
+   },
+   {
+    "namespace": "tests.test_geometry",
+    "id": "defn/test_negate",
+    "line": 31,
+    "end_line": 33,
+    "name": "test_negate",
+    "private": false,
+    "hash": "862c0f4c25cf73d2bcb735d34665f856a764bbf7aa641f084b4ef98b824ada42"
+   }
+  ]
+ },
+ "typescript/src/calc.ts": {
+  "sites": [
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc.Counter",
+    "form_id": "defn/increment",
+    "name": "increment",
+    "line": 5,
+    "start": 104,
+    "end": 105,
+    "original": "+",
+    "mutant": "-",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/calc.ts\",\"calc.Counter\",\"defn/increment\",104,105,\"+\",\"-\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc.Counter",
+    "form_id": "defn-/reset",
+    "name": "reset",
+    "line": 10,
+    "start": 185,
+    "end": 186,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/calc.ts\",\"calc.Counter\",\"defn-/reset\",185,186,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc.Counter",
+    "form_id": "defn/isPositive",
+    "name": "isPositive",
+    "line": 18,
+    "start": 300,
+    "end": 301,
+    "original": ">",
+    "mutant": ">=",
+    "category": "comparison",
+    "mutation_id": "[\"src/calc.ts\",\"calc.Counter\",\"defn/isPositive\",300,301,\">\",\">=\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc.Counter",
+    "form_id": "defn/isPositive",
+    "name": "isPositive",
+    "line": 18,
+    "start": 302,
+    "end": 303,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/calc.ts\",\"calc.Counter\",\"defn/isPositive\",302,303,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc.Counter",
+    "form_id": "defn/isPositive",
+    "name": "isPositive",
+    "line": 18,
+    "start": 304,
+    "end": 306,
+    "original": "&&",
+    "mutant": "||",
+    "category": "logical",
+    "mutation_id": "[\"src/calc.ts\",\"calc.Counter\",\"defn/isPositive\",304,306,\"&&\",\"||\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc.Counter",
+    "form_id": "defn/isPositive",
+    "name": "isPositive",
+    "line": 18,
+    "start": 307,
+    "end": 308,
+    "original": "!",
+    "mutant": "",
+    "category": "unary",
+    "mutation_id": "[\"src/calc.ts\",\"calc.Counter\",\"defn/isPositive\",307,308,\"!\",\"\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc.Counter",
+    "form_id": "defn/isZero",
+    "name": "isZero",
+    "line": 22,
+    "start": 373,
+    "end": 376,
+    "original": "===",
+    "mutant": "!==",
+    "category": "equality",
+    "mutation_id": "[\"src/calc.ts\",\"calc.Counter\",\"defn/isZero\",373,376,\"===\",\"!==\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc.Counter",
+    "form_id": "defn/isZero",
+    "name": "isZero",
+    "line": 22,
+    "start": 377,
+    "end": 378,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/calc.ts\",\"calc.Counter\",\"defn/isZero\",377,378,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/shift",
+    "name": "shift",
+    "line": 27,
+    "start": 462,
+    "end": 465,
+    "original": ">>>",
+    "mutant": "<<",
+    "category": "bitwise",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/shift\",462,465,\">>>\",\"<<\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/shift",
+    "name": "shift",
+    "line": 27,
+    "start": 470,
+    "end": 471,
+    "original": "^",
+    "mutant": "|",
+    "category": "bitwise",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/shift\",470,471,\"^\",\"|\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/shift",
+    "name": "shift",
+    "line": 27,
+    "start": 479,
+    "end": 480,
+    "original": "&",
+    "mutant": "|",
+    "category": "bitwise",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/shift\",479,480,\"&\",\"|\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/shift",
+    "name": "shift",
+    "line": 27,
+    "start": 481,
+    "end": 482,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/shift\",481,482,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/clamp",
+    "name": "clamp",
+    "line": 31,
+    "start": 574,
+    "end": 575,
+    "original": "<",
+    "mutant": "<=",
+    "category": "comparison",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/clamp\",574,575,\"<\",\"<=\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/clamp",
+    "name": "clamp",
+    "line": 34,
+    "start": 618,
+    "end": 619,
+    "original": ">",
+    "mutant": ">=",
+    "category": "comparison",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/clamp\",618,619,\">\",\">=\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/sign",
+    "name": "sign",
+    "line": 38,
+    "start": 705,
+    "end": 707,
+    "original": ">=",
+    "mutant": ">",
+    "category": "comparison",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/sign\",705,707,\">=\",\">\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/sign",
+    "name": "sign",
+    "line": 38,
+    "start": 708,
+    "end": 709,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/sign\",708,709,\"0\",\"1\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/sign",
+    "name": "sign",
+    "line": 38,
+    "start": 712,
+    "end": 713,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/sign\",712,713,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/sign",
+    "name": "sign",
+    "line": 38,
+    "start": 716,
+    "end": 717,
+    "original": "-",
+    "mutant": "",
+    "category": "unary",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/sign\",716,717,\"-\",\"\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/sign",
+    "name": "sign",
+    "line": 38,
+    "start": 717,
+    "end": 718,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/sign\",717,718,\"1\",\"0\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/half",
+    "name": "half",
+    "line": 41,
+    "start": 776,
+    "end": 777,
+    "original": "/",
+    "mutant": "*",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/half\",776,777,\"/\",\"*\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/untested",
+    "name": "untested",
+    "line": 45,
+    "start": 885,
+    "end": 888,
+    "original": "!==",
+    "mutant": "===",
+    "category": "equality",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/untested\",885,888,\"!==\",\"===\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/untested",
+    "name": "untested",
+    "line": 45,
+    "start": 889,
+    "end": 893,
+    "original": "true",
+    "mutant": "false",
+    "category": "boolean",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/untested\",889,893,\"true\",\"false\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/untested",
+    "name": "untested",
+    "line": 45,
+    "start": 894,
+    "end": 896,
+    "original": "||",
+    "mutant": "&&",
+    "category": "logical",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/untested\",894,896,\"||\",\"&&\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/untested",
+    "name": "untested",
+    "line": 45,
+    "start": 910,
+    "end": 911,
+    "original": "%",
+    "mutant": "*",
+    "category": "arithmetic",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/untested\",910,911,\"%\",\"*\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/untested",
+    "name": "untested",
+    "line": 45,
+    "start": 914,
+    "end": 917,
+    "original": "===",
+    "mutant": "!==",
+    "category": "equality",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/untested\",914,917,\"===\",\"!==\"]"
+   },
+   {
+    "file": "src/calc.ts",
+    "namespace": "calc",
+    "form_id": "defn/untested",
+    "name": "untested",
+    "line": 45,
+    "start": 918,
+    "end": 919,
+    "original": "1",
+    "mutant": "0",
+    "category": "constant",
+    "mutation_id": "[\"src/calc.ts\",\"calc\",\"defn/untested\",918,919,\"1\",\"0\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "calc.Counter",
+    "id": "defn/increment",
+    "line": 4,
+    "end_line": 7,
+    "name": "increment",
+    "private": false,
+    "hash": "b034a250d2d9be5e4f51dfe2cc080f40bebaa0b3173e1cb0f7b0e8ad7c4a157e"
+   },
+   {
+    "namespace": "calc.Counter",
+    "id": "defn-/reset",
+    "line": 9,
+    "end_line": 11,
+    "name": "reset",
+    "private": true,
+    "hash": "9d2a57b6df52fde7b033ffe028c1bd72f037af5ac1bbe3a922fd0d479464dfc5"
+   },
+   {
+    "namespace": "calc.Counter",
+    "id": "defn/isPositive",
+    "line": 17,
+    "end_line": 19,
+    "name": "isPositive",
+    "private": false,
+    "hash": "e7cc66013d0a46800e31b5b09eed7a64239cf6101ed2885425a05363f0528d14"
+   },
+   {
+    "namespace": "calc.Counter",
+    "id": "defn/isZero",
+    "line": 21,
+    "end_line": 23,
+    "name": "isZero",
+    "private": false,
+    "hash": "559dc3dd28c8a2675ebe035e49d47a9d4a96845e93dd342720cc7cf8d0746e82"
+   },
+   {
+    "namespace": "calc",
+    "id": "defn/shift",
+    "line": 26,
+    "end_line": 28,
+    "name": "shift",
+    "private": false,
+    "hash": "8be0e9a204607584f793ba45dafb707084a721fe6f17a405c2603a1a5aee98f0"
+   },
+   {
+    "namespace": "calc",
+    "id": "defn/clamp",
+    "line": 30,
+    "end_line": 35,
+    "name": "clamp",
+    "private": false,
+    "hash": "a98b65f9a464c15e6bf60403c434fdadf72d6b3834d177c03f6ea4bcb198938c"
+   },
+   {
+    "namespace": "calc",
+    "id": "defn/sign",
+    "line": 37,
+    "end_line": 39,
+    "name": "sign",
+    "private": false,
+    "hash": "1d3d57c67481c6dd122131b0c579377f1d210435e0456069608779bec16c5f5a"
+   },
+   {
+    "namespace": "calc",
+    "id": "defn/half",
+    "line": 41,
+    "end_line": 41,
+    "name": "half",
+    "private": false,
+    "hash": "5efe5e95a46ac42e384406270b98fbe9252603142d7c3a78f4a168ba2b53e584"
+   },
+   {
+    "namespace": "calc",
+    "id": "defn/untested",
+    "line": 43,
+    "end_line": 46,
+    "name": "untested",
+    "private": false,
+    "hash": "deab4e64b23b992ca508319ae49490ba7152e438029636fcc0a36c3686d6e4ae"
+   }
+  ]
+ },
+ "typescript/src/view.tsx": {
+  "sites": [
+   {
+    "file": "src/view.tsx",
+    "namespace": "view",
+    "form_id": "defn/Badge",
+    "name": "Badge",
+    "line": 2,
+    "start": 71,
+    "end": 72,
+    "original": ">",
+    "mutant": ">=",
+    "category": "comparison",
+    "mutation_id": "[\"src/view.tsx\",\"view\",\"defn/Badge\",71,72,\">\",\">=\"]"
+   },
+   {
+    "file": "src/view.tsx",
+    "namespace": "view",
+    "form_id": "defn/Badge",
+    "name": "Badge",
+    "line": 2,
+    "start": 73,
+    "end": 74,
+    "original": "0",
+    "mutant": "1",
+    "category": "constant",
+    "mutation_id": "[\"src/view.tsx\",\"view\",\"defn/Badge\",73,74,\"0\",\"1\"]"
+   }
+  ],
+  "forms": [
+   {
+    "namespace": "view",
+    "id": "defn/Badge",
+    "line": 1,
+    "end_line": 3,
+    "name": "Badge",
+    "private": false,
+    "hash": "f7e1d585edead4a2f82b6d5c605a0543848193ec438b810ddcb47705e38424f5"
+   }
+  ]
+ },
+ "typescript/test/calc.test.ts": {
+  "sites": [],
+  "forms": []
+ }
+}

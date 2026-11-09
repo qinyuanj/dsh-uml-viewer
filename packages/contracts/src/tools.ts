@@ -85,6 +85,15 @@ export interface QualityResult extends ToolResultRecord<QualityOperation> {
   reason: string | null
 }
 
+/**
+ * A quality tool invocation as the agent sees it. The binary always reports a
+ * real exit; the host uses `null` only when it refused or could not spawn.
+ */
+export interface QualityToolResult extends ToolResultRecord<QualityOperation> {
+  exitCode: number | null
+  reason: string | null
+}
+
 const QUALITY_KEYS = ['version', 'operation', 'projectRoot', 'exitCode', 'validResult', 'crapScope', 'configured', 'tool', 'reason'] as const
 
 /** Parse one `uml-viewer quality` stdout line; throws on any other shape. */
@@ -108,6 +117,126 @@ export function parseQualityResult(line: string): QualityResult {
   if (reason !== null && typeof reason !== 'string') throw new Error('reason must be a string or null')
   if (reason !== null && validResult) throw new Error('a refusal is never a valid result')
   return { version, operation, projectRoot, exitCode, validResult, crapScope, configured, tool, reason }
+}
+
+/** Check the tool value DSH receives, including host refusals with no child exit. */
+export function validateQualityToolResult(value: unknown, expected?: QualityOperation): QualityToolResult {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('quality tool result must be an object')
+  const source = value as Record<string, unknown>
+  const operation = source.operation
+  if (operation !== 'crap' && operation !== 'mutate' && operation !== 'dry') {
+    throw new Error('quality tool result operation must be crap, mutate or dry')
+  }
+  if (expected !== undefined && operation !== expected) {
+    throw new Error(`quality tool result operation must be ${expected}`)
+  }
+  if (source.version !== 1) throw new Error('quality tool result version must be 1')
+  if (typeof source.projectRoot !== 'string') throw new Error('quality tool result projectRoot must be a string')
+  if (source.exitCode !== null && (!Number.isInteger(source.exitCode)
+    || (source.exitCode as number) < 0 || (source.exitCode as number) > 255)) {
+    throw new Error('quality tool result exitCode must be an integer 0-255 or null')
+  }
+  if (typeof source.validResult !== 'boolean' || typeof source.configured !== 'boolean') {
+    throw new Error('quality tool result validResult and configured must be booleans')
+  }
+  if (source.crapScope !== null && source.crapScope !== 'targets' && source.crapScope !== 'whole-tree') {
+    throw new Error('quality tool result crapScope must be targets, whole-tree or null')
+  }
+  if (operation !== 'crap' && source.crapScope !== null) {
+    throw new Error('quality tool result crapScope is null outside crap')
+  }
+  if (typeof source.tool !== 'string' || !source.tool) throw new Error('quality tool result tool must be nonempty')
+  if (source.reason !== null && typeof source.reason !== 'string') {
+    throw new Error('quality tool result reason must be a string or null')
+  }
+  if (source.reason !== null && source.validResult) {
+    throw new Error('a quality refusal is never a valid result')
+  }
+  return source as unknown as QualityToolResult
+}
+
+function targetPaths(field: string, value: unknown, required: boolean): string[] {
+  if (value === undefined && !required) return []
+  if (!Array.isArray(value)) throw new Error(`${field} must be an array of project-relative paths`)
+  if (required && value.length === 0) throw new Error(`${field} needs at least one project-relative path`)
+  return value.map((target, index) => {
+    const normalized = normalizeRelativePath(`${field}[${index}]`, target)
+    if (normalized.startsWith('-')) {
+      throw new Error(`${field}[${index}] must name a file or directory, not a command option`)
+    }
+    return normalized
+  })
+}
+
+/**
+ * Translate model-facing quality arguments into argv appended after
+ * `uml-viewer quality <operation>`. All mutation targets stay in one argv:
+ * mutator shares one coverage run and baseline across them.
+ */
+export function parseQualityToolRequest(operation: QualityOperation, value: unknown): string[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${operation} arguments must be an object`)
+  }
+  const request = value as Record<string, unknown>
+  if (operation === 'dry') {
+    for (const key of Object.keys(request)) throw new Error(`Unknown uml_dry argument: ${key}`)
+    return []
+  }
+  if (operation === 'crap') {
+    for (const key of Object.keys(request)) if (key !== 'targets') throw new Error(`Unknown uml_crap argument: ${key}`)
+    return targetPaths('targets', request.targets, false)
+  }
+  for (const key of Object.keys(request)) {
+    if (key !== 'targets' && key !== 'mutateAll') throw new Error(`Unknown uml_mutate argument: ${key}`)
+  }
+  if (request.mutateAll !== undefined && typeof request.mutateAll !== 'boolean') {
+    throw new Error('mutateAll must be a boolean')
+  }
+  const targets = targetPaths('targets', request.targets, true)
+  return request.mutateAll === true ? ['--mutate-all', ...targets] : targets
+}
+
+const TARGETS_PARAMETER = {
+  type: 'array', items: { type: 'string' },
+  description: 'Project-relative files or directories inside the session cwd, in order, with no .. segments or command options.',
+} as const
+
+export const CRAP_PARAMETERS = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    targets: { ...TARGETS_PARAMETER,
+      description: 'Optional files for a configured CRAP operation that declares target scope. The standard CRAP route still measures its declared whole tree.' },
+  },
+} as const
+
+export const MUTATE_PARAMETERS = {
+  type: 'object', additionalProperties: false, required: ['targets'],
+  properties: {
+    targets: { ...TARGETS_PARAMETER, minItems: 1,
+      description: 'Every target file or directory for this differential mutation, in one call. They share one coverage run and baseline; each still gets its snapshot. Do not split them across calls.' },
+    mutateAll: { type: 'boolean',
+      description: 'Re-test all mutants in exactly these targets (the binary’s --mutate-all) instead of reusing previous outcomes.' },
+  },
+} as const
+
+export const DRY_PARAMETERS = {
+  type: 'object', additionalProperties: false,
+  properties: {},
+} as const
+
+export const QUALITY_RESULT_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  required: ['version', 'operation', 'projectRoot', 'exitCode', 'validResult', 'crapScope', 'configured', 'tool', 'reason'],
+  properties: {
+    version: { type: 'integer', const: 1 },
+    operation: { type: 'string', enum: ['crap', 'mutate', 'dry'] },
+    projectRoot: { type: 'string' },
+    exitCode: { oneOf: [{ type: 'integer' }, { type: 'null' }] },
+    validResult: { type: 'boolean' },
+    crapScope: { oneOf: [{ type: 'string', enum: ['targets', 'whole-tree'] }, { type: 'null' }] },
+    configured: { type: 'boolean' }, tool: { type: 'string' },
+    reason: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+  },
 }
 
 

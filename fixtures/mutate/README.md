@@ -125,3 +125,56 @@ checks use invocation-only Git settings for Windows/DrvFS line endings and modes
 reference files/configuration are never rewritten. HOME/cache and bytecode/test
 cache settings prevent run artifacts in the reference clones. Scratch is removed
 only after checking its exact resolved native `/tmp` path.
+
+## Python and TypeScript oracles (#13)
+
+`python/project` and `typescript/project` are real, dependency-free projects.
+Copy the whole `project/` directory to a native Linux temporary directory; never
+mutate the checked-in fixture. Python needs a project virtualenv: symlink an
+isolated venv that has coverage.py and pytest to `.venv` in both the root and
+`legacy/` (the second package deliberately uses unittest discovery). The tests
+read that venv from `MUTATOR_TEST_PYTHON_VENV`. TypeScript needs Node with type
+stripping and npm on PATH; its `coverage` script is Node's own LCOV reporter, so
+no npm install or network is required. A missing toolchain is a loud SKIP, or a
+failure with `MUTATOR_REQUIRE_TOOLCHAINS=1`.
+
+Targets, in invocation order:
+
+```text
+python:     src/shapes/geometry.py legacy/tally/core.py
+typescript: src/calc.ts src/view.tsx
+```
+
+Run with `--root <copy> --max-workers 1 --timeout-factor 20` and those targets,
+first with `--mutate-all`, then unchanged without it. Both runs exit 3 (the
+goldens record surviving mutants); the rerun re-executes the survivors and keeps
+every snapshot's bytes. The untested functions stay uncovered, and the untested
+TypeScript `.tsx` file publishes only uncovered sites. No `target/`, `coverage/`,
+`node_modules/`, `__pycache__` or `.coverage` appears in the project.
+
+The EDN under `python/goldens/` and `typescript/goldens/` is the pinned original
+Python implementation's raw output with the same fixed clock as above
+(`2026-11-07T12:00:00+00:00`, `:isolation :namespace-view`):
+
+| Golden | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `python/goldens/legacy.tally.core.edn` | 744 | `5ae9926f33c8eda604407f1a5f3588bcc6e48eb1566b49ad61ac641dc2a3072d` |
+| `python/goldens/shapes.geometry.Board.edn` | 1811 | `6cf928366db3f1d4414fb53caf6d14c2ba08a5de14b4ffa808c8f02451d41648` |
+| `python/goldens/shapes.geometry.edn` | 2346 | `22795c5177539cec8fc23b921fbfe14ccb383a0c8753cbbc6f2fec5eacf22b26` |
+| `typescript/goldens/calc.Counter.edn` | 1519 | `4a9d177c24518f45ca4f5a8f2decd740ce10d029b3858503b2297fb9a1ae648c` |
+| `typescript/goldens/calc.edn` | 1975 | `e43e794bb7520ea04cf8de460e1ffe6c5d1bd2a48e5e00e47ba6c53490d18bf0` |
+| `typescript/goldens/view.edn` | 332 | `c3506374dc9589e061442b5c0341a3f7ee3de7c0a64d18849ba5cb8bb1cd6c10` |
+
+`sites/sites.json` is the original's `sites_in_file`, `form_spans` and
+`form_digests` output for `sites/src/**` (a corpus built from its
+`test_sites.py` cases plus edge cases) and for both fixture projects: 30 files,
+176 sites, every offset, category, owner, form id, digest and mutation id.
+
+Regenerate with `scripts/mutate_goldens_python_ts.py --references
+<spec203-notes>/ref --venv <isolated venv>` on native Linux/WSL with Node/npm.
+It verifies both pins and reference cleanliness, runs the original's
+`test_snapshot_bytes.py`, `test_sites.py` and `test_runner.py` (57 passed, 1
+skipped on the recorded run), publishes the goldens and the site inventory, and
+records provenance and tool versions in `python-typescript-evidence.json`.
+Grammar and test dependencies install only into a disposable `/tmp` scratch;
+nothing is installed globally and the reference clones are never written.
