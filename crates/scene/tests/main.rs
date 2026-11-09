@@ -14,6 +14,7 @@ mod lane_fallbacks;
 mod lua_truthiness;
 mod overlay;
 mod port_overlaps;
+mod quality_targets;
 mod rating;
 mod route_goldens;
 mod wide_layout;

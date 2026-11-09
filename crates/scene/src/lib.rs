@@ -20,8 +20,9 @@
 //! step) and three queries: the class-card neighbourhood (`class_card`),
 //! the quality rating of a box or card row (`rating`, `metric_rating`) and
 //! the proposal list (`proposals`), with the text-width estimate and the
-//! grade constants as values. Layout, routing, composition, curves,
-//! hierarchy views, policy, overlay and configuration are crate-internal.
+//! grade constants as values. [`targets`] answers what a panel's quality
+//! refresh names. Layout, routing, composition, curves, hierarchy views,
+//! policy, overlay and configuration are crate-internal.
 
 use std::ffi::OsString;
 use std::process::ExitCode;
@@ -50,6 +51,7 @@ pub mod highlight;
 pub mod hit;
 pub mod ir;
 pub mod search;
+pub mod targets;
 
 mod card;
 pub(crate) mod compose;
