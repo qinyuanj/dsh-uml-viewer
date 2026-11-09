@@ -11,7 +11,8 @@ import { isolateScratch } from './scratch-scope.mjs'
 // lookup "above the profile" at `<home>/profiles/package.json`; from there
 // Node's package self-reference reached the checkout's own build.
 function checkoutWithScratch() {
-  const checkout = fs.mkdtempSync(path.join(os.tmpdir(), 'scratch-scope-'))
+  // Canonical path: Node resolves through symlinks (macOS /var -> /private/var).
+  const checkout = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'scratch-scope-')))
   fs.writeFileSync(path.join(checkout, 'package.json'), JSON.stringify({
     name: 'dsh-uml-viewer', private: true, main: 'lib/host.js', exports: { '.': './lib/host.js' },
   }))
