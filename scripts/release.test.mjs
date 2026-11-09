@@ -28,8 +28,12 @@ async function assembled(directory, { version, platform, corrupt = false }) {
   await writeFile(path.join(packageDir, 'package-report.json'), JSON.stringify({
     version, platform,
     optionalDependencies: Object.fromEntries(platforms.map(entry => [`@dsh-uml-viewer/${entry.platform}`, version])),
-    main: { path: path.join(packageDir, mainName), sha256: sha(main), files: ['package.json'] },
-    binary: { path: path.join(packageDir, platformName), sha256: corrupt ? sha(Buffer.from('other')) : sha(binary), files: ['package.json'] },
+    main: { path: path.join(packageDir, mainName), sha256: sha(main), files: ['README.md', 'package.json'] },
+    binary: {
+      path: path.join(packageDir, platformName),
+      sha256: corrupt ? sha(Buffer.from('other')) : sha(binary),
+      files: [`bin/uml-viewer${platform === 'win32-x64' ? '.exe' : ''}`, 'package.json'],
+    },
   }, null, 2) + '\n')
   return packageDir
 }
@@ -58,14 +62,19 @@ async function inventoryFixture(directory, options = {}) {
       platform: entry.platform, runner: entry.runner, version,
       optionalDependencies,
       artifacts: {
-        main: {
-          file: mainName,
-          sha256: entry.platform === options.divergentMain ? sha(Buffer.from('a different main bundle')) : mainHash,
-        },
+        main: { file: mainName, sha256: mainHash },
         platform: {
           file: platformName,
           sha256: entry.platform === options.tampered ? sha(Buffer.from('tampered bytes')) : sha(binary),
         },
+      },
+      inventory: {
+        main: options.divergentInventory === entry.platform
+          ? ['README.md', 'icon.svg', 'package.json']
+          : ['README.md', 'package.json'],
+        platform: options.extraPlatformFile === entry.platform
+          ? ['bin/uml-viewer', 'package.json', 'extra.txt']
+          : [`bin/uml-viewer${entry.os === 'win32' ? '.exe' : ''}`, 'package.json'],
       },
       staged: stagesMain ? ['main', 'platform'] : ['platform'],
     }
@@ -184,6 +193,7 @@ test('stage uploads the current platform archive and the main archive only on th
     const packageDir = await assembled(directory, { version, platform: 'linux-x64' })
     const platformOnly = await stageArchives({ packageDir, platform: 'linux-x64', uploadDir: path.join(directory, 'linux') })
     assert.deepEqual(platformOnly.staged, ['platform'])
+    assert.deepEqual(platformOnly.inventory, { main: ['README.md', 'package.json'], platform: ['bin/uml-viewer', 'package.json'] })
     assert.equal(platformOnly.artifacts.main.sha256, sha(Buffer.from(`controlled main archive ${version}\n`)))
     const upload = path.join(directory, 'linux')
     assert.match((await readFile(path.join(upload, 'assemble-report.json'), 'utf8')), /linux-x64/)
@@ -225,6 +235,10 @@ test('the staged inventory of four platforms and one main archive verifies and p
     assert.deepEqual(inventory.artifacts.map(artifact => artifact.platform), [...platforms.map(entry => entry.platform), null])
     assert.deepEqual(inventory.publishOrder, inventory.artifacts)
     assert.equal(inventory.reproducibleMain.runners, 4)
+    assert.deepEqual(inventory.reproducibleMain.files, ['README.md', 'package.json'])
+    // Every runner's main hash is evidence; only the staged one is published.
+    assert.deepEqual(inventory.mainHashes.map(item => item.platform), platforms.map(entry => entry.platform))
+    for (const item of inventory.mainHashes) assert.match(item.sha256, /^[0-9a-f]{64}$/)
     for (const artifact of inventory.artifacts) {
       assert.equal(artifact.sha256, sha(await readFile(artifact.path)))
       assert.equal(artifact.file, path.basename(artifact.path))
@@ -242,7 +256,8 @@ for (const [name, options, message] of [
   ['a missing platform archive', { omit: 'darwin-x64' }, /assemble reports, found 3/],
   ['two runners staging the main archive', { secondMain: 'win32-x64' }, /Exactly one runner must stage the main archive, found 2/],
   ['a main archive staged on the wrong runner', { mainRunner: 'darwin-arm64' }, /main archive must be staged on linux-x64/],
-  ['a main archive that differs between runners', { divergentMain: 'darwin-x64' }, /main archive must be reproducible across runners/],
+  ['a main archive with different contents on one runner', { divergentInventory: 'darwin-x64' }, /Main archive inventory differs between runners: darwin-x64/],
+  ['a platform archive that bundles an extra file', { extraPlatformFile: 'win32-x64' }, /platform archive inventory/],
   ['a platform archive whose bytes do not match the report', { tampered: 'win32-x64' }, /recorded sha256 does not match the staged bytes/],
   ['a platform archive named for another version', { stalePlatform: 'linux-x64' }, /platform archive dsh-uml-viewer-linux-x64-0\.9\.0\.tgz is not/],
   ['a stray fifth archive', { extraArchive: 'dsh-uml-viewer-src-1.0.0.tgz' }, /Expected exactly 5 release archives, found 6/],

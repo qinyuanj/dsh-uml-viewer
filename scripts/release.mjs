@@ -89,6 +89,7 @@ export async function stageArchives({ packageDir, platform, uploadDir, main = fa
     main: { file: path.basename(report.main.path), sha256: report.main.sha256 },
     platform: await stageOne(report.binary, 'current-platform'),
   }
+  const inventory = { main: [...report.main.files], platform: [...report.binary.files] }
   const staged = ['platform']
   if (main) {
     if (platform !== mainPlatform) throw new Error(`The main archive must be staged on ${mainPlatform}, not ${platform}`)
@@ -97,7 +98,7 @@ export async function stageArchives({ packageDir, platform, uploadDir, main = fa
   }
   const record = {
     platform, runner: entry.runner, version: report.version,
-    optionalDependencies: report.optionalDependencies, artifacts, staged,
+    optionalDependencies: report.optionalDependencies, artifacts, inventory, staged,
   }
   await writeFile(path.join(uploadDir, reportName), JSON.stringify(record, null, 2) + '\n')
   return record
@@ -105,7 +106,9 @@ export async function stageArchives({ packageDir, platform, uploadDir, main = fa
 
 // Verify everything that must be true before a publish: four distinct platform
 // archives at the workspace version, one main archive built on the main runner,
-// one identical main hash on every runner, and no stray or stale archive.
+// the same main archive inventory on every runner, and no stray or stale
+// archive. Byte identity of the main archive is recorded per runner rather than
+// required, because checkout line endings are not pinned for packaged text.
 export async function verifyInventory({ artifactsDir, version }) {
   const expected = version ?? await releaseVersion()
   const files = await walk(artifactsDir)
@@ -136,6 +139,11 @@ export async function verifyInventory({ artifactsDir, version }) {
     if (await digest(platformFile) !== record.artifacts.platform.sha256) {
       throw new Error(`${platformFile}: recorded sha256 does not match the staged bytes`)
     }
+    const expectedPlatformFiles = [`bin/uml-viewer${entry.os === 'win32' ? '.exe' : ''}`, 'package.json'].sort()
+    const platformInventory = [...record.inventory?.platform ?? []].sort()
+    if (JSON.stringify(platformInventory) !== JSON.stringify(expectedPlatformFiles)) {
+      throw new Error(`${file}: platform archive inventory ${platformInventory.join(', ')} != ${expectedPlatformFiles.join(', ')}`)
+    }
     byPlatform.set(record.platform, { file, directory, record, platformFile })
   }
   for (const entry of platforms) {
@@ -145,11 +153,22 @@ export async function verifyInventory({ artifactsDir, version }) {
   const mainRecords = [...byPlatform.values()].map(item => item.record).filter(record => record.staged.includes('main'))
   if (mainRecords.length !== 1) throw new Error(`Exactly one runner must stage the main archive, found ${mainRecords.length}`)
   if (mainRecords[0].platform !== mainPlatform) throw new Error(`The main archive must be staged on ${mainPlatform}, not ${mainRecords[0].platform}`)
-  const mainHashes = new Set([...byPlatform.values()].map(item => item.record.artifacts.main.sha256))
-  if (mainHashes.size !== 1) {
-    throw new Error(`The main archive must be reproducible across runners; got ${[...mainHashes].join(', ')}`)
+  const inventories = platforms.map(entry => ({
+    platform: entry.platform,
+    files: [...byPlatform.get(entry.platform).record.inventory?.main ?? []].sort(),
+  }))
+  const mainInventory = inventories[0].files
+  if (mainInventory.length === 0) throw new Error(`${byPlatform.get(mainPlatform).file}: assembler report has no main archive inventory`)
+  for (const candidate of inventories) {
+    if (JSON.stringify(candidate.files) !== JSON.stringify(mainInventory)) {
+      throw new Error(`Main archive inventory differs between runners: ${candidate.platform} has ${candidate.files.join(', ')}`)
+    }
   }
-  const mainHash = [...mainHashes][0]
+  const mainHashes = platforms.map(entry => ({
+    platform: entry.platform, runner: entry.runner,
+    sha256: byPlatform.get(entry.platform).record.artifacts.main.sha256,
+  }))
+  const mainHash = byPlatform.get(mainPlatform).record.artifacts.main.sha256
   const mainDirectory = byPlatform.get(mainPlatform)
   const mainFile = path.join(mainDirectory.directory, mainDirectory.record.artifacts.main.file)
   if (mainDirectory.record.artifacts.main.file !== `dsh-uml-viewer-${expected}.tgz`) {
@@ -184,7 +203,8 @@ export async function verifyInventory({ artifactsDir, version }) {
   // already exist when it becomes installable.
   return {
     version: expected,
-    reproducibleMain: { file: path.basename(mainFile), sha256: mainHash, runners: platforms.length },
+    reproducibleMain: { file: path.basename(mainFile), sha256: mainHash, files: mainInventory, runners: platforms.length },
+    mainHashes,
     artifacts,
     publishOrder: artifacts,
   }

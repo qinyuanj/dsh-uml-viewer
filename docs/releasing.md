@@ -43,10 +43,18 @@ publishable. `scripts/release.mjs verify` requires all of:
   `dsh-uml-viewer-<platform>-<version>.tgz` and whose bytes match its recorded
   SHA-256;
 - exactly one staged main archive, staged by `linux-x64`;
-- the same main archive SHA-256 on all four runners, so the main bundle is
-  reproducible across hosts;
+- the same main archive file inventory on all four runners, so every host packs
+  the same files; each runner's main archive SHA-256 is recorded in the inventory
+  as evidence, and the published archive is the one whose bytes match its report;
 - exactly five `.tgz` files in total, all with expected names, so a stale or
   stray archive fails the run.
+
+Byte identity of the main archive is not required across runners. `.gitattributes`
+pins `eol=lf` for EDN, Rust, fixtures, the prompt document and the git hooks, not
+for the packaged text files, so a Windows checkout can pack CRLF where a Linux
+checkout packs LF. The archive is built and published by one runner, so this
+affects the evidence, not what users download; tightening it would mean pinning
+`eol=lf` for the packaged files first.
 
 It writes `release-inventory.json` (artifact `release-inventory`): version,
 per-artifact name, platform, file, path and SHA-256, plus the publish order.
@@ -147,10 +155,10 @@ native packages: they contain no built binary, font or plugin bundle.
   archive named for another version.** `verify` fails the `inventory` job and no
   publish runs. Re-run the failed `assemble` leg, not the whole matrix with a
   mutated artifact directory.
-- **Main archive hashes differ between runners.** The main bundle is not
-  reproducible; the release is blocked. Compare the assembled `lib/*.js`,
-  `fonts/` and `locale/` inventories before publishing anything. Do not relax the
-  check to get a release out.
+- **Main archive inventories differ between runners.** One host packed a
+  different file set; the release is blocked. Compare the assembler report
+  inventories and the `lib/`, `fonts/` and `locale/` contents before publishing
+  anything. Do not relax the check to get a release out.
 - **Partial publish.** Versions are immutable, so a re-run fails with a conflict
   on the packages that already published. Publish the remaining archives manually
   in plan order (`npm publish <tgz> --provenance --access public`) or release a
@@ -162,7 +170,7 @@ native packages: they contain no built binary, font or plugin bundle.
 - no current-source native binary was built under the resource policy;
 - `npm publish`, provenance attestation and the trusted publisher handshake were
   never executed;
-- the cross-runner main-bundle reproducibility assertion is untested against real
+- the cross-runner main-archive inventory comparison is untested against real
   hosts, by nature of not having run it;
 - acceptance criterion 1 (four platform packages produced by CI) is **NOT
   VERIFIED**, and criteria 2 and 3 are configured but unexecuted. No workflow
