@@ -275,4 +275,3 @@ test('resident dependency chain, relation dimming and temporary client class/edg
     expect(panel.problems).toEqual([])
   } finally { await lane.close() }
 })
-
