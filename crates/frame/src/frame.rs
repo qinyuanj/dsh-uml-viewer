@@ -142,8 +142,8 @@ impl Frame {
 
     /// [`Frame::to_json_with_hover`] as the writer's bytes.
     pub fn to_json_string_with_hover(&self, scene: &Value) -> String {
-        let mut text = serde_json::to_string_pretty(&self.to_json_with_hover(scene))
-            .expect("frame JSON");
+        let mut text =
+            serde_json::to_string_pretty(&self.to_json_with_hover(scene)).expect("frame JSON");
         text.push('\n');
         text
     }
