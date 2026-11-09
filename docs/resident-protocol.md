@@ -223,6 +223,13 @@ child is terminated, and the next panel open starts a fresh resident. Stdout
 bytes are decoded incrementally, so a UTF-8 character split between chunks is
 not corrupted.
 
+The child caps one inbound action line at the same 16777216 bytes (16 MiB,
+`ACTION_LINE_MAX_BYTES`, newline excluded). An action is far smaller in
+practice, so a line over it is a host bug, not a normal request: the reader
+stops at the cap instead of buffering without limit, the session writes one
+`error` event with that reason and exits 1, and the panel reports a stopped
+resident. Both directions of the transport are therefore bounded.
+
 The host's Remote action returns `inspector`, `card` or `source` as an optional
 field on that action's `PanelAck` (`{accepted, reason, ...payload}`), validated by
 contracts. It does not broadcast these payloads to the panel watch streams:

@@ -554,3 +554,42 @@ fn a_malformed_line_or_unknown_action_is_an_error_event_and_the_session_continue
     resident.finish();
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// One inbound action line is bounded exactly like an outbound event (#review):
+/// a line that never ends stops the session with an `error` event and a failing
+/// exit instead of buffering without limit. The host is trusted, but the bound
+/// is documented in both directions.
+#[test]
+fn an_action_line_over_the_transport_cap_stops_the_session_with_a_reason() {
+    let project = project("action-cap");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
+        .arg("resident")
+        .current_dir(&project)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let ready: Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+    assert_eq!(ready["event"], "ready");
+    // One unterminated line, one byte over the cap. The write itself may end in
+    // a broken pipe: the session stops reading at the cap and exits.
+    let over = vec![b'{'; viewer_session::resident::ACTION_LINE_MAX_BYTES + 1];
+    let _ = stdin.write_all(&over);
+    let _ = stdin.flush();
+    let event: Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+    assert_eq!(event["event"], "error", "{event}");
+    assert_eq!(event["seq"], Value::Null, "{event}");
+    assert!(
+        event["message"]
+            .as_str()
+            .unwrap()
+            .contains("action line over"),
+        "{event}"
+    );
+    let status = child.wait().unwrap();
+    assert_eq!(status.code(), Some(1), "a capped session fails, never exits 0");
+    let _ = std::fs::remove_dir_all(&project);
+}

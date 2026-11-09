@@ -11,7 +11,7 @@
 //! End of input ends the session with exit 0.
 
 use std::ffi::OsString;
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -25,6 +25,13 @@ use crate::{Action, Canvas, POLL_INTERVAL, Session, Start, overlays, state, targ
 
 pub const SCHEMA: &str = "dsh-uml-viewer/resident";
 pub const VERSION: i64 = 1;
+
+/// The host caps every event record it reads at this many bytes
+/// (`RESIDENT_LINE_MAX_BYTES` in `packages/contracts`). One inbound action line
+/// gets the same bound, so a line that never ends stops at the cap instead of
+/// growing this process: the asymmetry was the review's finding, the host being
+/// trusted is not a reason to buffer without limit.
+pub const ACTION_LINE_MAX_BYTES: usize = 16 * 1024 * 1024;
 
 /// The actions this version understands, in the order the doc lists them.
 pub const ACTIONS: &[&str] = &[
@@ -68,10 +75,39 @@ pub fn run(args: &[OsString]) -> ExitCode {
     let project = frame::project_files::canonical(&project);
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        for line in std::io::stdin().lock().lines() {
-            let Ok(line) = line else { break };
-            if tx.send(line).is_err() {
-                break;
+        let stdin = std::io::stdin();
+        let mut stdin = stdin.lock();
+        loop {
+            // Read one line under the inbound cap: `take` stops the read at the
+            // limit, so an endless line never becomes an endless buffer.
+            let mut bytes = Vec::new();
+            match (&mut stdin)
+                .take(ACTION_LINE_MAX_BYTES as u64 + 1)
+                .read_until(b'\n', &mut bytes)
+            {
+                Ok(0) => break,
+                Ok(_) if bytes.last() != Some(&b'\n') => {
+                    // No terminator within the cap: the line is over it.
+                    let _ = tx.send(Err(format!(
+                        "action line over {ACTION_LINE_MAX_BYTES} bytes; the session was stopped"
+                    )));
+                    break;
+                }
+                Ok(_) => {
+                    // An action is UTF-8 JSON; a line that is not ends the
+                    // session as `lines()` did.
+                    let Ok(text) = String::from_utf8(bytes) else {
+                        break;
+                    };
+                    let line = text
+                        .trim_end_matches('\n')
+                        .trim_end_matches('\r')
+                        .to_string();
+                    if tx.send(Ok(line)).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
             }
         }
     });
@@ -88,7 +124,13 @@ pub fn run(args: &[OsString]) -> ExitCode {
     }
     loop {
         let lines = match rx.recv_timeout(POLL_INTERVAL) {
-            Ok(line) => resident.line(&line),
+            Ok(Ok(line)) => resident.line(&line),
+            Ok(Err(reason)) => {
+                // Say why on stdout before exiting: the panel shows this event
+                // instead of only "the resident exited".
+                let _ = emit(vec![error(&Json::Null, reason)]);
+                return ExitCode::FAILURE;
+            }
             Err(RecvTimeoutError::Timeout) => resident.tick(Instant::now()),
             Err(RecvTimeoutError::Disconnected) => return ExitCode::SUCCESS,
         };
