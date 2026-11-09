@@ -29,6 +29,8 @@ export interface SessionState {
   schema: typeof SESSION_STATE_SCHEMA
   version: typeof SESSION_STATE_VERSION
   diagram: string | null
+  /** Additive v1 metadata: hash of the exact bytes parsed by this resident. */
+  loadedDiagram?: { version: 1; sha256: string } | null
   context: DiscussionContext | null
   focus: string[]
   proposalId: string | null
@@ -96,6 +98,15 @@ function optionalString(value: unknown, label: string): string | null {
   return value === null || value === undefined ? null : str(value, label)
 }
 
+function loadedDiagram(value: unknown, label: string): { version: 1; sha256: string } | null {
+  if (value === null) return null
+  const source = record(value, label)
+  if (source.version !== 1) at(`${label}.version`, 'must be 1')
+  const sha256 = str(source.sha256, `${label}.sha256`)
+  if (!/^[a-f0-9]{64}$/.test(sha256)) at(`${label}.sha256`, 'must be a lowercase SHA-256 hex digest')
+  return { version: 1, sha256 }
+}
+
 /**
  * Validate the persisted view/discussion state the panel restores.
  * @param value the state the host stored.
@@ -112,6 +123,7 @@ export function validateSessionState(value: unknown, label = 'session state'): S
       schema: SESSION_STATE_SCHEMA,
       version: SESSION_STATE_VERSION,
       diagram: optionalString(source.diagram, `${label}.diagram`),
+      ...(source.loadedDiagram === undefined ? {} : { loadedDiagram: loadedDiagram(source.loadedDiagram, `${label}.loadedDiagram`) }),
       context: source.context === null || source.context === undefined ? null : context(source.context, `${label}.context`),
       focus: list(source.focus, `${label}.focus`).map((entry, index) => str(entry, `${label}.focus[${index}]`)),
       proposalId: optionalString(source.proposalId, `${label}.proposalId`),

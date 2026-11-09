@@ -146,10 +146,20 @@ fn error(seq: &Json, message: impl Into<String>) -> Json {
     event("error", seq, json!({"message": message.into()}))
 }
 
+/// A saved view whose diagram was not there when the session opened
+/// waiting: the first display of that diagram restores it, and until then
+/// `save` answers it unchanged, so closing the panel early loses nothing.
+struct Pending {
+    diagram: PathBuf,
+    snapshot: Value,
+    state: Json,
+}
+
 /// The protocol state: the session once opened, and the client viewport.
 pub struct Resident {
     project: PathBuf,
     session: Option<Session>,
+    pending: Option<Pending>,
     width: f64,
     height: f64,
     quit: bool,
@@ -160,6 +170,7 @@ impl Resident {
         Resident {
             project,
             session: None,
+            pending: None,
             width: frame::cli::DEFAULT_WIDTH,
             height: frame::cli::DEFAULT_HEIGHT,
             quit: false,
@@ -280,7 +291,15 @@ impl Resident {
                 let mut command = Value::Map(vec![]);
                 command.assoc(Value::keyword("op"), Value::keyword("display"));
                 command.assoc(Value::keyword("path"), Value::String(path.to_owned()));
-                self.session()?.apply_command(&command);
+                let pending = self.pending.take();
+                let session = self.session()?;
+                session.apply_command(&command);
+                if let Some(pending) = pending
+                    && frame::project_files::canonical(session.diagram()) == pending.diagram
+                    && same_loaded_diagram(&pending.state, session)
+                {
+                    session.restore(&pending.snapshot);
+                }
             }
             "reload" => {
                 let session = self.session()?;
@@ -370,7 +389,10 @@ impl Resident {
                 self.session()?.act(Action::Declutter, &dims);
             }
             "save" => {
-                let saved = state::to_json(self.session()?.state());
+                let saved = match &self.pending {
+                    Some(pending) => pending.state.clone(),
+                    None => self.session()?.saved_state(),
+                };
                 return Ok(vec![event("state", seq, json!({"state": saved}))]);
             }
             "quit" => {
@@ -459,7 +481,10 @@ impl Resident {
 
     /// Open the session: the named diagram, else the saved state's, else
     /// the project default; a saved state restores the view, `waiting`
-    /// shows the empty canvas until `display`.
+    /// shows the empty canvas until `display`. A saved state that names a
+    /// displayed diagram wins over `waiting`: it is the view the user had
+    /// (the window's restart), not a fresh launch. When that diagram is not
+    /// there yet the canvas waits and its first display restores the view.
     fn open(&mut self, action: &Json) -> Result<(), String> {
         let saved = action.get("state").filter(|s| !s.is_null());
         let snapshot = saved.map(state::snapshot).transpose()?;
@@ -473,16 +498,44 @@ impl Resident {
             .map(|p| resolve(&self.project, &p))
             .unwrap_or_else(|| crate::default_diagram(&self.project));
         let diagram = frame::project_files::canonical(&diagram);
-        let start = if action.get("waiting").and_then(Json::as_bool) == Some(true) {
-            Start::Waiting
-        } else if snapshot.is_some() {
-            Start::Restore(snapshot)
-        } else {
-            Start::Fresh
+        let waiting = action.get("waiting").and_then(Json::as_bool) == Some(true);
+        let displayed = saved.and_then(state::diagram).is_some();
+        let mut pending = None;
+        let start = match snapshot {
+            Some(snapshot) if waiting && displayed && !diagram.is_file() => {
+                pending = Some(Pending {
+                    diagram: diagram.clone(),
+                    snapshot,
+                    state: saved.cloned().unwrap_or(Json::Null),
+                });
+                Start::Waiting
+            }
+            Some(snapshot) if !waiting || displayed => Start::Restore(Some(snapshot)),
+            _ if waiting => Start::Waiting,
+            _ => Start::Fresh,
         };
-        self.session = Some(Session::open(self.project.clone(), diagram, start)?);
+        let mut session = Session::open(self.project.clone(), diagram.clone(), start)?;
+        // Verify against the bytes this Session actually parsed, closing the
+        // host-read → resident-open race as well as refusing legacy metadata.
+        if displayed
+            && pending.is_none()
+            && !saved.is_some_and(|s| same_loaded_diagram(s, &session))
+        {
+            session = Session::open(self.project.clone(), diagram, Start::Waiting)?;
+        }
+        self.session = Some(session);
+        self.pending = pending;
         Ok(())
     }
+}
+
+fn same_loaded_diagram(saved: &Json, session: &Session) -> bool {
+    let loaded = session.saved_state();
+    saved.get("loadedDiagram").is_some_and(|fingerprint| {
+        fingerprint.get("version").and_then(Json::as_i64) == Some(1)
+            && fingerprint.get("sha256").and_then(Json::as_str).is_some()
+            && Some(fingerprint) == loaded.get("loadedDiagram")
+    })
 }
 
 fn resolve(project: &Path, path: &str) -> PathBuf {
@@ -534,4 +587,75 @@ fn hit_at(session: &Session, at: &Json) -> Result<Option<Value>, String> {
         .and_then(|p| Some((p[0].as_f64()?, p[1].as_f64()?)))
         .ok_or("at must be a world point [x, y]")?;
     Ok(scene::hit::at(&session.state().scene, point.0, point.1))
+}
+
+#[cfg(test)]
+mod fingerprint_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn ask(resident: &mut Resident, mut action: Json) -> Json {
+        action["version"] = json!(1);
+        let lines = resident.line(&action.to_string());
+        assert_eq!(1, lines.len(), "{lines:?}");
+        assert_ne!(json!("error"), lines[0]["event"], "{lines:?}");
+        lines[0].clone()
+    }
+
+    #[test]
+    fn replacing_ir_between_load_and_save_never_labels_the_old_view_with_new_bytes() {
+        static SERIAL: AtomicUsize = AtomicUsize::new(0);
+        let directory = std::env::temp_dir().join(format!(
+            "uml-loaded-fingerprint-{}-{}",
+            std::process::id(),
+            SERIAL.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let diagram = directory.join("diagram.edn");
+        let a = "{:title \"A\"}";
+        let b = "{:title \"B\"}";
+        std::fs::write(&diagram, a).unwrap();
+        let mut resident = Resident::new(directory.clone());
+        ask(&mut resident, json!({"action": "open", "waiting": true}));
+        ask(
+            &mut resident,
+            json!({"action": "display", "path": "diagram.edn"}),
+        );
+        std::fs::write(&diagram, b).unwrap();
+        // Direct protocol calls deliberately do not tick: no timing assumption
+        // about the 250 ms idle poll can conceal this load/save race.
+        ask(
+            &mut resident,
+            json!({"action": "camera", "x": 12, "y": 34, "zoom": 0.6}),
+        );
+        let saved = ask(&mut resident, json!({"action": "save"}))["state"].clone();
+        assert_eq!(
+            json!({"version": 1, "sha256": crate::display::digest(a)}),
+            saved["loadedDiagram"]
+        );
+        assert_eq!(json!({"x": 12.0, "y": 34.0, "zoom": 0.6}), saved["camera"]);
+        ask(&mut resident, json!({"action": "quit"}));
+        let mut reopened = Resident::new(directory.clone());
+        let changed = ask(
+            &mut reopened,
+            json!({"action": "open", "waiting": true, "state": saved}),
+        );
+        assert_eq!(json!(true), changed["frame"]["waiting"]);
+        std::fs::write(&diagram, a).unwrap();
+        let same = ask(
+            &mut reopened,
+            json!({"action": "open", "waiting": true, "state": saved}),
+        );
+        assert_eq!(json!(false), same["frame"]["waiting"]);
+        let again = ask(&mut reopened, json!({"action": "save"}));
+        assert_eq!(saved, again["state"]);
+        let mut legacy = saved;
+        legacy.as_object_mut().unwrap().remove("loadedDiagram");
+        let old = ask(
+            &mut reopened,
+            json!({"action": "open", "waiting": true, "state": legacy}),
+        );
+        assert_eq!(json!(true), old["frame"]["waiting"]);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 }

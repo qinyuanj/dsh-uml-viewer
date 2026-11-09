@@ -170,3 +170,38 @@ ADR 0011 说面板由宿主注入 `dsh-client-ui-primitives`。实际落地时
 - 维护者的质量刷新从此在 Linux 与原生 Windows 上都用二进制：`uml-viewer quality crap`、
   对改动文件的差分 `uml-viewer quality mutate`、（可选）`uml-viewer quality dry`，然后
   `uml-viewer ir examples/uml-viewer.policy.edn`。`.uml-viewer/` 中的冻结工具不再使用。
+
+## 附录（2026-11-09，#23）：导航、会话恢复与展示门控
+
+- **交互边界保持不变**：双击下钻、返回、P、选中依赖链、搜索与定位都经
+  typed Remote 到 host，再由同一 resident 处理。平移、Ctrl+滚轮光标锚定缩放、
+  普通滚轮平移、悬停与 Ctrl+0 fit 在客户端完成，相机动作只用于保存。
+  Ctrl+F 打开搜索，输入法输入与粘贴使用原生 search input；搜索开启时捕获画布
+  快捷键，Down/Up 显式选择，Enter 定位，Escape 只关闭搜索。
+- **全宽页仍属于原会话**：`main` 是根插槽，不带 `sessionId`。Expand 在调用
+  `layout.selectPanel('dsh-uml-viewer')` 之前记录侧栏会话 id，全宽页只使用该 id；
+  返回 Conversation 调用 `layout.selectPanel(null)`。会话 id 另存一份在浏览器
+  sessionStorage 中，让全宽页自身刷新时仍知道绑定；视图与讨论上下文仍以 host 为准。
+  切换呈现不重新生成 IR。
+- **随会话持久化**：host 在改变视图的动作完成后请求 resident `save`，在插件卸载
+  （DSH 退出）时也保存，以每会话一个原子 JSON 文件保存在插件 home 的 `sessions/`。
+  不依赖浏览器 localStorage，也不修改项目文件或宿主会话日志。已展示的状态优先于
+  `open waiting:true`，恢复 focus、camera、selection、detail 与讨论上下文；从未
+  展示过的等待画布保存 `diagram:null`，重开仍等待。
+- **IR→display 门控刻意不恢复**：`uml_display` 仍要求本次 host 进程、同一会话内
+  最新一次 `uml_ir` 成功。持久化的视图不是 IR 成功凭据，不能恢复这项授权，也不能
+  从渲染后的工具文本推断授权。拒绝与失败会撤销当前进程内的授权，fork 不继承。
+- **恢复是重放已展示文件，不是新展示授权**：视图保存携带已加载 IR 文件字节的
+  SHA-256：resident 从解析成功的同一 UTF-8 字节缓冲生成
+  `loadedDiagram: {version: 1, sha256}`（session-state v1 的加法元数据），
+  初次加载、display 和成功热重载均更新；host 保存时只传递该值，不重新读取文件。
+  重开或 DSH
+  重启时，文件摘要相同才自动恢复；摘要不同或文件已丢失时显示等待画布，保留上次
+  快照，须重新运行 `uml_ir`、`uml_display` 才展示新文件。旧版没有摘要的状态同样
+  先等待；一次成功展示后保存摘要，后续即可自动恢复。热重载仅在已打开 resident 的
+  生命周期内工作，沿用原协议。resident 在重开解析后再次核对该指纹，避免 host
+  比较后文件又被替换的竞态；缺少 loadedDiagram 的旧二进制状态也先等待。
+
+验证接缝：真实二进制 resident 的 waiting+state 恢复与首次 display；Cordis 工具面
+的每动作保存、卸载保存；SessionStates 对相同、修改、删除 IR 的重开行为；#22 的
+隔离 Playwright lane 验证导航、搜索、全宽页绑定、重开与 DSH 重启。

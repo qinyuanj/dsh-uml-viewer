@@ -2975,6 +2975,7 @@ dependencies = [
  "frame",
  "scene",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

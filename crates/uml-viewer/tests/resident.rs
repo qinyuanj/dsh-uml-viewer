@@ -343,6 +343,90 @@ fn a_saved_session_state_restores_the_view_and_discussion_context() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// A view off the fitted default (drilled into `:core`, `:core.order`
+/// selected) and the state saved for it: what the host persisted.
+fn saved_view(dir: &Path) -> (Value, Value) {
+    let mut resident = opened(dir);
+    let core = resident.ask(2, json!({"action": "drill-in", "id": ":core"}), "frame");
+    let at = centre_of(&core, ":core.order");
+    let shown = resident.ask(3, json!({"action": "select", "at": at}), "frame");
+    let saved = resident.ask(4, json!({"action": "save"}), "state");
+    resident.finish();
+    (shown, saved["state"].clone())
+}
+
+fn waiting_open(state: &Value) -> Value {
+    json!({"action": "open", "waiting": true,
+           "viewport": {"width": 1220, "height": 884}, "state": state})
+}
+
+#[test]
+fn a_waiting_open_with_a_saved_view_restores_that_view_instead_of_the_empty_canvas() {
+    // The host always opens waiting (a fresh panel shows nothing until
+    // `uml_display`); a saved state is a view the user already had.
+    let dir = project("waiting restore");
+    let (shown, state) = saved_view(&dir);
+    let mut resident = Resident::start(&dir);
+    resident.expect("ready");
+    let restored = resident.ask(1, waiting_open(&state), "frame");
+    assert_eq!(json!(false), restored["frame"]["waiting"]);
+    assert_eq!(shown["frame"], restored["frame"]);
+    let again = resident.ask(2, json!({"action": "save"}), "state");
+    assert_eq!(state, again["state"]);
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_saved_view_whose_diagram_is_not_there_yet_is_restored_by_its_display() {
+    let dir = project("waiting pending");
+    let (shown, state) = saved_view(&dir);
+    let ir = std::fs::read(dir.join("diagram.edn")).unwrap();
+    std::fs::remove_file(dir.join("diagram.edn")).unwrap();
+    let mut resident = Resident::start(&dir);
+    resident.expect("ready");
+    let opened = resident.ask(1, waiting_open(&state), "frame");
+    assert_eq!(json!(true), opened["frame"]["waiting"]);
+    // Closing the panel before the display must not lose the saved view.
+    let pending = resident.ask(2, json!({"action": "save"}), "state");
+    assert_eq!(state, pending["state"]);
+    std::fs::write(dir.join("diagram.edn"), ir).unwrap();
+    let displayed = resident.ask(
+        3,
+        json!({"action": "display", "path": "diagram.edn"}),
+        "frame",
+    );
+    assert_eq!(shown["frame"], displayed["frame"]);
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_view_saved_before_any_display_reopens_waiting() {
+    let dir = project("waiting saved");
+    let mut resident = Resident::start(&dir);
+    resident.expect("ready");
+    let first = resident.ask(
+        1,
+        json!({"action": "open", "waiting": true, "viewport": {"width": 1220, "height": 884}}),
+        "frame",
+    );
+    assert_eq!(json!(true), first["frame"]["waiting"]);
+    let saved = resident.ask(2, json!({"action": "save"}), "state");
+    resident.finish();
+    assert_eq!(
+        Value::Null,
+        saved["state"]["diagram"],
+        "nothing was displayed"
+    );
+    let mut resident = Resident::start(&dir);
+    resident.expect("ready");
+    let reopened = resident.ask(1, waiting_open(&saved["state"]), "frame");
+    assert_eq!(json!(true), reopened["frame"]["waiting"]);
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[test]
 fn an_edited_diagram_hot_reloads_into_an_unprompted_frame() {
     let dir = project("reload");

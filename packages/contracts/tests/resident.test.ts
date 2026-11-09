@@ -58,6 +58,21 @@ describe('resident protocol', () => {
     expect(() => validateSessionState({ ...state, focus: ':core' })).toThrow(/focus/)
   })
 
+  it('carries versioned loaded-byte fingerprints through the state event, while accepting legacy state', () => {
+    const state = { schema: SESSION_STATE_SCHEMA, version: 1, diagram: '/project/diagram.edn',
+      loadedDiagram: { version: 1, sha256: 'a'.repeat(64) }, context: null, focus: [],
+      proposalId: null, openLayer: null, declutter: null, camera: { x: 2, y: 3, zoom: 1 }, selected: null, detail: null }
+    const event = { version: 1, seq: 12, event: 'state', state }
+    expect(parseResidentLine(JSON.stringify(event))).toEqual(event)
+    expect(validateSessionState({ ...state, loadedDiagram: null }).loadedDiagram).toBeNull()
+    for (const loadedDiagram of [{ version: 2, sha256: 'a'.repeat(64) }, { version: 1, sha256: 'a'.repeat(63) },
+      { version: 1, sha256: 'A'.repeat(64) }, { version: 1, sha256: null }]) {
+      expect(() => validateSessionState({ ...state, loadedDiagram })).toThrow(/loadedDiagram/)
+    }
+    const { loadedDiagram: _fingerprint, ...legacy } = state
+    expect(validateSessionState(legacy)).toEqual(legacy)
+  })
+
   const frame = { version: 1, seq: 1, event: 'frame', frame: golden('root.frame.json') }
   const state = { version: 1, seq: 1, event: 'state', state: { schema: SESSION_STATE_SCHEMA, version: 1, diagram: null,
     context: null, focus: [], proposalId: null, openLayer: null, declutter: null, camera: { x: 0, y: 0, zoom: 1 },

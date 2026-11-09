@@ -75,7 +75,7 @@ An `error` changes nothing; the session keeps running.
 
 | action | fields | answer | effect |
 |---|---|---|---|
-| `open` | `viewport?` `{width, height}`, `diagram?`, `state?`, `waiting?` | `frame` | open the session. The diagram is `diagram` (relative to the project), else the state's `diagram`, else the project default (`diagram.edn`, `examples/<project>.edn`, any example). With `state` the saved view and discussion context are restored; otherwise the diagram is fitted to the viewport. `waiting: true` shows the empty waiting canvas until `display`. A missing diagram opens with the canvas hint; an unreadable IR is an `error`. Another `open` replaces the session. |
+| `open` | `viewport?` `{width, height}`, `diagram?`, `state?`, `waiting?` | `frame` | open the session. The diagram is `diagram` (relative to the project), else the state's `diagram`, else the project default (`diagram.edn`, `examples/<project>.edn`, any example). With `state` the saved view and discussion context are restored; otherwise the diagram is fitted to the viewport. `waiting: true` shows the empty waiting canvas until `display`, except that a `state` naming a displayed `diagram` restores that view (a reopened session, a restarted DSH). When that diagram does not exist yet the canvas waits, `save` answers the saved state unchanged, and the first `display` of the same diagram restores the view instead of fitting it. A missing diagram opens with the canvas hint; an unreadable IR is an `error`. Another `open` replaces the session. |
 | `viewport` | `viewport` `{width, height}` (points) | `frame` | the client's canvas size; a pending fit uses it |
 | `camera` | `x`, `y`, `zoom` | `ack` | the client panned or zoomed locally: the frame's `camera` (top-left world point and zoom) the client now shows. Saved with the state; no frame is sent back. |
 | `display` | `path` | `frame` | show this diagram (what `uml_display` asks for): relative to the project or absolute. The same diagram keeps the view; another one is fitted. Ends the waiting canvas. |
@@ -233,13 +233,15 @@ request quotes and the one a restore reads.
 
 What the host persists with its session (视图状态和讨论上下文由宿主的会话存储持久化),
 and passes back as `open`'s `state` to restore it. It is data: the host
-stores it as it is and does not interpret it beyond `schema` and `version`.
+stores the resident snapshot and validates its schema. For automatic reopening,
+the host also compares `loadedDiagram` with the current file bytes.
 
 | key | type | meaning |
 |---|---|---|
 | `schema` | string | `"dsh-uml-viewer/session-state"` |
 | `version` | integer | `1` |
-| `diagram` | string \| null | the diagram shown (absolute path) |
+| `diagram` | string \| null | the diagram shown (absolute path); `null` while the canvas is still waiting for its first display |
+| `loadedDiagram` | `{version: 1, sha256: string}` \| null \| absent | additive fingerprint metadata: lowercase SHA-256 of the exact UTF-8 buffer accepted by the resident parser; `null` before any display, absent from older residents |
 | `context` | object \| null | the [discussion context](#discussion-context) |
 | `focus` | string[] | the namespace path drilled into (EDN keywords) |
 | `proposalId` | string \| null | the proposal shown (EDN) |
@@ -253,6 +255,15 @@ A restore applies only what is still valid: a focus without boxes
 shortens, a deleted proposal or layer falls back to the source diagram, a
 vanished selection or card is dropped. A state with another `schema` or
 `version` is refused with an `error`; unknown keys are ignored.
+
+The fingerprint is captured at initial load, successful display and accepted
+hot reload, using the same buffer as parsing. Saving only carries it forward;
+the host must never hash a later path read to label that snapshot. An automatic
+restore requires matching metadata and matching bytes. Missing/legacy metadata,
+changed bytes or a missing file reopens waiting until an authorized display.
+The resident checks the bytes it actually loaded again before restoring, so a
+replacement between the host's comparison and resident open also fails closed.
+This adds no new display grant: the IR-to-display gate remains process-local.
 
 The state carries the restoration dimensions of the egui window's restart
 snapshot (`.uml-viewer/session.edn`) without the window chrome and the mail

@@ -144,6 +144,8 @@ pub struct Session {
     /// When the IR and metrics stamps were last polled; `None` is due.
     last_poll: Option<Instant>,
     force_refresh: bool,
+    /// SHA-256 of the exact UTF-8 bytes accepted by the document parser.
+    loaded_digest: Option<String>,
 }
 
 impl Session {
@@ -158,6 +160,7 @@ impl Session {
             status: None,
             last_poll: None,
             force_refresh: false,
+            loaded_digest: None,
         };
         session.load_initial(start)?;
         Ok(session)
@@ -189,6 +192,7 @@ impl Session {
             Err(error) => return Err(format!("cannot read {path}: {error}")),
         };
         let doc = scene::ir::read_document(&text).map_err(|e| format!("{path}: {e}"))?;
+        self.loaded_digest = Some(display::digest(&text));
         let mtime = watch::mtime(&self.diagram).ok();
         let mut state = document::new_state(
             doc,
@@ -250,10 +254,12 @@ impl Session {
             self.hint = Some(strings::missing_file(&path_text));
             return;
         };
-        let (next, _, rejected) =
+        let (next, reloaded, rejected) =
             document::reload(&self.state, &text, current_mtime, &snapshots, Some(stamp));
         if let Some(reason) = rejected {
             eprintln!("Document reload rejected: {reason}");
+        } else if reloaded {
+            self.loaded_digest = Some(display::digest(&text));
         }
         if next.document.is_some() {
             self.hint = None;
@@ -371,6 +377,9 @@ impl Session {
     pub fn apply_command(&mut self, command: &Value) {
         let boundary = display::DisplayBoundary::new(&self.project_root);
         let next = document::apply_mail(&self.state, command, &boundary);
+        if let Some(digest) = boundary.loaded_digest() {
+            self.loaded_digest = Some(digest);
+        }
         let path_changed = next.path != self.state.path;
         self.state = next;
         if let Some(path) = self.state.path.clone() {
@@ -379,6 +388,30 @@ impl Session {
         if path_changed {
             self.hint = None;
         }
+    }
+
+    /// Reapply a saved view (a `frame::session::snapshot` map) to the
+    /// loaded diagram, as a restart does; a waiting canvas has nothing to
+    /// restore onto and stays as it is.
+    pub fn restore(&mut self, snapshot: &Value) {
+        if self.state.document.is_none() {
+            return;
+        }
+        self.state = frame::session::restore(&self.state, snapshot);
+    }
+
+    /// Persist the fingerprint from this parser generation, never a later file read.
+    pub fn saved_state(&self) -> serde_json::Value {
+        let mut saved = state::to_json(&self.state);
+        saved["loadedDiagram"] = if self.state.waiting || self.state.document.is_none() {
+            serde_json::Value::Null
+        } else {
+            self.loaded_digest.as_ref().map_or(
+                serde_json::Value::Null,
+                |digest| serde_json::json!({"version": 1, "sha256": digest}),
+            )
+        };
+        saved
     }
 
     pub fn state(&self) -> &ViewState {
