@@ -27,10 +27,55 @@ export async function launchViewerLane(browser, options = {}) {
     await mock.stop()
     throw error
   }
+  // Boot output includes the scratch host's token URL. Retain routing facts
+  // without persisting URL query/fragment credentials in textual diagnostics.
+  const redact = text => text.replace(/(https?:\/\/[^\s?#]+)[?#][^\s]*/g, '$1[redacted]')
   const pages = []
+  const records = new Map()
+  const diagnostics = path.join(SCRATCH, 'diagnostics', path.basename(home))
+  await fs.mkdir(diagnostics, { recursive: true })
+
+  // Observe the real DOM and transport at the disputed boundaries; never use
+  // these snapshots as an assertion or as a substitute for panel readiness.
+  async function capturePage(page, phase) {
+    const record = records.get(page)
+    try {
+      const state = await page.evaluate(() => {
+        const box = element => {
+          const r = element.getBoundingClientRect()
+          return { x: r.x, y: r.y, width: r.width, height: r.height }
+        }
+        return {
+          body: document.body.innerText,
+          sessions: [...document.querySelectorAll('[data-conversation-session]')].map(el => ({ id: el.getAttribute('data-conversation-session'), box: box(el) })),
+          panels: [...document.querySelectorAll('.dsh-uml-viewer-panel')].map(el => ({
+            session: el.getAttribute('data-session-id'), box: box(el),
+            summary: el.querySelector('.dsh-uml-viewer-summary')?.outerHTML,
+            canvases: [...el.querySelectorAll('canvas')].map(canvas => ({ box: box(canvas), width: canvas.width, height: canvas.height })),
+          })),
+          pointer: window.__umlE2ePointerEvents ?? [],
+        }
+      })
+      state.body = redact(state.body)
+      await fs.writeFile(path.join(diagnostics, `page-${record.number}-${phase}.json`), JSON.stringify({
+        phase, project: record.project, stage: record.stage, mockRequests: mock.requests.length,
+        transportProblems: record.transportProblems.map(redact),
+        problems: record.problems.map(redact), ...state,
+      }, null, 2))
+      await page.screenshot({ path: path.join(diagnostics, `page-${record.number}-${phase}.png`), fullPage: true, timeout: 5000 })
+      console.log(`[panel-e2e] ${path.basename(home)} page ${record.number} ${record.project ?? ''} ${phase}: ${mock.requests.length} mock requests; ${record.problems.length} browser errors`)
+    } catch (error) {
+      console.warn(`[panel-e2e] diagnostic snapshot ${phase}: ${error.message}`)
+    }
+  }
   let closing
   const close = () => closing ??= (async () => {
-    for (const page of pages.splice(0).reverse()) await page.context().close().catch(() => {})
+    for (const page of pages.splice(0).reverse()) {
+      if (!page.isClosed()) await capturePage(page, 'close')
+      await page.context().close().catch(() => {})
+    }
+    await fs.writeFile(path.join(diagnostics, 'host.log'), redact(host.output()))
+      .catch(error => console.warn(`[panel-e2e] host log: ${error.message}`))
     host.stop()
     await host.exited.catch(() => {})
     await mock.stop()
@@ -47,7 +92,19 @@ export async function launchViewerLane(browser, options = {}) {
     const page = await context.newPage()
     pages.push(page)
     const problems = []
+    records.set(page, { number: records.size + 1, problems, transportProblems: [] })
     page.on('pageerror', error => problems.push(error.message))
+    page.on('console', message => { if (message.type() === 'error') records.get(page).transportProblems.push(`console: ${message.text()}`) })
+    page.on('requestfailed', request => records.get(page).transportProblems.push(`request: ${request.method()} ${request.url().split('?')[0]} ${request.failure()?.errorText}`))
+    await page.addInitScript(() => {
+      window.__umlE2ePointerEvents = []
+      for (const type of ['pointerdown', 'pointerup']) document.addEventListener(type, event => {
+        const target = event.target
+        window.__umlE2ePointerEvents.push({ type, x: event.clientX, y: event.clientY,
+          target: target instanceof Element ? target.tagName + '.' + target.className : String(target) })
+        if (window.__umlE2ePointerEvents.length > 12) window.__umlE2ePointerEvents.shift()
+      }, true)
+    })
     // On a busy Windows host the preview notice can arrive after the initial
     // quiet window. Dismiss it through its real button whenever it obstructs
     // a later user action, rather than sleeping or forcing clicks through it.
@@ -83,6 +140,7 @@ export async function launchViewerLane(browser, options = {}) {
 
   async function openPanel(project, options = {}) {
     const { page, problems } = await newPage()
+    records.get(page).project = project
     try {
       await page.goto(host.url, { waitUntil: 'domcontentloaded', timeout: 60_000 })
       await dismissOverlays(page)
@@ -107,10 +165,12 @@ export async function launchViewerLane(browser, options = {}) {
           throw new Error(`workspace selection did not settle: expected ${project}, got ${chosen}`)
         }
       }
+      records.get(page).stage = 'submit-open-prompt'
       await composer.fill(`Open the ${project} sample project`)
       await composer.press('Enter')
       const sessionNode = page.locator('[data-conversation-session]:visible').first()
       await expect(sessionNode).toBeVisible({ timeout: 30_000 })
+      records.get(page).stage = 'wait-generated-response'
       await expect(page.getByText('Generated the sample project IR.', { exact: true }).last()).toBeVisible()
       if (project === 'ledger' || options.state) {
         const sessionId = await sessionNode.getAttribute('data-conversation-session')
@@ -137,17 +197,21 @@ export async function launchViewerLane(browser, options = {}) {
           ...options.state,
         }))
       }
+      records.get(page).stage = 'open-sidebar'
       const opened = await openSidebar(page)
       await composer.click()
+      records.get(page).stage = 'submit-display-prompt'
       await composer.fill('Render the sample diagram')
       await composer.press('Enter')
       await expect(page.getByText('The isolated mock model displayed the generated IR.', { exact: false }).last())
         .toBeVisible({ timeout: 45_000 })
       await expect(opened.summary).toContainText(`${project[0].toUpperCase()}${project.slice(1)}`, { timeout: 45_000 })
       if (project === 'ledger') await expect(opened.summary).toHaveAttribute('data-view', 'proposal')
+      records.get(page).stage = 'panel-opened'
       return await result(page, problems, opened)
     } catch (error) {
-      await fs.writeFile(path.join(home, `${project}-failure.txt`), `${error.stack}\\n\\n${await page.locator('body').innerText().catch(() => '')}\\n\\n${host.output()}`)
+      await capturePage(page, 'open-failed')
+      await fs.writeFile(path.join(home, `${project}-failure.txt`), `${error.stack}\\n\\n${await page.locator('body').innerText().catch(() => '')}\\n\\n${redact(host.output())}`)
       await page.screenshot({ path: path.join(home, `${project}-failure.png`), fullPage: true }).catch(() => {})
       throw error
     }

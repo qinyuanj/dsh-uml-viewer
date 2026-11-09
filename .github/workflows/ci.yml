@@ -77,6 +77,23 @@ jobs:
         run: pnpm e2e:install
       - name: Real panel acceptance
         run: pnpm test:e2e
+      - name: Preserve panel diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: panel-e2e-diagnostics
+          # Explicit files only: never upload scratch profiles, caches or binaries.
+          include-hidden-files: true
+          path: |
+            .scratch/e2e/results/**
+            .scratch/e2e/evidence/**
+            .scratch/e2e/diagnostics/**
+            .scratch/e2e/run-*/mock-requests/*.json
+            .scratch/e2e/run-*/oracle-*.frame.json
+            .scratch/e2e/run-*/*-failure.txt
+            .scratch/e2e/run-*/*-failure.png
+          if-no-files-found: warn
+          retention-days: 7
 
   windows-crap:
     runs-on: windows-latest

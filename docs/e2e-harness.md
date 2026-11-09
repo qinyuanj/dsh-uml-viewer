@@ -141,6 +141,29 @@ No real model is called. Each DSH session gets its own browser context, so
 cookies and page storage cannot make two sessions share a client-side panel
 state.
 
+## CI failure diagnostics
+
+The `panel-e2e` job always uploads `panel-e2e-diagnostics` (seven-day
+retention). Its explicit file list includes Playwright results/traces,
+evidence screenshots, producer oracle frames, mock request/reply pairs and
+lane snapshots. It excludes installed scratch profiles, caches and binaries.
+
+Each lane writes `diagnostics/run-*/page-<n>-open-failed.json` when opening
+fails and `page-<n>-close.json` before closing an open page, with screenshots
+and `host.log`. JSON records the startup stage, requested project, visible
+conversation session ids, panel session ids, summary markup, canvas CSS and
+bitmap bounds, recent pointer down/up targets, console/request errors and
+mock request count. This also captures failures after `openPanel` succeeds.
+The numbered `mock-requests/<n>-reply.json` records the exact reply emitted
+for `<n>.json`; input/reply numbering stays paired across concurrent requests.
+
+For a missing generated-response assertion, compare the selected workspace
+and conversation in the snapshot with the mock inputs, tool results and
+emitted reply. For a selection failure, compare the pointer target and canvas
+bounds with the saved producer frame and panel camera summary. Keep the
+existing readiness, selection and pixel assertions: these observations are
+for diagnosing a failed run, never an alternative acceptance condition.
+
 ## Sample projects
 
 `packages/e2e/projects.mjs` copies five TypeScript projects into the

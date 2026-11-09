@@ -12,8 +12,8 @@ export async function startMockLlm({ log, reply: scriptedReply }) {
     req.on('end', async () => {
       const body = Buffer.concat(chunks).toString('utf8')
       const url = req.url ?? '/'
-      requests.push({ method: req.method, url, body })
-      await fs.writeFile(path.join(log, `${String(requests.length).padStart(3, '0')}.json`), body)
+      const number = requests.push({ method: req.method, url, body })
+      await fs.writeFile(path.join(log, `${String(number).padStart(3, '0')}.json`), body)
       if (!url.startsWith('/v1/messages')) {
         res.writeHead(404, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: { message: 'mock LLM only serves /v1/messages' } }))
@@ -30,6 +30,9 @@ export async function startMockLlm({ log, reply: scriptedReply }) {
             : !serialized.includes('"name":"uml_display"')
               ? { tool: { name: 'uml_display', input: { path: 'diagram.edn' } } }
               : { text: 'The isolated mock model displayed the generated IR. No real model was called.' })
+      // Pair the exact emitted reply with its input: a missing UI response can
+      // then be distinguished from a request that never reached this endpoint.
+      await fs.writeFile(path.join(log, `${String(number).padStart(3, '0')}-reply.json`), JSON.stringify(reply))
       res.writeHead(200, {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',
