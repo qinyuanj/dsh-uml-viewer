@@ -262,3 +262,16 @@ ADR 0011 说面板由宿主注入 `dsh-client-ui-primitives`。实际落地时
   `:levels` 场景。CI 不再安装窗口运行库。
 - 每个 driver 场景对应的 Playwright 用例与不再承接的窗口专属行为列在
   [docs/e2e-harness.md](../e2e-harness.md#deleted-window-drivers-30)。
+
+## 附录（2026-11-09，评审 S3）：视图状态与讨论上下文存在插件自己的文件里（D15）
+
+- **决定**：视图状态与讨论上下文以每会话一个原子 JSON 文件保存在
+  `<DSH_HOME>/dsh-uml-viewer/sessions/<id>.json`（`packages/host/src/state.ts`），
+  不写入 DSH 的会话存储。SPEC-203 第 103 行要求“由宿主的会话存储持久化”，这是有意偏离，
+  记为 D15。
+- **理由**：跨面板关闭与 DSH 重启的持久化由 #23 的测试证明；0.2.2-rc.1 里插件可用的会话
+  存储 API 从未验证（只确认 `@deepseek-ai/dsh-session` 包存在），依赖它等于用可用的持久化
+  换一个未验证的接缝。ADR 0011 的“面板状态随会话保存”由此落在插件 home 的 `sessions/` 下。
+- **代价与边界**：没有 `DSH_HOME` 时插件什么都不持久化，面板照实说明，不会假装记住了视图；
+  会话被删除时这些文件不由宿主清理，fork 也不继承它们。宿主若公开了给插件用的会话存储
+  API，应重新评估本条并迁移。
