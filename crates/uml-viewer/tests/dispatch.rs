@@ -29,7 +29,9 @@ fn the_subcommands_are_the_headless_roles_and_the_quality_tools() {
     // #18 removed the Herdr companion roles with the companion itself;
     // dsh-uml-viewer#30 removed the standalone `viewer` window.
     assert_eq!(
-        vec!["ir", "scene", "resident", "crap", "mutate", "dry", "quality"],
+        vec![
+            "ir", "scene", "resident", "crap", "mutate", "dry", "quality"
+        ],
         listed_subcommands()
     );
 }

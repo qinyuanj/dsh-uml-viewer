@@ -54,11 +54,7 @@ pub enum Canvas {
     /// The fit checkpoint: fit once when a fit is pending.
     Fit,
     /// An unclamped camera: world centre and zoom; no fit.
-    Camera {
-        cx: f64,
-        cy: f64,
-        zoom: f64,
-    },
+    Camera { cx: f64, cy: f64, zoom: f64 },
 }
 
 /// What a shell asks the session to do beyond raw canvas input.
