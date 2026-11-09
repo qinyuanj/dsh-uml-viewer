@@ -6,8 +6,8 @@ import { producerFrame, sample, same, screenRect, toScreen, panelCamera } from '
 
 // #26: real IR/resident/panel, no injected frame. Replaces quality/highlight
 // assertions of the deleted egui commands/driver scenarios (#30); geometry and grades come from
-// the independent producer oracle. Authored under RESOURCE-POLICY: NOT RUN
-// until a matching EXISTING binary is provided, never build from this lane.
+// the independent producer oracle. Not run against a real binary yet: it needs
+// a matching EXISTING binary, and this lane never builds one.
 const palettes = {
   dark: { fill: ['#4a2818', '#3d3a18', '#1e4a38'], stroke: ['#e07a4a', '#d4c05a', '#5fb58a'], noData: '#c42a24', violation: '#c42a24', hot: '#ff4030', chain: '#3e98ec' },
   light: { fill: ['#e6c3b2', '#e2dfb6', '#b6e2d0'], stroke: ['#b7501f', '#aa952c', '#44926b'], noData: '#b52721', violation: '#b52721', hot: '#f01300', chain: '#136ec3' },
