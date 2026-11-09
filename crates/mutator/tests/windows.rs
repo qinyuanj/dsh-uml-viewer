@@ -567,7 +567,12 @@ fn mutant_writes_reach_neither_the_project_nor_the_user_nor_a_later_mutant() {
         "APPDATA",
         "LOCALAPPDATA",
     ] {
-        let real = std::env::var_os(name).unwrap();
+        // Windows does not require HOME (unlike USERPROFILE). The child gets
+        // every redirected variable regardless; only an existing host value
+        // names a real directory that could receive a leaked write.
+        let Some(real) = std::env::var_os(name) else {
+            continue;
+        };
         assert!(
             !Path::new(&real).join("leak").exists(),
             "{name} ({real:?}) received a mutant's write"
