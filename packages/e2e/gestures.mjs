@@ -1,3 +1,29 @@
+/** Whether a canvas-local point is clickable: on the canvas and left of the inspector. */
+export function exposedOnCanvas([x, y], canvas, inspector, margin = 8) {
+  const exposed = inspector.x - canvas.x
+  return x >= margin && y >= margin && x < exposed - margin && y < canvas.height - margin
+}
+
+/**
+ * Measure a target and pan only when the inspector covers it. A blanket pan
+ * moves left-column targets off the canvas (CI7: :api at local x -141).
+ * `measure` returns { frame, point } with a canvas-local point.
+ */
+export async function exposeTarget(panel, measure) {
+  const boxes = async () => [await panel.canvas.boundingBox(),
+    await panel.panel.getByRole('complementary', { name: '检查器' }).boundingBox()]
+  let [canvas, inspector] = await boxes()
+  let measured = await measure()
+  if (exposedOnCanvas(measured.point, canvas, inspector)) return measured
+  await panBesideInspector(panel)
+  ;[canvas, inspector] = await boxes()
+  measured = await measure()
+  if (!exposedOnCanvas(measured.point, canvas, inspector)) {
+    throw new Error(`target still not exposed after one pan: ${measured.point.join(',')}`)
+  }
+  return measured
+}
+
 /** Prepare a root view for geometry checks beside the floating inspector. */
 export async function panBesideInspector(panel) {
   const canvas = await panel.canvas.boundingBox()

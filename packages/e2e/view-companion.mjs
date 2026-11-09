@@ -39,10 +39,10 @@ export function makeViewCompanion() {
       const op = /:op :([a-z-]+)/.exec(text)?.[1]
       if (op === 'context') {
         const real = text === 'UML viewer panel request:\n{:op :context :context {:context :real}}'
-        const proposal = /^UML viewer panel request:\n\{:op :context :context \{:context :proposal :proposal-id (:p-review|:p-e2e-\d+) :name "([^"\n]+)"\}\}$/.exec(text)
+        const proposal = /^UML viewer panel request:\n\{:op :context :context \{:context :proposal :name "([^"\n]+)" :proposal-id (:p-review|:p-e2e-\d+)\}\}$/.exec(text)
         if (!real && !proposal) return { text: 'Refused unrecognized fixture context.' }
-        if (proposal && !fs.readFileSync(policy, 'utf8').includes(`:id ${proposal[1]} :name "${proposal[2]}"`)) return { text: 'Refused unknown fixture proposal.' }
-        context = real ? 'real' : proposal[1].slice(1)
+        if (proposal && !fs.readFileSync(policy, 'utf8').includes(`:id ${proposal[2]} :name "${proposal[1]}"`)) return { text: 'Refused unknown fixture proposal.' }
+        context = real ? 'real' : proposal[2].slice(1)
         contexts.push(context)
         return { text: 'Discussing the chosen diagram.' }
       }

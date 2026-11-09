@@ -21,7 +21,7 @@ export const VIEW_POLICY = `; Companion acceptance: keep this comment and the de
 
 const heading = 'UML viewer panel request:\n'
 const token = '[0-9a-f]{32}'
-const omitPattern = new RegExp(`^${heading}\\{:op :omit :target \\{:id :api :kind :class\\} :context (\\{:context :real\\}|\\{:context :proposal :proposal-id :p-review\\}) :request "(${token})"\\}$`)
+const omitPattern = new RegExp(`^${heading}\\{:op :omit :target \\{:id :api :kind :class\\} :context (\\{:context :real\\}|\\{:context :proposal :name "Review plan" :proposal-id :p-review\\}) :request "(${token})"\\}$`)
 
 function splice(text, before, after) {
   const start = text.indexOf(before)

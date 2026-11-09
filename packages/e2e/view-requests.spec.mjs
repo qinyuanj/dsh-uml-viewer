@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { launchViewerLane } from './lane.mjs'
 import { producerFrame, toScreen } from './canvas.mjs'
-import { panBesideInspector } from './gestures.mjs'
+import { exposeTarget } from './gestures.mjs'
 import { makeViewCompanion } from './view-companion.mjs'
 import { VIEW_POLICY } from './view-policy.mjs'
 
@@ -37,10 +37,22 @@ function item(frame, id) {
   return frame.world.find(item => item.id === id && (item.kind === 'class' || item.kind === 'package'))
 }
 
-async function menu(panel, frame, id, label) {
+function targetPoint(frame, id) {
   const target = item(frame, id)
   expect(target, `frame contains ${id}`).toBeTruthy()
-  const [x, y] = toScreen(frame, target.rect.x + target.rect.w / 2, target.rect.y + 10)
+  return toScreen(frame, target.rect.x + target.rect.w / 2, target.rect.y + 10)
+}
+
+/** Fresh producer frame with `id` clickable beside the inspector (pans only if covered). */
+async function exposed(panel, options, id) {
+  return (await exposeTarget(panel, async () => {
+    const frame = await producerFrame(panel, options)
+    return { frame, point: targetPoint(frame, id) }
+  })).frame
+}
+
+async function menu(panel, frame, id, label) {
+  const [x, y] = targetPoint(frame, id)
   await panel.canvas.click({ position: { x, y }, button: 'right' })
   await panel.panel.getByRole('menu', { name: 'Element requests' }).getByRole('menuitem', { name: label, exact: true }).click()
 }
@@ -59,8 +71,7 @@ test('Hide after a failed refresh still regenerates the IR, then displays; the d
   const { lane, companion } = await launch(browser, true)
   try {
     const a = await lane.openPanel('deep')
-    await panBesideInspector(a)
-    const frame = await producerFrame(a, { root: lane.projects.deep, home: lane.home })
+    const frame = await exposed(a, { root: lane.projects.deep, home: lane.home }, ':api')
     await composer(a).fill('Unfinished draft 草稿')
     const diagram = await fs.readFile(path.join(lane.projects.deep, 'diagram.edn'))
     await menu(a, frame, ':api', 'Refresh CRAP')
@@ -94,13 +105,12 @@ test('choosing a proposal tells the companion; 新建提案 sends a timestamp na
     await expect(a.summary).toContainText('Discussion: Review plan.')
     await expect(a.page.getByText('Discussing the chosen diagram.', { exact: true }).last()).toBeVisible()
     const root = lane.projects.deep
-    await panBesideInspector(a)
-    const grouped = await producerFrame(a, { root, home: lane.home, extra: '{:proposal-id :p-review}' })
+    const grouped = await exposed(a, { root, home: lane.home, extra: '{:proposal-id :p-review}' }, ':proposal.surface')
     const surface = item(grouped, ':proposal.surface')
     expect(surface).toBeTruthy()
     await lane.point(a, toScreen(grouped, surface.rect.x + surface.rect.w / 2, surface.rect.y + 10), 2)
     await expect(a.summary).toHaveAttribute('data-depth', 'drilled')
-    const layer = await producerFrame(a, { root, home: lane.home, extra: '{:proposal-id :p-review :open-layer :proposal.surface}' })
+    const layer = await exposed(a, { root, home: lane.home, extra: '{:proposal-id :p-review :open-layer :proposal.surface}' }, ':api')
     await composer(a).fill('Proposal draft 草稿')
     await menu(a, layer, ':api', 'Hide')
     await finished(a, 'omit')
@@ -144,9 +154,8 @@ test('failed IR after a scoped edit leaves the displayed diagram and draft uncha
   const { lane, companion } = await launch(browser)
   try {
     const a = await lane.openPanel('deep')
-    await panBesideInspector(a)
     const root = lane.projects.deep
-    const frame = await producerFrame(a, { root, home: lane.home })
+    const frame = await exposed(a, { root, home: lane.home }, ':api')
     const diagram = await fs.readFile(path.join(root, 'diagram.edn'))
     const summary = await a.summary.innerText()
     await composer(a).fill('Keep failed request draft')

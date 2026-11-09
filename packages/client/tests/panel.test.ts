@@ -225,6 +225,31 @@ describe('session-bound panel stream', () => {
     h.controller.close()
   })
 
+  it('Ctrl+0 restores the resident fit including scene margins after local zoom and pan', async () => {
+    // CI7 Deep: a 647×917 viewport, outer package (56,56,824,180), and
+    // the resident's fresh-load camera. The scene size is 936×292 after
+    // compose::bounds' 16-unit inflation and compose::size's 40-unit margin.
+    const outer = frame.world.find(item => item.kind === 'package')!
+    const rect = { x: 56, y: 56, w: 824, h: 180 }
+    const fitted = { x: 0, y: -543.3415765069552, zoom: 0.6912393162393162 }
+    const initial: SceneFrame = { ...frame, viewport: { width: 647, height: 917 },
+      camera: fitted, world: [{ ...outer, bounds: rect, rect }], edges: [] }
+    const h = harness([{ kind: 'frame', seq: 1, frame: initial }])
+    await h.controller.open('session-a')
+    await settle(() => h.painted.length === 1, 'the frame')
+    h.controller.setViewport(647, 917)
+    h.controller.wheel(194, 367, 1, { control: true })
+    h.controller.pointerDown(130, 887)
+    h.controller.pointerMove(30, 837)
+    h.controller.pointerUp(30, 837)
+    h.controller.wheel(323.5, 458.5, -1)
+    expect(h.controller.current.frame!.camera).not.toEqual(fitted)
+    expect(h.controller.key('0', { control: true })).toBe(true)
+    expect(h.controller.current.frame!.camera).toEqual(fitted)
+    expect(h.actions.at(-1)!.action).toEqual({ action: 'camera', ...fitted })
+    h.controller.close()
+  })
+
   it('sends double-click drill-in, Escape back and P namespace-tree to the host', async () => {
     const h = harness([{ kind: 'ready', actions: [] }, { kind: 'frame', seq: 1, frame }])
     await h.controller.open('session-a')

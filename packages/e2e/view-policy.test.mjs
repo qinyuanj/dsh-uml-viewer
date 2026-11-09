@@ -54,10 +54,11 @@ test('companion refuses a mismatched omit context and keeps the chosen context t
   try {
     const companion = makeViewCompanion()
     companion.prepare({ deep })
-    const proposalOmit = omit('{:context :proposal :proposal-id :p-review}')
+    const proposalOmit = omit('{:context :proposal :name "Review plan" :proposal-id :p-review}')
     assert.match(companion.reply(modelRequest(proposalOmit)).text, /^Refused/)
     assert.equal(fs.readFileSync(path.join(deep, 'policy.edn'), 'utf8'), VIEW_POLICY)
-    const choice = 'UML viewer panel request:\n{:op :context :context {:context :proposal :proposal-id :p-review :name "Review plan"}}'
+    // CI7 run-GWPnzU request 006: the resident quotes name before proposal-id.
+    const choice = 'UML viewer panel request:\n{:op :context :context {:context :proposal :name "Review plan" :proposal-id :p-review}}'
     assert.equal(companion.reply(modelRequest(choice)).text, 'Discussing the chosen diagram.')
     assert.equal(fs.readFileSync(path.join(deep, 'policy.edn'), 'utf8'), VIEW_POLICY)
     assert.equal(companion.reply(modelRequest(proposalOmit)).tool.name, 'uml_ir')
@@ -73,7 +74,7 @@ test('companion refuses a mismatched omit context and keeps the chosen context t
 })
 
 test('proposal omit leaves source omit and neighboring proposal layout untouched', () => {
-  const result = editViewPolicy(VIEW_POLICY, omit('{:context :proposal :proposal-id :p-review}'))
+  const result = editViewPolicy(VIEW_POLICY, omit('{:context :proposal :name "Review plan" :proposal-id :p-review}'))
   assert.equal(result.text, VIEW_POLICY.replace(':omit [ ]} ; proposal-only', ':omit [:api]} ; proposal-only'))
   assert.equal(result.context, 'p-review')
 })

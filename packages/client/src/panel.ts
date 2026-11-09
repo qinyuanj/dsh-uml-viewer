@@ -69,6 +69,10 @@ type Listener = () => void
 export const ZOOM_STEP = 1.1
 const SCROLL_UNIT = 48
 const CHROME_INSET = 36
+// scene::compose::bounds inflates content by 16 world units; size then
+// reserves another 40 around it. Fit must use that scene extent, not ink.
+const SCENE_BOUNDS_INSET = 16
+const SCENE_OUTER_MARGIN = 40
 const ZOOM_MIN = 0.1
 const ZOOM_MAX = 10
 
@@ -357,13 +361,16 @@ export class PanelController {
     const bounds = this.sceneBounds()
     if (!bounds) return
     const { width: vw, height: vh } = this.viewport
-    const w = Math.max(1, bounds.x1 - bounds.x0)
-    const h = Math.max(1, bounds.y1 - bounds.y0)
+    const margin = SCENE_BOUNDS_INSET + SCENE_OUTER_MARGIN
+    const x0 = Math.min(0, bounds.x0 - margin)
+    const y0 = Math.min(0, bounds.y0 - margin)
+    const w = Math.max(1, bounds.x1 + margin - x0)
+    const h = Math.max(1, bounds.y1 + margin - y0)
     const usable = Math.max(1, vh - CHROME_INSET)
     const zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.min(vw / w, usable / h, 1)))
     this.updateCamera({
-      x: bounds.x0 + w / 2 - vw / (2 * zoom),
-      y: bounds.y0 + h / 2 - usable / (2 * zoom) - CHROME_INSET / zoom,
+      x: x0 + w / 2 - vw / (2 * zoom),
+      y: y0 + h / 2 - usable / (2 * zoom) - CHROME_INSET / zoom,
       zoom,
     })
   }
