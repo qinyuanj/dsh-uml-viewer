@@ -1,12 +1,72 @@
 # UML viewer
 
-The viewer is a DeepSeek Harness plugin (`dsh-uml-viewer`): a panel bound to
-the session, the `uml_ir`, `uml_display`, `uml_crap`, `uml_mutate` and
-`uml_dry` tools, and the panel's prompt rules ([docs/companion-rules.md](docs/companion-rules.md)).
-See [Plugin host development](docs/plugin-development.md) for the pnpm
-workspace, the IR gate, the binary location and the Cordis seam tests. The
-old `get-uml-viewer` / `./uml` flow with its Herdr companion was deleted
+The DeepSeek Harness plugin opens a UML panel beside the session conversation.
+It provides `uml_ir`, `uml_crap`, `uml_mutate`, `uml_dry` and `uml_display`.
+See [plugin development](docs/plugin-development.md) and the
+[isolated browser harness](docs/e2e-harness.md) for their contracts and checks.
+The panel's prompt rules come from [docs/companion-rules.md](docs/companion-rules.md).
+The old `get-uml-viewer` / `./uml` flow with its Herdr companion was deleted
 (#18); it stays frozen in qinyuanj/uml-viewer.
+
+## Plugin installation and maintenance
+
+The main package includes the Host and Web client, Sarasa font and one Cordis
+row. Its four exact-version optional dependencies target Windows x64, Linux
+x64, macOS arm64 and macOS x64. Unsupported combinations refuse activation with
+a reason. End users need DSH (`>=0.2.2-rc.1 <0.3.0`) and git; native packages
+require no Rust, Python or Herdr installation. Registry publication is a later
+release operation; local package assembly is available now.
+
+Install local archives through DSH plugin management (use absolute paths):
+
+```sh
+dsh plugin --profile web add /absolute/dsh-uml-viewer-1.0.0.tgz /absolute/dsh-uml-viewer-win32-x64-1.0.0.tgz
+dsh plugin --profile web remove dsh-uml-viewer @dsh-uml-viewer/win32-x64
+```
+
+Use the matching platform archive. The plugin pins its packaged binary under
+`<DSH_HOME>/dsh-uml-viewer/versions/<version>/`; uninstall removes packages and
+the Loader contribution, preserving project policy, proposals and `.metrics/`.
+It does not migrate old `.uml-viewer/` data. Use a scratch `DSH_HOME` for all
+development installation and testing; never test against a working profile.
+
+```sh
+pnpm install --frozen-lockfile --ignore-scripts --store-dir /absolute/scratch/pnpm-store
+pnpm typecheck
+pnpm test
+pnpm validate:manifest
+pnpm version:check
+cargo fmt --all -- --check
+cargo build --release --locked -p uml-viewer
+pnpm package:local --binary /absolute/target/release/uml-viewer --out /absolute/scratch/packages
+```
+
+On Windows use Windows-absolute paths and `uml-viewer.exe`. Check disk space
+before building; the script consumes an explicit binary and never installs
+a toolchain or builds other platforms. It writes deterministic npm tarballs
+and a SHA-256/inventory report, with no install scripts or registry calls.
+The source checkout stays private; the assembler removes development-only
+fields from the installable main package.
+Keep generated archives, binaries, IR and metrics out of commits. CI #33 owns
+the other platform builds; publish/tag/provenance operations belong to #34.
+
+`Cargo.toml` `[workspace.package].version` is the release version authority;
+every crate inherits it. Change it, run `pnpm version:sync`, update the Cargo
+lockfile, then run `pnpm version:check`; CI checks npm and Cargo consistency.
+The assembler writes the same version into main and platform manifests and
+all four optional dependency constraints. To verify an assembled archive:
+
+```sh
+UML_VIEWER_PACKAGE_REPORT=/absolute/scratch/packages/package-report.json pnpm test:package
+UML_VIEWER_PACKAGE_MAIN=/absolute/scratch/packages/dsh-uml-viewer-1.0.0.tgz UML_VIEWER_PACKAGE_PLATFORM=/absolute/scratch/packages/dsh-uml-viewer-win32-x64-1.0.0.tgz UML_VIEWER_E2E_SCRATCH=/absolute/scratch/e2e pnpm test:e2e package.spec.mjs
+```
+
+Set explicit `npm_config_cache`, `npm_config_store_dir`, `PNPM_CACHE_DIR`,
+`COREPACK_HOME`, `XDG_CACHE_HOME` and `PLAYWRIGHT_BROWSERS_PATH` under scratch
+before package-manager/browser commands. `pnpm e2e:install` uses the configured
+E2E scratch browser prefix. Remove generated packages, test homes and Cargo
+targets when finished. The local acceptance opens a real panel, removes the
+packages through management and compares project bytes and nanosecond mtimes.
 
 ## Abstract
 

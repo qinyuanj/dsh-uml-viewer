@@ -13,6 +13,7 @@ import { UML_VIEWER_REMOTE } from '@dsh-uml-viewer/contracts'
 import { FONT_FAMILY, loadSarasa } from './font.js'
 import { PanelController, type PanelRemoteApi } from './panel.js'
 import { paintFrame } from './paint.js'
+import { DECLUTTER_STYLE, mountDeclutterControl } from './declutter.js'
 
 export const TAB_ID = 'dsh-uml-viewer'
 export const TAB_KIND = 'dsh-uml-viewer'
@@ -20,7 +21,7 @@ export const PANEL_PATH = 'dsh-uml-viewer'
 export const GUIDE_ORDER = 30
 const REMOTE_NAMESPACE = 'umlViewer'
 
-const STYLE = `
+const STYLE = `${DECLUTTER_STYLE}
 .dsh-uml-viewer-panel { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; width: 100%; }
 .dsh-uml-viewer-panel canvas { display: block; flex: 1 1 auto; min-height: 0; width: 100%; height: 100%; }
 .dsh-uml-viewer-summary {
@@ -145,6 +146,7 @@ export async function mountPanel(host: HTMLElement, options: {
       status.style.display = reason ? '' : 'none'
     },
   })
+  const disposeDeclutter = mountDeclutterControl(host, controller)
   const unsubscribe = controller.subscribe(() => { /* React panels poll `current`; nothing to do here. */ })
   const onResize = (): void => {
     void controller.measureViewport().then(size => controller.setViewport(size.width, size.height))
@@ -169,6 +171,7 @@ export async function mountPanel(host: HTMLElement, options: {
   await controller.open(options.sessionId)
   return () => {
     observer?.disconnect()
+    disposeDeclutter()
     unsubscribe()
     canvas.removeEventListener('pointerdown', onPointerDown)
     canvas.removeEventListener('pointermove', onPointerMove)

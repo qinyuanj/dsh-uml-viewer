@@ -29,6 +29,10 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Cargo and npm release version consistency
+        run: pnpm version:check
+      - name: Package assembly contract
+        run: pnpm test:package
       - name: Strict TypeScript type check
         run: pnpm typecheck
       - name: TypeScript unit and Cordis seam tests

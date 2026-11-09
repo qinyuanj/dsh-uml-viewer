@@ -29,7 +29,8 @@ it('serves the packaged face as font/ttf on the route the client loads, for the 
   ctx.provide('workingDirectory', { get: () => '/', ensure: async () => '/' })
   ctx.provide('subprocess', { spawn: () => { throw new Error('no spawn expected') } })
   ctx.provide('webServer', { register(route: Route) { routes.push(route); return () => { routes.splice(routes.indexOf(route), 1) } } })
-  const fiber = ctx.plugin(plugin, {})
+  // Route activation requires a pinned executable even though this fixture never spawns it.
+  const fiber = ctx.plugin(plugin, { binary: process.execPath })
   await fiber
   expect(routes.map(route => [route.kind, route.path])).toEqual([['exact', PANEL_FONT_PATH]])
   const response = await routes[0]!.resource!(new Request(`http://127.0.0.1${PANEL_FONT_PATH}`))

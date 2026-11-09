@@ -325,7 +325,8 @@ describe('tier from the camera zoom', () => {
 
   it('agrees with the producer tier on every golden', () => {
     const names = readdirSync(framesDir).filter(name => name.endsWith('.frame.json'))
-    expect(names).toHaveLength(6)
+    // #25 added root-triangles-selected (移除箭头 indicators at reading zoom).
+    expect(names).toHaveLength(7)
     for (const name of names) {
       const frame = golden(name)
       expect(tierOf(frame), name).toBe(frame.lod)

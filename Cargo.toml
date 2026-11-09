@@ -8,6 +8,8 @@ members = ["crates/*"]
 exclude = ["rust-fixture"]
 
 [workspace.package]
+# Authoritative release version; npm manifests are checked/synced by scripts/version.mjs.
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.99.1"
 publish = false
