@@ -194,10 +194,36 @@ uncovered; LCOV cannot cover a Go or Java source. Reused reports use the same
 formats. A malformed Go report stops before publication, while Java's line
 reader skips malformed XML, as mutator's original reader does.
 
-JVM commands get a copy of the caller's cached Maven repository inside their
-redirected home, and `JAVA_TOOL_OPTIONS` points `java.user.home` there.
-Dependency downloads and lockfiles therefore remain inside the view. The
-same pool, process containment, interrupt handling and snapshot publication
+Generated Go and Java runs consume only the exact report written for that
+module, scoped to that module's sources. Stale sibling reports in a Windows
+project copy cannot override a fresh sibling result, and a fresh zero-hit
+record stays uncovered. A custom `--coverage-command` reads native reports
+from its live disposable view alongside its required LCOV report. Absolute
+copy-local Go source paths map back to the project; module-relative paths
+retain their source module. The custom command may deliberately reuse native
+reports already present in that view. Each selected native source must have
+matching coverage data, including an explicit zero-hit record when uncovered;
+a missing native report fails measurement. Nested Go/Java modules provide their
+own reports, rather than relying on ambiguous root-level aggregate source keys.
+
+JVM commands get an independent copy of the caller's cached Maven repository
+inside their redirected home, and `JAVA_TOOL_OPTIONS` adds `-Duser.home` for
+that home. The copy is preflighted recursively before any byte moves: a link at
+the `.m2` root or at any entry below it, dangling or not, and any special file
+refuse the command before it is launched. Copying then opens every entry with
+`O_NOFOLLOW` through held directory descriptors, so a link renamed in after the
+preflight cannot redirect it. Only bytes reach a new `0600` file in the `0700`
+seed: no symlink, hard link or caller inode permission is carried over, and a
+failed seed is removed whole. The seed is bind-mounted over the view's
+`$HOME/.m2` and discarded with the view's layers before the next command, so
+dependency downloads and lockfiles remain inside the view. The option itself is
+the JVM's own quoting, not shell quoting, so a project path with spaces, `'` or
+`"` stays one property and is never spliced into shell source. Ordinary-file
+writes by another process during the copy can still produce an inconsistent
+seed, and the preflight guards the seed rather than the caller's home: an
+absolute path outside the project, including the real `~/.m2`, stays reachable,
+as noted above for every view command.
+The same pool, process containment, interrupt handling and snapshot publication
 serve these languages; no language adds another scheduler.
 
 `fixtures/mutate/{go,java,clojure}` contain seven raw fixed-clock snapshot

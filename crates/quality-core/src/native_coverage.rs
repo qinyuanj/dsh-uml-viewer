@@ -45,6 +45,38 @@ impl NativeReports {
         Ok(reports)
     }
 
+    /// Read only the profile a module's command just generated. In a Windows
+    /// copy, sibling reports still exist and must not enter this result.
+    pub fn go_report(path: &Path) -> Result<Self, String> {
+        let text = std::fs::read_to_string(path)
+            .map_err(|error| format!("Go coverage report unavailable: {error}"))?;
+        let mut reports = Self::default();
+        parse_go_profile(&text, &mut reports.go)?;
+        Ok(reports)
+    }
+
+    /// Map absolute source keys from a disposable copy back to its project.
+    /// Relative report keys keep their module-specific interpretation.
+    pub fn rebase(&mut self, from: &Path, to: &Path) {
+        let from = format!("{}/", crate::paths::posix(from).trim_end_matches('/'));
+        let to = crate::paths::posix(to);
+        let key = |source: &str| {
+            let normalized = source.replace('\\', "/");
+            normalized
+                .strip_prefix(&from)
+                .map(|relative| format!("{}/{relative}", to.trim_end_matches('/')))
+                .unwrap_or_else(|| source.to_string())
+        };
+        for (source, _) in &mut self.go {
+            *source = key(source);
+        }
+        let mut lcov = Records::default();
+        for (source, lines) in self.lcov.iter() {
+            lcov.insert(key(source), lines.clone());
+        }
+        self.lcov = lcov;
+    }
+
     /// Forget reports about to be regenerated. A failed runner must not
     /// reuse stale hits from an older report.
     pub fn invalidate(&mut self, language: crate::language::Language) {
@@ -87,6 +119,21 @@ impl NativeReports {
         )
     }
 
+    /// A module-relative key must match exactly: a bare basename must not
+    /// borrow a subpackage's same-named source through suffix matching.
+    pub fn go_lines_exact(&self, path: &str) -> Option<BTreeSet<usize>> {
+        let (_, segments) = self.go.iter().find(|(key, _)| {
+            crate::coverage::normalize_path(key) == crate::coverage::normalize_path(path)
+        })?;
+        Some(
+            segments
+                .iter()
+                .filter(|(_, _, _, hits)| *hits > 0)
+                .flat_map(|(start, end, _, _)| *start..=*end)
+                .collect(),
+        )
+    }
+
     /// Cloverage's per-line form counts, keyed by report path.
     pub fn forms(&self) -> &Records {
         &self.forms
@@ -108,8 +155,18 @@ fn attribute(value: Option<&str>) -> Option<i64> {
 /// instruction or branch, over every JaCoCo report under `root`. A report
 /// that does not parse is skipped.
 pub fn jacoco_lines(root: &Path) -> Vec<(String, BTreeSet<usize>)> {
+    jacoco_texts(report_texts(root, JACOCO_REPORTS))
+}
+
+/// Read exactly one freshly generated module report, retaining the existing
+/// malformed-XML behavior of the JaCoCo line reader.
+pub fn jacoco_report(path: &Path) -> Vec<(String, BTreeSet<usize>)> {
+    jacoco_texts(std::fs::read_to_string(path).into_iter())
+}
+
+fn jacoco_texts(texts: impl IntoIterator<Item = String>) -> Vec<(String, BTreeSet<usize>)> {
     let mut found: Vec<(String, BTreeSet<usize>)> = Vec::new();
-    for text in report_texts(root, JACOCO_REPORTS) {
+    for text in texts {
         let clean = jacoco_document(&text);
         let Ok(document) = roxmltree::Document::parse(&clean) else {
             continue;

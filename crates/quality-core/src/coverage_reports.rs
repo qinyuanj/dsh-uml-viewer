@@ -229,7 +229,9 @@ pub(crate) fn parse_go_profile(text: &str, profile: &mut GoProfile) -> Result<()
         if fields.len() != 3 || !fields[0].contains(':') {
             return Err(invalid());
         }
-        let Some((file, range)) = fields[0].split_once(':') else {
+        // The range separator is the last colon; a Windows absolute source
+        // key can also contain a drive colon before the disposable-copy path.
+        let Some((file, range)) = fields[0].rsplit_once(':') else {
             return Err(invalid());
         };
         let Some((start, end)) = range.split_once(',') else {
