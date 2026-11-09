@@ -455,7 +455,7 @@ mod source_bound_tests {
 
     #[test]
     fn reads_a_file_at_the_byte_limit_and_refuses_one_byte_more() {
-        let at = scratch("at", &vec![b'a'; 64]);
+        let at = scratch("at", &[b'a'; 64]);
         assert_eq!(read_bounded(&at, 64).unwrap().unwrap().len(), 64);
         let error = read_bounded(&at, 63).unwrap_err();
         assert!(error.contains("has 64 bytes; the limit is 63"), "{error}");
