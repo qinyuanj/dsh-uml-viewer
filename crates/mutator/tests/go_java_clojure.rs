@@ -113,6 +113,10 @@ impl Fixture {
         if !toolchain(language) {
             return None;
         }
+        Some(Self::copy_project(language))
+    }
+
+    fn copy_project(language: &'static str) -> Self {
         let directory = std::env::temp_dir().join(format!(
             "mutator-gjc-{}-{}",
             std::process::id(),
@@ -120,11 +124,11 @@ impl Fixture {
         ));
         let project = directory.join("project");
         copy(&fixture_dir().join(language).join("project"), &project);
-        Some(Self {
+        Self {
             directory,
             project,
             language,
-        })
+        }
     }
 
     fn targets(&self) -> Vec<&'static str> {
@@ -241,11 +245,13 @@ fn go_snapshots_are_the_pinned_originals_bytes() {
     golden_run("go");
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn java_snapshots_are_the_pinned_originals_bytes() {
     golden_run("java");
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn clojure_snapshots_are_the_pinned_originals_bytes() {
     golden_run("clojure");
@@ -280,11 +286,13 @@ fn go_workers_publish_the_same_bytes_as_one_worker() {
     parallel_run("go");
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn java_workers_publish_the_same_bytes_as_one_worker() {
     parallel_run("java");
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn clojure_workers_publish_the_same_bytes_as_one_worker() {
     parallel_run("clojure");
@@ -294,9 +302,7 @@ fn clojure_workers_publish_the_same_bytes_as_one_worker() {
 #[test]
 fn scan_writes_no_metrics() {
     for language in ["go", "java", "clojure"] {
-        let Some(fixture) = Fixture::new(language) else {
-            continue;
-        };
+        let fixture = Fixture::copy_project(language);
         let mut args = vec![
             OsString::from("--root"),
             fixture.project.clone().into_os_string(),
