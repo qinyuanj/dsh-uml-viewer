@@ -124,6 +124,7 @@ async function host(dshHome: string, packageRoot: string, wrappers = new Map<str
     const viewer = ctx.get('umlViewer') as unknown as {
       watch(agent: Agent, signal: AbortSignal): AsyncIterable<PanelEvent>
       action(agent: Agent, action: unknown): Promise<{ accepted: boolean; reason: string | null }>
+      close(agent: Agent): Promise<{ closed: boolean }>
     }
     const iterator = viewer.watch(agents[session]!, controller.signal)[Symbol.asyncIterator]()
     const ready = (await iterator.next()).value as PanelEvent
@@ -134,7 +135,14 @@ async function host(dshHome: string, packageRoot: string, wrappers = new Map<str
       /** Every resident start in this project: which version ran, from which file. */
       runs: async () => (await readFile(path.join(project, 'resident-versions.log'), 'utf8'))
         .trim().split('\n').map(line => JSON.parse(line) as { version: string; binary: string }),
+      /** A carrier loss, as the gateway leaves a watch stream: abort and return. */
+      withdraw: async () => {
+        controller.abort()
+        await iterator.return?.(undefined)
+      },
+      /** A user close: the explicit Remote call, then the stream's own teardown. */
       close: async () => {
+        await viewer.close(agents[session]!)
         controller.abort()
         await iterator.return?.(undefined)
       },
@@ -204,14 +212,15 @@ it('survives unloading vN and loading vN+1 in the same Cordis root until the old
   expect(existsSync(path.join(home, 'leases', '1.0.0'))).toBe(false)
 })
 
-it('switches the same session to vN+1 when it is closed and opened again after an update', async () => {
+it('binds a second live panel of the same session to the same vN resident', async () => {
   const dshHome = await scratch('reopen home')
   const home = path.join(dshHome, 'dsh-uml-viewer')
   const old = await host(dshHome, await install('1.0.0'))
   const before = await old.panel('one-session')
   await old.unload()
   const updated = await host(dshHome, await install('1.1.0'), new Map(), old)
-  // While the vN panel is open, a fresh open still binds the same session to it.
+  // Two live panels of one session are one resident: the second binds vN. This
+  // is the sidebar/main reparent case, not a carrier loss (D13).
   const attached = await updated.panel('one-session')
   expect((await attached.runs()).at(-1)).toEqual({ version: '1.0.0', binary: path.join(home, '1.0.0', exe) })
   await attached.close()
@@ -227,21 +236,67 @@ it('switches the same session to vN+1 when it is closed and opened again after a
   expect(existsSync(path.join(home, '1.1.0', exe))).toBe(true)
 })
 
-it('retires vN when the retired activation’s last panel stream ends, e.g. a cancelled panel', async () => {
-  const dshHome = await scratch('cancel home')
+it('keeps vN when a withdrawn stream is followed by the same session’s remount (D13)', async () => {
+  const dshHome = await scratch('withdraw home')
   const home = path.join(dshHome, 'dsh-uml-viewer')
   const old = await host(dshHome, await install('1.0.0'))
-  const before = await old.panel('old-session')
+  const before = await old.panel('one-session')
   await old.unload()
-  await host(dshHome, await install('1.1.0'), new Map(), old)
-  expect(existsSync(path.join(home, '1.0.0'))).toBe(true)
-  // The page closing or reloading cancels the old stream: that panel is gone,
-  // so its resident stops and its version becomes collectable immediately.
-  await before.close()
+  // What the shipped gateway does when the browser half is unloaded: the method
+  // signal aborts and the business iterator is returned. That is a carrier
+  // loss, not a user close, so it must not switch the session's version.
+  await before.withdraw()
+  expect(old.children.map(child => child.alive())).toEqual([true])
+
+  const updated = await host(dshHome, await install('1.1.0'), new Map(), old)
+  const remount = await updated.panel('one-session')
+  // The remount re-attaches to the waiting vN resident: one child, one version.
+  expect(await remount.runs()).toEqual([{ version: '1.0.0', binary: path.join(home, '1.0.0', exe) }])
+  expect(updated.children.filter(child => child.alive())).toHaveLength(1)
+  expect(await remount.action({ action: 'viewport', width: 640, height: 480 })).toMatchObject({ accepted: true })
+  expect(await before.runs()).toEqual([{ version: '1.0.0', binary: path.join(home, '1.0.0', exe) }])
+
+  // A user close is the definite signal: it stops the resident at once.
+  await remount.close()
   expect(old.children.map(child => child.alive())).toEqual([false])
   cleanupVersions(home)
   expect(existsSync(path.join(home, '1.0.0'))).toBe(false)
   expect(existsSync(path.join(home, '1.1.0', exe))).toBe(true)
+})
+
+it('stops the resident on an explicit close after a withdrawal, saving its view', async () => {
+  const dshHome = await scratch('close home')
+  const home = path.join(dshHome, 'dsh-uml-viewer')
+  const old = await host(dshHome, await install('1.0.0'))
+  const before = await old.panel('old-session')
+  const project = before.project
+  await old.unload()
+  await host(dshHome, await install('1.1.0'), new Map(), old)
+  await before.withdraw()
+  expect(old.children.map(child => child.alive())).toEqual([true])
+  // A grace already waiting is not the same as a closed panel: close wins.
+  await before.close()
+  expect(old.children.map(child => child.alive())).toEqual([false])
+  const log = (await readFile(path.join(project, 'resident-actions.log'), 'utf8')).trim().split('\n')
+    .map(line => JSON.parse(line) as { action: string })
+  expect(log.map(entry => entry.action)).toContain('save')
+  expect(existsSync(path.join(home, '1.0.0'))).toBe(false)
+})
+
+it('stops every resident at root shutdown while a withdrawal grace is pending', async () => {
+  const dshHome = await scratch('shutdown home')
+  const home = path.join(dshHome, 'dsh-uml-viewer')
+  const old = await host(dshHome, await install('1.0.0'))
+  const before = await old.panel('old-session')
+  await old.unload()
+  const updated = await host(dshHome, await install('1.1.0'), new Map(), old)
+  await before.withdraw()
+  expect(updated.children.map(child => child.alive())).toEqual([true])
+  // Root shutdown is the second owner: the pending window must not keep a child.
+  await updated.dispose()
+  expect(updated.children.map(child => child.alive())).toEqual([false])
+  expect(existsSync(path.join(home, '1.0.0'))).toBe(false)
+  expect(existsSync(path.join(home, 'leases', '1.0.0'))).toBe(false)
 })
 
 it('removes the old version directory once the host still using it has stopped', async () => {
