@@ -2,7 +2,7 @@
 
 - Do **not** edit `examples/uml-viewer.edn`. It is generated from
   `examples/uml-viewer.policy.edn` by the Rust IR pipeline via
-  `uml-viewer ir examples/uml-viewer.policy.edn`.
+  `./target/release/uml-viewer ir examples/uml-viewer.policy.edn`.
 - Policy follows **namespace nesting**, not invented layers/components.
   Dots after the prefix are the tree. Do not add Domain/Engine-style
   packages. **Layer** and **component** mean the same thing.
@@ -25,13 +25,17 @@
 - Developing this repository (ADR 0013): dsh-uml-viewer is the only
   repository for the `dsh-uml-viewer` plugin; qinyuanj/uml-viewer is frozen
   on the old `get-uml-viewer` / `./uml` flow, which this repository deleted
-  (#18). The maintainer runs the quality refresh with the binary
-  (`cargo build --release --locked`, then from the repository root):
-  `uml-viewer quality crap`, a differential `uml-viewer quality mutate` on
-  the changed source files (all of them in one call), optionally
-  `uml-viewer quality dry`, then
-  `uml-viewer ir examples/uml-viewer.policy.edn`. `quality` applies the
-  declared scope in `uml-quality.json` and prints the version-1 result
+  (#18). After `cargo build --release --locked`, the maintainer runs the
+  quality refresh from the repository root with the built binary:
+  `./target/release/uml-viewer quality crap`, a differential
+  `./target/release/uml-viewer quality mutate` on the changed source files
+  (all of them in one call), optionally
+  `./target/release/uml-viewer quality dry`, then
+  `./target/release/uml-viewer ir examples/uml-viewer.policy.edn`.
+  On native Windows use `.\target\release\uml-viewer.exe` for each call.
+  Respect the current user resource policy before building or refreshing.
+  `quality` applies the declared scope in `uml-quality.json` and prints the
+  version-1 result
   record; run IR only after a record with `validResult: true`. Your
   hand-off ends with the list of changed source files for that refresh.
   Commit source and docs only; `.metrics/` snapshots and
@@ -40,13 +44,15 @@
   `docs/plugin-development.md` for workspace checks and `UML_VIEWER_BIN`.
   Use a scratch DSH home; keep the user's live profile untouched.
 - Prerequisites are the Rust toolchain pinned by `rust-toolchain.toml`,
-  git, Node 24 and pnpm (the plugin packages). The single Rust binary runs
+  git, Node 24 and pnpm (the plugin packages), and Python 3.11+ for
+  `scripts/check.py` and the pre-commit hook. The single Rust binary runs
   the egui window (`uml-viewer viewer [diagram.edn]`, standalone, hot
   reload), the panel's `resident` session, IR generation, the four
   scanners and the three quality tools (`crap`, `mutate`, `dry`, or
   `quality` for the declared scope). dryer reports duplicate structure in
   `.metrics/dry.edn`; nothing overlays that snapshot, so read
-  `uml-viewer quality dry` from the terminal. The Sarasa face is
+  `./target/release/uml-viewer quality dry` from the terminal (use the
+  `.exe` path above on Windows). The Sarasa face is
   packaged in `fonts/`.
 
 Do not commit or push unless asked.

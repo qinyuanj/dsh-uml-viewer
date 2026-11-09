@@ -65,8 +65,9 @@ read from the terminal.
 ## Run
 
 Needs the Rust toolchain pinned by `rust-toolchain.toml` (1.99.1 with
-`rustfmt` and `clippy`), `git`, and for the plugin Node 24 and pnpm. There
-is no Herdr, Python, Java, Clojure, Lua, LOVE or PowerShell dependency.
+`rustfmt` and `clippy`), `git`, and for the plugin Node 24 and pnpm.
+Development checks and the pre-commit hook require Python 3.11+; the binary
+itself has no Python, Herdr, Java, Clojure, Lua, LOVE or PowerShell dependency.
 
 ```sh
 cargo build --release --locked
@@ -94,11 +95,16 @@ platform: [docs/mutation-linux.md](docs/mutation-linux.md) and
 with exit 1.
 
 ```sh
-uml-viewer quality crap                              # .metrics/crap.edn
-uml-viewer quality mutate crates/edn/src/lib.rs      # differential mutation
-uml-viewer quality dry                               # .metrics/dry.edn
-uml-viewer ir examples/uml-viewer.policy.edn         # then regenerate the IR
+./target/release/uml-viewer quality crap                          # .metrics/crap.edn
+./target/release/uml-viewer quality mutate crates/edn/src/lib.rs    # differential mutation
+./target/release/uml-viewer quality dry                           # .metrics/dry.edn
+./target/release/uml-viewer ir examples/uml-viewer.policy.edn       # then regenerate the IR
 ```
+
+Run these calls from the repository root after the release build. On native
+Windows, use `.\target\release\uml-viewer.exe` for each call. Follow the
+current user resource policy before building or refreshing. Only run IR after
+a successful quality result with `validResult: true`.
 
 ## Navigation
 
@@ -499,7 +505,7 @@ are not `local` are `:ops`, named as written in the source (`M.clamp`,
 constructor (`M.t = { f = function() end }`), is not an op; one in a
 top-level `if` or `do` block is, as crapper counts entries.
 `require(name)`, `require("prefix." .. name)`, and a name built from `...`
-cannot be resolved statically: they draw no edge, and `uml ir` prints
+cannot be resolved statically: they draw no edge, and `uml-viewer ir` prints
 `Unresolved dynamic require: <file>:<line>` to stderr.
 A top-level `setmetatable(t, {__index = Base})` or
 `setmetatable(t, Base)`, where `local Base = require("app.base")` names a
