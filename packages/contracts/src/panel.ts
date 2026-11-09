@@ -13,6 +13,8 @@ import { validateSessionState } from './resident.js'
 import { normalizeRelativePath } from './tools.js'
 import type { CardModel, InspectorModel, SourceModel } from './overlays.js'
 import { validateCardModel, validateInspectorModel, validateSourceModel } from './overlays.js'
+import type { QualityRequestOp } from './requests.js'
+import { parseElementId, parseQualityRequestOp } from './requests.js'
 
 /** The Remote namespace the panel mounts. */
 export const REMOTE_SERVICE = 'umlViewer'
@@ -47,6 +49,9 @@ export type PanelAction =
   | { action: 'close-card' }
   | { action: 'scroll-card'; delta: number; viewHeight: number }
   | { action: 'open-source'; id: string; member?: string }
+  // #28: a right-click quality refresh. The host resolves the files and
+  // queues the visible request message in this panel's session.
+  | { action: 'quality-request'; request: QualityRequestOp; id: string }
 
 /** One action's outcome; the events it caused arrive on the watch stream. */
 export interface PanelAck {
@@ -228,6 +233,9 @@ export function parsePanelAction(value: unknown, label = 'panel action'): PanelA
         const member = source.member === undefined || source.member === null ? undefined : str(source.member, `${label}.member`)
         return { action, id: str(source.id, `${label}.id`), ...(member === undefined ? {} : { member }) }
       }
+      case 'quality-request':
+        return { action, request: parseQualityRequestOp(source.request, `${label}.request`),
+          id: parseElementId(source.id, `${label}.id`) }
       default:
         return at(`${label}.action`, `unknown panel action ${JSON.stringify(source.action)}`)
     }
