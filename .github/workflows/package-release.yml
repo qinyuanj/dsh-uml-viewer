@@ -66,10 +66,12 @@ jobs:
         run: pnpm version:check
       - name: Package contract, stale-payload gate and release guards
         run: pnpm test:package
-      - name: Build the plugin and the native release binary
-        run: |
-          pnpm build
-          cargo build --release --locked -p uml-viewer
+      # GitHub's default pwsh shell on Windows exits with the LAST command's code
+      # only, so each native command keeps its own step on every runner.
+      - name: Build the plugin
+        run: pnpm build
+      - name: Build the native release binary
+        run: cargo build --release --locked -p uml-viewer
       - name: Assemble the main and the current-platform archives
         shell: bash
         run: node scripts/package.mjs --binary "$GITHUB_WORKSPACE/${{ matrix.binary }}" --out "$RUNNER_TEMP/packages"

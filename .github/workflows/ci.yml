@@ -67,10 +67,12 @@ jobs:
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: pnpm install --frozen-lockfile
-      - name: Build the plugin and its real resident binary
-        run: |
-          pnpm build
-          cargo build --locked -p uml-viewer
+      # GitHub's default pwsh shell exits with the LAST command's code only, so a
+      # multiline step can hide a failed first native command: one per step.
+      - name: Build the plugin
+        run: pnpm build
+      - name: Build the resident binary
+        run: cargo build --locked -p uml-viewer
       - name: Isolated DSH CLI
         run: npm install --prefix .scratch/dsh-cli --no-save @deepseek-ai/dsh@0.2.2-rc.1
       - name: Scratch Chromium
@@ -88,10 +90,12 @@ jobs:
       - name: Rust toolchain pinned by rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+      # GitHub's default pwsh shell exits with the LAST command's code only, so a
+      # multiline step can hide a failed first native command: one per step.
       - name: CRAP native Windows tests
-        run: |
-          cargo test -p crapper --locked
-          cargo test -p uml-viewer --test integration crap_ --locked
+        run: cargo test -p crapper --locked
+      - name: CRAP integration tests and goldens
+        run: cargo test -p uml-viewer --test integration crap_ --locked
 
   # Native Windows mutation (#10): per-command project copies over the shared
   # kill-on-close Job Object, with real cargo test inside the copies.
@@ -107,15 +111,17 @@ jobs:
       - name: Rust toolchain pinned by rust-toolchain.toml
         run: rustup toolchain install
       # cargo llvm-cov needs llvm-profdata; the default-coverage golden uses it.
+      # GitHub's default pwsh shell exits with the LAST command's code only, so a
+      # multiline step can hide a failed first native command: one per step.
       - name: LLVM tools for cargo-llvm-cov
-        run: |
-          rustup component add llvm-tools
-          cargo install cargo-llvm-cov --locked
+        run: rustup component add llvm-tools
+      - name: cargo-llvm-cov for the coverage goldens
+        run: cargo install cargo-llvm-cov --locked
       - uses: Swatinem/rust-cache@v2
       - name: Mutation native Windows tests
-        run: |
-          cargo test -p mutator --locked
-          cargo test -p uml-viewer --test integration mutate --locked
+        run: cargo test -p mutator --locked
+      - name: Mutation integration tests
+        run: cargo test -p uml-viewer --test integration mutate --locked
 
   # macOS (#10): mutate refuses with exit 1 before any command; crap and dry
   # are unaffected. No mutation isolation is claimed on this platform.
