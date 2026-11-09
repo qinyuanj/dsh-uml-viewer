@@ -1,0 +1,10 @@
+# User resource limit: check only; never start a build/test/coverage job.
+[build]
+jobs = 2
+incremental = false
+[profile.dev]
+debug = 0
+incremental = false
+[profile.test]
+debug = 0
+incremental = false
