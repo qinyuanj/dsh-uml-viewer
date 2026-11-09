@@ -35,6 +35,7 @@ pub mod paths;
 pub mod platform;
 pub mod process;
 mod report_files;
+pub use report_files::ReportTree;
 pub mod runner;
 mod runner_clojure;
 mod runner_go;

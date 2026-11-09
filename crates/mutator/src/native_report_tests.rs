@@ -306,7 +306,9 @@ fn custom_native_reads_the_view_and_rebases_absolute_go_keys() {
 }
 
 #[test]
-fn custom_missing_selected_module_fails_instead_of_using_a_sibling() {
+fn custom_module_without_its_own_report_reads_the_root_globs() {
+    // The original reads `*/target/...` globally after an in-place command, so
+    // a module with no report of its own uses whatever those globs name.
     for language in [Language::Go, Language::Java] {
         for (present, absent) in [("a", "b"), ("b", "a")] {
             let fixture = Fixture::new();
@@ -325,11 +327,238 @@ fn custom_missing_selected_module_fails_instead_of_using_a_sibling() {
             let mut coverage = Coverage::default();
             assert_eq!(
                 collect_custom_native(&root, &files, &mut coverage, &view),
-                Err(2),
-                "{language:?} {absent} had no report of its own"
+                Ok(())
             );
+            assert_eq!(
+                coverage.modules.len(),
+                1,
+                "{language:?} pushed a scope for {absent}, which has no report"
+            );
+            for file in &files {
+                assert_eq!(
+                    selected_lines(&coverage, &root, file),
+                    Some(BTreeSet::from([7])),
+                    "{language:?} {}",
+                    file.display()
+                );
+            }
         }
     }
+}
+
+#[test]
+fn custom_cloverage_omitting_a_namespace_warns_instead_of_failing() {
+    // MERGE-14-FIX B1: a namespace the tests never loaded has no Cloverage
+    // page. The original warns, leaves its sites uncovered and publishes.
+    let fixture = Fixture::new();
+    let root = fixture.root();
+    put(root.join("deps.edn"), "{}");
+    let measured = root.join("src/demo/core.clj");
+    let omitted = root.join("src/demo/extra.clj");
+    for file in [&measured, &omitted] {
+        put(file, "source");
+    }
+    let view = fixture.view("copy");
+    let base = isolation::report_path(&view, Path::new(""));
+    put(base.join("coverage/lcov.info"), "");
+    put(
+        base.join("target/coverage/src/demo/core.clj.html"),
+        "<span title=\"1 out of 1 forms covered\">7&nbsp;</span>",
+    );
+    let mut coverage = Coverage::default();
+    assert_eq!(
+        collect_custom_native(
+            &root,
+            &[measured.clone(), omitted.clone()],
+            &mut coverage,
+            &view
+        ),
+        Ok(()),
+        "a namespace without data must not abort the run"
+    );
+    assert_eq!(
+        selected_lines(&coverage, &root, &measured),
+        Some(BTreeSet::from([7]))
+    );
+    // None is what makes the caller print "No coverage data for …; its sites
+    // are uncovered." and continue.
+    assert_eq!(selected_lines(&coverage, &root, &omitted), None);
+}
+
+#[test]
+fn custom_root_report_covers_a_nested_module_without_its_own_report() {
+    // MERGE-14-FIX B2: root pom.xml and app/pom.xml; the custom command
+    // writes only the root-level report, which names the nested source.
+    for language in [Language::Java, Language::Go] {
+        let fixture = Fixture::new();
+        let root = fixture.root();
+        with_marker(&root, language);
+        let app = root.join("app");
+        with_marker(&app, language);
+        let file = if language == Language::Java {
+            app.join("src/main/java/p/A.java")
+        } else {
+            app.join("foo.go")
+        };
+        put(&file, "source");
+        let view = fixture.view("copy");
+        let base = isolation::report_path(&view, Path::new(""));
+        if language == Language::Java {
+            put(
+                base.join("target/site/jacoco/jacoco.xml"),
+                &jacoco(1).replace("Foo.java", "A.java"),
+            );
+        } else {
+            put(
+                base.join("target/coverage/go/coverage.out"),
+                &go_profile(&quality_core::paths::posix(&base.join("app/foo.go")), 1),
+            );
+        }
+        let mut coverage = Coverage::default();
+        assert_eq!(
+            collect_custom_native(&root, std::slice::from_ref(&file), &mut coverage, &view),
+            Ok(())
+        );
+        assert!(
+            coverage.modules.is_empty(),
+            "{language:?} app has no report, so it must not get a scope"
+        );
+        assert_eq!(
+            selected_lines(&coverage, &root, &file),
+            Some(BTreeSet::from([7])),
+            "{language:?} ignored the root-level report"
+        );
+    }
+}
+
+#[test]
+fn custom_reads_an_unchanged_project_report_through_the_view() {
+    // MERGE-14-FIX B3: a mixed TypeScript and Go project whose custom command
+    // regenerates only LCOV. The existing Go profile is in the project; a
+    // Windows copy holds it, a Linux view shows it from below its upper layer.
+    let fixture = Fixture::new();
+    let root = fixture.root();
+    put(root.join("go.mod"), "module example.com/app\n");
+    let go = root.join("src/foo.go");
+    put(&go, "source");
+    let view = fixture.view("copy");
+    let base = isolation::report_path(&view, Path::new(""));
+    let unchanged = if cfg!(windows) {
+        base.clone()
+    } else {
+        root.clone()
+    };
+    put(
+        unchanged.join("target/coverage/go/coverage.out"),
+        &go_profile(&quality_core::paths::posix(&go), 1),
+    );
+    // The command's own writes: upper now has `target/coverage`, but not `go`.
+    put(base.join("coverage/lcov.info"), "");
+    put(base.join("target/coverage/typescript/lcov.info"), "");
+    let mut coverage = Coverage::default();
+    assert_eq!(
+        collect_custom_native(&root, std::slice::from_ref(&go), &mut coverage, &view),
+        Ok(())
+    );
+    assert_eq!(
+        selected_lines(&coverage, &root, &go),
+        Some(BTreeSet::from([7])),
+        "the unchanged project Go profile was not read"
+    );
+}
+
+/// An overlay whiteout over `path`, as the kernel leaves one in upper.
+#[cfg(target_os = "linux")]
+fn whiteout(path: &Path) {
+    use quality_core::libc;
+    use std::os::unix::ffi::OsStrExt;
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: `name` is NUL-terminated and outlives the call. Linux 5.8+
+    // lets an unprivileged user create the 0/0 whiteout device.
+    let made = unsafe { libc::mknod(name.as_ptr(), libc::S_IFCHR | 0o600, 0) };
+    assert_eq!(
+        made,
+        0,
+        "mknod whiteout: {}",
+        std::io::Error::last_os_error()
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn custom_whiteout_in_the_view_keeps_a_deleted_project_report_absent() {
+    let fixture = Fixture::new();
+    let root = fixture.root();
+    put(root.join("go.mod"), "module example.com/app\n");
+    let go = root.join("src/foo.go");
+    put(&go, "source");
+    let report = Path::new("target/coverage/go/coverage.out");
+    put(
+        root.join(report),
+        &go_profile(&quality_core::paths::posix(&go), 1),
+    );
+    let view = fixture.view("copy");
+    let base = isolation::report_path(&view, Path::new(""));
+    // The command removed the stale profile and wrote none.
+    whiteout(&base.join(report));
+    put(base.join("coverage/lcov.info"), "");
+    assert_eq!(isolation::report_tree(&base, &root).file(report), None);
+    let mut coverage = Coverage::default();
+    assert_eq!(
+        collect_custom_native(&root, std::slice::from_ref(&go), &mut coverage, &view),
+        Ok(())
+    );
+    assert!(coverage.modules.is_empty(), "a deleted report got a scope");
+    assert_eq!(
+        selected_lines(&coverage, &root, &go),
+        None,
+        "the whiteout resurrected the project's deleted profile"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn custom_opaque_view_directory_hides_the_project_reports_below_it() {
+    use quality_core::libc;
+    use std::os::unix::ffi::OsStrExt;
+    let fixture = Fixture::new();
+    let root = fixture.root();
+    let report = Path::new("target/coverage/go/coverage.out");
+    put(root.join(report), &go_profile("src/foo.go", 1));
+    let view = fixture.view("copy");
+    let base = isolation::report_path(&view, Path::new(""));
+    // `rm -rf target/coverage/go && mkdir target/coverage/go` in the view.
+    let directory = base.join("target/coverage/go");
+    fs::create_dir_all(&directory).unwrap();
+    let name = std::ffi::CString::new(directory.as_os_str().as_bytes()).unwrap();
+    // SAFETY: both strings are NUL-terminated; the value is one byte long.
+    let set = unsafe {
+        libc::lsetxattr(
+            name.as_ptr(),
+            c"user.overlay.opaque".as_ptr(),
+            b"y".as_ptr().cast(),
+            1,
+            0,
+        )
+    };
+    if set != 0 {
+        eprintln!(
+            "SKIPPED custom_opaque_view_directory_hides_the_project_reports_below_it: \
+             user xattrs unavailable in {}: {}",
+            directory.display(),
+            std::io::Error::last_os_error()
+        );
+        return;
+    }
+    let tree = isolation::report_tree(&base, &root);
+    assert_eq!(tree.file(report), None);
+    // A sibling outside the opaque directory still reads through.
+    put(root.join("coverage.out"), &go_profile("src/foo.go", 1));
+    assert_eq!(
+        tree.file(Path::new("coverage.out")),
+        Some(root.join("coverage.out"))
+    );
 }
 
 #[test]

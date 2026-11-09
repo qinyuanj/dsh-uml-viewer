@@ -12,10 +12,10 @@ use std::path::Path;
 
 use crate::coverage::{LCOV_REPORTS, Records, parse_lcov};
 use crate::coverage_reports::{
-    GO_REPORTS, GoProfile, JACOCO_REPORTS, cloverage_forms, go_segments, jacoco_document,
-    parse_go_profile,
+    GO_REPORTS, GoProfile, JACOCO_REPORTS, go_segments, jacoco_document, parse_go_profile,
+    tree_cloverage_forms,
 };
-use crate::report_files::report_texts;
+use crate::report_files::{ReportTree, tree_report_texts};
 
 /// The reports `load_bundle` reads under one directory, in its order.
 #[derive(Default)]
@@ -30,16 +30,22 @@ impl NativeReports {
     /// the LCOV reports. A malformed Go profile or JaCoCo report is the error
     /// crapper raises.
     pub fn load(root: &Path) -> Result<Self, String> {
+        Self::load_tree(ReportTree::plain(root))
+    }
+
+    /// [`NativeReports::load`] over the reports a view shows: a Linux
+    /// overlay's upper layer read through to the unchanged project.
+    pub fn load_tree(tree: ReportTree<'_>) -> Result<Self, String> {
         let mut reports = NativeReports::default();
-        for text in report_texts(root, GO_REPORTS) {
+        for text in tree_report_texts(tree, GO_REPORTS) {
             parse_go_profile(&text, &mut reports.go)?;
         }
-        for text in report_texts(root, JACOCO_REPORTS) {
+        for text in tree_report_texts(tree, JACOCO_REPORTS) {
             roxmltree::Document::parse(&jacoco_document(&text))
                 .map_err(|error| format!("invalid JaCoCo XML: {error}"))?;
         }
-        reports.forms = cloverage_forms(root);
-        for text in report_texts(root, LCOV_REPORTS) {
+        reports.forms = tree_cloverage_forms(tree);
+        for text in tree_report_texts(tree, LCOV_REPORTS) {
             reports.lcov.update(parse_lcov(&text));
         }
         Ok(reports)
@@ -155,7 +161,12 @@ fn attribute(value: Option<&str>) -> Option<i64> {
 /// instruction or branch, over every JaCoCo report under `root`. A report
 /// that does not parse is skipped.
 pub fn jacoco_lines(root: &Path) -> Vec<(String, BTreeSet<usize>)> {
-    jacoco_texts(report_texts(root, JACOCO_REPORTS))
+    jacoco_lines_tree(ReportTree::plain(root))
+}
+
+/// [`jacoco_lines`] over a plain or overlay report tree.
+pub fn jacoco_lines_tree(tree: ReportTree<'_>) -> Vec<(String, BTreeSet<usize>)> {
+    jacoco_texts(tree_report_texts(tree, JACOCO_REPORTS))
 }
 
 /// Read exactly one freshly generated module report, retaining the existing

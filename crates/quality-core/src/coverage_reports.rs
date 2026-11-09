@@ -6,12 +6,9 @@ use crate::coverage::{
 use crate::functions::Function;
 use crate::language::Language;
 use crate::paths::posix;
-use crate::report_files::report_texts;
+use crate::report_files::{ReportTree, report_texts};
 use regex::Regex;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{fs, path::Path};
 
 /// crapper `suffix_match`: `suffix`'s path segments end `path`'s.
 pub fn suffix_match(path: &str, suffix: &str) -> bool {
@@ -65,28 +62,16 @@ pub(crate) fn jacoco_document(text: &str) -> String {
 /// crapper `_merge_forms`: Cloverage's per-line form counts for every HTML
 /// page under `target/coverage`, keyed by the page path without `.html`.
 pub(crate) fn cloverage_forms(root: &Path) -> Records {
+    tree_cloverage_forms(ReportTree::plain(root))
+}
+
+/// [`cloverage_forms`] over a plain or overlay report tree.
+pub(crate) fn tree_cloverage_forms(tree: ReportTree<'_>) -> Records {
     let mut forms = Records::default();
-    let coverage = root.join("target/coverage");
     let span =
         Regex::new(r#"<span[^>]*title="(\d+) out of (\d+) forms covered"[^>]*>\s*(\d+)&nbsp;"#)
             .unwrap();
-    fn htmls(root: &Path, out: &mut Vec<PathBuf>) {
-        let Ok(entries) = fs::read_dir(root) else {
-            return;
-        };
-        let mut entries: Vec<_> = entries.flatten().map(|e| e.path()).collect();
-        entries.sort();
-        for path in entries {
-            if path.is_dir() {
-                htmls(&path, out);
-            } else if path.extension().is_some_and(|ext| ext == "html") {
-                out.push(path);
-            }
-        }
-    }
-    let mut paths = Vec::new();
-    htmls(&coverage, &mut paths);
-    for path in paths {
+    for (path, below) in tree.htmls(Path::new("target/coverage")) {
         let Ok(text) = fs::read_to_string(&path) else {
             continue;
         };
@@ -104,7 +89,7 @@ pub(crate) fn cloverage_forms(root: &Path) -> Records {
                 lines.insert(line, (covered, total));
             }
         }
-        let key = posix(&path.strip_prefix(&coverage).unwrap().with_extension(""));
+        let key = posix(&below.with_extension(""));
         forms.insert(key, lines);
     }
     forms

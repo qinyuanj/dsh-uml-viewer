@@ -198,13 +198,18 @@ Generated Go and Java runs consume only the exact report written for that
 module, scoped to that module's sources. Stale sibling reports in a Windows
 project copy cannot override a fresh sibling result, and a fresh zero-hit
 record stays uncovered. A custom `--coverage-command` reads native reports
-from its live disposable view alongside its required LCOV report. Absolute
-copy-local Go source paths map back to the project; module-relative paths
-retain their source module. The custom command may deliberately reuse native
-reports already present in that view. Each selected native source must have
-matching coverage data, including an explicit zero-hit record when uncovered;
-a missing native report fails measurement. Nested Go/Java modules provide their
-own reports, rather than relying on ambiguous root-level aggregate source keys.
+from its live disposable view alongside its required LCOV report, as the
+original reads them from the project after running the command in place.
+Reports the command left unchanged count as well: on Linux the overlay upper
+layer is read through to the project below it, and a report the command
+deleted (an overlay whiteout, or an opaque directory) stays deleted; a Windows
+copy holds the whole project. Absolute copy-local Go source paths map back to
+the project. A Go or Java module whose own report is visible scopes its
+sources to that report, so module-relative keys keep their module; a module
+without one reads the root-level reports (`target/...`, `*/target/...`,
+`*/*/target/...`) the original globs. A selected native source that no report
+names is not a failure: `No coverage data for …; its sites are uncovered.` is
+printed, those sites stay uncovered, and the run continues.
 
 JVM commands get an independent copy of the caller's cached Maven repository
 inside their redirected home, and `JAVA_TOOL_OPTIONS` adds `-Duser.home` for

@@ -361,6 +361,24 @@ pub fn report_path(view: &View, relative: &Path) -> PathBuf {
     base.join(relative)
 }
 
+/// Every report a finished command's view showed, not only those it wrote:
+/// the original reads them all from the project after an in-place command.
+/// A Windows copy (`base`, from `report_path(view, "")`) holds the whole
+/// project. A Linux view's upper layer (`base`) is read through to the project
+/// it was mounted over (`lower`, the canonical root); a whiteout or an opaque
+/// directory there stays deleted.
+pub fn report_tree<'a>(base: &'a Path, lower: &'a Path) -> quality_core::ReportTree<'a> {
+    #[cfg(windows)]
+    {
+        let _ = lower;
+        quality_core::ReportTree::plain(base)
+    }
+    #[cfg(not(windows))]
+    {
+        quality_core::ReportTree::overlay(base, lower)
+    }
+}
+
 /// JAVA_TOOL_OPTIONS uses the JVM's quote parser, not shell escaping. Adjacent
 /// quoted fragments form one option; a literal double quote is put in a
 /// single-quoted fragment, while every other character (including ') is inside
