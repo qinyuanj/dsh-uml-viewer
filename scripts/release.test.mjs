@@ -116,6 +116,17 @@ function stepScript(text, stepName) {
   return body.join('\n')
 }
 
+// The workflow shell needs a bash that shares this host's paths and environment:
+// a Windows `bash` on PATH may be WSL's, which cannot see `$RUNNER_TEMP` here.
+// Those hosts skip loudly instead of reporting a false regression.
+function hostShell() {
+  const probe = spawnSync('bash', ['-c', 'printf %s "$UML_VIEWER_SHELL_PROBE"'], {
+    encoding: 'utf8', env: { ...process.env, UML_VIEWER_SHELL_PROBE: 'ready' },
+  })
+  if (probe.error || probe.status !== 0 || probe.stdout !== 'ready') return null
+  return 'bash'
+}
+
 // Runs a workflow shell step with a stub `npm` that records its arguments, so a
 // publish never reaches a registry.
 async function runStep(directory, script) {
@@ -216,9 +227,8 @@ test('the publish job guards the tag, verifies the inventory, and publishes plat
 })
 
 test('the publish step really publishes the five staged archives in plan order', async t => {
-  const probe = spawnSync('bash', ['-c', 'true'], { encoding: 'utf8' })
-  if (probe.error || probe.status !== 0) {
-    t.skip('bash is unavailable, so the workflow shell cannot be executed here')
+  if (hostShell() === null) {
+    t.skip("no bash shares this host's paths and environment, so the workflow shell cannot be executed here")
     return
   }
   const directory = await scratch()
@@ -242,9 +252,8 @@ test('the publish step really publishes the five staged archives in plan order',
 })
 
 test('the pull-request step only dry-runs the same plan order', async t => {
-  const probe = spawnSync('bash', ['-c', 'true'], { encoding: 'utf8' })
-  if (probe.error || probe.status !== 0) {
-    t.skip('bash is unavailable, so the workflow shell cannot be executed here')
+  if (hostShell() === null) {
+    t.skip("no bash shares this host's paths and environment, so the workflow shell cannot be executed here")
     return
   }
   const directory = await scratch()
@@ -263,9 +272,8 @@ test('the pull-request step only dry-runs the same plan order', async t => {
 })
 
 test('a short publish plan stops the workflow before any publish', async t => {
-  const probe = spawnSync('bash', ['-c', 'true'], { encoding: 'utf8' })
-  if (probe.error || probe.status !== 0) {
-    t.skip('bash is unavailable, so the workflow shell cannot be executed here')
+  if (hostShell() === null) {
+    t.skip("no bash shares this host's paths and environment, so the workflow shell cannot be executed here")
     return
   }
   const directory = await scratch()
