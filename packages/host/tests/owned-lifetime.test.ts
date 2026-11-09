@@ -1,11 +1,14 @@
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { ResidentConnection, ResidentPool, ResidentSessions } from '../src/resident.js'
 import { ViewerService } from '../src/viewer.js'
 import type { Agent, HostServices, SubprocessHandle } from '../src/dsh.js'
 import type { SessionStates } from '../src/state.js'
 
 const cleanups: (() => Promise<void>)[] = []
-afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup() })
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0)) await cleanup()
+  vi.useRealTimers()
+})
 function setup() {
   const pool = new ResidentPool()
   const connection = new ResidentConnection('session', process.cwd(), {
@@ -22,6 +25,99 @@ function setup() {
   return { pool, connection, sessions, viewer, agent, requests }
 }
 const owner = (holderId: string, pageId = 'page-a') => ({ pageId, holderId })
+it('an action borrowed before the last withdrawal preserves the resident and reattach lease', async () => {
+  const h = setup()
+  const signal = new AbortController().signal
+  const first = owner('first')
+  await h.sessions.openOwned(h.agent, signal, first)
+  const borrowed = await h.sessions.open(h.agent, signal, false)
+  await h.sessions.releaseOwned(h.connection, first)
+  await h.sessions.release(borrowed, 'borrowed')
+  expect(h.requests).not.toContain('quit')
+  expect(h.pool.graces.size).toBe(1)
+  expect(await h.sessions.openOwned(h.agent, signal, owner('again'))).toBe(h.connection)
+  expect(h.pool.graces.size).toBe(0)
+  expect(h.connection.refs).toBe(1)
+})
+
+it('a later definite last close wins over an earlier withdrawal with a borrow in flight', async () => {
+  const h = setup()
+  const signal = new AbortController().signal
+  await h.sessions.openOwned(h.agent, signal, owner('first'))
+  await h.sessions.openOwned(h.agent, signal, owner('last'))
+  const borrowed = await h.sessions.open(h.agent, signal, false)
+  await h.sessions.releaseOwned(h.connection, owner('first'))
+  expect(h.pool.graces.size).toBe(0)
+  expect(await h.sessions.closeOwned(h.agent, owner('last'))).toBe(true)
+  await h.sessions.releaseOwned(h.connection, owner('last'))
+  await h.sessions.release(borrowed, 'borrowed')
+  expect(h.requests.filter(action => action === 'quit')).toHaveLength(1)
+  expect(h.pool.graces.size).toBe(0)
+  expect(h.connection.refs).toBe(0)
+})
+
+it('last close acknowledges a stopped resident even when a previous action still borrows it', async () => {
+  const h = setup()
+  const signal = new AbortController().signal
+  await h.sessions.openOwned(h.agent, signal, owner('first'))
+  const borrowed = await h.sessions.open(h.agent, signal, false)
+  expect(await h.sessions.closeOwned(h.agent, owner('first'))).toBe(true)
+  // An immediate Open must select the new activation, never rejoin this child.
+  expect(h.pool.connections.has('session')).toBe(false)
+  expect(h.requests).toContain('quit')
+  await h.sessions.release(borrowed, 'borrowed')
+  await h.sessions.releaseOwned(h.connection, owner('first'))
+  expect(h.requests.filter(action => action === 'quit')).toHaveLength(1)
+  expect(h.connection.refs).toBe(0)
+})
+
+it('closing the withdrawn last holder cancels grace even while an action borrows it', async () => {
+  const h = setup()
+  const signal = new AbortController().signal
+  await h.sessions.openOwned(h.agent, signal, owner('first'))
+  const borrowed = await h.sessions.open(h.agent, signal, false)
+  await h.sessions.releaseOwned(h.connection, owner('first'))
+  expect(await h.sessions.closeOwned(h.agent, owner('first'))).toBe(true)
+  await h.sessions.release(borrowed, 'borrowed')
+  expect(h.requests).toContain('quit')
+  expect(h.pool.graces.size).toBe(0)
+})
+
+it('legacy watches and owned holders count separately from inflight borrows', async () => {
+  const h = setup()
+  const signal = new AbortController().signal
+  await h.sessions.open(h.agent, signal)
+  await h.sessions.openOwned(h.agent, signal, owner('owned'))
+  const borrowed = await h.sessions.open(h.agent, signal, false)
+  await h.sessions.releaseOwned(h.connection, owner('owned'))
+  expect(h.pool.graces.size).toBe(0)
+  await h.sessions.release(h.connection, 'withdrawn')
+  expect(h.pool.graces.size).toBe(1)
+  await h.sessions.release(borrowed, 'borrowed')
+  expect(h.requests).not.toContain('quit')
+  expect(h.connection.refs).toBe(0)
+})
+
+it('an inflight borrow never extends the withdrawal deadline and shutdown drains late releases', async () => {
+  vi.useFakeTimers()
+  const h = setup()
+  const signal = new AbortController().signal
+  await h.sessions.openOwned(h.agent, signal, owner('first'))
+  const borrowed = await h.sessions.open(h.agent, signal, false)
+  await h.sessions.releaseOwned(h.connection, owner('first'))
+  await vi.advanceTimersByTimeAsync(h.pool.graceMs)
+  expect(h.pool.graces.size).toBe(0)
+  expect(h.requests).not.toContain('quit')
+  await h.sessions.release(borrowed, 'borrowed')
+  expect(h.requests).toContain('quit')
+  await h.sessions.dispose()
+  await h.sessions.releaseOwned(h.connection, owner('first'))
+  await h.sessions.release(borrowed, 'borrowed')
+  expect(h.connection.refs).toBe(0)
+  expect(h.pool.graces.size).toBe(0)
+  expect(h.pool.connections.size).toBe(0)
+})
+
 it('a late action from a withdrawn panel neither stops the resident nor cancels its grace', async () => {
   const h = setup()
   const abort = new AbortController()

@@ -72,7 +72,11 @@ sidebar/main move is a **withdrawal**. The mount disposer only ends its own
 stream; it never sends a close. The resident then waits one bounded window
 (`WITHDRAWAL_GRACE_MS`, 30 s), and a remount inside it joins the same child,
 version and lease. Actions or tool calls that arrive during the window borrow
-the child without ending the window early.
+the child without ending the window early. A last-panel **Close viewer** does
+not wait for such a borrow: it stops the child within the bounded stop timeout
+before acknowledging, so an **Open viewer** right after the ack always starts
+the current activation instead of rejoining the old child. The late action sees
+that resident stopped and reports its refusal.
 
 Each mount opens with `watchOwned(owner)`, where `owner` is `{pageId,
 holderId}`. `pageId` is a random id kept as a plain string on the browser
@@ -316,8 +320,12 @@ That root state is the plugin's one dependence on a not-yet-stable Cordis API:
 `~4.1.0`, and any Cordis upgrade must re-verify it or move the pool to a
 documented root-scoped service. The version seam fails loudly if it disappears;
 nothing falls back silently. The state itself is keyed by
-`Symbol.for('dsh-uml-viewer.panel-state.v1')`, so any change to the pooled
-`ResidentPool`/`ResidentConnection` shape must bump that version.
+`Symbol.for('dsh-uml-viewer.panel-state.v2')`, so any change to the pooled
+`ResidentPool`/`ResidentConnection` shape must bump that version. The v2 format
+adds owned holders, transitions and separate panel/borrow references. It never
+adopts a v1 pool: that pool remains under its original root cleanup. Resident
+and lease sharing across replacements is verified only within the same format;
+an incompatible JavaScript format starts a separate pool.
 
 The `uml_display` gate is a per-session record of this plugin's own `uml_ir`
 outcomes, written by the `uml_ir` tool and read by `uml_display`.

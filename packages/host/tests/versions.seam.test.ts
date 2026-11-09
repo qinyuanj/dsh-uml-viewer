@@ -226,6 +226,43 @@ it('actual mount disposal and a new controller retain the resident and lease, th
   expect(updated.children.map(child => child.alive())).toEqual([false, false])
 })
 
+it('keeps the leased child when an already borrowed action finishes after the last owned withdrawal', async () => {
+  const dshHome = await scratch('inflight withdrawal home')
+  const home = path.join(dshHome, 'dsh-uml-viewer')
+  const h = await host(dshHome, await install('1.0.0'))
+  const first = await h.panel('one-session', { pageId: 'page-a', holderId: 'first' })
+  const leases = await readdir(path.join(home, 'leases', '1.0.0'))
+  const action = first.action({ action: 'search', query: 'core' })
+  await first.withdraw()
+  expect(await action).toMatchObject({ accepted: true })
+  expect(h.children.map(child => child.alive())).toEqual([true])
+  expect(await readdir(path.join(home, 'leases', '1.0.0'))).toEqual(leases)
+  const again = await h.panel('one-session', { pageId: 'page-a', holderId: 'again' })
+  expect(await again.runs()).toHaveLength(1)
+  expect(await readdir(path.join(home, 'leases', '1.0.0'))).toEqual(leases)
+  await again.close()
+  expect(h.children.map(child => child.alive())).toEqual([false])
+  await h.unload()
+  await h.dispose()
+  const remaining = path.join(home, 'leases', '1.0.0')
+  expect(existsSync(remaining) ? await readdir(remaining) : []).toEqual([])
+})
+
+it('last Close then immediate Open selects the current version despite a previously borrowed action', async () => {
+  const dshHome = await scratch('inflight close home')
+  const old = await host(dshHome, await install('1.0.0'))
+  const first = await old.panel('one-session', { pageId: 'page-a', holderId: 'first' })
+  await old.unload()
+  const updated = await host(dshHome, await install('1.1.0'), new Map(), old)
+  const action = first.action({ action: 'search', query: 'core' })
+  await first.close()
+  const again = await updated.panel('one-session', { pageId: 'page-a', holderId: 'again' })
+  await action
+  expect((await again.runs()).map(run => run.version)).toEqual(['1.0.0', '1.1.0'])
+  expect(updated.children.map(child => child.alive())).toEqual([false, true])
+  await again.close()
+})
+
 it('a distinct withdrawn document is fresh, while a second live page still shares the resident', async () => {
   const dshHome = await scratch('owned document home')
   const home = path.join(dshHome, 'dsh-uml-viewer')

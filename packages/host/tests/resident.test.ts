@@ -181,6 +181,20 @@ it('caps every panel queue at 64 unread events or 8 MiB by default', () => {
   expect(PANEL_QUEUE_MAX_BYTES).toBe(8 * 1024 * 1024)
 })
 
+it('delivers the latest frame and critical context after repeated drain and refill', async () => {
+  const h = connection(undefined, { items: 4, bytes: bytes(frameLine(1)) * 2 })
+  const queue = h.resident.attach()
+  for (let seq = 1; seq <= 8; seq += 1) {
+    h.resident.ingest(frameLine(seq))
+    h.resident.ingest(`${JSON.stringify({ version: 1, seq: null, event: 'context', context: { kind: 'real', edn: '{:context :real}' } })}\n`)
+    // End makes a lost frame fail immediately instead of leaving next() blocked.
+    if (seq === 8) queue.end()
+    expect((await queue.next(AbortSignal.timeout(100))).value).toMatchObject({ event: 'frame', seq })
+    expect((await queue.next(AbortSignal.timeout(100))).value).toMatchObject({ event: 'context', context: { kind: 'real' } })
+  }
+  expect((await queue.next()).done).toBe(true)
+})
+
 it('drops the oldest unread frames of a stalled panel, keeping the newest', async () => {
   const h = connection(undefined, { items: 3, bytes: 1 << 24 })
   const queue = h.resident.attach()
@@ -192,6 +206,18 @@ it('drops the oldest unread frames of a stalled panel, keeping the newest', asyn
   expect(seen).toEqual([3, 4, 5])
   // Nothing else was buffered: the three oldest frames are gone.
   h.resident.detach(queue)
+  expect((await queue.next()).done).toBe(true)
+  expect(h.terminations()).toBe(0)
+})
+
+it('reports overflow when the sole latest frame exceeds the byte cap', async () => {
+  const h = connection(undefined, { items: 64, bytes: bytes(frameLine(1)) - 2 })
+  const queue = h.resident.attach()
+  h.resident.ingest(frameLine(1))
+  queue.end()
+  // The newest frame is not superseded: preserve it and explain why the stream ended.
+  expect((await queue.next()).value).toMatchObject({ event: 'frame', seq: 1 })
+  expect((await queue.next()).value).toMatchObject({ event: 'error', message: expect.stringMatching(/fell behind/) })
   expect((await queue.next()).done).toBe(true)
   expect(h.terminations()).toBe(0)
 })

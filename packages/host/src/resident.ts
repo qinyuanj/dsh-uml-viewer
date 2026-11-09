@@ -111,7 +111,9 @@ export class Queue<T> {
     const limits = this.limits
     if (!limits) return
     while (this.items.length > limits.items || this.bytes > limits.bytes) {
-      const index = this.items.findIndex(item => limits.stale(item))
+      // A replaceable item is obsolete only when a newer replacement exists.
+      const latest = this.items.findLastIndex(item => limits.stale(item))
+      const index = this.items.findIndex((item, index) => index < latest && limits.stale(item))
       if (index < 0) {
         const last = limits.overflow({ items: this.items.length, bytes: this.bytes })
         this.items.push(last)
@@ -126,7 +128,11 @@ export class Queue<T> {
 
   /** Resolve with the next item, or `done` when the queue ended or the signal aborted. */
   next(signal?: AbortSignal): Promise<IteratorResult<T>> {
-    if (this.items.length) return Promise.resolve({ value: this.items.shift()!, done: false })
+    if (this.items.length) {
+      const item = this.items.shift()!
+      this.bytes -= this.limits?.size(item) ?? 0
+      return Promise.resolve({ value: item, done: false })
+    }
     if (this.ended || signal?.aborted) return Promise.resolve({ value: undefined as never, done: true })
     return new Promise(resolve => {
       const waiter = (result: IteratorResult<T>) => {
@@ -156,6 +162,8 @@ export class ResidentConnection {
   /** The discussion context restored with `open`, before any context event. */
   latestContext: DiscussionContext | null = null
   refs = 0
+  /** Live watch references, excluding short action/tool borrows. */
+  panelRefs = 0
   /**
    * A panel called the Remote `close` for this session: the next release that
    * leaves no holder stops the child at once instead of entering the
@@ -438,6 +446,7 @@ export async function disposePool(states: SessionStates, pool: ResidentPool): Pr
     pool.connections.delete(connection.id)
     connection.holders.clear()
     connection.refs = 0
+    connection.panelRefs = 0
     await saveView(states, connection)
     connection.end()
     connection.child.terminate()
@@ -449,8 +458,10 @@ export async function disposePool(states: SessionStates, pool: ResidentPool): Pr
 export type ReleaseReason =
   /** A panel stream ended without an explicit close — a carrier loss. */
   | 'withdrawn'
-  /** The holder is done with the child (a tool call, or a closed panel). */
+  /** A panel definitely closed. */
   | 'closed'
+  /** A short action or tool finished using the child. */
+  | 'borrowed'
 
 export class ResidentSessions {
   private readonly pool: ResidentPool
@@ -492,6 +503,7 @@ export class ResidentSessions {
         existing.withdrawn = false
         existing.closeRequested = false
       }
+      if (panel) existing.panelRefs += 1
       existing.refs += 1
       return existing
     }
@@ -499,10 +511,16 @@ export class ResidentSessions {
     if (inflight) {
       const joined = await inflight
       this.writablePolicy(agent)
+      if (panel) {
+        this.clearGrace(id)
+        joined.withdrawn = false
+        joined.closeRequested = false
+        joined.panelRefs += 1
+      }
       joined.refs += 1
       return joined
     }
-    const started = this.startFresh(agent, signal)
+    const started = this.startFresh(agent, signal, panel)
     this.pool.opening.set(id, started)
     try {
       return await started
@@ -558,14 +576,19 @@ export class ResidentSessions {
       // Close consumes exactly this holder's ref. Its later stream-finally is
       // idempotent, and a new open after the ack can select this activation.
       if (holder.active) await this.release(connection, 'closed')
-      else if (connection.refs === 0) await this.stop(connection)
+      else if (connection.panelRefs === 0) {
+        connection.withdrawn = false
+        this.clearGrace(connection.id)
+        await this.stop(connection)
+      }
       return true
     })
   }
 
-  private async startFresh(agent: Agent, signal: AbortSignal): Promise<ResidentConnection> {
+  private async startFresh(agent: Agent, signal: AbortSignal, panel: boolean): Promise<ResidentConnection> {
     const connection = await this.start(agent, signal)
     connection.refs = 1
+    connection.panelRefs = panel ? 1 : 0
     this.pool.connections.set(connection.id, connection)
     try {
       const state = await this.states.read(connection.id)
@@ -655,19 +678,27 @@ export class ResidentSessions {
    * release that leaves no holder stops the child at once.
    */
   async release(connection: ResidentConnection, reason: ReleaseReason = 'closed'): Promise<void> {
-    if (connection.refs > 0) connection.refs -= 1
-    if (connection.refs > 0) return
-    // A call borrowed a child whose panels withdrew: the window decides, not
-    // the call. One that expired while the call ran stops the child now.
-    if (reason === 'closed' && connection.withdrawn && !connection.closeRequested) {
-      if (this.pool.graces.has(connection.id)) return
+    if (connection.refs <= 0) return
+    connection.refs -= 1
+    if (reason !== 'borrowed' && connection.panelRefs > 0) {
+      connection.panelRefs -= 1
+      if (connection.panelRefs === 0) {
+        connection.withdrawn = reason === 'withdrawn' && !connection.closeRequested
+        if (connection.withdrawn && !connection.isSettled && !this.pool.disposed) this.armGrace(connection)
+        else this.clearGrace(connection.id)
+      }
+    }
+    if (connection.isSettled || this.pool.disposed || this.pool.connections.get(connection.id) !== connection) return
+    // Close/Open is a definite version boundary, even if a prior action still
+    // borrows the old child. Stop it before acknowledging the last panel close.
+    if (reason === 'closed' && connection.panelRefs === 0) {
       await this.stop(connection)
       return
     }
-    if (reason === 'withdrawn' && !connection.closeRequested) {
-      this.armGrace(connection)
-      return
-    }
+    if (connection.refs > 0) return
+    // The last panel starts the window, even if an action still borrows it.
+    // Borrow completion neither resets that deadline nor ends it early.
+    if (connection.withdrawn && !connection.closeRequested && this.pool.graces.has(connection.id)) return
     await this.stop(connection)
   }
 
@@ -755,7 +786,7 @@ export class ResidentSessions {
     } finally {
       // Save the final view, including any restored discussion context.
       if (SAVED_ACTIONS.has(action.action)) await this.save(connection)
-      await this.release(connection)
+      await this.release(connection, 'borrowed')
     }
   }
 
@@ -781,7 +812,7 @@ export class ResidentSessions {
       // the answer is about the element it asked for, inside the bounds.
       return validateQualityTarget(answer.target, 'quality target', id)
     } finally {
-      await this.release(connection)
+      await this.release(connection, 'borrowed')
     }
   }
 
@@ -800,7 +831,7 @@ export class ResidentSessions {
     try {
       return { frame: connection.latestFrame, context: connection.latestContext ?? SOURCE_CONTEXT }
     } finally {
-      await this.release(connection)
+      await this.release(connection, 'borrowed')
     }
   }
 

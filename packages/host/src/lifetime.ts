@@ -7,7 +7,8 @@ import type { SessionStates } from './state.js'
 
 // The root context outlives a plugin replacement; no process-global registry.
 // Symbol.for also survives loading a new copy of this module after an update.
-const STATE = Symbol.for('dsh-uml-viewer.panel-state.v1')
+// v2 includes owned holders, serialized transitions and separate panel/borrow refs.
+const STATE = Symbol.for('dsh-uml-viewer.panel-state.v2')
 
 interface Shared {
   pool: ResidentPool
