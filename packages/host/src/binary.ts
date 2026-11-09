@@ -15,14 +15,23 @@ export interface Config {
   home?: string
 }
 
-/** The installed package directory that holds `fonts/`, `lib/` and the manifests. */
-export function packageRoot(): string {
-  let dir = path.dirname(fileURLToPath(import.meta.url))
+/**
+ * The package directory that holds this module: `fonts/`, `lib/` and the manifests.
+ *
+ * The walk never leaves the `node_modules` entry that holds an installed
+ * module. Above it lies whatever project hosts the profile, and a manifest
+ * named dsh-uml-viewer there (CI14: a scratch DSH home inside a checkout) is
+ * not this module's package; adopting it would run that checkout's build.
+ */
+export function packageRoot(moduleFile: string = fileURLToPath(import.meta.url)): string {
+  let dir = path.dirname(moduleFile)
   for (;;) {
     const manifest = path.join(dir, 'package.json')
     if (existsSync(manifest) && JSON.parse(readFileSync(manifest, 'utf8')).name === 'dsh-uml-viewer') return dir
     const parent = path.dirname(dir)
-    if (parent === dir) throw new Error('Cannot locate the dsh-uml-viewer package root')
+    if (parent === dir || path.basename(parent) === 'node_modules') {
+      throw new Error(`Cannot locate the dsh-uml-viewer package root of ${moduleFile}`)
+    }
     dir = parent
   }
 }

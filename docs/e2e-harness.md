@@ -232,6 +232,21 @@ the assembled packages contain no lifecycle scripts. Inherited `DSH_PROFILE` and
 any URL whose host is not loopback and rejects port 14227, which is the user's
 live GUI.
 
+Before a lane creates a run home, it gives the scratch root its own package
+scope: `isolateScratch` writes `<scratch>/package.json`, named
+`dsh-uml-viewer-e2e-scratch`, with no `exports` (`scratch-scope.mjs`, offline
+tests in `scratch-scope.test.mjs`). By default the scratch root lies inside
+this checkout. The checkout's root manifest is the `dsh-uml-viewer` package,
+and it has an `exports` map. A user's DSH home never sits under such a package.
+DSH continues some profile lookups above the profile, at
+`<home>/profiles/package.json`, and runs its own self-reference check from the
+profile's base. Without the scope, both resolve `dsh-uml-viewer` through Node's
+package self-reference to the checkout's `lib/host.js`. CI14 recorded this
+result: after `install_bundle` applied 1.0.1, the re-activation journalled the
+checkout root and its `target/debug` binary, unpinned. With the scope, those
+lookups miss, as they do for a user. What the upgrade case proves does not
+change.
+
 The only model endpoint is `packages/e2e/mock-llm.mjs`, configured through a
 per-run `--patch` overlay. It speaks the Messages SSE sequence, logs requests
 under the scratch home, and scripts a real two-turn panel flow:

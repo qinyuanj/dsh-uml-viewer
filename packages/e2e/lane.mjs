@@ -4,6 +4,7 @@ import { expect } from '@playwright/test'
 import { SCRATCH, bootDshWeb, dismissOverlays, packageInputs, startDshWeb } from './dsh-web.mjs'
 import { startMockLlm } from './mock-llm.mjs'
 import { makeProjects } from './projects.mjs'
+import { isolateScratch } from './scratch-scope.mjs'
 import { chooseWorkspace } from './workspace.mjs'
 
 /**
@@ -14,7 +15,8 @@ import { chooseWorkspace } from './workspace.mjs'
  */
 export async function launchViewerLane(browser, options = {}) {
   const packages = packageInputs(options)
-  await fs.mkdir(SCRATCH, { recursive: true })
+  // CI14: run homes must not resolve into the checkout around the scratch.
+  isolateScratch(SCRATCH)
   const home = await fs.mkdtemp(path.join(SCRATCH, 'run-'))
   const projects = await makeProjects(home)
   await options.prepareProjects?.(projects)

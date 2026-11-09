@@ -46,6 +46,13 @@ pinned copy. Unsupported combinations and missing/mismatched dependencies
 fail before tools register, with an actionable reason. Config/environment
 overrides remain available for trusted development.
 
+The package root is the nearest directory above the running module whose
+`package.json` names `dsh-uml-viewer`. That search stops at the
+`node_modules` directory holding an installed copy. An installed module whose
+own manifest is missing fails activation; it never adopts a manifest of the
+project above the profile. Without the stop, a DSH home inside a
+dsh-uml-viewer checkout would run that checkout's build. CI14 hit this case.
+
 ### Version lifecycle (#32)
 
 The plugin home holds one directory per plugin version (`1.0.0/uml-viewer.exe`
