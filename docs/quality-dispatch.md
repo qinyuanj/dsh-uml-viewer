@@ -93,12 +93,17 @@ A differential rerun of unchanged targets reuses their previous outcomes
 snapshots." when every target is reusable). Survived mutants are re-executed by
 mutator itself, as in the original tool.
 
-## Not ported yet
+## Languages and platforms
 
-An operation whose tool does not read a selected language is refused with an
-error record, never an empty success: mutator reads Rust, Lua, Python and
-TypeScript (#13; Go/Java/Clojure follow with #14); crapper and dryer read all
-seven (#7). Mutation runs on Linux (namespace views,
+An operation whose tool cannot read a declared language is refused with an error
+record, never an empty success. All three tools now read every language the
+scanners know: mutator's `mutates()` accepts Rust, Lua, Python and TypeScript
+(#13) and Go, Java and Clojure (#14), and crapper and dryer read all seven (#7).
+Runtime parity for Go, Java and Clojure is still **UNVERIFIED**: their Rust
+parity tests are authored but unrun, so treat those three languages as
+implemented-but-unproven until a real run is recorded (#14 stays open).
+
+Mutation runs on Linux (namespace views,
 [mutation-linux.md](mutation-linux.md)) and native Windows (per-command project
 copies, #10, [mutation-windows.md](mutation-windows.md)); on macOS it refuses
 with exit 1 before any command (`Mutation testing is not supported on macOS`).
