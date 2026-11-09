@@ -290,6 +290,9 @@ export async function launchViewerLane(browser, options = {}) {
     home, get host() { return host }, mock, projects, packages,
     openPanel, reopenPanel, restart, pan, wheel, point, sendPrompt, screenshot, close, uninstall,
     installPlatform: file => installed.installPlatform(file),
+    // The isolated host's own stdout/stderr, redacted and bounded. Activation
+    // warnings and errors reach it and never the page, the session or the DOM.
+    hostOutput: (limit = 8000) => redact(host.output()).slice(-limit),
     // A replacement may re-register the sidebar contribution. Let an automatic
     // remount win; otherwise select the real UML tab, never a synthetic mount.
     // A panel that stays closed after either is a failed acceptance, not retried.

@@ -130,15 +130,21 @@ test('installed update keeps the busy vN resident until explicit Close/Open, the
     expect(observed.install?.application).toBe('applied')
     expect(observed.install).toMatchObject({ bundle: 'dsh-uml-viewer', version: '1.0.1' })
     evidence.afterInstall = await installEvidence(lane.home)
+    // CI13: what the Host itself said while applying, and which store the
+    // activation recorded for itself (an unpinned activation leaves no pin).
+    // Recorded before asserting so a refused or silent apply keeps its witness.
+    evidence.hostOutput = lane.hostOutput()
     // No host restart, page reload, private ctx or installed-file copying.
     try {
       await expect.poll(async () => JSON.parse(await fs.readFile(path.join(home, 'current.json'), 'utf8')).version,
         { timeout: 10_000 }).toBe('1.0.1')
     } catch (error) {
-      // CI12: which store the activation pinned, and which package copy the
-      // re-inserted row could import, decide between a lost `home` and a
-      // stale 1.0.0 module (docs/e2e-harness.md); recorded before rethrowing.
+      // CI12/CI13: which store the activation pinned, which store it recorded
+      // its own activation in, and which package copy the re-inserted row could
+      // import, decide between a lost `home`, a stale module and an activation
+      // that pins nothing (docs/e2e-harness.md); recorded before rethrowing.
       evidence.afterPoll = await installEvidence(lane.home)
+      evidence.hostOutputAfterPoll = lane.hostOutput()
       throw error
     }
     expect(new URL(lane.host.url).origin).toBe(origin)

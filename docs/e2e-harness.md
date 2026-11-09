@@ -167,25 +167,51 @@ immutable. The real package producer rejects a binary whose version differs.
 The source copy is removed afterward. No release versions, tags or registry
 publication are involved. The script refuses execution outside GitHub Actions.
 
-CI12 failed after `install_bundle` answered `applied` 1.0.1: the lane's
-`plugin-state/current.json` stayed 1.0.0. In the pinned DSH 0.2.2-rc.1 the
-`--patch` overlay survives every manager reconcile (`profileContext.overlays`),
-so a lost `home` is unlikely. The probable cause is upstream. DSH imports the
-re-inserted row by bare name through Node's own ESM resolver, and dsh-hmr
-evicts only Node's module load cache. Node's resolver keeps a process-lifetime
-realpath cache, so `node_modules/dsh-uml-viewer` still resolves to the removed
-1.0.0 copy while that copy is on disk. The old host code then runs again and
-pins 1.0.0. An offline Node 24 junction-retarget check reproduces the stale
-resolution; the CI run itself did not record which copy loaded. To decide it,
-`upgrade-evidence.mjs` (offline tests in `upgrade-evidence.test.mjs`) records
-`afterRemoval`, `afterPlatform`, `afterInstall` and, when the 1.0.1 poll
+CI12 and CI13 both failed after `install_bundle` answered `applied` 1.0.1: the
+lane's `plugin-state/current.json` stayed 1.0.0. CI13's evidence falsified the
+CI12 suspects. After the install the profile's `dsh-uml-viewer` and
+`@dsh-uml-viewer/win32-x64` links are real directories (realpath = themselves,
+not junctions) holding 1.0.1, the virtual store holds no dsh-uml-viewer copy at
+all, and the only version store is the lane's `plugin-state` with
+`current.json` 1.0.0 and the single `1.0.0` directory, before and after the
+install. There is no default `<DSH_HOME>/dsh-uml-viewer` store, so the `--patch`
+`home` overlay survives every reconcile (`profileContext.overlays`), and no
+surviving 1.0.0 copy exists for a cached resolution to load.
+
+What is left is a forced contract. `plugin_manager` answers `applied` only for
+the bundle's required rows, app-boot reports a required row that is not active
+as a failure, and a Cordis fiber reaches that state only by running the plugin's
+`apply`. The plugin pins `<home>/<version>/` and `current.json` as its first act
+in `apply`, so an `applied` install of a packaged 1.0.1 must have pinned 1.0.1.
+The store shows it did not, and the artifacts cannot separate the three
+remaining causes: the activation took the unversioned branch of
+`activationBinary` (`config.binary`, `UML_VIEWER_BIN`, or a private checkout
+manifest with a `target/<profile>` binary — these pin nothing and leave the
+store exactly like this); the row never re-activated and the tools and prompt
+section that returned to the session have another source; or a pin happened and
+was undone.
+
+So each activation appends one line to `<home>/activations.jsonl`
+(`packages/host/src/activation.ts`; the newest 64 lines, best-effort, never
+failing an activation): `at`, `pid`, the pinned `version` or `null`, the
+`source` (`pinned` or `unpinned`), the package `root` it resolved and the exact
+`argv`. That is a product diagnostic — it answers which build an open panel runs
+and why an activation did not pin — and it is the one fact the store cannot
+record. `upgrade-evidence.mjs` (offline tests in `upgrade-evidence.test.mjs`)
+records `afterRemoval`, `afterPlatform`, `afterInstall` and, when the 1.0.1 poll
 fails, `afterPoll` into `upgrade-acceptance.json` before the assertion fails.
-Each record lists every version store directly under the scratch DSH home
-(its `current.json` and version directories, including a default
-`dsh-uml-viewer` store), the real targets and versions of the profile's main
-and platform links, and every dsh-uml-viewer copy in the virtual store.
-Assertions, polls and budgets are unchanged; while the stale resolution holds,
-this case cannot pass without a host restart, which it does not perform.
+Each record lists every version store directly under the scratch DSH home (its
+`current.json`, version directories, live leases and activation journal,
+including a default `dsh-uml-viewer` store), the real targets and versions of
+the profile's main and platform links, every dsh-uml-viewer copy in the virtual
+store, and the installed main manifest (`version`, `private`, `main`,
+`optionalDependencies`, and which `target/<profile>` binaries exist) — the facts
+that decide the packaged versus checkout branch of `activationBinary`. The spec
+also keeps the isolated host's own redacted stdout/stderr (`lane.hostOutput()`),
+which carries activation warnings and errors that never reach the page, the
+session or the DOM. Assertions, polls and budgets are unchanged; a pin that
+never happened still fails this case, and the host restart that would produce
+one is not performed.
 
 This case has been authored and checked offline; installed-upgrade browser
 acceptance remains **NOT RUN until CI executes it**. Source or Node fixture

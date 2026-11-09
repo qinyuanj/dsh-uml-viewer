@@ -65,6 +65,14 @@ child actually exits. Open panels keep their resident across a plugin
 replacement — a root-owned pool hands their actions to the old child while a
 new activation starts new sessions with the new version.
 
+Each activation also appends one line to `activations.jsonl` in the plugin
+home — `at`, `pid`, the pinned `version` or `null`, the `source` (`pinned` for a
+version copy, `unpinned` for a config/environment override or a checkout build),
+the package `root` it resolved and the exact `argv`. A trusted override pins
+nothing and leaves no other trace, so this journal is the only record of which
+build an activation actually runs; it is bounded to the newest 64 lines and is
+best-effort — it never fails an activation.
+
 A panel stream ending is **not** a panel close (D13). The shell's sidebar tab
 props carry only `sessionId` and `layout` has no close hook, so an unmount
 cannot say why it happened: a React detach, a client bundle swap or a

@@ -7,6 +7,7 @@ import {
 import type { QualityOperation, QualityToolResult } from '@dsh-uml-viewer/contracts'
 import type { ActivatedBinary, BinaryPlatform, Config } from './binary.js'
 import { activationBinary, packageRoot } from './binary.js'
+import { recordActivation } from './activation.js'
 import { displayResult, runDisplay } from './display.js'
 import type { HostServices, ToolRunContext } from './dsh.js'
 import { registerFontRoute } from './font.js'
@@ -42,6 +43,10 @@ export function applyWithPlatform(ctx: Context, config: Config = {}, platform: A
   // Resolve before any effects, injected fibers or services can be registered.
   // The argv copy also pins trusted dev launchers and environment overrides.
   const pinned = activationBinary(config, home, platform)
+  // #32: which build this activation runs — and whether it could pin one at all
+  // — is the first fact an upgrade report needs, and an unversioned override
+  // leaves no other trace in the store.
+  recordActivation(home, { version: pinned.version, source: pinned.source, root: pinned.root, argv: pinned.argv })
   try {
     register(ctx, config, home, pinned)
   } catch (error) {

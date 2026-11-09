@@ -471,8 +471,8 @@ it('cleans up only version directories that are neither current nor leased by a 
   await mkdir(path.join(home, '.staging-in-progress'))
 
   await host(dshHome, await install('1.0.0'))
-  expect((await readdir(home)).sort()).toEqual(['.staging-in-progress', '0.9.1', '1.0.0', 'current.json', 'leases',
-    'not-a-version', 'sessions'])
+  expect((await readdir(home)).sort()).toEqual(['.staging-in-progress', '0.9.1', '1.0.0', 'activations.jsonl',
+    'current.json', 'leases', 'not-a-version', 'sessions'])
   expect(await readdir(path.join(home, 'leases'))).toEqual(expect.arrayContaining(['0.9.1', '1.0.0']))
   expect(await readdir(path.join(home, 'leases'))).toHaveLength(2)
   expect(await readFile(path.join(home, '0.9.1', exe), 'utf8')).toBe('old 0.9.1')

@@ -4,7 +4,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { pinVersion } from './versions.js'
 
-const unpinned = (argv: string[]): ActivatedBinary => ({ argv, retain: () => () => {}, release: () => {} })
+const unpinned = (argv: string[], root: string): ActivatedBinary => ({
+  argv, version: null, source: 'unpinned', root, retain: () => () => {}, release: () => {},
+})
 
 export interface Config {
   /** Absolute executable, or trusted argv prefix (for dev/test launchers). No shell. */
@@ -40,10 +42,10 @@ export function activationBinary(config: Config, home: string | undefined, platf
   }
   const root = platform.root ?? packageRoot()
   // Trusted overrides and checkout builds are not versioned copies: nothing to lease.
-  if (config.binary !== undefined || process.env.UML_VIEWER_BIN !== undefined) return unpinned(binaryArgv(config, root))
+  if (config.binary !== undefined || process.env.UML_VIEWER_BIN !== undefined) return unpinned(binaryArgv(config, root), root)
   const manifest = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'))
   // Checkout development remains private and uses its local Cargo output.
-  if (manifest.private === true && !manifest.optionalDependencies) return unpinned(binaryArgv(config, root))
+  if (manifest.private === true && !manifest.optionalDependencies) return unpinned(binaryArgv(config, root), root)
   const dependency = `@dsh-uml-viewer/${target}`
   if (manifest.optionalDependencies?.[dependency] !== manifest.version) {
     throw new Error(`Packaged dsh-uml-viewer is missing the exact ${dependency}@${manifest.version} optional dependency declaration`)
@@ -67,12 +69,18 @@ export function activationBinary(config: Config, home: string | undefined, platf
   // resident and tool call of the activation runs this copy, so an update
   // only reaches panels opened by a later (fresh) activation.
   const pinned = pinVersion(home, manifest.version, source, name, platform.platform)
-  return { argv: [pinned.binary], retain: pinned.retain, release: pinned.release }
+  return { argv: [pinned.binary], version: manifest.version, source: 'pinned', root, retain: pinned.retain, release: pinned.release }
 }
 
 /** The executable an activation pinned, and the hold it keeps on that version. */
 export interface ActivatedBinary {
   readonly argv: string[]
+  /** The manifest version this activation pinned, or null for an unversioned executable. */
+  readonly version: string | null
+  /** Whether `argv` is a pinned version copy or an override/checkout build that pins nothing. */
+  readonly source: 'pinned' | 'unpinned'
+  /** The package directory the executable was resolved from. */
+  readonly root: string
   /** A resident holds the pinned version until its actual process exit. */
   retain(): () => void
   /** Drop the activation's version lease after its residents stopped. */

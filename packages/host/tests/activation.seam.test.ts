@@ -196,3 +196,28 @@ it('reports a missing packaged manifest dependency before exposing tools', async
   await expect(load()).rejects.toThrow(/missing the exact @dsh-uml-viewer\/win32-x64@1.0.0 optional dependency declaration/)
   expect(definitions.size).toBe(0)
 })
+
+async function activations(home: string): Promise<Record<string, unknown>[]> {
+  const text = await readFile(path.join(home, 'dsh-uml-viewer', 'activations.jsonl'), 'utf8')
+  return text.trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
+}
+
+it('records the pinned version of every packaged activation in the plugin home', async () => {
+  const { home, load } = await setup()
+  await load()
+  await load()
+  const journal = await activations(home)
+  expect(journal).toHaveLength(2)
+  for (const line of journal) {
+    expect(line).toMatchObject({ pid: process.pid, version: '1.0.0', source: 'pinned' })
+    expect((line.argv as string[])[0]).toBe(path.join(home, 'dsh-uml-viewer', '1.0.0', 'uml-viewer.exe'))
+  }
+})
+
+it('records an unversioned activation so an override never looks like a missing pin', async () => {
+  const { root, home, load } = await setup()
+  const binary = path.join(root, 'configured.exe')
+  await load({ binary })
+  const [line] = await activations(home)
+  expect(line).toMatchObject({ pid: process.pid, version: null, source: 'unpinned', root, argv: [binary] })
+})
