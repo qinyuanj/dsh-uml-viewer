@@ -167,7 +167,7 @@ describe('session-bound panel stream', () => {
     expect(afterPan[1]).toBeCloseTo(beforePan[1] - 10, 10)
 
     const anchor = screenToWorld(viewTransform(panned, 800, 600), 380, 290)
-    h.controller.wheel(380, 290, -1)
+    h.controller.wheel(380, 290, -1, { control: true })
     await settle(() => h.actions.filter(entry => entry.action.action === 'camera').length === 2, 'the zoom action')
     const zoom = h.actions.filter(entry => entry.action.action === 'camera')[1]!.action
     if (zoom.action !== 'camera') throw new Error('expected a camera action')
@@ -179,6 +179,86 @@ describe('session-bound panel stream', () => {
     // The resident acknowledges a camera action without sending another frame;
     // both local camera changes have therefore already been painted.
     expect(h.painted).toHaveLength(3)
+    h.controller.close()
+  })
+
+  it('pans on a plain wheel and zooms only with control, like the egui window', async () => {
+    const initial: SceneFrame = { ...frame, viewport: { width: 800, height: 600 },
+      camera: { x: 100, y: 100, zoom: frame.camera.zoom } }
+    const h = harness([{ kind: 'ready', actions: [] }, { kind: 'frame', seq: 1, frame: initial }])
+    await h.controller.open('session-a')
+    await settle(() => h.painted.length === 1, 'the frame')
+    const y = initial.camera.y
+    h.controller.wheel(400, 300, -1)
+    await settle(() => h.actions.some(entry => entry.action.action === 'camera'), 'the wheel pan')
+    expect(h.controller.current.frame!.camera.zoom).toBe(initial.camera.zoom)
+    expect(h.controller.current.frame!.camera.y).toBeCloseTo(y + 48 / initial.camera.zoom, 6)
+    h.controller.wheel(400, 300, 1, { control: true })
+    await settle(() => h.controller.current.frame!.camera.zoom > initial.camera.zoom, 'the ctrl zoom')
+    expect(h.controller.current.frame!.camera.zoom).toBeCloseTo(initial.camera.zoom * 1.1, 6)
+    h.controller.close()
+  })
+
+  it('sends double-click drill-in, Escape back and P namespace-tree to the host', async () => {
+    const h = harness([{ kind: 'ready', actions: [] }, { kind: 'frame', seq: 1, frame }])
+    await h.controller.open('session-a')
+    await settle(() => h.painted.length === 1, 'the frame')
+    const box = frame.world.find(item => item.kind === 'class' && item.id === ':core')!
+    const rect = 'rect' in box ? box.rect : box.bounds!
+    const at = worldToScreen(viewTransform(frame, 800, 600), rect.x + rect.w / 2, rect.y + rect.h / 2)
+    h.controller.doubleClick(...at)
+    await settle(() => h.actions.some(entry => entry.action.action === 'drill-in'), 'the drill-in')
+    const drill = h.actions.find(entry => entry.action.action === 'drill-in')!
+    if (drill.action.action !== 'drill-in') throw new Error('expected drill-in')
+    expect(drill.action.at![0]).toBeCloseTo(rect.x + rect.w / 2, 6)
+    expect(drill.action.at![1]).toBeCloseTo(rect.y + rect.h / 2, 6)
+
+    // A drilled frame has the back chrome; Escape goes back one level.
+    const drilled: SceneFrame = { ...frame, chrome: [...frame.chrome, { kind: 'back', text: '< back', at: [12, 8], ink: { role: 'accent' }, plate: { role: 'chrome-plate' } }] }
+    h.emit({ kind: 'frame', seq: 2, frame: drilled })
+    await settle(() => h.controller.current.frame === drilled, 'the drilled frame')
+    expect(h.controller.key('Escape')).toBe(true)
+    await settle(() => h.actions.some(entry => entry.action.action === 'back'), 'escape goes back')
+
+    expect(h.controller.key('p')).toBe(true)
+    await settle(() => h.actions.some(entry => entry.action.action === 'namespace-tree'), 'P returns to the tree')
+    h.controller.close()
+  })
+
+  it('searches through the host, captures canvas keys and locates the chosen result', async () => {
+    const h = harness([{ kind: 'ready', actions: [] }, { kind: 'frame', seq: 1, frame }])
+    await h.controller.open('session-a')
+    await settle(() => h.painted.length === 1, 'the frame')
+    expect(h.controller.key('f', { control: true })).toBe(true)
+    expect(h.controller.current.search.active).toBe(true)
+    h.controller.setSearchQuery('price')
+    await settle(() => h.actions.some(entry => entry.action.action === 'search'), 'the search action')
+    h.emit({ kind: 'search', query: 'price', results: [
+      { id: ':alpha.deep.price', name: 'price', ns: 'alpha.deep.price', label: 'price · alpha.deep' },
+      { id: ':beta.price', name: 'price', ns: 'beta.price', label: 'price · beta' },
+    ] })
+    await settle(() => h.controller.current.search.results.length === 2, 'the results')
+    // An open search box captures P, zoom and pointer gestures.
+    expect(h.controller.key('p')).toBe(true)
+    h.controller.wheel(400, 300, 1, { control: true })
+    h.controller.pointerDown(400, 300)
+    h.controller.pointerUp(400, 300)
+    expect(h.actions.some(entry => entry.action.action === 'namespace-tree')).toBe(false)
+    expect(h.actions.some(entry => entry.action.action === 'camera')).toBe(false)
+    expect(h.actions.some(entry => entry.action.action === 'select')).toBe(false)
+
+    h.controller.key('ArrowDown')
+    expect(h.controller.current.search.selection).toBe(0)
+    h.controller.key('ArrowDown')
+    expect(h.controller.current.search.selection).toBe(1)
+    h.controller.key('Enter')
+    await settle(() => h.actions.some(entry => entry.action.action === 'locate'), 'locate the result')
+    expect(h.actions.at(-1)!.action).toEqual({ action: 'locate', id: ':beta.price' })
+    // Enter locates without closing; Escape closes the box, not the view.
+    expect(h.controller.current.search.active).toBe(true)
+    h.controller.key('Escape')
+    expect(h.controller.current.search.active).toBe(false)
+    expect(h.actions.some(entry => entry.action.action === 'back')).toBe(false)
     h.controller.close()
   })
 

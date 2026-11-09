@@ -78,6 +78,9 @@ export async function startDshWeb({ home, projects }) {
     DSH_E2E_MOCK_KEY: 'isolated-mock-key',
     ELECTRON_RUN_AS_NODE: '1',
     PLAYWRIGHT_BROWSERS_PATH: BROWSERS,
+    npm_config_store_dir: path.join(SCRATCH, 'pnpm-store'),
+    npm_config_cache: path.join(SCRATCH, 'npm-cache'),
+    npm_config_state_dir: path.join(SCRATCH, 'pnpm-state'),
   }
   const command = cli()
   run(command, ['plugin', '--profile', 'web', 'add', ROOT], env)

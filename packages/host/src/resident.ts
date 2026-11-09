@@ -249,9 +249,6 @@ export class ResidentSessions {
       if (opened.event === 'error') throw new Refusal(`uml-viewer resident could not open the project: ${opened.message}`)
       if (opened.event !== 'frame') throw new Error(`uml-viewer resident answered open with ${opened.event}`)
       connection.latestFrame = opened.frame
-      // A waiting canvas with nothing displayed has no diagram of its own:
-      // the next open must keep waiting, not show the project default.
-      if (opened.frame.waiting && state) await this.states.write(connection.id, { ...state, diagram: null })
       return connection
     } catch (error) {
       await this.stop(connection)
@@ -339,10 +336,6 @@ export class ResidentSessions {
     const connection = await this.open(agent, signal)
     try {
       let event = await connection.request(action, ACTION_TIMEOUT_MS)
-      // Save after every state-changing action, while the panel is open:
-      // waiting for the last stream to close would lose the last drill-in,
-      // pan or zoom on a DSH shutdown, which cannot run that close path.
-      if (SAVED_ACTIONS.has(action.action)) await this.save(connection)
       let note: string | null = null
       const context = connection.latestContext
       if (restoreContext && context?.kind === 'proposal' && context.proposalId && event.event === 'frame') {
@@ -368,6 +361,8 @@ export class ResidentSessions {
       }
       return { event, note }
     } finally {
+      // Save the final view, including any restored discussion context.
+      if (SAVED_ACTIONS.has(action.action)) await this.save(connection)
       await this.release(connection)
     }
   }
@@ -375,6 +370,9 @@ export class ResidentSessions {
   /** Persist what the resident currently shows; best effort, never an action failure. */
   private async save(connection: ResidentConnection): Promise<void> {
     try {
+      // A stale/missing diagram reopens waiting. Preserve its last displayed
+      // snapshot rather than replacing it with the blank canvas on resize.
+      if (connection.latestFrame?.waiting && await this.states.read(connection.id)) return
       const saved = await connection.request({ action: 'save' }, ACTION_TIMEOUT_MS, { quiet: true })
       if (saved.event === 'state') await this.states.write(connection.id, saved.state)
     } catch {
@@ -398,17 +396,7 @@ export class ResidentSessions {
   private async stop(connection: ResidentConnection): Promise<void> {
     if (connection.isSettled) return
     this.connections.delete(connection.id)
-    try {
-      const state = await connection.request({ action: 'save' }, STOP_TIMEOUT_MS, { quiet: true })
-      if (state.event === 'state') {
-        await this.states.write(connection.id, {
-          ...state.state,
-          ...(connection.latestFrame?.waiting ? { diagram: null } : {}),
-        })
-      }
-    } catch {
-      // A panel closing is not a place to fail: the view state is best effort.
-    }
+    await this.save(connection)
     try {
       await connection.request({ action: 'quit' }, STOP_TIMEOUT_MS)
     } catch {

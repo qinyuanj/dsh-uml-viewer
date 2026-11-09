@@ -395,6 +395,22 @@ it('keeps one resident per session and stops it when the last panel stream close
   await other.close()
 })
 
+it('hands a session from a closing sidebar stream to an opening main-page stream', async () => {
+  const { stream, projects } = await setup()
+  const first = stream('session-a')
+  expect((await timeout(first.next())).value).toMatchObject({ kind: 'ready' })
+  // The main page mounts as the sidebar unmounts. Its watcher must either
+  // join a still-live resident or wait for the close and start a fresh one,
+  // never attach to the stream that is being stopped.
+  const closing = first.close()
+  const second = stream('session-a')
+  expect((await timeout(second.next())).value).toMatchObject({ kind: 'ready' })
+  expect((await timeout(second.next())).value?.kind).toBe('frame')
+  await closing
+  await second.close()
+  expect(existsSync(path.join(projects['session-a']!, 'resident-invocation.json'))).toBe(true)
+})
+
 it('sends the restored discussion context with the first panel stream', async () => {
   const { home, stream } = await setup()
   const states = path.join(home, 'dsh-uml-viewer', 'sessions')

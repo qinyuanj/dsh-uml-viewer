@@ -117,8 +117,21 @@ ports appear only in a drilled-in view, which the panel cannot reach until
 #23 adds drill-in, so they are asserted against the `core-port-selected`
 golden in that unit suite.
 
-This ticket does not assert survival across a DSH restart. The `uml_display`
-gate is process-local (#21 residual); cross-restart restoration belongs to #23.
+`navigation.spec.mjs` (#23) replaces the navigation/search driver scenarios:
+real double-click drill-in, an in-browser painted dependency-port assertion,
+selection with dependency-chain highlighting and dimming, Escape/back, P,
+Ctrl+F, CJK typing/paste, same-name namespace disambiguation and Down/Enter
+locate. It also expands the sidebar to the root-scoped `main` page, asserts
+its original session id, and returns to the conversation.
+
+`session.spec.mjs` replaces the session/restore scenarios: navigate, select,
+zoom and pan; reload the Web client and compare its restored summary; then
+stop and boot the real isolated DSH host on the same home and compare again,
+without another IR/display call. A proposal case proves discussion-context
+restoration too. The process-local IR→display gate stays conservative, as
+explained in the ADR 0013 #23 appendix; restoration only replays the saved IR
+when its persisted SHA-256 still matches. The host state seam also checks
+changed and missing IR, which must reopen waiting.
 
 ## Harness API for #23–#29
 
@@ -135,7 +148,10 @@ host bootstrap.
 | `projects` | `{ shop, ledger }` absolute sample roots |
 | `openPanel(name)` | create/select that session, open the sidebar tab, render IR, and return `{ page, panel, canvas, summary, before, problems }` |
 | `pan(panel)` | real pointer drag on that panel's canvas |
-| `wheel(panel, notches)` | real wheel notches over the canvas centre; positive zooms out |
+| `wheel(panel, notches)` | real Ctrl+wheel notches over the canvas centre; positive zooms out (plain wheel now pans, matching egui) |
+| `point(panel, [x,y], clicks?)` | real canvas-local click or double-click |
+| `reopenPanel(panel)` | reload the Web client and reopen the same session, without IR/display |
+| `restart(panel)` | stop and boot the isolated DSH host on the same home, reopen the same session |
 | `sendPrompt(panel, text)` | send a visible composer message in that session |
 | `screenshot(panel, name)` | write a full-page scratch screenshot |
 | `close()` | close browser contexts, host and mock, in that order |

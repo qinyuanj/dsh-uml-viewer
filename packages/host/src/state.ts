@@ -1,4 +1,5 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { SessionState } from '@dsh-uml-viewer/contracts'
 import { validateSessionState } from '@dsh-uml-viewer/contracts'
@@ -21,6 +22,7 @@ export function pluginHome(configHome: string | undefined, configured: (() => st
  */
 export class SessionStates {
   private readonly directory: string | undefined
+  private readonly writes = new Map<string, Promise<void>>()
 
   constructor(home: string | undefined) {
     this.directory = home ? path.join(home, 'sessions') : undefined
@@ -36,19 +38,46 @@ export class SessionStates {
     const file = this.file(sessionId)
     if (!file) return null
     try {
-      return validateSessionState(JSON.parse(await readFile(file, 'utf8')))
+      const record = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>
+      const state = validateSessionState(record)
+      if (state.diagram && (typeof record.diagramDigest !== 'string'
+        || await diagramDigest(state.diagram) !== record.diagramDigest)) {
+        // Restoration replays the previously displayed IR only. Changed or
+        // missing IR must pass the normal uml_ir → uml_display gate again.
+        return { ...state, diagram: null }
+      }
+      return state
     } catch {
       return null
     }
   }
 
   /** Write atomically (temporary file plus rename) so a crash cannot truncate it. */
-  async write(sessionId: string, state: SessionState): Promise<void> {
+  write(sessionId: string, state: SessionState): Promise<void> {
+    const previous = this.writes.get(sessionId) ?? Promise.resolve()
+    const next = previous.catch(() => {}).then(() => this.publish(sessionId, state))
+    this.writes.set(sessionId, next)
+    void next.finally(() => {
+      if (this.writes.get(sessionId) === next) this.writes.delete(sessionId)
+    }).catch(() => {})
+    return next
+  }
+
+  private async publish(sessionId: string, state: SessionState): Promise<void> {
     const file = this.file(sessionId)
     if (!file || !this.directory) return
     await mkdir(this.directory, { recursive: true })
-    const temporary = `${file}.${process.pid}.tmp`
-    await writeFile(temporary, `${JSON.stringify(state)}\n`)
+    const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`
+    const digest = state.diagram ? await diagramDigest(state.diagram) : null
+    await writeFile(temporary, `${JSON.stringify({ ...state, diagramDigest: digest })}\n`)
     await rename(temporary, file)
+  }
+}
+
+async function diagramDigest(diagram: string): Promise<string | null> {
+  try {
+    return createHash('sha256').update(await readFile(diagram)).digest('hex')
+  } catch {
+    return null
   }
 }
