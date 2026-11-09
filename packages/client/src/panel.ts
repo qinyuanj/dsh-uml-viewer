@@ -6,11 +6,13 @@
  * The interaction boundary is ADR 0013's: drill-in/back/P, select and search go
  * through the host to the resident (`drill-in`, `back`, `namespace-tree`,
  * `select`, `search`, `locate`); pan, zoom, fit and hover are local camera or
- * feedback work. The local camera math mirrors `scene::events` (on_wheel,
+ * feedback work. Hover restyles the resident's frame locally (`hover.ts`) and
+ * never changes the frame itself. The local camera math mirrors `scene::events` (on_wheel,
  * on_scroll, zoom_at, fit) so the panel behaves like the egui window.
  */
 import type { DiscussionContext, PanelAck, PanelAction, PanelEvent, SceneFrame, SearchResult } from '@dsh-uml-viewer/contracts'
 import { hitTest, paintFrame } from './paint.js'
+import { hoverAt, sameHover, withHover, type HoverHit } from './hover.js'
 import { screenToWorld, viewTransform } from './fit.js'
 
 /** A Remote stream handle: async-iterable, with the carrier's own teardown. */
@@ -84,7 +86,8 @@ export class PanelController {
   private drag: { x: number; y: number; moved: boolean } | null = null
   /** Last pointer position: the zoom anchor, like `Dims.pointer`. */
   private pointer: { x: number; y: number } | null = null
-  private hovered: string | null = null
+  /** What the pointer hovers; painted over the resident's frame, never sent. */
+  private hoverHit: HoverHit | null = null
 
   public constructor(deps: PanelDeps) {
     this.canvas = deps.canvas
@@ -144,7 +147,13 @@ export class PanelController {
 
   /** Repaint the last frame, e.g. after the host theme flips light/dark. */
   public repaint(): void {
-    if (this.frame) this.paint(this.frame, this.canvas)
+    if (this.frame) this.draw(this.frame)
+  }
+
+  /** Paint a resident frame with the local hover feedback on top. */
+  private draw(frame: SceneFrame): void {
+    const pointer = this.pointer ? [this.pointer.x, this.pointer.y] as const : null
+    this.paint(withHover(frame, this.hoverHit, pointer), this.canvas)
   }
 
   public async send(action: PanelAction): Promise<PanelAck | null> {
@@ -163,7 +172,7 @@ export class PanelController {
     const frame = { ...this.frame, camera }
     this.frame = frame
     this.publish({ ...this.status, frame })
-    this.paint(frame, this.canvas)
+    this.draw(frame)
     void this.send({ action: 'camera', ...camera })
   }
 
@@ -232,20 +241,27 @@ export class PanelController {
     if (world) void this.send({ action: 'drill-in', at: world })
   }
 
-  /** Hover is local feedback: no round trip, just a repaint of the hovered box. */
+  /**
+   * Hover is local feedback (ADR 0013): no round trip. A change of what is
+   * under the pointer repaints; so does a move while the overview popup, which
+   * follows the pointer, is showing.
+   */
   public hover(x: number, y: number): void {
     this.pointer = { x, y }
-    const world = this.world(x, y)
-    const id = world ? hitTest(this.frame!, world) : null
-    if (id === this.hovered) return
-    this.hovered = id
     if (!this.frame) return
-    const frame: SceneFrame = {
-      ...this.frame,
-      world: this.frame.world.map(item => ('hovered' in item ? { ...item, hovered: item.id === id } : item)),
-    }
-    this.frame = frame
-    this.paint(frame, this.canvas)
+    const world = this.world(x, y)
+    const hit = world ? hoverAt(this.frame, world) : null
+    const followsPointer = hit?.kind === 'class' && this.frame.lod !== 'full'
+    if (sameHover(hit, this.hoverHit) && !followsPointer) return
+    this.hoverHit = hit
+    this.draw(this.frame)
+  }
+
+  /** The pointer left the canvas: drop the hover feedback. */
+  public hoverEnd(): void {
+    if (this.hoverHit === null) return
+    this.hoverHit = null
+    if (this.frame) this.draw(this.frame)
   }
 
   /** Wheel: plain pans (shift/horizontal pans sideways), Ctrl zooms at the cursor. */
@@ -425,7 +441,7 @@ export class PanelController {
       case 'frame':
         this.frame = event.frame
         this.publish({ kind: 'live', reason: null, actions: this.status.actions, frame: event.frame, context: this.status.context ?? { kind: 'real', edn: '{:context :real}' }, search: this.status.search })
-        this.paint(event.frame, this.canvas)
+        this.draw(event.frame)
         // Rebuilds and display can change the mode. Read actual resident state,
         // including a restored mode, instead of advancing a local click count.
         void this.send({ action: 'save' })

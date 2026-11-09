@@ -286,3 +286,52 @@ describe('session-bound panel stream', () => {
     h.controller.close()
   })
 })
+
+describe('local hover (关系悬停高亮, ADR 0013)', () => {
+  const coreCenter = (view: SceneFrame): [number, number] => {
+    const core = view.world.find(i => i.kind === 'class' && i.id === ':core')
+    if (!core || core.kind !== 'class') throw new Error(':core')
+    return worldToScreen(viewTransform(view, 800, 600), core.rect.x + core.rect.w / 2, core.rect.y + core.rect.h / 2)
+  }
+  const warm = (painted: SceneFrame): string[] =>
+    painted.edges.flatMap(e => (e.kind === 'stroke' && e.warm ? [`${e.from}->${e.to}:${e.stroke.role}`] : []))
+  const expectedWarm = [':api->:core:relation-hover', ':store->:core:relation-hover', ':core->:util:violation-hot']
+
+  it('paints the hovered class’s relations without a host round trip or a new resident frame', async () => {
+    const h = harness([{ kind: 'ready', actions: [] }, { kind: 'frame', seq: 1, frame }])
+    await h.controller.open('session-a')
+    await settle(() => h.painted.length === 1, 'the frame')
+    const sent = h.actions.length
+    h.controller.hover(...coreCenter(frame))
+    expect(warm(h.painted.at(-1)!)).toEqual(expectedWarm)
+    // Hover is feedback only: no action, and the resident's frame is unchanged.
+    expect(h.actions.length).toBe(sent)
+    expect(h.controller.current.frame).toBe(frame)
+    // Moving within the same box does not repaint; leaving the canvas restores the frame.
+    const paints = h.painted.length
+    h.controller.hover(coreCenter(frame)[0] + 2, coreCenter(frame)[1])
+    expect(h.painted.length).toBe(paints)
+    h.controller.hoverEnd()
+    expect(h.painted.at(-1)).toBe(frame)
+    h.controller.close()
+  })
+
+  it('keeps the hover across a local pan and over the next resident frame', async () => {
+    const h = harness([{ kind: 'ready', actions: [] }, { kind: 'frame', seq: 1, frame }])
+    await h.controller.open('session-a')
+    await settle(() => h.painted.length === 1, 'the frame')
+    h.controller.hover(...coreCenter(frame))
+    // A wheel pan repaints the hovered frame with the new camera.
+    h.controller.wheel(10, 10, -1)
+    const panned = h.painted.at(-1)!
+    expect(panned.camera).not.toEqual(frame.camera)
+    expect(warm(panned)).toEqual(expectedWarm)
+    // A select answer from the resident (say, a reload) is painted with the hover on top.
+    const reloaded: SceneFrame = { ...frame }
+    h.emit({ kind: 'frame', seq: 2, frame: reloaded })
+    await settle(() => h.controller.current.frame === reloaded, 'the next frame')
+    expect(warm(h.painted.at(-1)!)).toEqual(expectedWarm)
+    expect(h.controller.current.frame).toBe(reloaded)
+    h.controller.close()
+  })
+})
