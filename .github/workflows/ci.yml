@@ -213,7 +213,8 @@ jobs:
           MUTATOR_REQUIRE_TOOLCHAINS: '1'
         run: |
           cargo test -p mutator --locked --test python_ts --test python_ts_sites -- --test-threads=1
-          cargo test -p uml-viewer --test integration mutate:: quality_selection:: --locked -- --test-threads=1
+          cargo test -p uml-viewer --test integration mutate:: --locked -- --test-threads=1
+          cargo test -p uml-viewer --test integration quality_selection:: --locked -- --test-threads=1
 
       - name: scripts/check.py (source rules + cargo test --workspace --locked)
         run: python3 -I scripts/check.py
