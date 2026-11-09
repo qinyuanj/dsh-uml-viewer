@@ -28,7 +28,8 @@ write({
   frameSchema: 'dsh-uml-viewer/scene-frame', frameVersion: 1,
   stateSchema: 'dsh-uml-viewer/session-state', stateVersion: 1,
   actions: ['open', 'viewport', 'camera', 'display', 'reload', 'drill-in', 'back', 'namespace-tree',
-    'select', 'search', 'locate', 'context', 'declutter', 'save', 'quit'],
+    'select', 'search', 'locate', 'context', 'declutter', 'save', 'quit',
+    'inspector', 'card', 'open-card', 'close-card', 'scroll-card', 'open-source'],
 })
 
 function exit(reason) {
@@ -72,6 +73,17 @@ function handle(action) {
       })
     case 'search':
       return answer(action.seq, { event: 'search', query: action.query, results: [{ id: ':core', name: 'core', ns: 'core', label: 'core' }] })
+    // #27 overlays: the test supplies each model through resident.json.
+    case 'inspector':
+      return answer(action.seq, { event: 'inspector', inspector: config.inspector })
+    case 'card':
+      return config.cardError
+        ? answer(action.seq, { event: 'error', message: config.cardError })
+        : answer(action.seq, { event: 'card', card: config.card })
+    case 'open-source':
+      return config.sourceError
+        ? answer(action.seq, { event: 'error', message: config.sourceError })
+        : answer(action.seq, { event: 'source', source: config.source })
     case 'quit':
       exit('quit')
       answer(action.seq, { event: 'ack' })

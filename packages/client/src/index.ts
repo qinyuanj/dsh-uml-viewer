@@ -8,7 +8,9 @@
  * theme tokens, which is why the panel reads tokens for its Canvas 2D colors
  * instead of relying on primitive components.
  */
-import { createElement } from 'react'
+import { createElement, useCallback, useRef, useState } from 'react'
+import { OverlayController } from './overlays.js'
+import { Overlays, OVERLAY_STYLE } from './overlay-view.js'
 import { UML_VIEWER_REMOTE } from '@dsh-uml-viewer/contracts'
 import { FONT_FAMILY, loadSarasa } from './font.js'
 import { PanelController, type PanelRemoteApi } from './panel.js'
@@ -108,6 +110,7 @@ function statusLine(): HTMLElement {
 export async function mountPanel(host: HTMLElement, options: {
   sessionId: string
   ctx: ClientContext
+  onOverlays?: (controller: OverlayController) => void
 }): Promise<() => void> {
   const canvas = document.createElement('canvas')
   canvas.style.touchAction = 'none'
@@ -121,12 +124,14 @@ export async function mountPanel(host: HTMLElement, options: {
     status.style.display = ''
     return () => { host.replaceChildren() }
   }
+  let overlays: OverlayController | null = null
   const controller = new PanelController({
     canvas,
     api,
     paint: (frame, target) => paintFrame(frame, target),
     onStatus: (state) => {
       const frame = state.frame
+      if (state.kind === 'live' && frame) void overlays?.refresh()
       summary.dataset.kind = frame ? 'frame' : state.kind
       summary.dataset.context = state.context?.kind ?? 'real'
       if (frame) {
@@ -145,7 +150,28 @@ export async function mountPanel(host: HTMLElement, options: {
       status.style.display = reason ? '' : 'none'
     },
   })
-  const unsubscribe = controller.subscribe(() => { /* React panels poll `current`; nothing to do here. */ })
+  overlays = new OverlayController(action => controller.send(action))
+  options.onOverlays?.(overlays)
+  const onDoubleClick = (event: MouseEvent): void => {
+    const frame = controller.current.frame
+    if (!frame) return
+    const bounds = canvas.getBoundingClientRect()
+    const scale = Math.min(bounds.width / frame.viewport.width, bounds.height / frame.viewport.height)
+    const zoom = frame.camera.zoom * scale
+    void overlays?.openCardAt([frame.camera.x + event.offsetX / zoom, frame.camera.y + event.offsetY / zoom])
+  }
+  canvas.addEventListener('dblclick', onDoubleClick)
+  // Keyboard input belongs to this panel; never capture the chat composer.
+  host.tabIndex = 0
+  const onKey = (event: KeyboardEvent): void => {
+    if (event.key.toLowerCase() !== 'p' || event.ctrlKey || event.metaKey || event.altKey) return
+    const target = event.target as HTMLElement
+    if (target.matches('input,textarea,[contenteditable=true]')) return
+    event.preventDefault()
+    void overlays?.namespaceTree()
+  }
+  host.addEventListener('keydown', onKey)
+  const unsubscribe = controller.subscribe(() => { /* state is published to React through overlays */ })
   const onResize = (): void => {
     void controller.measureViewport().then(size => controller.setViewport(size.width, size.height))
   }
@@ -169,6 +195,9 @@ export async function mountPanel(host: HTMLElement, options: {
   await controller.open(options.sessionId)
   return () => {
     observer?.disconnect()
+    overlays?.dispose()
+    canvas.removeEventListener('dblclick', onDoubleClick)
+    host.removeEventListener('keydown', onKey)
     unsubscribe()
     canvas.removeEventListener('pointerdown', onPointerDown)
     canvas.removeEventListener('pointermove', onPointerMove)
@@ -182,8 +211,9 @@ export async function mountPanel(host: HTMLElement, options: {
 /** One panel component, used by both the sidebar tab and the `main` page. */
 export function makePanelComponent(ctx: ClientContext): (props: ClientPanelProps) => unknown {
   return function UmlViewerPanel(props: ClientPanelProps): unknown {
-    const disposeRef: { current: (() => void) | null } = { current: null }
-    const attach = (element: HTMLElement | null): void => {
+    const disposeRef = useRef<(() => void) | null>(null)
+    const [overlays, setOverlays] = useState<OverlayController | null>(null)
+    const attach = useCallback((element: HTMLElement | null): void => {
       if (!element) {
         disposeRef.current?.()
         disposeRef.current = null
@@ -192,13 +222,12 @@ export function makePanelComponent(ctx: ClientContext): (props: ClientPanelProps
       if (disposeRef.current) return
       const sessionId = props.sessionId
       if (typeof sessionId !== 'string') return
-      void mountPanel(element, { sessionId, ctx }).then(dispose => { disposeRef.current = dispose })
-    }
-    return createElement('div', {
-      className: 'dsh-uml-viewer-panel',
-      'data-font': FONT_FAMILY,
-      ref: attach,
-    })
+      void mountPanel(element, { sessionId, ctx, onOverlays: setOverlays }).then(dispose => { disposeRef.current = dispose })
+    }, [ctx, props.sessionId])
+    return createElement('div', { className: 'dsh-uml-viewer-panel', 'data-font': FONT_FAMILY },
+      createElement('div', { className: 'dsh-uml-viewer-canvas-host', ref: attach,
+        style: { position: 'absolute', inset: 0 } }),
+      overlays ? createElement(Overlays, { controller: overlays }) : null)
   }
 }
 
@@ -208,7 +237,7 @@ function installStyles(): () => void {
   if (document.querySelector(`style[data-plugin-css="${id}"]`) === null) {
     const tag = document.createElement('style')
     tag.dataset.pluginCss = id
-    tag.textContent = STYLE
+    tag.textContent = STYLE + OVERLAY_STYLE
     document.head.appendChild(tag)
   }
   return () => {

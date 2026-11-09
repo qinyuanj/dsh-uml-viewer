@@ -18,6 +18,12 @@ export function panelEvent(event: ResidentEvent): PanelEvent | null {
       return { kind: 'state', state: event.state }
     case 'search':
       return { kind: 'search', query: event.query, results: event.results }
+    // #27: inspector/card/source are answers to one panel's action and travel
+    // on that action's ack, never into every watching panel's stream.
+    case 'inspector':
+    case 'card':
+    case 'source':
+      return null
     case 'error':
       return { kind: 'failed', reason: event.message }
     default:
@@ -66,7 +72,13 @@ export class ViewerService {
   async action(agent: Agent, action: PanelAction): Promise<PanelAck> {
     try {
       const { event } = await this.sessions.refresh(agent, new AbortController().signal, action as unknown as { action: string })
-      return event.event === 'error' ? { accepted: false, reason: event.message } : { accepted: true, reason: null }
+      if (event.event === 'error') return { accepted: false, reason: event.message }
+      const ack: PanelAck = { accepted: true, reason: null }
+      // The overlay models ride on the ack of the action that asked for them.
+      if (event.event === 'inspector') ack.inspector = event.inspector
+      else if (event.event === 'card') ack.card = event.card
+      else if (event.event === 'source') ack.source = event.source
+      return ack
     } catch (error) {
       return { accepted: false, reason: reasonOf(error) }
     }
