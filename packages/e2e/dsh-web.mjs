@@ -93,6 +93,7 @@ export async function startDshWeb({ home, projects, packages = null }) {
     PLAYWRIGHT_BROWSERS_PATH: BROWSERS,
     npm_config_cache: path.join(home, 'cache', 'npm'),
     npm_config_store_dir: path.join(home, 'cache', 'pnpm-store'),
+    PNPM_CACHE_DIR: path.join(home, 'cache', 'pnpm'),
     COREPACK_HOME: path.join(home, 'cache', 'corepack'),
     XDG_CACHE_HOME: path.join(home, 'cache', 'xdg'),
   }
@@ -102,8 +103,12 @@ export async function startDshWeb({ home, projects, packages = null }) {
   if (packages) delete env.UML_VIEWER_BIN
   const command = cli()
   const targets = packages ? [packages.main, packages.platform] : [ROOT]
-  run(command, ['plugin', '--profile', 'web', 'add', '--ignore-scripts', ...targets], env)
-  const uninstall = () => run(command, ['plugin', '--profile', 'web', 'remove', '--ignore-scripts',
+  // The Desktop CLI scrubs npm_config_* on its internal pnpm process. Pass the
+  // store explicitly; environment-only configuration silently uses a global store.
+  const store = ['--store-dir', path.join(home, 'cache', 'pnpm-store')]
+  run(command, ['plugin', '--profile', 'web', 'add', '--ignore-scripts', ...store, ...targets], env)
+  // pnpm 11 remove does not accept --ignore-scripts; these archives have no scripts.
+  const uninstall = () => run(command, ['plugin', '--profile', 'web', 'remove', ...store,
     'dsh-uml-viewer', ...(packages ? [`@dsh-uml-viewer/${process.platform}-${process.arch}`] : [])], env)
   return { command, env, packages, uninstall }
 }

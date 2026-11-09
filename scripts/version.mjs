@@ -5,9 +5,11 @@ import { pathToFileURL } from 'node:url'
 export const root = path.resolve(import.meta.dirname, '..')
 export async function releaseVersion(directory = root) {
   const cargo = await readFile(path.join(directory, 'Cargo.toml'), 'utf8')
-  const section = cargo.match(/^\[workspace\.package\]\s*\n([^]*?)(?=^\[|$(?![^]))/m)?.[1]
+  const section = cargo.split('[workspace.package]')[1]?.split(/\r?\n\[/)[0]
   const version = section?.match(/^version\s*=\s*"([^"]+)"/m)?.[1]
-  if (!version || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)) {
+  const match = version?.match(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/)
+  const invalidNumericPrerelease = match?.[4]?.split('.').some(part => /^0\d+$/.test(part))
+  if (!match || invalidNumericPrerelease) {
     throw new Error('Cargo.toml workspace.package.version must be a SemVer')
   }
   return version

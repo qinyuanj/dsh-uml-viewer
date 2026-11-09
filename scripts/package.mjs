@@ -30,7 +30,7 @@ const platformManifest = {
 }
 const json = value => Buffer.from(JSON.stringify(value, null, 2) + '\n')
 const mainFiles = new Map([['package.json', json(mainManifest)]])
-for (const name of ['README.md', 'icon.svg', 'cordis.patch.yml', 'dsh-plugin.json']) mainFiles.set(name, await readFile(path.join(root, name)))
+for (const name of ['README.md', 'icon.svg', 'cordis.patch.yml', 'dsh-plugin.json', 'docs/plugin-development.md']) mainFiles.set(name, await readFile(path.join(root, name)))
 async function include(directory) {
   for (const entry of await readdir(path.join(root, directory), { withFileTypes: true })) {
     const name = `${directory}/${entry.name}`

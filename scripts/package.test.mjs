@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { test } from 'node:test'
 import { spawnSync } from 'node:child_process'
+import { releaseVersion } from './version.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const run = args => spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8' })
@@ -10,6 +11,14 @@ const run = args => spawnSync(process.execPath, args, { cwd: root, encoding: 'ut
 test('release version comes from Cargo workspace and every manifest agrees', () => {
   const result = run(['scripts/version.mjs', '--check'])
   assert.equal(result.status, 0, result.stdout + result.stderr)
+})
+
+test('release version rejects an invalid SemVer prerelease before assembling packages', async () => {
+  const scratch = await mkdtemp(path.join(root, '.scratch-version-test-'))
+  try {
+    await writeFile(path.join(scratch, 'Cargo.toml'), '[workspace.package]\nversion = "1.0.0-01"\n')
+    await assert.rejects(releaseVersion(scratch), /must be a SemVer/)
+  } finally { await rm(scratch, { recursive: true, force: true }) }
 })
 
 test('package build refuses absent native input without emitting archives', async () => {
@@ -40,7 +49,8 @@ if (process.env.UML_VIEWER_PACKAGE_REPORT) test('assembled archives contain only
   }
   const main = JSON.parse(extract(report.main.path, 'package.json'))
   assert.equal(main.name, 'dsh-uml-viewer')
-  assert.equal(main.version, '1.0.0')
+  const sourceManifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
+  assert.equal(main.version, sourceManifest.version)
   assert.equal(main.private, undefined)
   assert.equal(main.devDependencies, undefined)
   assert.equal(main.scripts, undefined)
