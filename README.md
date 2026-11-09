@@ -47,8 +47,12 @@ a toolchain or builds other platforms. It writes deterministic npm tarballs
 and a SHA-256/inventory report, with no install scripts or registry calls.
 The source checkout stays private; the assembler removes development-only
 fields from the installable main package.
-Keep generated archives, binaries, IR and metrics out of commits. CI #33 owns
-the other platform builds; publish/tag/provenance operations belong to #34.
+Keep generated archives, binaries, IR and metrics out of commits. The four
+platform builds and the npm provenance release are configured in
+[release packaging](docs/releasing.md): a pull request assembles the archives and
+runs `npm publish --dry-run`, and a `v<version>` tag on the canonical repository
+is the only publishing path. That pipeline has not run yet, so no platform
+package is verified.
 
 `Cargo.toml` `[workspace.package].version` is the release version authority;
 every crate inherits it. Change it, run `pnpm version:sync`, update the Cargo
