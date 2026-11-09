@@ -10,8 +10,10 @@
 //! Rust behaviour to port; see `fixtures/dry/README.md`.
 
 // Test code is the outside harness: the ported cases launch `git` to build
-// real repositories, exactly as the original pytest cases do.
-#![allow(clippy::disallowed_methods)]
+// real repositories, exactly as the original pytest cases do. The module lives
+// under `#[cfg(test)]`, so this lift is test-only by construction and takes the
+// documented `cfg_attr(test, allow(...))` form instead of a blanket allow.
+#![cfg_attr(test, allow(clippy::disallowed_methods))]
 
 mod cli;
 mod clojure;

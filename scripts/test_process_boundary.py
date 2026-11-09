@@ -20,7 +20,6 @@ TEST_ONLY = re.compile(r'cfg_attr\(\s*test\s*,\s*allow\(\s*clippy::disallowed_me
 ADAPTERS = {
     'crates/quality-core/src/process.rs': 'the quality tools\' one process boundary (ADR 0012)',
     'crates/mutator/src/isolation.rs': 'the Linux namespace view launcher (PR_SET_PDEATHSIG, process group)',
-    'crates/dryer/src/original/mod.rs': 'the ported pytest cases build real git repositories',
 }
 FIX = ('launch through crates/quality-core/src/process.rs, or add the file to ADAPTERS '
        'in scripts/test_process_boundary.py with the reason it is a boundary')
