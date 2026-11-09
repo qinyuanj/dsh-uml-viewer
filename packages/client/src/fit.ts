@@ -53,10 +53,11 @@ export function estimateW(text: string, size: number): number {
 }
 
 /**
- * The producer's Rust `fit` shrinks until real measured text + bold offset +
- * italic shear fit inside `maxW`. This port is used only when the Sarasa
- * face is available to give a real measure; the result is always at most
- * `size`, never grows.
+ * The native painter's `fit_px` (crates/viewer/src/paint.rs): the largest
+ * whole-pixel size not above `size` whose measured text, bold offset
+ * (0.05·px) and italic shear (0.2·px) fit `maxW`. Sizes and budget are in the
+ * same unit (screen pixels when painting). The result never grows past
+ * `floor(size)`.
  */
 export function fittedSize(
   measure: (size: number, text: string) => number,
@@ -67,18 +68,23 @@ export function fittedSize(
   italic: boolean,
 ): number {
   const width = (s: number) => measure(s, text) + (bold ? s * 0.05 : 0) + (italic ? s * 0.2 : 0)
-  const natural = width(size)
-  if (natural <= maxW || natural <= 0) return size
-  let lo = 0
-  let hi = size
-  // 32 bisections land within a quarter-point; the draw happens at screen
-  // resolution, so that is plenty.
-  for (let i = 0; i < 32; i += 1) {
-    const mid = (lo + hi) / 2
-    if (width(mid) > maxW) hi = mid
-    else lo = mid
-  }
-  return lo
+  const nominal = Math.max(1, Math.floor(size))
+  const natural = width(nominal)
+  if (natural <= maxW || natural <= 0) return nominal
+  let px = Math.min(Math.floor((nominal * Math.max(0, maxW)) / natural), nominal - 1)
+  while (px >= 1 && width(px) > maxW) px -= 1
+  return px
+}
+
+/** A scaled canvas font size on whole pixels, at least 1 (`lod::font_px`). */
+export function fontPx(size: number, zoom: number): number {
+  return Math.max(1, Math.round(size * zoom))
+}
+
+/** A corner radius on screen; under 2 px it is dropped, as natively. */
+export function cornerPx(radius: number, zoom: number): number {
+  const r = radius * zoom
+  return r < 2 ? 0 : r
 }
 
 /**
@@ -139,7 +145,7 @@ export function screenToWorld(v: ViewTransform, sx: number, sy: number): [number
   return [sx / v.zoom + v.x, sy / v.zoom + v.y]
 }
 
-/** A world-space rect of the given size in world units is at least 0.5 screen pixels on screen. */
+/** A box is drawn only when it spans at least one screen point each way, as natively. */
 export function rectVisible(v: ViewTransform, w: number, h: number): boolean {
-  return w * v.zoom >= 0.5 && h * v.zoom >= 0.5
+  return w * v.zoom >= 1 && h * v.zoom >= 1
 }

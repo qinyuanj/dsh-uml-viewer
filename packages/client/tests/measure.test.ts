@@ -59,7 +59,8 @@ describe('Sarasa measurement against the layout estimate', () => {
     for (const item of frame.world) {
       if (item.kind !== 'text' || !item.text) continue
       const advance = (size: number, value: string): number => sarasa.widthPx(value, size)
-      // Bisect exactly like the painter's `fittedSize`.
+      // A continuous real-face fit; the painter's whole-pixel `fittedSize`
+      // never exceeds it, so this bounds the drawn label too.
       let size = item.size
       if (advance(size, item.text) > item.maxW) {
         let lo = 0

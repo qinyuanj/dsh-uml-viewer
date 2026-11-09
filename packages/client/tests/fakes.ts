@@ -17,6 +17,12 @@ export interface DrawOp {
   y?: number
   width?: number
   height?: number
+  /** Every numeric argument of the call, in order (path geometry). */
+  args?: number[]
+  lineWidth?: number
+  lineDash?: number[]
+  textAlign?: string
+  textBaseline?: string
 }
 
 export interface RecordingContext {
@@ -45,12 +51,17 @@ export function recordingContext(measure?: (text: string, sizePx: number) => num
     globalAlpha: 1,
     textAlign: 'left',
     textBaseline: 'alphabetic',
+    lineDash: [] as number[],
   }
   const snapshot = (): Partial<DrawOp> => ({
     fillStyle: state.fillStyle,
     strokeStyle: state.strokeStyle,
     font: state.font,
     globalAlpha: state.globalAlpha,
+    lineWidth: state.lineWidth,
+    lineDash: [...state.lineDash],
+    textAlign: state.textAlign,
+    textBaseline: state.textBaseline,
   })
   const record = (op: string, extra: Partial<DrawOp> = {}): void => {
     ops.push({ op, ...snapshot(), ...extra })
@@ -84,15 +95,18 @@ export function recordingContext(measure?: (text: string, sizePx: number) => num
   for (const name of PATH_OPS) {
     Object.defineProperty(ctx, name, {
       value: (...args: unknown[]) => {
-        if (name === 'fillText') record(name, { text: String(args[0]), x: Number(args[1]), y: Number(args[2]) })
-        else if (name === 'fillRect') record(name, { x: Number(args[0]), y: Number(args[1]), width: Number(args[2]), height: Number(args[3]) })
-        else if (name === 'moveTo' || name === 'lineTo') record(name, { x: Number(args[0]), y: Number(args[1]) })
-        else record(name)
+        if (name === 'setLineDash') state.lineDash = [...(args[0] as number[])]
+        const numbers = args.filter((arg): arg is number => typeof arg === 'number')
+        if (name === 'fillText') record(name, { text: String(args[0]), x: Number(args[1]), y: Number(args[2]), args: numbers })
+        else if (name === 'fillRect') record(name, { x: Number(args[0]), y: Number(args[1]), width: Number(args[2]), height: Number(args[3]), args: numbers })
+        else if (name === 'moveTo' || name === 'lineTo') record(name, { x: Number(args[0]), y: Number(args[1]), args: numbers })
+        else record(name, { args: numbers })
       },
     })
   }
   return ctx
 }
+
 
 /** A canvas with its recording context attached; structurally a real canvas. */
 export type FakeCanvas = HTMLCanvasElement & { recording: RecordingContext }

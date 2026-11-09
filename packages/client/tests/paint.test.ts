@@ -118,7 +118,9 @@ describe('Canvas 2D namespace tree', () => {
     const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true, measure: (text, size) => sarasa.widthPx(text, size) })
     paintFrame(synthetic, canvas)
     const drawn = canvas.recording.ops.filter(op => op.op === 'fillText' && op.text === label)
-    expect(drawn).toHaveLength(1)
+    // The template is a bold name line: two passes at one fitted size.
+    expect(drawn).toHaveLength(2)
+    expect(drawn[1]!.font).toBe(drawn[0]!.font)
     const size = fontPx(drawn[0]!)
     expect(size).toBeLessThan(16)
     expect(sarasa.widthPx(label, size)).toBeLessThanOrEqual(80 + 1e-6)
@@ -134,7 +136,8 @@ describe('Canvas 2D namespace tree', () => {
     paintFrame(frame, canvas)
     const drawn = canvas.recording.ops.find(op => op.op === 'fillText' && op.text === 'Util')
     expect(drawn).toBeDefined()
-    expect(fontPx(drawn!)).toBeCloseTo(item.slot * frame.camera.zoom, 8)
+    // px = round(slot * zoom) = round(15 * 106/127) = round(12.52) = 13, never the nominal 16.
+    expect(fontPx(drawn!)).toBe(13)
   })
 
   it('dims every draw of every world item kind the producer marks dimmed', () => {
