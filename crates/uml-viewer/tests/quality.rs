@@ -626,7 +626,10 @@ fn all_quality_languages_reach_the_built_in_tools() {
             report.contains("Scan: 1 mutation sites in src/main.go"),
             "{diagnostics}"
         );
-        assert!(report.contains("src/main.go:3 true -> false"), "{diagnostics}");
+        assert!(
+            report.contains("src/main.go:3 true -> false"),
+            "{diagnostics}"
+        );
         assert!(report.contains("[defn-/value]"), "{diagnostics}");
         assert!(!report.contains("No source files"), "{diagnostics}");
         assert!(!project.root.join(".metrics").exists());
