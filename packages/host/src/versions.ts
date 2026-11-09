@@ -134,20 +134,41 @@ function removeQuietly(target: string): boolean {
  */
 function ownerMayBeAlive(file: string): boolean {
   const record = JSON.parse(readFileSync(file, 'utf8')) as { pid?: unknown }
-  if (!Number.isSafeInteger(record.pid) || (record.pid as number) <= 0) return false
+  if (!Number.isSafeInteger(record.pid)) return false
+  return processAlive(record.pid as number)
+}
+
+/** PIDs of the live leases on `version`, other than this activation's. */
+function liveLeasePids(home: string, version: string, own: string): number[] {
+  const directory = path.join(home, 'leases', version)
+  const pids: number[] = []
+  let names: string[]
   try {
-    process.kill(record.pid as number, 0)
-    return true
-  } catch (error) {
-    return errorCode(error) !== 'ESRCH'
+    names = readdirSync(directory)
+  } catch {
+    return pids
   }
+  for (const name of names) {
+    const file = path.join(directory, name)
+    if (file === own) continue
+    try {
+      if (Date.now() - statSync(file).mtimeMs < LEASE_TTL_MS || ownerMayBeAlive(file)) {
+        const record = JSON.parse(readFileSync(file, 'utf8')) as { pid?: unknown }
+        if (Number.isSafeInteger(record.pid)) pids.push(record.pid as number)
+      }
+    } catch {
+      // An unreadable lease is treated as live by cleanup; do not name it.
+    }
+  }
+  return pids
 }
 
 /** Serialize publication and retirement across hosts, so cleanup cannot race a spawn's pin. */
 function withStoreLock<T>(home: string, run: () => T): T {
   const lock = path.join(home, '.store-lock')
   const owner = path.join(lock, 'owner.json')
-  const deadline = Date.now() + 10_000
+  // The critical section is one copy of the executable or one directory move.
+  const deadline = Date.now() + 2_000
   for (;;) {
     let acquired = false
     try {
@@ -164,26 +185,48 @@ function withStoreLock<T>(home: string, run: () => T): T {
         removeQuietly(lock)
       }
     }
+    const age = lockAge(lock)
+    let holder: number | null = null
     try {
       // Only inspect the lock's named owner. A reused PID is conservative.
-      if (!ownerMayBeAlive(owner)) {
+      const record = JSON.parse(readFileSync(owner, 'utf8')) as { pid?: unknown }
+      holder = Number.isSafeInteger(record.pid) ? record.pid as number : null
+      if (holder !== null && !processAlive(holder)) {
         removeQuietly(lock)
         continue
       }
     } catch (error) {
-      // Between mkdir and writing owner.json, or a host crashed there. The
-      // latter can be reclaimed after the normal lease grace period.
-      try {
-        if (errorCode(error) === 'ENOENT' && Date.now() - statSync(lock).mtimeMs > LEASE_TTL_MS) {
-          removeQuietly(lock)
-          continue
-        }
-      } catch {
-        // Lock changed while inspecting it; retry.
+      // A lock with no readable owner is reclaimable once it is clearly not
+      // being written right now, so a truncated record cannot wedge the store.
+      if (age !== null && age > 2_000) {
+        removeQuietly(lock)
+        continue
       }
+      if (errorCode(error) !== 'ENOENT' && age === null) throw error
     }
-    if (Date.now() >= deadline) throw new Error('uml-viewer version store is busy; reload the plugin')
-    pause(10 + Math.floor(Math.random() * 20))
+    if (Date.now() >= deadline) {
+      throw new Error(`uml-viewer version store ${lock} is held${holder === null ? '' : ` by pid ${holder}`}; it is reclaimed automatically once that process exits`)
+    }
+    pause(5 + Math.floor(Math.random() * 15))
+  }
+}
+
+function lockAge(lock: string): number | null {
+  try {
+    return Date.now() - statSync(lock).mtimeMs
+  } catch {
+    return null
+  }
+}
+
+/** Signal 0 only: this never delivers a signal. */
+function processAlive(pid: number): boolean {
+  if (pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return errorCode(error) !== 'ESRCH'
   }
 }
 
@@ -307,7 +350,9 @@ function pinLocked(home: string, version: string, source: string, name: string, 
     return {
       binary,
       retain() {
-        if (holders === 0) throw new Error('This uml-viewer activation has ended; open the panel again')
+        if (holders === 0) {
+          throw new Error('This uml-viewer activation has ended, most likely because the plugin was updated; open the panel again to use the current version')
+        }
         holders += 1
         return once(drop)
       },
@@ -336,7 +381,11 @@ function publish(home: string, version: string, directory: string, binary: strin
       // Same version, other bytes. Never write into it; move it away only when
       // no other host leases it and the OS agrees nothing runs from it.
       if (liveLeases(home, version, ownLease) > 0 || heldOnWindows(directory, platform)) {
-        throw new Error(`uml-viewer ${version} is already pinned with different bytes and is in use by another DSH host; close its viewer panels or restart DSH, then reload the plugin`)
+        const owners = liveLeasePids(home, version, ownLease)
+        const who = owners.length
+          ? `another activation in pid ${owners.join(', ')} (a panel opened before this reload, or another DSH host)`
+          : 'a running process'
+        throw new Error(`uml-viewer ${version} is already pinned with different bytes and is in use by ${who}; close its viewer panels or restart DSH, then reload the plugin`)
       }
       const trash = path.join(home, `.trash-${randomUUID()}`)
       try {
@@ -402,6 +451,15 @@ function cleanupUnlocked(home: string, keep?: string): void {
     }
     if (name.startsWith('.staging-')) {
       // An activation that crashed mid-copy; a live one finishes in seconds.
+      try {
+        if (now - statSync(entry).mtimeMs > LEASE_TTL_MS) removeQuietly(entry)
+      } catch {
+        // Gone meanwhile.
+      }
+      continue
+    }
+    if (name.startsWith('current.json.') && name.endsWith('.tmp')) {
+      // A crash during an atomic current.json write; the next one replaces it.
       try {
         if (now - statSync(entry).mtimeMs > LEASE_TTL_MS) removeQuietly(entry)
       } catch {

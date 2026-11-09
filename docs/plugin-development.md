@@ -70,11 +70,20 @@ Cleanup removes only version directories that are neither current nor leased
 by a live owner. A lease whose heartbeat is old but whose PID is still alive
 (DSH suspended) keeps its version; a lease with no live owner (crashed DSH) is
 dropped, and its version is retired by renaming it to `.trash-<uuid>` and
-deleting it. Windows needs no special case in the plugin: an exe still mapped
-by a process is detected by opening its directory's files for writing, and a
-move that the OS refuses is deferred, never repaired by killing anything. The
-next activation or lease release retries. `current.json`, unknown directories
-and DSH's own session state are never removed.
+deleting it. Windows needs no separate failure path: the plugin probes whether
+anything still maps the payload (a running exe cannot be opened for writing)
+and, if so, leaves the directory in place and retries at the next activation or
+lease release. It never kills a process to free a directory. `current.json`,
+unknown directories and DSH's own session state are never removed.
+
+Two consequences are deliberate. A version directory whose bytes differ from
+the installed payload is never written into: when another live activation holds
+it, activation refuses with the holder's PID instead of replacing a running
+executable (a same-version repack while a panel is open needs that panel closed
+first). And `current.json` records the version the latest activation pinned, so
+it follows whatever activation ran last, not necessarily the newest directory
+on disk. A `<plugin home>/versions/` directory from a pre-#32 build is left
+untouched; it is development-only and can be deleted by hand.
 
 There is no PATH or legacy `.uml-viewer/` fallback and no automatic build. A
 missing binary fails activation with an actionable reason. To use a separate Cargo

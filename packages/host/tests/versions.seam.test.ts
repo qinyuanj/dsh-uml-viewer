@@ -113,10 +113,12 @@ async function host(dshHome: string, packageRoot: string, wrappers = new Map<str
     apply: (scope: Context) => plugin.applyWithPlatform(scope, {}, { platform: process.platform, arch: process.arch, root: packageRoot }) })
   await fiber
   const panel = async (session: string) => {
-    const project = await scratch(`project ${session}`)
+    const project = projects[session] ?? await scratch(`project ${session}`)
     projects[session] = project
     agents[session] = { id: session, session: { id: session } }
-    await writeFile(path.join(project, 'resident.json'), JSON.stringify({ framePath: goldenFrame }))
+    if (!existsSync(path.join(project, 'resident.json'))) {
+      await writeFile(path.join(project, 'resident.json'), JSON.stringify({ framePath: goldenFrame }))
+    }
     const controller = new AbortController()
     controllers.push(controller)
     const viewer = ctx.get('umlViewer') as unknown as {
@@ -200,6 +202,46 @@ it('survives unloading vN and loading vN+1 in the same Cordis root until the old
   // A process stopped at shutdown frees its version too, with no lease left.
   expect(existsSync(path.join(home, '1.0.0'))).toBe(false)
   expect(existsSync(path.join(home, 'leases', '1.0.0'))).toBe(false)
+})
+
+it('switches the same session to vN+1 when it is closed and opened again after an update', async () => {
+  const dshHome = await scratch('reopen home')
+  const home = path.join(dshHome, 'dsh-uml-viewer')
+  const old = await host(dshHome, await install('1.0.0'))
+  const before = await old.panel('one-session')
+  await old.unload()
+  const updated = await host(dshHome, await install('1.1.0'), new Map(), old)
+  // While the vN panel is open, a fresh open still binds the same session to it.
+  const attached = await updated.panel('one-session')
+  expect((await attached.runs()).at(-1)).toEqual({ version: '1.0.0', binary: path.join(home, '1.0.0', exe) })
+  await attached.close()
+  await before.close()
+  // The last panel of that session closed: the next open is a fresh choice.
+  const reopened = await updated.panel('one-session')
+  expect(await reopened.runs()).toEqual([
+    { version: '1.0.0', binary: path.join(home, '1.0.0', exe) },
+    { version: '1.1.0', binary: path.join(home, '1.1.0', exe) },
+  ])
+  expect(updated.children.filter(child => child.alive())).toHaveLength(1)
+  await reopened.close()
+  expect(existsSync(path.join(home, '1.1.0', exe))).toBe(true)
+})
+
+it('retires vN when the retired activation’s last panel stream ends, e.g. a cancelled panel', async () => {
+  const dshHome = await scratch('cancel home')
+  const home = path.join(dshHome, 'dsh-uml-viewer')
+  const old = await host(dshHome, await install('1.0.0'))
+  const before = await old.panel('old-session')
+  await old.unload()
+  await host(dshHome, await install('1.1.0'), new Map(), old)
+  expect(existsSync(path.join(home, '1.0.0'))).toBe(true)
+  // The page closing or reloading cancels the old stream: that panel is gone,
+  // so its resident stops and its version becomes collectable immediately.
+  await before.close()
+  expect(old.children.map(child => child.alive())).toEqual([false])
+  cleanupVersions(home)
+  expect(existsSync(path.join(home, '1.0.0'))).toBe(false)
+  expect(existsSync(path.join(home, '1.1.0', exe))).toBe(true)
 })
 
 it('removes the old version directory once the host still using it has stopped', async () => {

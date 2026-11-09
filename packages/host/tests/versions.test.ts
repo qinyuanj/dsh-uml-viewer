@@ -83,6 +83,39 @@ it.each(['../escape', '1/2/3', 'C:\\escape', '', '1.0.0/../2.0.0'])('refuses a n
   expect(existsSync(home)).toBe(false)
 })
 
+it('reclaims a store lock left by a crashed host with an unreadable owner record', async () => {
+  const { home, source } = await fixture()
+  const lock = path.join(home, '.store-lock')
+  await mkdir(lock, { recursive: true })
+  await writeFile(path.join(lock, 'owner.json'), '{"pid":')
+  const old = new Date(Date.now() - 60_000)
+  await utimes(lock, old, old)
+  const pinned = pinVersion(home, '1.0.0', source, 'resident.cjs')
+  releases.push(pinned.release)
+  expect(await readFile(pinned.binary, 'utf8')).toBe("console.log('v1')\n")
+  expect(existsSync(lock)).toBe(false)
+})
+
+it('reclaims a store lock whose recorded owner is gone', async () => {
+  const { home, source } = await fixture()
+  const lock = path.join(home, '.store-lock')
+  await mkdir(lock, { recursive: true })
+  await writeFile(path.join(lock, 'owner.json'), JSON.stringify({ pid: 2 ** 22 + 17 }))
+  const pinned = pinVersion(home, '1.0.0', source, 'resident.cjs')
+  releases.push(pinned.release)
+  expect(existsSync(pinned.binary)).toBe(true)
+})
+
+it('names the held lock when a live owner keeps it past the deadline', async () => {
+  const { home, source } = await fixture()
+  const lock = path.join(home, '.store-lock')
+  await mkdir(lock, { recursive: true })
+  await writeFile(path.join(lock, 'owner.json'), JSON.stringify({ pid: process.pid }))
+  expect(() => pinVersion(home, '1.0.0', source, 'resident.cjs'))
+    .toThrow(new RegExp(`version store .* is held by pid ${process.pid}`))
+  expect(existsSync(path.join(home, '1.0.0'))).toBe(false)
+}, 10_000)
+
 it('leaves unknown directories and the pre-lease layout alone', async () => {
   const { home, pin } = await fixture()
   await mkdir(path.join(home, 'versions', '0.9.0'), { recursive: true })

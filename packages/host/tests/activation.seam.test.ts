@@ -172,8 +172,10 @@ it('refuses before tools when another live host leases a same-version directory 
   await mkdir(path.dirname(binary), { recursive: true })
   await writeFile(binary, 'other bytes in use')
   await mkdir(path.join(plugin, 'leases', '1.0.0'), { recursive: true })
-  await writeFile(path.join(plugin, 'leases', '1.0.0', 'other-host.lease'), '{}')
-  await expect(load()).rejects.toThrow(/1\.0\.0 is already pinned with different bytes and is in use/)
+  await writeFile(path.join(plugin, 'leases', '1.0.0', 'other-host.lease'),
+    JSON.stringify({ pid: process.pid, version: '1.0.0' }))
+  await expect(load()).rejects.toThrow(
+    new RegExp(`1\\.0\\.0 is already pinned with different bytes and is in use by another activation in pid ${process.pid}`))
   expect(definitions.size).toBe(0)
   expect(await readFile(binary, 'utf8')).toBe('other bytes in use')
   // The refused activation leaves no lease of its own behind.
