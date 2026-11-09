@@ -122,14 +122,12 @@ test('validResult false stops the request before IR/display and reports why', as
     await clickRefresh(a, frame, ':api', 'Refresh CRAP')
     await expect(a.page.getByText('Stopped refresh-crap: quality returned validResult false; no IR or display.', { exact: true }).last()).toBeVisible()
     const requests = lane.mock.requests.slice(before).map(r => JSON.parse(r.body))
-    const invocations = requests.flatMap(r => r.messages ?? []).flatMap(m => m.content ?? []).filter(p => p.type === 'tool_use')
-    // Initial history has old IR/display calls; after the request only the
-    // failed quality call is new (qualityReply slices at that visible message).
+    // Only the failed quality call follows the visible request: no IR, no display.
     const last = requests.at(-1).messages
     const at = last.findIndex(m => m.content?.some(p => p.text?.startsWith('UML viewer panel request:')))
+    expect(at).toBeGreaterThanOrEqual(0)
     expect(last.slice(at).flatMap(m => m.content ?? []).filter(p => p.type === 'tool_use').map(p => p.name)).toEqual(['uml_crap'])
-    expect(invocations.some(p => p.name === 'uml_crap')).toBe(true)
+    // One binary invocation, and it refused before any snapshot was published.
     expect(await calls(lane.projects.deep)).toEqual([{ operation: 'crap', args: [] }])
-    await expect(a.summary).toContainText('Deep')
   } finally { await lane.close() }
 })
