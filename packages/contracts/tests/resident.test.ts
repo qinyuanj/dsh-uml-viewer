@@ -16,7 +16,7 @@ function golden(name: string): unknown {
 
 describe('resident protocol', () => {
   it('accepts a frame event wrapping every producer golden', () => {
-    expect(goldenFiles).toHaveLength(5)
+    expect(goldenFiles).toHaveLength(6)
     for (const name of goldenFiles) {
       const line = JSON.stringify({ version: 1, seq: 3, event: 'frame', frame: golden(name) })
       const event = parseResidentLine(line)
