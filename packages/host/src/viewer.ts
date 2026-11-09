@@ -102,6 +102,16 @@ export class ViewerService {
         if (request.action !== 'quality-request') throw new Error('quality-request expected')
         return await this.requests.deliver(agent, request.request, request.id)
       }
+      // #29: hiding, choosing the discussion context and adding a proposal are
+      // messages to the companion too, admitted in the same click-order queue.
+      // The context switch still reaches the resident first, inside that queue.
+      if (action.action === 'omit' || action.action === 'new-proposal' || action.action === 'context') {
+        const request = parsePanelAction(action)
+        if (request.action === 'omit') return await this.requests.omit(agent, request.id)
+        if (request.action === 'new-proposal') return await this.requests.newProposal(agent, request.name)
+        if (request.action === 'context') return await this.requests.context(agent, request.proposalId)
+        throw new Error('view request expected')
+      }
       const { event } = await this.sessions.refresh(agent, new AbortController().signal, action as unknown as { action: string })
       if (event.event === 'error') return { accepted: false, reason: event.message }
       const ack: PanelAck = { accepted: true, reason: null }

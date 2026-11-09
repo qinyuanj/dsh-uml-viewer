@@ -10,7 +10,7 @@ import { activationBinary, packageRoot } from './binary.js'
 import { displayResult, runDisplay } from './display.js'
 import type { HostServices, ToolRunContext } from './dsh.js'
 import { registerFontRoute } from './font.js'
-import { IrGate, QualityGate } from './gate.js'
+import { IrGate, QualityGate, RequestGrants } from './gate.js'
 import { qualityResult, runQuality } from './quality.js'
 import { panelLifetime } from './lifetime.js'
 import { PanelRequests } from './requests.js'
@@ -80,13 +80,14 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
 
   const gate = new IrGate()
   const quality = new QualityGate()
+  const grants = new RequestGrants()
   const states = new SessionStates(home)
   const { sessions, prompts } = panelLifetime(ctx, home, services, effectiveConfig, states)
-  const viewer = new ViewerService(sessions, prompts, new PanelRequests(services, sessions))
+  const viewer = new ViewerService(sessions, prompts, new PanelRequests(services, sessions, grants))
 
   ctx.effect(() => services.tools.register({
     name: 'uml_ir',
-    description: 'Generate UML IR from the session project’s policy and source tree. Writes the IR output; requires workspace-write or full access. Runs after any quality call already in progress in this session, and is refused while the latest one has validResult false. Returns the actual exit code, validResult and bounded stdout/stderr.',
+    description: 'Generate UML IR from the session project’s policy and source tree. Writes the IR output; requires workspace-write or full access. Runs after any quality call already in progress in this session, and is refused while the latest one has validResult false, unless `request` names the UML viewer panel request (:omit or :new-proposal) this IR answers; that id is single-use and valid only in this session. Returns the actual exit code, validResult and bounded stdout/stderr.',
     parameters: IR_PARAMETERS,
     timeoutMs: 10 * 60_000,
     isConcurrencySafe: () => false,
@@ -105,8 +106,14 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
     let result: ReturnType<typeof irResult>
     try {
       const request = parseIrRequest(args)
-      const blocked = sessionId === undefined ? null : quality.check(sessionId)
-      if (blocked && !blocked.ok) {
+      // A panel request that needs no quality refresh (#29) presents its
+      // single-use id: it skips only the failed-quality check. The FIFO above
+      // and the display gate below stay as they are.
+      const granted = request.request === undefined || sessionId === undefined ? null : grants.consume(sessionId, request.request)
+      const blocked = granted ? (granted.ok ? null : granted) : sessionId === undefined ? null : quality.check(sessionId)
+      if (request.request !== undefined && sessionId === undefined) {
+        result = irResult(root, { status: 'refused', reason: 'a panel request id needs the session that received the request' })
+      } else if (blocked && !blocked.ok) {
         result = irResult(root, { status: 'refused', reason: blocked.reason })
       } else {
         const argv: string[] = []
@@ -218,6 +225,7 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
   // Replacement retires this activation, while open panel streams own their
   // residents until last-panel close. The root lifetime stops them on shutdown.
   ctx.effect(() => async () => {
+    grants.clear()
     try {
       await sessions.checkpoint()
     } finally {

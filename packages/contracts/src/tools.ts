@@ -26,6 +26,21 @@ export interface IrResult extends ToolResultRecord<'ir'> {
 export interface IrRequest {
   policy?: string
   output?: string
+  /** A no-refresh panel request id (#29), from the visible request message. */
+  request?: string
+}
+
+/** A host-issued panel request id: 32 lowercase hex digits (128 random bits). */
+const REQUEST_ID = /^[0-9a-f]{32}$/
+
+/**
+ * Validate a panel request id.
+ * @param value the id.
+ * @param label the field name used in failure messages.
+ */
+export function parseRequestId(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !REQUEST_ID.test(value)) throw new Error(`${label} must be a panel request id (32 lowercase hex digits)`)
+  return value
 }
 
 /**
@@ -49,6 +64,10 @@ export function parseIrRequest(value: unknown): IrRequest {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('IR arguments must be an object')
   const request: IrRequest = {}
   for (const [key, field] of Object.entries(value)) {
+    if (key === 'request') {
+      request.request = parseRequestId(field, 'request')
+      continue
+    }
     if (key !== 'policy' && key !== 'output') throw new Error(`Unknown IR argument: ${key}`)
     request[key] = normalizeRelativePath(key, field)
   }
@@ -61,6 +80,7 @@ export const IR_PARAMETERS = {
   properties: {
     policy: { type: 'string', description: 'Normalized policy path relative to the session cwd, with no .. segments. Defaults to examples/<directory>.policy.edn, the first sorted examples/*.policy.edn, then policy.edn.' },
     output: { type: 'string', description: 'Normalized IR output path relative to the session cwd, with no .. segments. Omit to use the policy :out, else diagram.edn.' },
+    request: { type: 'string', pattern: '^[0-9a-f]{32}$', description: 'The :request id of the UML viewer panel request (:omit or :new-proposal) this IR answers. Such a request needs no quality refresh, so uml_ir runs even after a failed quality call; each id is single-use and valid only in the session that received it. Omit it for any other IR.' },
   },
 } as const
 

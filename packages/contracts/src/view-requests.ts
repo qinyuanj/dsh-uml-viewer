@@ -13,22 +13,10 @@
 import type { DiscussionContext } from './resident.js'
 import type { PanelRequestTarget } from './requests.js'
 import { PANEL_REQUEST_HEADER, parseElementId } from './requests.js'
-
-/** A host-issued request id: lowercase hex, as `newRequestId` makes it. */
-const REQUEST_ID = /^[0-9a-f]{12}$/
+import { parseRequestId } from './tools.js'
 
 /** The longest `:context` map or proposal name a request quotes, in UTF-8 bytes. */
 export const VIEW_REQUEST_LIMITS = Object.freeze({ contextBytes: 4096, nameBytes: 256 })
-
-/**
- * Validate a request id.
- * @param value the id.
- * @param label the field name used in failure messages.
- */
-export function parseRequestId(value: unknown, label: string): string {
-  if (typeof value !== 'string' || !REQUEST_ID.test(value)) throw new Error(`${label} must be a panel request id (12 lowercase hex digits)`)
-  return value
-}
 
 /**
  * The `:context` map of a discussion context, checked before it is quoted:

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import type { QualityOperation, QualityToolResult } from '@dsh-uml-viewer/contracts'
 
 export interface QualityRecord {
@@ -97,5 +98,59 @@ export class IrGate {
       return { ok: false, reason: `the latest uml_ir in this session failed (${exit}${record.reason ? `: ${record.reason}` : ''}); fix the project and run uml_ir again before uml_display` }
     }
     return { ok: true, record }
+  }
+}
+
+/** The panel requests that regenerate the IR without a quality refresh. */
+export type GrantKind = 'omit' | 'new-proposal'
+
+/**
+ * Host-issued ids of the no-refresh panel requests (#29). The visible request
+ * message carries the id; `uml_ir({request})` presents it to run although an
+ * earlier quality call in the session failed, because the request reads no new
+ * quality data. An id is 128 random bits, bound to the session and the request
+ * kind, and single-use: the first `uml_ir` that presents it consumes it,
+ * whatever that IR's outcome. Each session keeps at most `LIMIT` pending ids,
+ * the oldest dropped first; the activation clears them all when it ends.
+ */
+export class RequestGrants {
+  static readonly LIMIT = 32
+  private readonly sessions = new Map<string, Map<string, GrantKind>>()
+
+  issue(sessionId: string, kind: GrantKind): string {
+    const id = randomBytes(16).toString('hex')
+    let pending = this.sessions.get(sessionId)
+    if (!pending) {
+      pending = new Map()
+      this.sessions.set(sessionId, pending)
+    }
+    pending.set(id, kind)
+    while (pending.size > RequestGrants.LIMIT) pending.delete(pending.keys().next().value!)
+    return id
+  }
+
+  /** Withdraw an id whose message was never admitted. */
+  revoke(sessionId: string, id: string): void {
+    const pending = this.sessions.get(sessionId)
+    pending?.delete(id)
+    if (pending?.size === 0) this.sessions.delete(sessionId)
+  }
+
+  /** Use an id once; an unknown, used or foreign id is a refusal with a reason. */
+  consume(sessionId: string, id: string): { ok: true; kind: GrantKind } | { ok: false; reason: string } {
+    const pending = this.sessions.get(sessionId)
+    const kind = pending?.get(id)
+    if (kind !== undefined) {
+      this.revoke(sessionId, id)
+      return { ok: true, kind }
+    }
+    const foreign = [...this.sessions.entries()].some(([other, ids]) => other !== sessionId && ids.has(id))
+    return { ok: false, reason: foreign
+      ? `panel request ${id} was not sent to this session; run uml_ir without request`
+      : `panel request ${id} is unknown or was already used by an earlier uml_ir; run uml_ir without request` }
+  }
+
+  clear(): void {
+    this.sessions.clear()
   }
 }

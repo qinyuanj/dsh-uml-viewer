@@ -616,6 +616,20 @@ export class ResidentSessions {
     return saveView(this.states, connection)
   }
 
+  /**
+   * What this session's resident shows now (#29): its latest frame and
+   * discussion context, read without sending an action. The view requests
+   * name an element of this frame and quote this context.
+   */
+  async shownView(agent: Agent, signal: AbortSignal): Promise<{ frame: SceneFrame | null; context: DiscussionContext }> {
+    const connection = await this.open(agent, signal)
+    try {
+      return { frame: connection.latestFrame, context: connection.latestContext ?? SOURCE_CONTEXT }
+    } finally {
+      await this.release(connection)
+    }
+  }
+
   /** Persisted view state that names a vanished proposal must stop naming it. */
   private async clearStaleContext(connection: ResidentConnection): Promise<void> {
     connection.latestContext = SOURCE_CONTEXT
