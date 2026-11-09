@@ -3,7 +3,7 @@ import path from 'node:path'
 import { makeInspector } from './inspector-project.mjs'
 
 /**
- * Two small, distinct TypeScript projects. The scripted agent runs the real
+ * Small, distinct TypeScript projects. The scripted agent runs the real
  * binary's `ir` subcommand in each one; no synthetic SceneFrame is injected.
  */
 export async function makeProjects(home) {
@@ -28,7 +28,30 @@ export async function makeProjects(home) {
   }
   projects.atlas = await makeAtlas(home)
   projects.inspector = await makeInspector(home)
+  projects.nexus = await makeNexus(home)
   return projects
+}
+
+/** Six scanned imports reclassified by policy; no hand-authored IR or frame (#25). */
+async function makeNexus(home) {
+  const root = path.join(home, 'projects', 'nexus')
+  await fs.mkdir(path.join(root, 'src'), { recursive: true })
+  const kinds = ['association', 'dependency', 'inheritance', 'implements', 'aggregation', 'composition']
+  await fs.writeFile(path.join(root, 'policy.edn'), `{:hierarchical true
+ :title "Nexus"
+ :prefix "nexus"
+ :sources [{:lang :typescript :root "src" :prefix "nexus"}]
+ :levels [[association dependency inheritance implements aggregation composition] [hub]]
+ :edge-kinds {${kinds.map(kind => `[:hub :${kind}] :${kind}`).join('\n              ')}}
+ :out "diagram.edn"}\n`)
+  for (const kind of kinds) {
+    await fs.writeFile(path.join(root, 'src', `${kind}.ts`),
+      (kind === 'dependency' ? "import { Hub } from './hub.js'\n" : '') + 'export class Target {}\n')
+  }
+  await fs.writeFile(path.join(root, 'src', 'observer.ts'), 'export class Observer {}\n')
+  await fs.writeFile(path.join(root, 'src', 'hub.ts'), kinds.map((kind, i) =>
+    `import { Target as T${i} } from './${kind}.js'`).join('\n') + '\nexport class Hub {}\n')
+  return root
 }
 
 /**

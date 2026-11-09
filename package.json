@@ -42,7 +42,11 @@
     "test": "pnpm build && pnpm -r run test",
     "test:e2e": "pnpm --filter @dsh-uml-viewer/e2e test:e2e",
     "e2e:install": "pnpm --filter @dsh-uml-viewer/e2e install:chromium",
-    "validate:manifest": "node scripts/validate-manifest.mjs"
+    "validate:manifest": "node scripts/validate-manifest.mjs",
+    "version:check": "node scripts/version.mjs --check",
+    "version:sync": "node scripts/version.mjs --write",
+    "package:local": "node scripts/package.mjs",
+    "test:package": "node --test scripts/package.test.mjs"
   },
   "dsh": {
     "bundle": {
