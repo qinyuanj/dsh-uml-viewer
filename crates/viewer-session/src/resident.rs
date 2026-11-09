@@ -468,7 +468,11 @@ impl Resident {
             "quality-target" => {
                 let id = edn_field(action, "id")?;
                 let target = targets::quality_target_json(self.session()?, &id)?;
-                return Ok(vec![event("quality-target", seq, json!({"target": target}))]);
+                return Ok(vec![event(
+                    "quality-target",
+                    seq,
+                    json!({"target": target}),
+                )]);
             }
             other => return Err(format!("unknown action {other}")),
         }

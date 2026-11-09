@@ -124,7 +124,9 @@ fn canonical_source(project: &Path, file: &str) -> Result<String, String> {
     if relative.is_empty()
         || relative.starts_with('-')
         || relative.chars().any(|ch| ch.is_control() || ch == ':')
-        || relative.split('/').any(|part| part.is_empty() || part == "." || part == "..")
+        || relative
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
     {
         return Err(format!(
             "source file {relative:?} must be a normalized project-relative path"
@@ -166,7 +168,8 @@ fn canonical_source(project: &Path, file: &str) -> Result<String, String> {
         ));
     }
     let result = parts.join("/");
-    if result.len() > QUALITY_TARGET_MAX_PATH_BYTES || result.starts_with('-')
+    if result.len() > QUALITY_TARGET_MAX_PATH_BYTES
+        || result.starts_with('-')
         || result.chars().any(|ch| ch.is_control() || ch == ':')
     {
         return Err("canonical source path exceeds the quality target path bounds".into());

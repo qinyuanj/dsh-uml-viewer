@@ -102,10 +102,16 @@ fn omitted_foreign_and_unknown_ids_are_refused() {
     let source = doc(SOURCE);
     for id in [":hidden", ":hidden.child"] {
         let error = resolve(&source, &[], &extra(None), &keyword(id)).unwrap_err();
-        assert!(error.contains("no class or namespace component"), "{id}: {error}");
+        assert!(
+            error.contains("no class or namespace component"),
+            "{id}: {error}"
+        );
     }
     let error = resolve(&source, &[], &extra(None), &keyword(":quil")).unwrap_err();
-    assert!(error.contains("no class or namespace component :quil"), "{error}");
+    assert!(
+        error.contains("no class or namespace component :quil"),
+        "{error}"
+    );
     let error = resolve(&source, &[], &extra(None), &keyword(":nowhere")).unwrap_err();
     assert!(error.contains(":nowhere"), "{error}");
     // An omitted class never joins a component either.
@@ -145,7 +151,13 @@ fn a_proposal_layer_is_its_members_with_omit_subtracted() {
         members(&target),
         [":api", ":core.cart", ":core.order", ":core.order.total"]
     );
-    let io = resolve(&proposal, &[], &extra(Some(":p-1")), &keyword(":proposal.io")).unwrap();
+    let io = resolve(
+        &proposal,
+        &[],
+        &extra(Some(":p-1")),
+        &keyword(":proposal.io"),
+    )
+    .unwrap();
     assert_eq!(members(&io), [":core.cart"]);
 }
 
@@ -158,7 +170,13 @@ fn a_nested_proposal_group_takes_the_exact_module_or_else_the_subtree() {
     assert_eq!(exact.kind, Kind::Component);
     assert_eq!(members(&exact), [":api"]);
     // A name with no exact class is the namespace subtree.
-    let subtree = resolve(&proposal, &[], &extra(Some(":p-1")), &keyword(":proposal.domain")).unwrap();
+    let subtree = resolve(
+        &proposal,
+        &[],
+        &extra(Some(":p-1")),
+        &keyword(":proposal.domain"),
+    )
+    .unwrap();
     assert!(members(&subtree).contains(&":core.order".to_owned()));
     assert!(members(&subtree).contains(&":core.cart".to_owned()));
 }
@@ -218,7 +236,13 @@ fn an_entered_namespace_focus_shows_the_source_tree_even_with_a_proposal() {
     // a target is looked up in that same tree.
     let proposal = doc(PROPOSAL);
     let focus = [keyword(":core")];
-    let target = resolve(&proposal, &focus, &extra(Some(":p-1")), &keyword(":core.order")).unwrap();
+    let target = resolve(
+        &proposal,
+        &focus,
+        &extra(Some(":p-1")),
+        &keyword(":core.order"),
+    )
+    .unwrap();
     assert_eq!(target.kind, Kind::Component);
     assert_eq!(members(&target), [":core.order", ":core.order.total"]);
 }

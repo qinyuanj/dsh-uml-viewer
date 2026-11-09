@@ -189,9 +189,14 @@ fn a_proposal_component_is_resolved_from_the_shown_proposal() {
                         {:id :io :label "IO" :nses [:core.cart]}]}]}"#;
     let document = doc(ir);
     // Without a proposal the layer id is not in the shown tree.
-    let error =
-        targets::quality_target_for(&document, &[], &no_context(), &root, &keyword(":proposal.domain"))
-            .unwrap_err();
+    let error = targets::quality_target_for(
+        &document,
+        &[],
+        &no_context(),
+        &root,
+        &keyword(":proposal.domain"),
+    )
+    .unwrap_err();
     assert!(error.contains("no class or namespace component"), "{error}");
     let answer = targets::quality_target_for(
         &document,
@@ -202,10 +207,7 @@ fn a_proposal_component_is_resolved_from_the_shown_proposal() {
     )
     .unwrap();
     assert_eq!(answer["kind"], json!("component"));
-    assert_eq!(
-        files(&answer),
-        ["src/core/cart.rs", "src/core/order.rs"]
-    );
+    assert_eq!(files(&answer), ["src/core/cart.rs", "src/core/order.rs"]);
     // Leftovers are the classes no layer claims.
     let unassigned = targets::quality_target_for(
         &document,
@@ -232,12 +234,8 @@ fn the_resident_reads_the_context_its_loaded_session_shows() {
   :proposals [{:id :p-1 :name "2026-11-09 10:00" :omit []
                :layers [{:id :domain :label "Domain" :nses [:core]}]}]}"#;
     write(&root, "diagram.edn", ir);
-    let mut session = Session::open(
-        root.clone(),
-        root.join("diagram.edn"),
-        Start::Fresh,
-    )
-    .expect("the fixture diagram loads");
+    let mut session = Session::open(root.clone(), root.join("diagram.edn"), Start::Fresh)
+        .expect("the fixture diagram loads");
     // Before the context is chosen the source tree is shown.
     assert!(targets::quality_target_json(&session, &keyword(":proposal.domain")).is_err());
     session.act(
@@ -246,7 +244,8 @@ fn the_resident_reads_the_context_its_loaded_session_shows() {
     );
     let answer = targets::quality_target_json(&session, &keyword(":proposal.domain")).unwrap();
     assert_eq!(files(&answer), ["src/core/order.rs"]);
-    let unassigned = targets::quality_target_json(&session, &keyword(":proposal.unassigned")).unwrap();
+    let unassigned =
+        targets::quality_target_json(&session, &keyword(":proposal.unassigned")).unwrap();
     assert_eq!(files(&unassigned), ["src/api.rs", "src/util.rs"]);
 }
 
