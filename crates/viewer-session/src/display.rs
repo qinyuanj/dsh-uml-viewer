@@ -126,7 +126,10 @@ mod tests {
             std::fs::canonicalize(Path::new(&resolved)).unwrap(),
             "{resolved:?}"
         );
-        assert_eq!(Path::new("/abs/x.edn"), Path::new(&boundary.resolve("/abs/x.edn", None)));
+        assert_eq!(
+            Path::new("/abs/x.edn"),
+            Path::new(&boundary.resolve("/abs/x.edn", None))
+        );
         // POSIX names: `\` is an ordinary character and `C:` no drive (on
         // Windows `C:/x.edn` is absolute and kept as it is).
         assert_eq!(
@@ -184,9 +187,12 @@ mod tests {
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(directory.join("second.edn"), "{:title \"Second\"}").unwrap();
         let root = frame::project_files::canonical(&directory);
-        let mut session =
-            crate::Session::open(root.clone(), root.join("diagram.edn"), crate::Start::Waiting)
-                .unwrap();
+        let mut session = crate::Session::open(
+            root.clone(),
+            root.join("diagram.edn"),
+            crate::Start::Waiting,
+        )
+        .unwrap();
         let mut saved_with = |path: &str| {
             let mut command = Value::Map(vec![]);
             command.assoc(Value::keyword("op"), Value::keyword("display"));
