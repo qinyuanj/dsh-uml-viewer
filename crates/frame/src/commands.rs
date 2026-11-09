@@ -1151,8 +1151,9 @@ fn hover_rows(state: &ViewState) -> Vec<PopupRow> {
     }
 }
 
-/// `from -> to` rows, violations first.
-fn dependency_rows(deps: &[Value]) -> Vec<PopupRow> {
+/// `from -> to` rows, violations first: the dependency hover tooltip, which the
+/// panel also renders from the frame's optional `hover` metadata (#26).
+pub(crate) fn dependency_rows(deps: &[Value]) -> Vec<PopupRow> {
     let mut rows: Vec<PopupRow> = deps
         .iter()
         .map(|d| {

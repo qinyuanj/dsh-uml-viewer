@@ -59,7 +59,7 @@ An event:
 | event | when | fields |
 |---|---|---|
 | `ready` | first line, before any action | `schema`, `frameSchema`, `frameVersion`, `stateSchema`, `stateVersion`, `actions` (the action names this child understands) |
-| `frame` | after every action that changes the view; after a hot reload (`seq` null) | `frame`: a scene frame, version 1 |
+| `frame` | after every action that changes the view; after a hot reload (`seq` null) | `frame`: a scene frame, version 1, including the optional bounded `hover` metadata (`docs/scene-frame.md`) the panel needs for local hover |
 | `search` | answers `search` | `query`, `results`: `[{id, name, ns, label}]`, sorted by namespace then id |
 | `context` | answers `context`, before its `frame` | `context`: a [discussion context](#discussion-context) |
 | `state` | answers `save` | `state`: a [session state](#session-state) |
@@ -100,6 +100,16 @@ An `error` changes nothing; the session keeps running.
 The child polls the diagram and the `.metrics/` quality snapshots every
 250 ms while no action is pending; a change produces a `frame` with
 `"seq": null` (热重载).
+
+## Local hover (#26, additive version 1)
+
+The panel does hover hit testing and restyling locally (ADR 0013); it never sends
+one. Frames carry the optional bounded `hover` field described in
+[scene-frame.md](scene-frame.md#hover-metadata-optional-version-1): per visible
+relation its `viaIds` and dependency tooltip `rows`, per 精简依赖标记 its
+triangle and rows. The resident derives it from the scene; the client renders it
+verbatim and, when the field is absent or `complete: false`, falls back to the
+relation's own endpoints and no tooltip.
 
 ## Overlay message examples (#27, additive version 1)
 

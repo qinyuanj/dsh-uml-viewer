@@ -7,24 +7,32 @@
  *
  * - `hoverAt` is `scene::hit::at` over the frame's own geometry, reduced to what
  *   hover highlighting reads (`scene::highlight::box_id`): a class (a port
- *   stands for its class), the relation under the pointer, or nothing.
+ *   stands for its class), the relation under the pointer, a dependency
+ *   indicator, or nothing.
  * - `withHover` is the hover half of `frame::commands::edge_style` and
  *   `hover_rows`: an ordinary relation touching the hovered class, or the one
  *   under the pointer, turns `relation-hover`; a violating one `violation-hot`
- *   at the hot violating width. Hovered relations are never dimmed. At the
- *   overview tiers a hovered class is named in the chrome popup.
+ *   at the hot violating width. Hovered relations are never dimmed. A relation
+ *   also touches a class it passes through (`viaIds`), and the pointer over a
+ *   relation or indicator shows its dependency tooltip. At the overview tiers a
+ *   hovered class is named in the chrome popup.
  *
- * No dependency rule is evaluated here. Whether a relation violates comes from
- * the role the producer already gave it, and selection/chain state is the
- * resident's. A closed head keeps its producer fill; only its outline changes.
+ * No dependency rule, metric or tooltip row is computed here. Whether a
+ * relation violates comes from the role the producer already gave it; the
+ * `viaIds` and tooltip rows come from the frame's optional `hover` metadata
+ * (`crates/frame/src/hover.rs`), which the resident adds and the goldens omit.
+ * Without that capability the feedback degrades to the relation's own
+ * endpoints, never to invented data. A closed head keeps its producer fill;
+ * only its outline changes.
  */
-import type { ChromeItem, SceneFrame } from '@dsh-uml-viewer/contracts'
+import type { ChromeItem, FrameHoverRow, SceneFrame } from '@dsh-uml-viewer/contracts'
 import { estimateW } from './fit.js'
 import { tierOf } from './paint.js'
 
 export type HoverHit =
   | { kind: 'class' | 'port'; id: string }
   | { kind: 'edge'; from: string; to: string }
+  | { kind: 'indicator'; id: string; points: readonly Point[] }
 
 /** `frame::theme::widths::EDGE_VIOLATING_HOT`: a hovered violating relation. */
 export const EDGE_VIOLATING_HOT = 3.2
@@ -69,11 +77,12 @@ function contains(r: { x: number; y: number; w: number; h: number }, p: Point): 
 /**
  * What hover highlighting sees at a world point, in `scene::hit::at` order:
  * dependency indicators, then (topmost first) each class's ports and its box,
- * then relations, then packages. Indicators and packages highlight nothing.
+ * then relations, then packages. Indicators focus no class but carry the
+ * dependency tooltip (`kind: dep` natively); packages highlight nothing.
  */
 export function hoverAt(frame: SceneFrame, world: Point): HoverHit | null {
   for (const edge of frame.edges) {
-    if (edge.kind === 'indicator' && nearTriangle(world, edge.points, INDICATOR_PAD)) return null
+    if (edge.kind === 'indicator' && nearTriangle(world, edge.points, INDICATOR_PAD)) return { kind: 'indicator', id: edge.id, points: edge.points }
   }
   for (let index = frame.world.length - 1; index >= 0; index -= 1) {
     const item = frame.world[index]!
@@ -89,8 +98,13 @@ export function hoverAt(frame: SceneFrame, world: Point): HoverHit | null {
 
 export function sameHover(a: HoverHit | null, b: HoverHit | null): boolean {
   if (a === null || b === null) return a === b
-  if (a.kind !== 'edge') return b.kind === a.kind && a.id === b.id
-  return b.kind === 'edge' && a.from === b.from && a.to === b.to
+  if (a.kind === 'edge') return b.kind === 'edge' && a.from === b.from && a.to === b.to
+  if (a.kind === 'indicator') return b.kind === 'indicator' && a.id === b.id && samePoints(a.points, b.points)
+  return b.kind === a.kind && a.id === b.id
+}
+
+function samePoints(a: readonly Point[], b: readonly Point[]): boolean {
+  return a.length === b.length && a.every((point, index) => point[0] === b[index]![0] && point[1] === b[index]![1])
 }
 
 const VIOLATING = new Set(['violation', 'violation-hot'])
@@ -102,11 +116,15 @@ const VIOLATING = new Set(['violation', 'violation-hot'])
  */
 export function withHover(frame: SceneFrame, hit: HoverHit | null, pointer: Point | null): SceneFrame {
   if (hit === null) return frame
-  const hoveredClass = hit.kind !== 'edge' ? hit.id : null
+  // A port or indicator focuses no class for edge attention (`box_id`).
+  const hoveredClass = hit.kind === 'class' || hit.kind === 'port' ? hit.id : null
+  const via = viaIds(frame)
   const edges = frame.edges.map(edge => {
     if (edge.kind === 'indicator') return edge
     const hot = hit.kind === 'edge' && edge.from === hit.from && edge.to === hit.to
-    const warm = !hot && hoveredClass !== null && (edge.from === hoveredClass || edge.to === hoveredClass)
+    const warm = !hot && hoveredClass !== null
+      && (edge.from === hoveredClass || edge.to === hoveredClass
+        || via.get(`${edge.from} ${edge.to}`)?.includes(hoveredClass) === true)
     if (!hot && !warm) return edge
     const violating = VIOLATING.has(edge.stroke.role)
     return {
@@ -121,19 +139,47 @@ export function withHover(frame: SceneFrame, hit: HoverHit | null, pointer: Poin
   const world = hoveredClass === null
     ? frame.world
     : frame.world.map(item => (item.kind === 'class' && item.id === hoveredClass ? { ...item, hovered: true } : item))
-  const popup = hit.kind === 'class' && pointer !== null && tierOf(frame) !== 'full' ? namePopup(frame, hit.id, pointer) : null
+  const popup = pointer === null ? null : hoverPopup(frame, hit, pointer)
   return { ...frame, world, edges, chrome: popup ? [...frame.chrome, popup] : frame.chrome }
 }
 
+/** Bundled-edge `via-ids` by `from to`, when the resident sent the capability. */
+function viaIds(frame: SceneFrame): Map<string, readonly string[]> {
+  const map = new Map<string, readonly string[]>()
+  if (frame.hover?.complete !== true) return map
+  for (const edge of frame.hover.edges) map.set(`${edge.from} ${edge.to}`, edge.viaIds)
+  return map
+}
+
+/** `commands::hover_rows`: the tooltip rows for what is under the pointer. */
+function hoverRows(frame: SceneFrame, hit: HoverHit): readonly FrameHoverRow[] {
+  if (frame.hover?.complete !== true) return []
+  if (hit.kind === 'edge') {
+    return frame.hover.edges.find(edge => edge.from === hit.from && edge.to === hit.to)?.rows ?? []
+  }
+  if (hit.kind === 'indicator') return frame.hover.indicators.find(item => item.id === hit.id && samePoints(item.points, hit.points))?.rows ?? []
+  return []
+}
+
+/** The chrome popup for a hover, or `null` where the window shows none. */
+function hoverPopup(frame: SceneFrame, hit: HoverHit, pointer: Point): ChromeItem | null {
+  const rows = hoverRows(frame, hit)
+  if (rows.length > 0) return popup(frame, rows, pointer)
+  // A class at the overview tiers is named because its box is too narrow.
+  if (hit.kind === 'class' && tierOf(frame) !== 'full') {
+    const name = frame.world.find(item => item.kind === 'text' && item.line === 'name' && item.owner === hit.id)
+    if (name && name.kind === 'text' && name.text) {
+      return popup(frame, [{ text: name.text, violating: false, ink: { role: 'ink' } }], pointer)
+    }
+  }
+  return null
+}
+
 /**
- * `commands::chrome`'s popup for a hovered class at the overview tiers, whose
- * box is too narrow to show the name: one ink row, below and right of the
- * pointer, kept inside the viewport.
+ * `commands::chrome`'s popup: rows below and right of the pointer, kept inside
+ * the viewport, above the pointer when it does not fit below.
  */
-function namePopup(frame: SceneFrame, id: string, [mx, my]: Point): ChromeItem | null {
-  const name = frame.world.find(item => item.kind === 'text' && item.line === 'name' && item.owner === id)
-  if (!name || name.kind !== 'text' || !name.text) return null
-  const rows = [{ text: name.text, violating: false, ink: { role: 'ink' } }]
+function popup(frame: SceneFrame, rows: readonly FrameHoverRow[], [mx, my]: Point): ChromeItem {
   const { width, height } = frame.viewport
   const textW = Math.max(40, ...rows.map(row => estimateW(row.text, POPUP_BODY)))
   const w = Math.min(textW + 16, Math.max(16, width - 16))

@@ -126,6 +126,28 @@ impl Frame {
         })
     }
 
+    /// The frame plus the optional bounded hover metadata (#26): the resident's
+    /// frame, whose dependency-tooltip rows and bundled-edge `via-ids` the panel
+    /// cannot derive from the strokes themselves. The golden path
+    /// ([`Frame::to_json_string`]) deliberately omits it, so the checked-in
+    /// fixtures stay byte for byte what they were; a consumer that does not know
+    /// the field ignores it (version 1, additive).
+    pub fn to_json_with_hover(&self, scene: &Value) -> Json {
+        let mut json = self.to_json();
+        if let Some(object) = json.as_object_mut() {
+            object.insert("hover".into(), crate::hover::metadata(scene));
+        }
+        json
+    }
+
+    /// [`Frame::to_json_with_hover`] as the writer's bytes.
+    pub fn to_json_string_with_hover(&self, scene: &Value) -> String {
+        let mut text = serde_json::to_string_pretty(&self.to_json_with_hover(scene))
+            .expect("frame JSON");
+        text.push('\n');
+        text
+    }
+
     /// Pretty JSON with sorted keys and a final newline: the golden bytes.
     pub fn to_json_string(&self) -> String {
         let mut text = serde_json::to_string_pretty(&self.to_json()).expect("frame JSON");

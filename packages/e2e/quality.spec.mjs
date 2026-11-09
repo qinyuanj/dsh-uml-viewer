@@ -65,6 +65,19 @@ function shaftProbe(frame, stroke) {
   expect(candidates.length, `${stroke.from}->${stroke.to} has a visible independent probe`).toBeGreaterThan(0)
   return candidates[0]
 }
+/** True when any canvas pixel inside a CSS-pixel rect matches `color`. */
+async function regionHas(panel, rect, color, tolerance = 45) {
+  return panel.canvas.evaluate((canvas, args) => {
+    const ctx = canvas.getContext('2d'), s = canvas.width / canvas.getBoundingClientRect().width
+    const data = ctx.getImageData(Math.floor(args.rect.x * s), Math.floor(args.rect.y * s),
+      Math.max(1, Math.floor(args.rect.w * s)), Math.max(1, Math.floor(args.rect.h * s))).data
+    for (let i = 0; i < data.length; i += 4) {
+      if ([0, 1, 2].every(k => Math.abs(data[i + k] - args.color[k]) <= args.tolerance)) return true
+    }
+    return false
+  }, { rect, color, tolerance })
+}
+
 async function hostColors(panel) {
   return panel.canvas.evaluate(el => {
     const style = getComputedStyle(el), c = document.createElement('canvas').getContext('2d')
@@ -211,6 +224,20 @@ test('resident dependency chain, relation dimming and temporary client class/edg
       const violating = ['violation', 'violation-hot'].includes(e.stroke.role)
       expect(await near(panel, shaftProbe(frame, e).s, violating ? rgb(palettes.dark.hot) : colors.hover, 35), `${e.from}->${e.to} warm`).toBe(true)
     }
+    // Edge hover: the producer's own dependency tooltip rows, rendered at its
+    // placement. The rows come from --hover-metadata, never from the client.
+    const tooltipEdge = frame.edges.find(e => e.kind === 'stroke' && e.to === ':association')
+    const probePoint = shaftProbe(frame, tooltipEdge).s
+    const tooltip = await producerFrame(panel, { ...options, hover: '{:kind :edge :from :hub :to :association}', pointer: probePoint, hoverMetadata: true })
+    expect(tooltip.hover.complete).toBe(true)
+    const entry = tooltip.hover.edges.find(e => e.from === ':hub' && e.to === ':association')
+    expect(entry.rows.length).toBeGreaterThan(0)
+    const popup = tooltip.chrome.find(c => c.kind === 'popup')
+    expect(popup.rows).toEqual(entry.rows)
+    await panel.canvas.hover({ position: { x: probePoint[0], y: probePoint[1] } })
+    // The only violating row is the first one, inked in 违规关系色 over the popup.
+    const firstRow = { x: popup.rect.x + 8, y: popup.rect.y + 8, w: popup.rect.w - 16, h: 18 }
+    expect(await regionHas(panel, firstRow, rgb(palettes.dark.violation), 60), 'dependency tooltip row ink').toBe(true)
     await lane.screenshot(panel, 'dependency-chain-class-hover')
     expect(panel.problems).toEqual([])
   } finally { await lane.close() }

@@ -7,6 +7,7 @@
 //! - `commands` (the scene → draw command model), `theme` (semantic color
 //!   roles and the dark palette), `lod` (detail tiers, culling,
 //!   decimation), `render_cache` (draw lists rebuilt only on change);
+//! - `hover` (the optional bounded hover metadata of a resident frame, #26),
 //! - `detail` (class card), `inspector`, `source` (source window),
 //!   `search_box`, `strings` (UI text), `session` (window session file),
 //!   `watch` and `project_files` (file stamps and the project boundary).
@@ -15,6 +16,7 @@ pub mod cli;
 pub mod commands;
 pub mod detail;
 pub mod frame;
+pub mod hover;
 pub mod inspector;
 pub mod lod;
 pub mod project_files;
