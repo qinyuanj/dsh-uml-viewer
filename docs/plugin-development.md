@@ -2,9 +2,10 @@
 
 Ticket dsh-uml-viewer#19 added the host skeleton and `uml_ir`; #21 adds the Web
 panel, the typed Remote stream and `uml_display`; #20 adds `uml_crap`,
-`uml_mutate`, `uml_dry`, their per-session FIFO and the quality gate. This
-checkout is a development package, marked private until the release packaging
-tickets assemble the main and platform packages.
+`uml_mutate`, `uml_dry`, their per-session FIFO and the quality gate. The
+checkout stays private. `pnpm package:local --binary <absolute executable>
+--out <absolute scratch directory>` assembles an installable main package and
+one current-platform binary package; it never builds or publishes implicitly.
 
 Use Node 24 (or Node 22.19+) and the pnpm version pinned in `package.json`:
 
@@ -38,6 +39,13 @@ The host chooses the executable at call time, in this order:
 3. `target/debug/uml-viewer` then `target/release/uml-viewer` under the **plugin
    checkout**, with `.exe` on Windows.
 
+In an assembled package, activation resolves the matching exact-version
+`@dsh-uml-viewer/<platform>-<arch>` optional dependency and copies its binary
+to `<plugin home>/versions/<version>/`. All calls in that activation use the
+pinned copy. Unsupported combinations and missing/mismatched dependencies
+fail before tools register, with an actionable reason. Config/environment
+overrides remain available for trusted development.
+
 There is no PATH or legacy `.uml-viewer/` fallback and no automatic build. A
 missing binary produces an actionable tool result. To use a separate Cargo
 output directory, set `UML_VIEWER_BIN` explicitly. For example:
@@ -50,8 +58,10 @@ The config accepts an absolute executable string, or a trusted argv prefix such
 as `["/absolute/node", "/absolute/fake-uml-viewer.mjs"]` for seam fixtures. Neither
 config nor environment strings are shell commands. Model arguments can select
 only policy/output; they cannot change binary, cwd, environment or authority.
-Platform optional dependencies and DSH-home version pinning belong to the
-release packaging ticket; this development locator does not implement them.
+The source checkout uses the development search above; only assembled packages
+resolve optional dependencies. The assembler derives versions from Cargo's
+workspace version, while `pnpm version:check` checks all source manifests.
+`pnpm version:sync` updates npm mirrors after changing the Cargo authority.
 
 ## Tool behavior
 
@@ -157,8 +167,11 @@ and `uml_display`. The browser half is declared where DSH reads it:
 `package.json` `dsh.client` (`platform: "web"`, `immediately: true`, the right
 sidebar as its only activation-order dependency, no `external` requests) plus the
 `"./client"` export. `dsh-std` 0.15 has no `facets.client` key, so the
-informational manifest stays host-only and explains the split in its notes. English/Chinese inventory text and original SVG artwork
-are included. No live profile was installed or changed for this ticket.
+informational manifest uses the host facet and explains the Web client split
+in its notes. Permissions declare subprocess execution, project reads/writes
+and the plugin's own DSH home for pinned binaries and session state.
+English/Chinese inventory text and original SVG artwork are included.
+Local package acceptance uses only a scratch DSH home and profile.
 
 The seam tests load the host into a real Cordis 4.1 Context, provide controlled
 DSH services, and spawn a real fake binary through the subprocess seam. They

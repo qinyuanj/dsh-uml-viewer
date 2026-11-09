@@ -14,7 +14,8 @@
   "permissions": [
     { "name": "uml-viewer.process", "scope": "subprocess", "reason": "Run the native IR generator and quality tools through the session sandbox policy and DSH subprocess provider." },
     { "name": "uml-viewer.read", "scope": "filesystem-read", "reason": "Read policy and source files in the session project and locate the plugin binary." },
-    { "name": "uml-viewer.write", "scope": "filesystem-write", "reason": "Generate project IR and quality snapshots under the session sandbox policy." }
+    { "name": "uml-viewer.write", "scope": "filesystem-write", "reason": "Generate project IR and quality snapshots under the session sandbox policy." },
+    { "name": "uml-viewer.home", "scope": "dsh-home", "reason": "Copy the packaged executable into the plugin's version directory and persist per-session viewer state under DSH_HOME/dsh-uml-viewer only." }
   ],
   "contributes": {
     "x-components": [{
@@ -24,7 +25,7 @@
       "platforms": ["win32", "linux", "darwin"],
       "targets": ["win32-x64", "linux-x64", "darwin-arm64", "darwin-x64"],
       "tools": ["uml_ir", "uml_crap", "uml_mutate", "uml_dry", "uml_display"],
-      "notes": "Host and Web panel with IR, the three quality tools and display. Platform binary packaging follows in the release tickets. The browser half is the package.json dsh.client facet and the ./client export (dsh-std 0.15 has no client facet key)."
+      "notes": "Host and Web client panel with IR, the three quality tools and display. Four optional platform packages provide the executable; unsupported platform/architecture combinations refuse activation with a reason. The browser half is declared in package.json dsh.client and the ./client export (dsh-std 0.15 has no client facet key). Runtime compatibility is package.json engines.dsh."
     }]
   },
   "subscriptions": []

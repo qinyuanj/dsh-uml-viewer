@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { expect } from '@playwright/test'
-import { SCRATCH, bootDshWeb, dismissOverlays, startDshWeb } from './dsh-web.mjs'
+import { SCRATCH, bootDshWeb, dismissOverlays, packageInputs, startDshWeb } from './dsh-web.mjs'
 import { startMockLlm } from './mock-llm.mjs'
 import { makeProjects } from './projects.mjs'
 
@@ -9,19 +9,33 @@ import { makeProjects } from './projects.mjs'
  * Reusable #22–#29 browser lane: one scratch host/mock model, one browser
  * context per DSH session, and only UI-level panel reads and gestures.
  */
-export async function launchViewerLane(browser) {
+export async function launchViewerLane(browser, options = {}) {
+  const packages = packageInputs(options)
   await fs.mkdir(SCRATCH, { recursive: true })
   const home = await fs.mkdtemp(path.join(SCRATCH, 'run-'))
   const projects = await makeProjects(home)
+  await options.prepareProjects?.(projects)
   const mock = await startMockLlm({ log: path.join(home, 'mock-requests') })
-  const installed = await startDshWeb({ home, projects })
-  const host = await bootDshWeb({ ...installed, home, mockUrl: mock.url })
+  let installed
+  let host
+  try {
+    installed = await startDshWeb({ home, projects, packages })
+    host = await bootDshWeb({ ...installed, home, mockUrl: mock.url })
+  } catch (error) {
+    await mock.stop()
+    throw error
+  }
   const pages = []
-  const close = async () => {
+  let closing
+  const close = () => closing ??= (async () => {
     for (const page of pages.splice(0).reverse()) await page.context().close().catch(() => {})
     host.stop()
     await host.exited.catch(() => {})
     await mock.stop()
+  })()
+  const uninstall = async () => {
+    await close()
+    installed.uninstall()
   }
 
   async function openPanel(project) {
@@ -131,5 +145,5 @@ export async function launchViewerLane(browser) {
     return file
   }
 
-  return { home, host, mock, projects, openPanel, pan, wheel, sendPrompt, screenshot, close }
+  return { home, host, mock, projects, packages, openPanel, pan, wheel, sendPrompt, screenshot, close, uninstall }
 }
