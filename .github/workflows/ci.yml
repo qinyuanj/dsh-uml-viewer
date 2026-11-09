@@ -231,6 +231,46 @@ jobs:
           CRAPPER_REQUIRE_TOOLCHAINS: '1'
         run: cargo test -p uml-viewer --test integration crap_languages -- --test-threads=1
 
+      # Configure only this disposable runner; keep mutation tests unprivileged.
+      - name: Linux mutation namespace preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -sr
+          unshare --version
+          for key in kernel.apparmor_restrict_unprivileged_userns kernel.unprivileged_userns_clone user.max_user_namespaces; do
+            if [[ -e "/proc/sys/${key//.//}" ]]; then
+              sysctl "$key"
+            else
+              echo "$key: unavailable"
+            fi
+          done
+          # Match crates/mutator/src/isolation.rs, including UID mapping and PID lifecycle.
+          probe() {
+            unshare --user --map-root-user --mount --pid --fork --kill-child -- \
+              /bin/sh -c 'test "$(id -u)" -eq 0 && mount --make-rprivate /'
+          }
+          if ! probe; then
+            echo 'Namespace probe failed; checking disposable runner policy.'
+            if [[ "${GITHUB_ACTIONS:-}" != true || "${RUNNER_ENVIRONMENT:-}" != github-hosted || "${RUNNER_OS:-}" != Linux ]]; then
+              echo '::error::Refusing to change namespace policy outside a GitHub-hosted Linux runner.'
+              exit 1
+            fi
+            if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]] && \
+               [[ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" == 1 ]]; then
+              sudo -n sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+            fi
+            if [[ -e /proc/sys/kernel/unprivileged_userns_clone ]] && \
+               [[ "$(sysctl -n kernel.unprivileged_userns_clone)" == 0 ]]; then
+              sudo -n sysctl -w kernel.unprivileged_userns_clone=1
+            fi
+            if ! probe; then
+              echo '::error::Linux mutation namespaces remain blocked; see docs/mutation-linux.md.'
+              exit 1
+            fi
+          fi
+          echo 'Linux mutation namespace preflight passed.'
+
       # Mutation needs the project's own virtualenv, never a global install.
       - name: Isolated Python mutation virtualenv
         run: |

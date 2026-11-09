@@ -60,6 +60,44 @@ full suite before it counts. `--busted-task` selects a named `.busted` task for
 both collection and mutation, and a `--test-command` string bypasses the whole
 Lua plan, as the original does.
 
+## Linux runner requirements and CI preflight
+
+Mutation requires util-linux `unshare`, unprivileged user namespaces with UID
+mapping, mount and PID namespaces, and overlayfs mounts inside the user namespace.
+The namespace capability probe uses the same arguments as the production launcher
+in `crates/mutator/src/isolation.rs` and checks private mount propagation:
+
+```sh
+unshare --user --map-root-user --mount --pid --fork --kill-child -- \
+  /bin/sh -c 'test "$(id -u)" -eq 0 && mount --make-rprivate /'
+```
+
+Run this probe as the ordinary test user. An `unshare: write failed
+/proc/self/uid_map: Operation not permitted` error prevents the baseline and
+coverage commands from starting; missing coverage and golden mismatches can then
+follow. It does not establish which host policy denied the mapping. Ubuntu's
+[AppArmor user namespace restrictions](https://discourse.ubuntu.com/t/spec-unprivileged-user-namespace-restrictions-via-apparmor-in-ubuntu-23-10/37626)
+are one relevant policy, controlled by
+`kernel.apparmor_restrict_unprivileged_userns`.
+
+The Linux job in `.github/workflows/ci.yml` prints the kernel, util-linux version,
+and existing values of `kernel.apparmor_restrict_unprivileged_userns`,
+`kernel.unprivileged_userns_clone` and `user.max_user_namespaces`, then runs the
+probe before mutation tests. Only after failure, and only on a GitHub-hosted Linux
+runner, it changes an existing restrictive AppArmor value from `1` to `0` and an
+existing disabled user namespace clone value from `0` to `1` using `sudo sysctl -w`.
+These runtime settings last only for the disposable runner; no persistent sysctl
+configuration is written. The exact probe must then pass, or the step fails with
+a visible error. A failed sysctl write also fails the step.
+
+The probe checks namespace creation, UID mapping and mount propagation, not the
+complete overlayfs view. The subsequent real mutation suites remain the acceptance
+check for overlayfs, baseline execution and golden bytes. Cargo and tests run as
+the ordinary runner user. There is no isolation fallback or skipped test path.
+For a developer machine or self-hosted runner, have its administrator provide the
+required namespace and overlayfs capabilities under that host's policy; this CI
+step refuses to change its settings.
+
 ## Worker slots and the write contract (stronger than the original baseline)
 
 One call creates one private scratch root and a pool of worker slots
