@@ -125,7 +125,7 @@ requests. Rects are `{x, y, w, h}`, points `[x, y]`, all in world units.
 | kind | lod | fields | drawing |
 |---|---|---|---|
 | `package` | blocks | `id rect text band grade size maxW missing missingCount fill stroke strokeWidth ink selected related` | rounded rect (`radius.package`) filled `fill`, outlined `stroke` at `strokeWidth` (dashed when `missing`); `text` at `rect.x + 12, rect.y + 8` (scaled), italic, size `fonts.canvas`, fitted to `maxW` |
-| `class` | blocks | `id owner rect shape band grade missing fill stroke strokeWidth selected hovered related` | `shape` `"oval"` (外来包椭圆) is an ellipse; otherwise a rounded rect (`radius.class`), dashed outline when `missing` |
+| `class` | blocks | `id owner rect shape band grade missing fill stroke strokeWidth selected hovered related` | `shape` `"oval"` (外来包椭圆) is an ellipse with a solid outline centred on its edge, even when `missing`; otherwise a rounded rect (`radius.class`), dashed outline when `missing` |
 | `quality` | frames | `id owner of text band grade center radius fill stroke ink` | C/M dot: disc `radius` (world) filled `fill`, ring `stroke` at `widths.dot`; the letter `text` in `ink` at `fonts.badge`, centred, at `full` only |
 | `marker` | full | `owner text at size ink` | α / I at `at` (top-left), size `size` |
 | `level` | full | `owner text at size ink` | 架构级别编号 at `at` |
@@ -136,6 +136,17 @@ requests. Rects are `{x, y, w, h}`, points `[x, y]`, all in world units.
 | `child-wash` | full | `owner rect marker{wash bar barWidth}` | marked member row: `rect` filled `wash` (radius `rowWash`), a `bar` rule `barWidth` (scaled) at its left |
 | `port-link` | full | `owner behind tip stroke` | line `behind → tip` at `widths.portLink`, open arrowhead of 10 screen px at ±20° |
 | `port` | full | `id owner rect text marked fill stroke strokeWidth ink` | 依赖端口: rect (`radius.port`), label centred at `fonts.port`, fitted to `rect.w - 6` |
+
+Painting rules shared by the egui window and the panel (`crates/viewer/src/paint.rs`,
+`packages/client/src/paint.ts`): a scaled font size is a whole pixel,
+`max(1, round(size * zoom))`, and a fitted label shrinks to the largest whole
+pixel that fits; marker, level, package title, no-data and port labels are
+placed by their top edge (a port label's top is `5 * zoom` above the port's
+centre). A rounded rect's solid outline (package, class, port) lies inside the
+rect: its centre line and corner radius are inset by half the stroke width. An
+unmeasured (`missing`) outline is instead a square dashed path along the rect's
+edges over the rounded fill. Boxes under one screen point are not drawn. At
+`blocks` and `frames` the class names are painted after every box and dot.
 
 ## Edges
 
