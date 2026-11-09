@@ -99,9 +99,12 @@ An operation whose tool cannot read a declared language is refused with an error
 record, never an empty success. All three tools now read every language the
 scanners know: mutator's `mutates()` accepts Rust, Lua, Python and TypeScript
 (#13) and Go, Java and Clojure (#14), and crapper and dryer read all seven (#7).
-Runtime parity for Go, Java and Clojure is still **UNVERIFIED**: their Rust
-parity tests are authored but unrun, so treat those three languages as
-implemented-but-unproven until a real run is recorded (#14 stays open).
+Go, Java and Clojure fixture snapshots match the pinned Python originals
+byte for byte, including single/multiple-worker consistency. The Linux
+[CI run at `f4c12e3`](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42591228938/job/129073050014)
+passed all seven snapshot/scanning tests, five report-selection tests and the
+mutation-site comparison, closing #14. The optional external Clojure corpus
+check remains ignored unless its separate corpus inputs are provided.
 
 Mutation runs on Linux (namespace views,
 [mutation-linux.md](mutation-linux.md)) and native Windows (per-command project
