@@ -81,13 +81,13 @@ pub fn run(args: &[OsString]) -> ExitCode {
             // Read one line under the inbound cap: `take` stops the read at the
             // limit, so an endless line never becomes an endless buffer.
             let mut bytes = Vec::new();
-            match (&mut stdin)
+            let read = (&mut stdin)
                 .take(ACTION_LINE_MAX_BYTES as u64 + 1)
-                .read_until(b'\n', &mut bytes)
-            {
+                .read_until(b'\n', &mut bytes);
+            match read {
                 Ok(0) => break,
-                Ok(_) if bytes.last() != Some(&b'\n') => {
-                    // No terminator within the cap: the line is over it.
+                Ok(n) if n == ACTION_LINE_MAX_BYTES + 1 && bytes.last() != Some(&b'\n') => {
+                    // Nothing terminated the line inside the cap: it is over it.
                     let _ = tx.send(Err(format!(
                         "action line over {ACTION_LINE_MAX_BYTES} bytes; the session was stopped"
                     )));
@@ -99,10 +99,7 @@ pub fn run(args: &[OsString]) -> ExitCode {
                     let Ok(text) = String::from_utf8(bytes) else {
                         break;
                     };
-                    let line = text
-                        .trim_end_matches('\n')
-                        .trim_end_matches('\r')
-                        .to_string();
+                    let line = text.trim_end_matches('\n').trim_end_matches('\r').to_string();
                     if tx.send(Ok(line)).is_err() {
                         break;
                     }
