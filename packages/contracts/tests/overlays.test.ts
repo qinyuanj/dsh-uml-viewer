@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   parsePanelAction, parseResidentLine, RESIDENT_LINE_MAX_BYTES, SOURCE_LIMITS, validateCardModel,
-  validateInspectorModel, validateSourceModel,
+  utf8Bytes, validateInspectorModel, validateSourceModel,
 } from '../src/index.js'
 
 /**
@@ -129,6 +129,12 @@ describe('overlay validators', () => {
     })
     expect(RESIDENT_LINE_MAX_BYTES).toBe(16_777_216)
     expect(Object.isFrozen(SOURCE_LIMITS)).toBe(true)
+  })
+
+  it('counts UTF-8 bytes exactly as TextEncoder does, without needing it at load', () => {
+    for (const text of ['', 'ascii', 'é', '中文', '😀x', 'a\uD800b', '\uDC00', 'end\uD83D', '\u07ff\u0800\uffff']) {
+      expect(utf8Bytes(text), JSON.stringify(text)).toBe(new TextEncoder().encode(text).length)
+    }
   })
 
   it('refuses source rows and target lines that are not real row positions', () => {

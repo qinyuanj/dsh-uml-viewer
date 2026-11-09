@@ -134,11 +134,25 @@ export const SOURCE_LIMITS = Object.freeze({
  */
 export const RESIDENT_LINE_MAX_BYTES = 16 * 1024 * 1024
 
-const utf8 = new TextEncoder()
-
-/** UTF-8 byte length of a string. */
+/**
+ * UTF-8 byte length of a string, as `TextEncoder` would encode it (a lone
+ * surrogate becomes U+FFFD, 3 bytes). Counted directly so the module needs no
+ * global at load time: the client bundle is evaluated in hosts and sandboxes
+ * that may lack `TextEncoder`.
+ */
 export function utf8Bytes(text: string): number {
-  return utf8.encode(text).length
+  let bytes = 0
+  for (let i = 0; i < text.length; i += 1) {
+    const unit = text.charCodeAt(i)
+    if (unit < 0x80) bytes += 1
+    else if (unit < 0x800) bytes += 2
+    else if (unit >= 0xd800 && unit <= 0xdbff && i + 1 < text.length
+      && (text.charCodeAt(i + 1) & 0xfc00) === 0xdc00) {
+      bytes += 4
+      i += 1
+    } else bytes += 3
+  }
+  return bytes
 }
 
 class Invalid extends Error {}
