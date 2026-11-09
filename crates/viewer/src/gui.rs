@@ -5,7 +5,7 @@
 //!
 //! Widget bounds are recorded per frame in view units (points from the
 //! content origin) under the keys the LOVE drivers used (`proposal:<id>`,
-//! `rename-menu`, `proposal-name`, `new-proposal`, `declutter`, `regen`,
+//! `rename-menu`, `proposal-name`, `new-proposal`, `declutter`,
 //! `module`, `member:<op>`, ...), so a driver points at what was drawn.
 
 use std::collections::BTreeMap;
@@ -18,7 +18,6 @@ use egui::{
 };
 use scene::Rect;
 use scene::document::ViewState;
-use scene::events;
 
 use crate::color::color as rgb;
 use crate::detail::{self, Hover};
@@ -39,15 +38,11 @@ pub enum Action {
     Choose(Option<Value>),
     NewProposal,
     Declutter,
-    Regen,
     Rename(Value, String),
     Delete(Value),
     CloseCard,
     Locate(Value),
     OpenSource(Ident),
-    /// A right-click menu operation (`strings::MENU`): write the mail and
-    /// wake the companion (#142).
-    Mail(String),
 }
 
 /// The class card window as last drawn.
@@ -104,9 +99,6 @@ pub struct Gui {
     dragging_edge: bool,
     menu: Option<(Value, Pos2, u64)>,
     menu_open: bool,
-    /// The element mail menu (right-click on the canvas).
-    element_menu: Option<(Pos2, u64)>,
-    element_menu_open: bool,
     rename: Option<Rename>,
     pub bounds: BTreeMap<String, Rect>,
     empty_help: bool,
@@ -369,93 +361,7 @@ impl Gui {
         } else {
             self.card.open = false;
         }
-        self.element_mail_menu(ctx, state, origin, &mut actions);
         actions
-    }
-
-    /// Right-click on a class, child row or proposal package opens the element
-    /// menu (`mail_menu.entries`): refresh CRAP, refresh mutation, full
-    /// mutation, hide. Each item writes a `to-agent.edn` command and wakes the
-    /// companion for that delivery.
-    fn element_mail_menu(
-        &mut self,
-        ctx: &egui::Context,
-        state: &ViewState,
-        origin: Pos2,
-        actions: &mut Vec<Action>,
-    ) {
-        // A real right click on the canvas opens the menu; a replayed one is
-        // opened by the app at the press (`open_element_menu`).
-        let (secondary, pos) = ctx.input(|i| {
-            (
-                i.pointer.secondary_clicked(),
-                i.pointer.interact_pos().or(i.pointer.hover_pos()),
-            )
-        });
-        if secondary
-            && let Some(at) = pos
-            && at.x < origin.x + self.canvas_width(self.window_w) as f32
-            && events::element_menu(state.selected.as_ref())
-        {
-            self.element_menu = Some((at, 0));
-        }
-        self.element_menu_open = false;
-        let Some((at, _)) = self.element_menu else {
-            return;
-        };
-        if state.waiting || state.document.is_none() {
-            self.element_menu = None;
-            return;
-        }
-        let response = egui::Area::new(Id::unique("uml-element-mail"))
-            .fixed_pos(at)
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                egui::Frame::popup(ui.style())
-                    .show(ui, |ui| {
-                        let labels = strings::MENU.iter().map(|(_, label)| *label);
-                        menu_rows(ui, labels)
-                            .into_iter()
-                            .zip(strings::MENU)
-                            .map(|(row, (op, _))| (row, format!("menu-{op}")))
-                            .collect::<Vec<_>>()
-                    })
-                    .inner
-            });
-        let mut bounds = Vec::new();
-        for (button, key) in &response.inner {
-            bounds.push((key.clone(), button.rect));
-            if button.clicked() {
-                let op = key.trim_start_matches("menu-").to_string();
-                actions.push(Action::Mail(op));
-                self.element_menu = None;
-            }
-        }
-        self.areas.push(view_rect(response.response.rect, origin));
-        for (key, r) in bounds {
-            self.bounds.insert(key, view_rect(r, origin));
-        }
-        self.element_menu_open = self.element_menu.is_some();
-        let rect = response.response.rect;
-        if ctx.input(|i| i.pointer.any_pressed())
-            && !ctx
-                .input(|i| i.pointer.interact_pos())
-                .is_some_and(|p| rect.contains(p))
-            && !secondary
-        {
-            self.element_menu = None;
-            self.element_menu_open = false;
-        }
-    }
-
-    /// Open the element mail menu at a screen point (the app's right click).
-    pub fn open_element_menu(&mut self, at: Pos2) {
-        self.element_menu = Some((at, 0));
-    }
-
-    /// Is the element mail menu open (the `:element-menu` GUI record)?
-    pub fn element_menu_open(&self) -> bool {
-        self.element_menu_open
     }
 
     /// The draggable left edge of the sidebar.
@@ -621,12 +527,6 @@ impl Gui {
                                 }
                             });
                         bounds.push(("summary-card".into(), card.inner_rect));
-                        ui.add_space((ui.available_height() - 34.0).max(0.0));
-                        let regen = themed_button(ui, strings::REGEN);
-                        if regen.clicked() {
-                            actions.push(Action::Regen);
-                        }
-                        bounds.push(("regen".into(), regen.rect));
                     });
             });
         bounds.push((
@@ -1243,7 +1143,6 @@ impl Gui {
                     (kw("width"), Value::Float(self.inspector_width())),
                     (kw("entries"), entries),
                     (kw("menu-open"), Value::Bool(self.menu_open)),
-                    (kw("element-menu"), Value::Bool(self.element_menu_open)),
                     (kw("rename"), rename),
                     (kw("empty-help"), Value::Bool(self.empty_help)),
                 ]),

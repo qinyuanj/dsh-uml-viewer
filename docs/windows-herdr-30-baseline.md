@@ -1,5 +1,7 @@
 # Windows Herdr acceptance baseline — issue #30
 
+> **历史记录**：本文描述的 Herdr companion、邮件与 `./uml` / `get-uml-viewer` 入口已在 qinyuanj/dsh-uml-viewer#18 删除，只在冻结的 qinyuanj/uml-viewer 中保留；本文不再是本仓库的现行契约或验收清单。
+
 2026-10-13, checkout `7de5051bf5dcafe8c3389a253d02f244b245eaa7` on `lua`.
 This baseline records automated checks and read-only environment inspection.
 It does not complete any of the seven native criteria in

@@ -96,9 +96,12 @@ mutator itself, as in the original tool.
 ## Not ported yet
 
 An operation whose tool does not read a selected language is refused with an
-error record, never an empty success: mutator reads Rust and Lua (Go/Java/Clojure
-follow with #14); crapper and dryer read all seven (#7). Mutation also
-refuses off Linux (`Mutation isolation is currently supported only on Linux`).
+error record, never an empty success: mutator reads Rust, Lua, Python and
+TypeScript (#13; Go/Java/Clojure follow with #14); crapper and dryer read all
+seven (#7). Mutation runs on Linux (namespace views,
+[mutation-linux.md](mutation-linux.md)) and native Windows (per-command project
+copies, #10, [mutation-windows.md](mutation-windows.md)); on macOS it refuses
+with exit 1 before any command (`Mutation testing is not supported on macOS`).
 A project that declares its own `operations` command is responsible for what
 that command does; the dispatcher reports its real exit.
 

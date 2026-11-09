@@ -2,8 +2,9 @@
 //! decorations and the undecorated drag/resize regions, fonts and DPI, the
 //! wake threads, input collection and capture, the search box and GUI
 //! drawing, screenshots, the bench and evidence. Everything the session
-//! decides (actions, reload, mail, canvas input, normal close and restart
-//! exit) arrives as an event; the shell carries out the effects it returns.
+//! decides (actions, reload, canvas input and close) arrives as an event; the
+//! shell carries out the effects it returns. The window runs standalone and
+//! hot-reloads its diagram (#18).
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -30,7 +31,7 @@ use crate::shell_session::{
     ViewerSession, WINDOW_MIN, window_size,
 };
 use crate::theme::Role;
-use crate::{cli::Options, fonts, mail_watch, paint, signal, strings};
+use crate::{cli::Options, fonts, paint, signal, strings};
 use crate::{theme, watch};
 
 pub const WINDOW_TITLE: &str = "UML viewer — Rust";
@@ -131,7 +132,14 @@ fn lib_present(name: &str) -> bool {
     if paths.iter().any(|dir| Path::new(dir).join(name).exists()) {
         return true;
     }
-    companion::command_stdout("ldconfig", &["-p"]).is_some_and(|out| out.contains(name))
+    // The cache `ldconfig -p` prints: library names are plain bytes in it,
+    // so no process is launched to read it.
+    std::fs::read("/etc/ld.so.cache").is_ok_and(|cache| cache_names(&cache, name))
+}
+
+/// Does the dynamic linker cache `cache` name the library `name`?
+pub fn cache_names(cache: &[u8], name: &str) -> bool {
+    !name.is_empty() && cache.windows(name.len()).any(|w| w == name.as_bytes())
 }
 
 fn env_nonempty(name: &str) -> Option<String> {
@@ -140,7 +148,7 @@ fn env_nonempty(name: &str) -> Option<String> {
 
 struct Setup {
     project_root: PathBuf,
-    /// The resolved diagram and the session snapshot, read once.
+    /// The resolved diagram.
     launch: Launch,
     evidence: Option<Evidence>,
     test_seconds: Option<f64>,
@@ -148,8 +156,6 @@ struct Setup {
     /// Protocol-1 output directory (#143); the bench owns the camera.
     bench: Option<PathBuf>,
     bench_only: Option<String>,
-    /// Saved window/inspector chrome from a restart session.
-    chrome: Chrome,
 }
 
 impl Setup {
@@ -158,14 +164,7 @@ impl Setup {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
         let project_root = crate::project_files::canonical(&root);
-        // The snapshot is read once: the launch keeps it for the restore.
-        let (mut launch, chrome) = Launch::resolve(
-            project_root.clone(),
-            options.path.clone(),
-            options.restart,
-            options.backend,
-        );
-        launch.agent = options.agent;
+        let launch = Launch::resolve(project_root.clone(), options.path.clone());
         let evidence = env_nonempty("UML_VIEWER_EVIDENCE").map(|dir| {
             let dir = PathBuf::from(dir);
             let _ = std::fs::create_dir_all(&dir);
@@ -184,7 +183,6 @@ impl Setup {
             script,
             bench: env_nonempty("UML_VIEWER_BENCH").map(PathBuf::from),
             bench_only: env_nonempty("UML_VIEWER_BENCH_ONLY"),
-            chrome,
         })
     }
 }
@@ -226,8 +224,7 @@ pub fn run(options: Options) -> ExitCode {
     // 1500x920 points (Lua `display.window_size`: view units × ui).
     // 1500x920 is also the protocol-1 bench window (#143).
     let scale = dpi_override().unwrap_or(1.0);
-    // A restart restores the saved window; a fresh launch keeps the default.
-    let [width, height] = window_size(&setup.chrome, f64::from(scale));
+    let [width, height] = window_size(&Chrome::default(), f64::from(scale));
     let mut viewport = egui::ViewportBuilder::default()
         .with_title(WINDOW_TITLE)
         .with_inner_size([width as f32, height as f32])
@@ -267,7 +264,7 @@ pub fn run(options: Options) -> ExitCode {
 }
 
 struct Viewer {
-    /// View state, hot reload, mail and the companion link (#161).
+    /// View state, actions and hot reload (#161).
     session: ViewerSession,
     project_root: PathBuf,
     evidence: Option<Evidence>,
@@ -318,14 +315,6 @@ struct Viewer {
     gui_pointer: egui::Pos2,
     /// A batch reached egui this frame and the GUI has not drawn it yet.
     gui_inflight: bool,
-    /// The change-only mailbox waker thread.
-    waker: Option<mail_watch::Waker>,
-    /// A window close request (`WM_CLOSE`: the title bar's close button, or
-    /// another process posting it) takes the normal close: the window stays
-    /// until the companion is released. This is Windows' polite termination,
-    /// where SIGTERM does not exist; elsewhere eframe closes at once and
-    /// `on_exit` asks the helper to stop (unchanged).
-    close_request_is_normal_close: bool,
 }
 
 impl Drop for Viewer {
@@ -334,8 +323,8 @@ impl Drop for Viewer {
     }
 }
 
-/// Idle wake-ups (#143): a stat-only watcher repaints only when the diagram,
-/// metrics or mailbox stamp changes, so an idle viewer does not redraw on the
+/// Idle wake-ups (#143): a stat-only watcher repaints only when the diagram
+/// or metrics stamp changes, so an idle viewer does not redraw on the
 /// poll cadence. The woken frame's `poll` does the actual reload. A pending
 /// SIGTERM/SIGINT also wakes it: the signal handler only sets a flag, and an
 /// idle viewer would otherwise not run a frame to act on it.
@@ -345,10 +334,7 @@ fn spawn_wake(ctx: egui::Context, diagram: PathBuf, root: PathBuf) -> Arc<Atomic
     let spawned = std::thread::Builder::new()
         .name("uml-viewer-wake".into())
         .spawn(move || {
-            let inbox = companion::mailbox::Mailbox::inbox(&root)
-                .path()
-                .to_path_buf();
-            let mut wake = watch::Wake::new(&diagram, &root, &[&inbox]);
+            let mut wake = watch::Wake::new(&diagram, &root, &[]);
             while !flag.load(Ordering::SeqCst) {
                 std::thread::sleep(POLL_INTERVAL);
                 if wake.poll() || signal::terminated() {
@@ -396,9 +382,11 @@ impl Viewer {
             )
         });
         // The first frames measure the window before the content rect is
-        // known: start from the requested (or restored) size.
-        let [start_w, start_h] =
-            window_size(&setup.chrome, dpi_override().map(f64::from).unwrap_or(1.0));
+        // known: start from the requested size.
+        let [start_w, start_h] = window_size(
+            &Chrome::default(),
+            dpi_override().map(f64::from).unwrap_or(1.0),
+        );
         // The idle watcher takes its baseline before the first load, so a
         // diagram written meanwhile still wakes the viewer.
         let wake_stop = spawn_wake(
@@ -416,10 +404,7 @@ impl Viewer {
                 info_lines(renderer.as_deref().unwrap_or("renderer: unknown\n"))
             );
         }
-        // The queue is consumed whether or not a companion backend was asked
-        // for (LOVE's `mail` exists in both cases); only the helper process is
-        // backend-specific and starts after the first scene, as in LOVE.
-        let opened = ViewerSession::open_with_companion(setup.launch);
+        let opened = ViewerSession::open(setup.launch);
         let session = match opened {
             Ok(session) => session,
             Err(error) => {
@@ -464,21 +449,8 @@ impl Viewer {
             gui_batches: Default::default(),
             gui_pointer: egui::Pos2::ZERO,
             gui_inflight: false,
-            waker: None,
-            close_request_is_normal_close: cfg!(windows),
         };
         app.publish();
-        // Mail must be noticed even when nothing else asks for a frame; the
-        // waker requests one only when a watched file actually changed.
-        let ctx = cc.egui_ctx.clone();
-        app.waker = Some(mail_watch::spawn(
-            setup.project_root.clone(),
-            POLL_INTERVAL,
-            move || ctx.request_repaint(),
-        ));
-        if let Some(width) = setup.chrome.inspector_w {
-            app.gui.width = Some(width);
-        }
         if let Some(out) = setup.bench.clone() {
             let (classes, _, _) = bench::scene_counts(&app.session.state().scene);
             let provenance = bench::Provenance::from_env(bench::load_one_minute())?;
@@ -495,9 +467,6 @@ impl Viewer {
             let dims = Dims::default();
             app.canvas(Canvas::HoldCamera, dims);
         }
-        // Only now is the startup sure to succeed: a failed bench start must
-        // not overwrite an existing identity.
-        app.session.process(Event::Started, Now::read());
         Ok(app)
     }
 
@@ -775,12 +744,10 @@ impl Viewer {
                 Action::Choose(id) => SessionAction::Choose(id),
                 Action::NewProposal => SessionAction::NewProposal,
                 Action::Declutter => SessionAction::Declutter,
-                Action::Regen => SessionAction::Regen,
                 Action::Rename(id, name) => SessionAction::Rename(id, name),
                 Action::Delete(id) => SessionAction::Delete(id),
                 Action::CloseCard => SessionAction::CloseCard,
                 Action::Locate(id) => SessionAction::Locate(id),
-                Action::Mail(op) => SessionAction::Mail(op),
             };
             let dims = self.dims(ctx);
             let effects = self
@@ -801,7 +768,6 @@ impl Viewer {
         match effects.repaint {
             Repaint::None => {}
             Repaint::Now => ctx.request_repaint(),
-            Repaint::After(delay) => ctx.request_repaint_after(delay),
         }
         // The first close wins: a failed driver's exit code stays.
         if let Some(code) = effects.close
@@ -810,15 +776,6 @@ impl Viewer {
             self.exit.store(code, Ordering::SeqCst);
             self.quit = true;
             ctx.send_viewport_cmd(ViewportCommand::Close);
-        }
-    }
-
-    /// The window chrome a session snapshot saves.
-    fn chrome(&self) -> Chrome {
-        Chrome {
-            window_w: Some(self.window_w),
-            window_h: Some(self.window_h),
-            inspector_w: Some(self.gui.inspector_width()),
         }
     }
 
@@ -909,10 +866,9 @@ impl Viewer {
         }
     }
 
-    /// A normal close: the session stops the helper without keeping it. The
-    /// next pass's `logic` runs the checkpoint that closes once it settled.
-    fn begin_normal_close(&mut self, ctx: &egui::Context) {
-        let effects = self.session.process(Event::NormalClose, Now::read());
+    /// A close: nothing to release, so the window closes with 0 at once.
+    fn close(&mut self, ctx: &egui::Context) {
+        let effects = self.session.process(Event::Close, Now::read());
         self.carry_out(effects, ctx);
     }
 
@@ -932,8 +888,7 @@ impl Viewer {
     }
 
     /// Undecorated fallback: no title bar, so the drag strip carries
-    /// minimise and close. Close is the normal close a window-manager close
-    /// takes (companion stop without keep, exit 0).
+    /// minimise and close. Close exits 0, as a window-manager close does.
     fn draw_window_controls(&mut self, ctx: &egui::Context) {
         if self.decorated {
             return;
@@ -973,9 +928,7 @@ impl Viewer {
             ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
         }
         if closed && !self.quit {
-            self.begin_normal_close(ctx);
-            // `logic` already ran its checkpoint for this frame.
-            ctx.request_repaint();
+            self.close(ctx);
         }
     }
 
@@ -1123,8 +1076,7 @@ impl Viewer {
         }
     }
 
-    /// A right press on the canvas selects what it hits, real or replayed, so
-    /// the element menu opening on the release targets that element.
+    /// A right press on the canvas selects what it hits, real or replayed.
     fn secondary_press(&mut self, ctx: &egui::Context) {
         let (pressed, pos) = ctx.input(|i| {
             (
@@ -1312,74 +1264,30 @@ fn write_png(target: &Path, image: &egui::ColorImage) -> Result<(), String> {
 }
 
 impl eframe::App for Viewer {
-    fn on_exit(&mut self) {
-        if let Some(waker) = &self.waker {
-            waker.stop();
-        }
-        // A window close the frame loop did not see (WM quit): ask the
-        // helper to stop without keeping the companion. It then releases the
-        // session and ownership on its own.
-        self.session.process(Event::WindowClosed, Now::read());
-    }
-
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         self.take_gui_batch(raw_input);
     }
 
     /// eframe runs this before each `ui`, and alone while the window is
-    /// hidden (minimised or occluded) or its redraw is overdue. Reload, mail,
-    /// the restart exit and the normal close live here, so a hidden viewer
-    /// still acts on them; nothing here draws. The frame's input reaches the
-    /// session after this, so `r` reloads on the next pass.
+    /// hidden (minimised or occluded) or its redraw is overdue. Reload and
+    /// the close live here, so a hidden viewer still acts on them; nothing
+    /// here draws. The frame's input reaches the session after this, so `r`
+    /// reloads on the next pass.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Hot reload: IR or metrics stamp change, or R.
         let effects = self.session.process(Event::Tick, Now::read());
         self.carry_out(effects, ctx);
         self.publish();
-        // Mail is polled only when the waker saw a change (or at startup):
-        // an unchanged project does no mailbox work and no repaint. `ui`
-        // has not counted this frame yet, so these are the first two.
-        let mail_due = self.frames < 2 || self.waker.as_ref().is_some_and(|waker| waker.take());
-        if mail_due {
-            let effects = self.session.process(Event::MailDue, Now::read());
-            self.carry_out(effects, ctx);
-            self.publish();
-        }
-        // A restart request saves the session and exits; a stopped helper
-        // keeps being polled so the replacement viewer never binds a ghost.
-        let chrome = self.chrome();
-        let effects = self
-            .session
-            .process(Event::RestartExit(chrome), Now::read());
-        self.carry_out(effects, ctx);
-
-        // A termination signal is a normal close: release the companion and
-        // exit through the same path a window close takes.
+        // A termination signal closes, as the window's close does.
         if signal::terminated() && !self.quit {
-            self.begin_normal_close(ctx);
-        }
-        // Settle a pending close before acknowledging another close event;
-        // CancelClose and Close in one pass leave the native window open.
-        let effects = self
-            .session
-            .process(Event::NormalCloseCheckpoint, Now::read());
-        self.carry_out(effects, ctx);
-        if self.close_request_is_normal_close
-            && !self.quit
-            && ctx.input(|i| i.viewport().close_requested())
-        {
-            self.begin_normal_close(ctx);
-            if !self.quit {
-                // The checkpoint below sends the close once it settled.
-                ctx.send_viewport_cmd(ViewportCommand::CancelClose);
-            }
+            self.close(ctx);
         }
         if let Some(seconds) = self.test_seconds
             && self.started.elapsed().as_secs_f64() >= seconds
+            && !self.quit
         {
-            // The test duration is the normal close: the companion is
-            // stopped here and the normal-close checkpoint closes the window.
-            self.begin_normal_close(ctx);
+            // The test duration closes like a termination signal.
+            self.close(ctx);
         }
         // A timed run keeps the poll cadence even while hidden, so its
         // duration still runs out.
@@ -1415,8 +1323,7 @@ impl eframe::App for Viewer {
                 self.quit = true;
             }
             // A finished script's `:quit` is the verdict, exactly like the
-            // Lua drivers' `love.event.quit(0)`: the companion's normal stop
-            // must not turn a passed driver into a failure.
+            // Lua drivers' `love.event.quit(0)`.
             let finished = runner.is_done() && !self.driver_failed;
             self.driver = Some(runner);
             if self.quit || finished {
@@ -1556,8 +1463,8 @@ impl driver::Host for Viewer {
     fn click_class(&mut self, id: &str, double: bool, secondary: bool) -> Result<(), String> {
         let (x, y) = self.session.class_point(id)?;
         if secondary {
-            // A right click through egui's own pointer path: the canvas menu
-            // opens on the release, where the user's right click lands.
+            // A right click through egui's own pointer path, where the user's
+            // right click lands.
             let origin = self.ctx.content_rect().min;
             let pos = egui::Pos2::new(origin.x + x as f32, origin.y + y as f32);
             self.gui_pointer = pos;
@@ -1659,6 +1566,34 @@ impl driver::Host for Viewer {
 
     fn gui_record(&self) -> Value {
         let mut record = self.gui.record(self.session.state());
+        // The loaded diagram and its discussion context (the standalone and
+        // inspector drivers read them).
+        let state = self.session.state();
+        let title = state
+            .document
+            .as_ref()
+            .and_then(|d| edn::record::get(d, "title"));
+        let context = state
+            .discussion_context
+            .as_ref()
+            .and_then(|c| edn::record::get(c, "context"));
+        record.assoc(
+            Value::keyword("document"),
+            Value::Map(vec![
+                (
+                    Value::keyword("path"),
+                    state.path.clone().map_or(Value::Nil, Value::String),
+                ),
+                (
+                    Value::keyword("title"),
+                    title.cloned().unwrap_or(Value::Nil),
+                ),
+                (
+                    Value::keyword("context"),
+                    context.cloned().unwrap_or(Value::Nil),
+                ),
+            ]),
+        );
         record.assoc(
             Value::keyword("status"),
             self.session
@@ -1672,8 +1607,6 @@ impl driver::Host for Viewer {
                 (Value::keyword("h"), edn_number(self.window_h)),
             ]),
         );
-        record.assoc(Value::keyword("mail"), self.session.mail_record());
-        record.assoc(Value::keyword("session"), self.session_record());
         record
     }
 
@@ -1696,10 +1629,6 @@ impl driver::Host for Viewer {
 
     fn assert_text_fits(&mut self) -> Result<(), String> {
         paint::assert_text_fits(&self.ctx, self.session.state())
-    }
-
-    fn session_record(&self) -> Value {
-        self.session.session_record(&self.chrome())
     }
 
     fn display_record(&self) -> Value {
@@ -1757,18 +1686,11 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("uml viewer app input {} {n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(root.join(".uml-viewer")).unwrap();
-        let session = ViewerSession::open(
-            Launch {
-                project_root: root.clone(),
-                diagram: root.join("diagram.edn"),
-                restart: false,
-                backend: false,
-                agent: None,
-                snapshot: None,
-            },
-            || Box::new(crate::mail::Companion::mail_only()),
-        )
+        std::fs::create_dir_all(&root).unwrap();
+        let session = ViewerSession::open(Launch {
+            project_root: root.clone(),
+            diagram: root.join("diagram.edn"),
+        })
         .unwrap();
         let ctx = egui::Context::default();
         Viewer {
@@ -1808,8 +1730,6 @@ mod tests {
             gui_batches: Default::default(),
             gui_pointer: egui::Pos2::ZERO,
             gui_inflight: false,
-            waker: None,
-            close_request_is_normal_close: false,
         }
     }
 
@@ -1827,61 +1747,30 @@ mod tests {
             .unwrap_or_default()
     }
 
-    fn inbox(app: &Viewer) -> PathBuf {
-        app.project_root.join(".uml-viewer/to-viewer.edn")
-    }
-
     const DIAGRAM: &str = "{:title \"Hidden\" :packages [{:label \"P\" :classes [{:id :target :ns \"app.target\"}]}]}";
 
     #[test]
-    fn a_hidden_window_reloads_and_takes_mail_without_a_frame() {
+    fn a_hidden_window_reloads_without_a_frame() {
         let mut app = viewer();
         assert!(app.session.hint().is_some(), "no diagram yet");
         std::fs::write(app.project_root.join("diagram.edn"), DIAGRAM).unwrap();
-        std::fs::write(
-            inbox(&app),
-            "{:next-id 2 :queue [{:id 1 :op :context :context :real}]}",
-        )
-        .unwrap();
         assert!(hidden_pass(&mut app).is_empty(), "nothing to close");
         assert!(app.session.hint().is_none(), "the diagram was reloaded");
         assert!(app.session.state().document.is_some());
-        assert_eq!(1, app.session.state().mail_seen, "the mail was applied");
-        assert_eq!(
-            "{:next-id 2 :queue []}",
-            std::fs::read_to_string(inbox(&app)).unwrap(),
-            "and popped"
-        );
         assert_eq!(0, app.frames, "no frame was counted");
     }
 
     #[test]
-    fn a_hidden_window_takes_the_restart_exit() {
+    fn a_hidden_window_takes_the_close_at_once_and_leaves_the_project_alone() {
         let mut app = viewer();
-        std::fs::write(
-            inbox(&app),
-            "{:next-id 2 :queue [{:id 1 :op :quit-for-restart}]}",
-        )
-        .unwrap();
+        // The test duration closes like a termination signal.
+        app.test_seconds = Some(0.0);
         assert_eq!(vec![ViewportCommand::Close], hidden_pass(&mut app));
         assert!(app.quit);
         assert_eq!(0, app.exit.load(Ordering::SeqCst));
         assert!(
-            app.project_root.join(".uml-viewer/session.edn").exists(),
-            "the restart snapshot was saved"
-        );
-    }
-
-    #[test]
-    fn a_hidden_window_takes_the_normal_close() {
-        let mut app = viewer();
-        // The test duration is a normal close, like a termination signal.
-        app.test_seconds = Some(0.0);
-        assert_eq!(vec![ViewportCommand::Close], hidden_pass(&mut app));
-        assert!(app.quit);
-        assert!(
-            !app.project_root.join(".uml-viewer/session.edn").exists(),
-            "a normal close saves no snapshot"
+            !app.project_root.join(".uml-viewer").exists(),
+            "a standalone window writes no state into the project"
         );
         assert!(hidden_pass(&mut app).is_empty(), "the close is sent once");
     }
@@ -1905,79 +1794,20 @@ mod tests {
             .unwrap_or_default()
     }
 
-    /// A helper that settles only when told to; it records its stops.
-    struct HeldLink(std::rc::Rc<std::cell::RefCell<(bool, Vec<crate::shell_session::Stop>)>>);
-
-    impl crate::shell_session::CompanionLink for HeldLink {
-        fn launch_status(&self) -> Option<String> {
-            None
-        }
-        fn poll(&mut self) -> crate::shell_session::LinkPoll {
-            Default::default()
-        }
-        fn stop(&mut self, stop: crate::shell_session::Stop) -> Result<(), String> {
-            self.0.borrow_mut().1.push(stop);
-            Ok(())
-        }
-        fn wake(&mut self, _id: i64) -> Result<(), String> {
-            Ok(())
-        }
-        fn settled(&self) -> bool {
-            self.0.borrow().0
-        }
-    }
-
     #[test]
-    fn a_windows_close_request_waits_for_the_normal_close() {
+    fn a_close_request_is_left_to_eframe_and_never_cancelled() {
         let mut app = viewer();
-        let link = std::rc::Rc::new(std::cell::RefCell::new((false, Vec::new())));
-        let held = link.clone();
-        app.session = ViewerSession::open(
-            Launch {
-                project_root: app.project_root.clone(),
-                diagram: app.project_root.join("diagram.edn"),
-                restart: false,
-                backend: false,
-                agent: None,
-                snapshot: None,
-            },
-            move || Box::new(HeldLink(held)),
-        )
-        .unwrap();
-        app.close_request_is_normal_close = true;
-        assert_eq!(
-            vec![ViewportCommand::CancelClose],
-            close_request_pass(&mut app),
-            "the window stays while the companion is released"
-        );
+        assert!(close_request_pass(&mut app).is_empty());
         assert!(!app.quit);
-        assert_eq!(
-            vec![crate::shell_session::Stop::ReleaseCompanion],
-            link.borrow().1,
-            "the normal close releases the companion"
-        );
-        link.borrow_mut().0 = true;
-        // eframe can still deliver the window close event while the helper
-        // settles. Never queue CancelClose and Close in that same pass: the
-        // cancellation wins and the window needs a second WM_CLOSE.
-        assert_eq!(vec![ViewportCommand::Close], close_request_pass(&mut app));
         assert_eq!(0, app.exit.load(Ordering::SeqCst));
     }
 
     #[test]
-    fn a_close_request_without_a_helper_to_wait_for_closes_at_once() {
-        let mut app = viewer();
-        app.close_request_is_normal_close = true;
-        assert_eq!(vec![ViewportCommand::Close], close_request_pass(&mut app));
-        assert!(app.quit);
-    }
-
-    #[test]
-    fn elsewhere_the_window_manager_close_is_left_to_eframe() {
-        let mut app = viewer();
-        app.close_request_is_normal_close = false;
-        assert!(close_request_pass(&mut app).is_empty());
-        assert!(!app.quit);
+    fn the_linker_cache_names_a_library_by_its_bytes() {
+        let cache = b"ld.so-1.7.0\0libc.so.6\0libxkbcommon-x11.so.0\0/usr/lib/x";
+        assert!(cache_names(cache, "libxkbcommon-x11.so.0"));
+        assert!(!cache_names(cache, "libwayland-egl.so.1"));
+        assert!(!cache_names(cache, ""));
     }
 
     #[test]

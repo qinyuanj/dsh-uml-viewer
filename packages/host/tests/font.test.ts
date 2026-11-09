@@ -7,7 +7,7 @@ import { PANEL_FONT_PATH } from '@dsh-uml-viewer/contracts'
 
 const plugin = await import(new URL('../../../lib/host.js', import.meta.url).href) as typeof import('../src/index.js')
 const packagedFace = fileURLToPath(new URL('../../../fonts/SarasaMonoSC-Regular.ttf', import.meta.url))
-// The installer's pin for Sarasa Mono SC Regular 1.0.42 (scripts/uml_posix.py FONT_SHA256).
+// The installer's pin for Sarasa Mono SC Regular 1.0.42 (FONT_SHA256 of the frozen qinyuanj/uml-viewer scripts/uml_posix.py).
 const FONT_SHA256 = '82e09460f6f55010296f670b85e346ddeaf91b967724840d2bf5514137f68a83'
 
 const contexts: Context[] = []

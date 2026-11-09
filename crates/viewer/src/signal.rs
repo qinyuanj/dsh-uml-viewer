@@ -1,14 +1,12 @@
-//! A termination request as a quit request (#142). The recovery end-to-end
-//! suite closes a viewer politely and then expects the companion it owns to
-//! be released, so the process must stop its helper and exit through the
-//! normal shutdown path instead of dying in place. The handler only sets a
-//! flag; the frame loop acts on it.
+//! A termination request as a quit request (#142): the process exits 0
+//! through the normal shutdown path instead of dying in place (the
+//! `terminate` driver). The handler only sets a flag; the frame loop acts on
+//! it.
 //!
 //! POSIX: SIGTERM and SIGINT. Windows has no SIGTERM: the console control
 //! events CTRL_C, CTRL_BREAK (what a bounded `run` sends its job's group
-//! first) and CTRL_CLOSE are the requests. A viewer without a console (the
-//! launcher starts it detached) is closed with `WM_CLOSE` instead, which the
-//! app turns into the same normal close (`app.rs`, "UV-3 close path").
+//! first) and CTRL_CLOSE are the requests. A viewer without a console is
+//! closed with `WM_CLOSE` instead, which eframe turns into the same close.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 

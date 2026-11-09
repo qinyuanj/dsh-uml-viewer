@@ -1,6 +1,7 @@
 //! `uml-quality.json` version 1 (ADR 0001, docs/uml-quality.schema.json),
-//! validated as `scripts/uml_quality.py` `read_config` and `scope` do. All
-//! configured operations are validated before any command runs.
+//! validated as the frozen qinyuanj/uml-viewer `scripts/uml_quality.py`
+//! `read_config` and `scope` do. All configured operations are validated
+//! before any command runs.
 
 use std::path::{Component, Path, PathBuf};
 

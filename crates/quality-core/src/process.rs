@@ -212,7 +212,20 @@ pub fn start_supervised(
     environment: &[(std::ffi::OsString, std::ffi::OsString)],
     output: &std::fs::File,
 ) -> io::Result<Supervised> {
-    process_windows::start(program, cwd, environment, output).map(Supervised)
+    start_supervised_with_env_removals(program, cwd, environment, &[], output)
+}
+
+/// Start a supervised command after removing inherited names, then applying
+/// `environment` overrides. Explicit child settings therefore win over removals.
+#[cfg(windows)]
+pub fn start_supervised_with_env_removals(
+    program: &Program,
+    cwd: &Path,
+    environment: &[(std::ffi::OsString, std::ffi::OsString)],
+    removed: &[std::ffi::OsString],
+    output: &std::fs::File,
+) -> io::Result<Supervised> {
+    process_windows::start(program, cwd, environment, removed, output).map(Supervised)
 }
 
 /// Wait for a supervised command, polling `stop` and the timeout in 25 ms

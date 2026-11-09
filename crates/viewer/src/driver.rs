@@ -275,24 +275,18 @@ pub enum Step {
         evidence: String,
     },
     /// Wait until a project file exists and (when given) contains every
-    /// needle: the driver's stand-in for a slow external step (a companion
-    /// helper reaching ready).
+    /// needle: the driver's stand-in for a slow external step.
     WaitProject {
         project: String,
         contains: Vec<String>,
     },
-    /// Write the restart session snapshot the viewer would save, without
-    /// quitting (the file the replacement viewer restores).
-    DumpSession {
-        evidence: String,
-    },
-    /// Copy a project file (a mail queue) into the evidence directory.
+    /// Copy a project file into the evidence directory.
     DumpProject {
         evidence: String,
         project: String,
     },
-    /// Wall-clock timers: the companion helper's readiness is asynchronous,
-    /// so a driver needs real elapsed time, not frames.
+    /// Wall-clock timers: an external step is asynchronous, so a driver
+    /// needs real elapsed time, not frames.
     StartTimer {
         name: String,
     },
@@ -349,7 +343,7 @@ pub enum Step {
     Write {
         evidence: String,
         text: String,
-        /// Write into the project (a mail queue) instead of the evidence dir.
+        /// Write into the project instead of the evidence dir.
         project: Option<String>,
     },
     DumpView {
@@ -370,7 +364,7 @@ pub enum Step {
     ClickClass {
         id: String,
         double: bool,
-        /// Right-click instead of left (opens the element mail menu).
+        /// Right-click instead of left (selects what it hits).
         secondary: bool,
     },
     ClickDeclutter,
@@ -421,8 +415,8 @@ pub enum Step {
         message: String,
     },
     /// Wait (wall clock) until a GUI record check passes; fail at the
-    /// deadline. The companion's readiness is asynchronous, so the driver
-    /// cannot count frames for it.
+    /// deadline. An external step is asynchronous, so the driver cannot
+    /// count frames for it.
     WaitGui {
         path: Vec<Value>,
         check: GuiCheck,
@@ -777,9 +771,6 @@ fn parse_step(step: &Value) -> Result<Step, String> {
             project: text(Some(required(step, "project")?)).ok_or("wait-project needs :project")?,
             contains: strings(get(step, "contains")),
         },
-        "dump-session" => Step::DumpSession {
-            evidence: evidence_name(step)?,
-        },
         "dump-project" => Step::DumpProject {
             evidence: evidence_name(step)?,
             project: text(Some(required(step, "project")?)).ok_or("dump-project needs :project")?,
@@ -1006,10 +997,6 @@ pub trait Host {
         let _ = key;
         None
     }
-    /// The restart session snapshot the viewer would save (`:dump-session`).
-    fn session_record(&self) -> Value {
-        Value::Nil
-    }
 }
 
 fn near_rgb(a: &[u8], b: [u8; 3], tolerance: u8) -> bool {
@@ -1124,10 +1111,6 @@ impl Runner {
                     if !ready {
                         return Ok(Progress::Running);
                     }
-                }
-                Step::DumpSession { evidence: name } => {
-                    let body = edn::encode(&host.session_record()).map_err(|e| e.to_string())?;
-                    self.write_evidence(evidence, &name, &body)?;
                 }
                 Step::DumpProject {
                     evidence: name,

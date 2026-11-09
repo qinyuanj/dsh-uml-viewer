@@ -22,8 +22,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-/// The instrumented collector, shipped with this build.
-const COLLECTOR: &str = include_str!("lua_coverage.lua");
+/// The instrumented collector, shipped with this build. Embedded assets live
+/// outside `crates`, the repository's declared quality business source root.
+const COLLECTOR: &str = include_str!("../../../embedded-assets/mutator/lua_coverage.lua");
 /// The format version the collector and this reader share.
 const VERSION: u64 = 2;
 

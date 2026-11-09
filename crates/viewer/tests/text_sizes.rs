@@ -1,10 +1,8 @@
 //! Canvas text draws at one size (the 16px canvas size) in every view of
 //! this repository's own diagram, under the pinned Sarasa face and the real
-//! fit the painter applies. A clone without the face provisions it through
-//! the installer's font step first: another face has other advances, so it
-//! would measure nothing. That provisioning goes under Cargo's target, never
-//! into the source tree: a mutation worker overlay leaves `.uml-viewer/` out
-//! and treats any new file in it as a poisoned worker.
+//! fit the painter applies. The face is the one the plugin package ships in
+//! `fonts/` (another face has other advances, so it would measure nothing);
+//! the test only reads it.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -18,31 +16,8 @@ use viewer::theme::fonts;
 #[test]
 fn every_view_draws_its_canvas_text_at_the_canvas_size() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    // Verifies the pinned hash and downloads the face only when it is
-    // missing or wrong.
-    let provisioned = root.join(".uml-viewer/fonts");
-    let fonts_dir = if provisioned.join(viewer::fonts::SARASA).is_file() {
-        provisioned
-    } else {
-        Path::new(env!("CARGO_TARGET_TMPDIR")).join("uml-viewer/fonts")
-    };
-    // The entries' Python: `UML_PYTHON_EXECUTABLE`, else `python3`; Windows
-    // has no `python3` on PATH, its interpreter is `python`.
-    let python = std::env::var_os("UML_PYTHON_EXECUTABLE")
-        .unwrap_or_else(|| (if cfg!(windows) { "python" } else { "python3" }).into());
-    let step = std::process::Command::new(&python)
-        .arg("-I")
-        .arg(root.join("scripts/uml_posix.py"))
-        .arg("font")
-        .arg(&fonts_dir)
-        .output()
-        .expect("Python runs the installer's font step");
-    assert!(
-        step.status.success(),
-        "provisioning Sarasa failed: {}",
-        String::from_utf8_lossy(&step.stderr)
-    );
-    let face = std::fs::read(fonts_dir.join(viewer::fonts::SARASA)).unwrap();
+    let face = std::fs::read(root.join("fonts").join(viewer::fonts::SARASA))
+        .expect("the packaged Sarasa face (fonts/)");
     let ctx = egui::Context::default();
     ctx.set_fonts(viewer::fonts::definitions(egui::FontData::from_owned(face)));
     ctx.begin_pass(egui::RawInput::default());
