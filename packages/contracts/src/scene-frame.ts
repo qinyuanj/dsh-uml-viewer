@@ -269,6 +269,40 @@ export interface FrameStyle {
   edgeDecimatePx: number
 }
 
+/**
+ * The optional bounded hover metadata of a resident frame (#26), additive to
+ * version 1: the dependency-tooltip rows and the bundled-edge `via-ids` the
+ * strokes cannot carry. `complete: false` means a producer bound was exceeded
+ * and no hover metadata is available at all; the client then falls back to the
+ * endpoints alone, exactly as for an older producer that omits the field.
+ */
+export interface FrameHoverRow {
+  text: string
+  violating: boolean
+  ink: FrameColor
+}
+
+export interface FrameHoverEdge {
+  from: string
+  to: string
+  /** Classes this bundled relation passes through (`scene::highlight::touches`). */
+  viaIds: readonly string[]
+  /** The dependency tooltip rows, violations first (`commands::dependency_rows`). */
+  rows: readonly FrameHoverRow[]
+}
+
+export interface FrameHoverIndicator {
+  id: string
+  points: readonly FramePoint[]
+  rows: readonly FrameHoverRow[]
+}
+
+export interface FrameHover {
+  complete: boolean
+  edges: readonly FrameHoverEdge[]
+  indicators: readonly FrameHoverIndicator[]
+}
+
 export interface SceneFrame {
   schema: typeof SCENE_FRAME_SCHEMA
   version: typeof SCENE_FRAME_VERSION
@@ -280,7 +314,19 @@ export interface SceneFrame {
   world: WorldItem[]
   edges: FrameEdge[]
   chrome: ChromeItem[]
+  /** Optional capability; absent from the goldens (`scene --frame`). */
+  hover?: FrameHover
 }
+
+/** Producer bounds the validator enforces (`crates/frame/src/hover.rs`). */
+export const HOVER_LIMITS = {
+  items: 1024,
+  viaIds: 256,
+  rowsPerItem: 128,
+  rows: 2048,
+  bytes: 4096,
+  metadataBytes: 512 * 1024,
+} as const
 
 const LODS: ReadonlySet<string> = new Set(['blocks', 'frames', 'full'])
 const HEADS: ReadonlySet<string> = new Set(['open', 'triangle', 'diamond', 'diamond-fill'])
@@ -495,6 +541,67 @@ function chrome(value: unknown, label: string): ChromeItem {
   }
 }
 
+function utf8Bytes(text: string): number {
+  let bytes = 0
+  for (const character of text) {
+    const code = character.codePointAt(0)!
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4
+  }
+  return bytes
+}
+
+function boundedText(value: unknown, label: string): string {
+  const text = str(value, label)
+  if (utf8Bytes(text) > HOVER_LIMITS.bytes) at(label, `must be under ${HOVER_LIMITS.bytes} UTF-8 bytes`)
+  return text
+}
+
+function hoverRows(value: unknown, label: string): FrameHoverRow[] {
+  const rows = list(value, label)
+  if (rows.length > HOVER_LIMITS.rowsPerItem) at(label, `must hold at most ${HOVER_LIMITS.rowsPerItem} rows`)
+  return rows.map((row, index) => {
+    const entry = record(row, `${label}[${index}]`)
+    return { text: boundedText(entry.text, `${label}[${index}].text`),
+      violating: bool(entry.violating, `${label}[${index}].violating`),
+      ink: color(entry.ink, `${label}[${index}].ink`) }
+  })
+}
+
+function hover(value: unknown, label: string): FrameHover {
+  const source = record(value, label)
+  const complete = bool(source.complete, `${label}.complete`)
+  const rawEdges = list(source.edges, `${label}.edges`)
+  const rawIndicators = list(source.indicators, `${label}.indicators`)
+  if (rawEdges.length + rawIndicators.length > HOVER_LIMITS.items) at(label, `must hold at most ${HOVER_LIMITS.items} items`)
+  const edges = rawEdges.map((entry, index) => {
+    const item = record(entry, `${label}.edges[${index}]`)
+    const via = list(item.viaIds, `${label}.edges[${index}].viaIds`)
+    if (via.length > HOVER_LIMITS.viaIds) at(`${label}.edges[${index}].viaIds`, `must hold at most ${HOVER_LIMITS.viaIds} ids`)
+    return { from: boundedText(item.from, `${label}.edges[${index}].from`),
+      to: boundedText(item.to, `${label}.edges[${index}].to`),
+      viaIds: via.map((id, position) => boundedText(id, `${label}.edges[${index}].viaIds[${position}]`)),
+      rows: hoverRows(item.rows, `${label}.edges[${index}].rows`) }
+  })
+  const indicators = rawIndicators.map((entry, index) => {
+    const item = record(entry, `${label}.indicators[${index}]`)
+    const triangle = points(item.points, `${label}.indicators[${index}].points`)
+    if (triangle.length !== 3) at(`${label}.indicators[${index}].points`, 'must hold three points')
+    return { id: boundedText(item.id, `${label}.indicators[${index}].id`),
+      points: triangle, rows: hoverRows(item.rows, `${label}.indicators[${index}].rows`) }
+  })
+  if (edges.length + indicators.length > HOVER_LIMITS.items) {
+    at(label, `must hold at most ${HOVER_LIMITS.items} edges and indicators`)
+  }
+  // `complete: false` carries no data at all: the capability is unavailable
+  // rather than silently partial (crates/frame/src/hover.rs).
+  if (!complete && (edges.length > 0 || indicators.length > 0)) at(label, 'must carry no items when incomplete')
+  const rowCount = [...edges, ...indicators].reduce((total, item) => total + item.rows.length, 0)
+  if (rowCount > HOVER_LIMITS.rows) at(label, `must hold at most ${HOVER_LIMITS.rows} rows`)
+  const parsed = { complete, edges, indicators }
+  if (utf8Bytes(JSON.stringify(parsed)) > HOVER_LIMITS.metadataBytes) at(label, 'hover metadata exceeds 512 KiB')
+  return parsed
+}
+
 function style(value: unknown, label: string): FrameStyle {
   const source = record(value, label)
   const fonts = record(source.fonts, `${label}.fonts`)
@@ -546,6 +653,9 @@ export function validateSceneFrame(value: unknown, label = 'scene frame'): Scene
       world: list(source.world, `${label}.world`).map((item, index) => worldItem(item, `${label}.world[${index}]`)),
       edges: list(source.edges, `${label}.edges`).map((item, index) => edge(item, `${label}.edges[${index}]`)),
       chrome: list(source.chrome, `${label}.chrome`).map((item, index) => chrome(item, `${label}.chrome[${index}]`)),
+      ...(source.hover === undefined || source.hover === null
+        ? {}
+        : { hover: hover(source.hover, `${label}.hover`) }),
     }
   } catch (error) {
     if (error instanceof Invalid) throw new Error(error.message)

@@ -201,7 +201,11 @@ impl Resident {
             session.hint(),
             session.status(),
         );
-        event("frame", seq, json!({"frame": built.to_json()}))
+        // The panel needs the optional bounded hover metadata (#26) to reproduce
+        // the window's dependency tooltip and bundled-edge (`via-ids`) warming;
+        // both are derived from the scene here, never inferred by the client.
+        let frame = built.to_json_with_hover(&session.state().scene);
+        event("frame", seq, json!({"frame": frame}))
     }
 
     /// A poll without input: a hot reload answers with an unprompted frame.

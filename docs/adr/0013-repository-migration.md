@@ -205,3 +205,29 @@ ADR 0011 说面板由宿主注入 `dsh-client-ui-primitives`。实际落地时
 验证接缝：真实二进制 resident 的 waiting+state 恢复与首次 display；Cordis 工具面
 的每动作保存、卸载保存；SessionStates 对相同、修改、删除 IR 的重开行为；#22 的
 隔离 Playwright lane 验证导航、搜索、全宽页绑定、重开与 DSH 重启。
+
+## 附录（2026-11-09，#26）：质量叠加、依赖链高亮与本地悬停
+
+- **依赖链高亮色相固定**：`dependency-chain` 与质量色、违规关系色、无数据一样，
+  使用 `theme.ts` 的字面色板（暗 `#3e98ec`，即 egui 的 `frame::theme` RELATED；
+  亮 `#136ec3`，同色相、只降明度），不再读 `--dsw-alias-state-business-primary`。
+  默认暗色 token 中这个 token 是金色，皮肤（如 dsh-claude-style）又会改成别的强调色，
+  两种情况都与 egui 窗口不一致。界面骨架色仍随宿主 token。
+- **悬停在客户端完成，依赖链不在客户端计算**：选中、依赖链与淡化仍只来自 resident 帧。
+  `packages/client/src/hover.ts` 按 `scene::hit::at` 的顺序在帧几何上做悬停命中，
+  再按 `frame::commands::edge_style` 的悬停分支改样式：与悬停类相连或指针下的关系
+  变为 `relation-hover`，违规关系变为 `violation-hot`、宽 3.2，悬停的关系不淡化，
+  闭合箭头仍用生产者给的不透明填充；概览层级下用弹窗显示悬停类的类名。
+  违规与否只读生产者已给的角色，不在客户端求依赖规则。
+- **悬停所需数据来自 producer**：`crates/frame/src/hover.rs` 从场景派生可选、
+  有界的 `hover` 字段——每条可见关系的 `viaIds`（`scene::highlight::touches` 的
+  经过类）与依赖列表 `rows`（复用 `commands::dependency_rows`，违规在前），以及每个
+  精简依赖标记的三角形与 `rows`。resident 在 `frame` 事件里附带该字段；
+  `scene --frame` 默认不写，goldens 保持不变；`--hover-metadata` 时同样附带，供调试
+  与浏览器 oracle 使用。客户端只渲染这些行，绝不自行拼装依赖文本或规则。
+  超过上界（1024 条关系与标记、每条 256 个 viaIds、每条 128 行、总计 2048 行、
+  每个 id/行文本 4096 字节、序列化 512 KiB）时整块降级为 `complete:false` 与空数组，
+  客户端再退回只看关系自身端点、不显示弹窗，绝不静默截断。
+- **已知差异**：帧仍不暴露原生的 `child` 行命中记录，因此概览层级下指针在隐藏成员
+  行区域时，客户端可能显示类名弹窗（原生只在原始命中种类为 `class` 时显示）；关系仍
+  按该类高亮。依赖端口保留 `port` 命中种类，只高亮所属类的关系，不显示类名弹窗。

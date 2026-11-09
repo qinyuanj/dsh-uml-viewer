@@ -99,6 +99,44 @@ describe('host theme tokens', () => {
     expect(Math.abs(hueOf(light.frame('violation-hot')) - hueOf(dark.frame('violation-hot')))).toBeLessThanOrEqual(1.5)
   })
 
+  it('paints the 依赖链高亮 in the egui window’s blue, not the host accent', () => {
+    // frame::theme RELATED is #3e98ec; the default dark host accent is gold.
+    const dark = resolveTheme(fakeCanvas({ tokens: DARK_TOKENS, dark: true }))
+    expect(dark.frame('dependency-chain')).toBe('#3e98ec')
+    expect(dark.frame('dependency-chain')).not.toBe(DARK_TOKENS['--dsw-alias-state-business-primary'])
+    const light = resolveTheme(fakeCanvas({ tokens: LIGHT_TOKENS }))
+    expect(light.frame('dependency-chain')).toBe('#136ec3')
+    expect(Math.abs(hueOf(light.frame('dependency-chain')) - hueOf(dark.frame('dependency-chain')))).toBeLessThanOrEqual(1.5)
+  })
+
+  it('a skin that changes every host token leaves the hue-fixed roles unchanged in both modes', () => {
+    // dsh-claude-style overrides the --dsw-alias-* tokens (warm orange accent,
+    // its own reds and surfaces). Only chrome may follow; 质量色, 违规关系色,
+    // 无数据 and 依赖链高亮 keep their colors and differ only by light/dark.
+    const skin = (tokens: Record<string, string>): Record<string, string> => Object.fromEntries(
+      Object.keys(tokens).map((key, index) => [key, ['#d97757', '#c6613f', '#3d3929', '#f0eee6', '#8a5cf6', '#1f1e1d'][index % 6]!]))
+    const hueFixed: [string, number | null][] = [
+      ...[0, 1, 2.5, 5, 7.5, 10, null].flatMap(g => [['quality-fill', g], ['quality-stroke', g], ['package-fill', g], ['package-stroke', g]] as [string, number | null][]),
+      ['violation', null], ['violation-hot', null], ['no-data', null], ['dependency-chain', null],
+    ]
+    for (const [mode, tokens] of [['dark', DARK_TOKENS], ['light', LIGHT_TOKENS]] as const) {
+      const host = resolveTheme(fakeCanvas({ tokens, dark: mode === 'dark' }))
+      const skinned = resolveTheme(fakeCanvas({ tokens: skin(tokens), dark: mode === 'dark' }))
+      // The skin really changed the chrome, otherwise the comparison proves nothing.
+      expect(skinned.frame('canvas')).not.toBe(host.frame('canvas'))
+      expect(skinned.frame('relation')).not.toBe(host.frame('relation'))
+      for (const [role, grade] of hueFixed) {
+        expect(skinned.frame(role, grade), `${mode} ${role} ${grade}`).toBe(host.frame(role, grade))
+      }
+    }
+    const dark = resolveTheme(fakeCanvas({ tokens: skin(DARK_TOKENS), dark: true }))
+    const light = resolveTheme(fakeCanvas({ tokens: skin(LIGHT_TOKENS) }))
+    for (const role of ['violation', 'violation-hot', 'no-data', 'dependency-chain']) {
+      expect(Math.abs(hueOf(light.frame(role)) - hueOf(dark.frame(role))), role).toBeLessThanOrEqual(1.5)
+      expect(light.frame(role), role).not.toBe(dark.frame(role))
+    }
+  })
+
   it('draws an unknown role as ink and an unmeasured grade as the neutral ramp anchor', () => {
     const theme = resolveTheme(fakeCanvas({ tokens: DARK_TOKENS, dark: true }))
     expect(theme.frame('a-role-from-the-future')).toBe('#ecece4')

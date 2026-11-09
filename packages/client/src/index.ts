@@ -360,6 +360,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     if (event.buttons !== 0) controller.pointerMove(event.offsetX, event.offsetY)
   }
   const onPointerUp = (event: PointerEvent): void => controller.pointerUp(event.offsetX, event.offsetY)
+  const onPointerLeave = (): void => controller.hoverEnd()
   // One double-click dispatch: the back hotspot goes back (native parity);
   // anything else is one `open-card`, where Rust decides class detail vs.
   // layer drill-in. There is no second `drill-in` handler. CSS stretches the
@@ -414,6 +415,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   canvas.addEventListener('pointerdown', onPointerDown)
   canvas.addEventListener('pointermove', onPointerMove)
   canvas.addEventListener('pointerup', onPointerUp)
+  canvas.addEventListener('pointerleave', onPointerLeave)
   canvas.addEventListener('dblclick', onDoubleClick)
   canvas.addEventListener('wheel', onWheel, { passive: false })
   host.addEventListener('keydown', onKeyDown)
@@ -432,6 +434,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     canvas.removeEventListener('pointerdown', onPointerDown)
     canvas.removeEventListener('pointermove', onPointerMove)
     canvas.removeEventListener('pointerup', onPointerUp)
+    canvas.removeEventListener('pointerleave', onPointerLeave)
     canvas.removeEventListener('dblclick', onDoubleClick)
     canvas.removeEventListener('wheel', onWheel)
     host.removeEventListener('keydown', onKeyDown)

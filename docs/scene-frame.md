@@ -12,7 +12,7 @@ uml-viewer scene --frame --ir <file.edn> [--focus <edn>] [--metrics-root <dir>]
                  [--wide [--aspect <w/h>]] [--extra <edn map>]
                  [--width <pt>] [--height <pt>] [--zoom <z> --camera <x>,<y>]
                  [--select <edn hit>] [--hover <edn hit>] [--pointer <x>,<y>]
-                 [--output <file>]
+                 [--hover-metadata] [--output <file>]
 ```
 
 Without `--zoom`/`--camera` the view is fitted to the viewport (default
@@ -25,7 +25,9 @@ EDN as before. The resident mode (`uml-viewer resident`) streams the same
 frames, one per line, in reply to actions: [resident-protocol.md](resident-protocol.md).
 
 The goldens in `crates/frame/tests/fixtures/frames/*.frame.json` are the
-contract, locked byte for byte by `crates/frame/tests/golden_frame.rs`.
+contract, locked byte for byte by `crates/frame/tests/golden_frame.rs`. They do
+not carry the optional `hover` capability below; `--hover-metadata` adds it to a
+`scene --frame` run for debugging and browser oracles.
 
 ## Stability
 
@@ -35,6 +37,8 @@ contract, locked byte for byte by `crates/frame/tests/golden_frame.rs`.
   is skipped, an unknown role draws as `ink`).
 - Removing or renaming a field, kind or role, or changing a unit or meaning,
   bumps `version`.
+- `hover` is such an optional additive field: a consumer without it still draws
+  the frame, and the checked-in goldens omit it.
 - Object keys are sorted; numbers are JSON numbers (style constants at their
   decimal value). The output ends with a newline.
 
@@ -52,6 +56,7 @@ contract, locked byte for byte by `crates/frame/tests/golden_frame.rs`.
 | `world` | item[] | scene-space items, painted in order (packages first, then each class with its badges, text and ports) |
 | `edges` | edge[] | relation strokes, arrowheads and indicators, painted after `world` |
 | `chrome` | item[] | viewport-space items, painted last, in order |
+| `hover` | object | optional bounded hover metadata (see Hover metadata); absent from the goldens |
 
 ### `style`
 
@@ -73,7 +78,9 @@ contract, locked byte for byte by `crates/frame/tests/golden_frame.rs`.
 A color is `{"role": <name>}`; the quality roles add `"grade"` (0–10,
 `null` = unmeasured, drawn as the worst grade's neutral) or `"ratio"`
 (0–1, `null` unknown). The renderer resolves roles through host theme
-tokens; 质量色 and 违规关系色 keep their hue and adapt only to light/dark.
+tokens; 质量色, 违规关系色, 无数据 (`no-data`) and 依赖链高亮
+(`dependency-chain`) keep their hue and adapt only to light/dark, so neither a
+host accent token nor a skin repaints them.
 The dark palette below is what the egui window paints (`frame::theme::rgba`).
 
 | role | meaning | dark palette |
@@ -157,7 +164,9 @@ edges over the rounded fill. Boxes under one screen point are not drawn. At
 | `indicator` | frames | `id points violating fill dimmed` | 精简依赖标记: filled triangle `points`, outlined in the same color at 1 pt |
 
 `hot` is the edge under the pointer, `warm` an edge touching the hovered
-class; both are already folded into `stroke`/`width`.
+class; both are already folded into `stroke`/`width`. A `via-ids` class counts as
+touching (`scene::highlight::touches`), which is why the panel reads `hover`'s
+`viaIds` for local hover.
 
 For a `head`, `dimmed` applies only to `stroke`. A closed head's `fill`
 remains fully opaque: `canvas` for hollow triangles/diamonds and `ink` for
@@ -176,6 +185,43 @@ native shaft mesh does. Closed heads always paint over their shafts, including
 at zoom 0.4–0.6. This deliberately avoids the native window's pre-existing
 low-zoom flush-order defect, which paints its shaft mesh after the heads.
 
+## Hover metadata (optional, version 1)
+
+Selection, 依赖链高亮 and 关系淡化 are the resident's: a `select` answers a frame
+that already carries them. Hover is the client's (ADR 0013), but two things it
+needs are not visible in `edges`: which classes a bundled relation passes
+through (`via-ids`), and the dependency tooltip rows. The resident adds them in
+this optional field, derived from the scene by `crates/frame/src/hover.rs`; the
+goldens omit it, so a consumer must treat it as a capability.
+
+```json
+"hover": {
+  "complete": true,
+  "edges": [{"from": ":api", "to": ":serde", "viaIds": [":core.order"],
+             "rows": [{"text": "api -> core.order", "violating": true, "ink": {"role": "violation"}}]}],
+  "indicators": [{"id": ":core", "points": [[0, 0], [12, 4], [6, 11]],
+                  "rows": [{"text": "core -> util", "violating": false, "ink": {"role": "ink"}}]}]
+}
+```
+
+| key | meaning |
+|---|---|
+| `complete` | `true` when the whole capability is present; `false` when a bound was exceeded, and then both arrays are empty |
+| `edges[]` | one entry per visible relation: `from`/`to` (EDN ids, as in the strokes), `viaIds` (the classes it passes through, `scene::highlight::touches`), `rows` (the `from -> to` tooltip rows, violations first) |
+| `indicators[]` | one entry per 精简依赖标记: `id`, its `points` (the two indicators of one class are told apart by their triangle) and its tooltip `rows` |
+
+The dependency tooltip rows reuse `frame::commands::dependency_rows` verbatim (`text`,
+`violating`, `ink` role); the client renders them and never composes one. A
+hovered relation, or its indicator, shows them at the pointer; hovering a class
+at the overview tiers names the class, as before.
+
+Bounds are deliberate, so a large diagram cannot make one frame unbounded: at
+most 1024 edges and indicators together, 256 `viaIds` per edge, 128 rows per
+item and 2048 rows in total, 4096 UTF-8 bytes per id or row text, and 512 KiB of
+serialized metadata. Exceeding any bound yields `"complete": false` with empty
+arrays rather than silent truncation; without the field the client highlights by
+the relation's own endpoints and shows no dependency tooltip.
+
 ## Shared inspector summaries
 
 The window-free `frame::inspector` API also supplies `class_summary(&detail::Model)`
@@ -192,4 +238,4 @@ package class count. Native and panel adapters only render the supplied lines.
 | `title` / `proposal-banner` / `back` | `text at ink plate` | text at `at`, size `fonts.chrome`, on a `plate` rect expanded 6 x 2 pt, radius 3 |
 | `status` | `text at ink plate(null)` | bottom-left status line |
 | `hint` | `text ink` | centred on the viewport |
-| `popup` | `rect fill border rows[{text violating ink}]` | radius 4, 1 pt `border`; row `i` at `rect.x + 8, rect.y + 8 + 20·i` |
+| `popup` | `rect fill border rows[{text violating ink}]` | radius 4, inside 1 pt `border`; row `i` top-anchored at `rect.x + 8, rect.y + 8 + 20·i`, size `fonts.chrome` |

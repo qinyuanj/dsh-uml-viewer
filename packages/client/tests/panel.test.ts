@@ -286,3 +286,78 @@ describe('session-bound panel stream', () => {
     h.controller.close()
   })
 })
+
+describe('local hover (关系悬停高亮, ADR 0013)', () => {
+  const coreCenter = (view: SceneFrame): [number, number] => {
+    const core = view.world.find(i => i.kind === 'class' && i.id === ':core')
+    if (!core || core.kind !== 'class') throw new Error(':core')
+    const [fx, fy] = worldToScreen(viewTransform(view, 800, 600), core.rect.x + core.rect.w / 2, core.rect.y + core.rect.h / 2)
+    return [fx * 800 / view.viewport.width, fy * 600 / view.viewport.height]
+  }
+  const warm = (painted: SceneFrame): string[] =>
+    painted.edges.flatMap(e => (e.kind === 'stroke' && e.warm ? [`${e.from}->${e.to}:${e.stroke.role}`] : []))
+  const expectedWarm = [':api->:core:relation-hover', ':store->:core:relation-hover', ':core->:util:violation-hot']
+
+  it('paints the hovered class’s relations without a host round trip or a new resident frame', async () => {
+    const h = harness([{ kind: 'ready', actions: [] }, { kind: 'frame', seq: 1, frame }])
+    await h.controller.open('session-a')
+    await settle(() => h.painted.length === 1, 'the frame')
+    const sent = h.actions.length
+    h.controller.hover(...coreCenter(frame))
+    expect(warm(h.painted.at(-1)!)).toEqual(expectedWarm)
+    // Hover is feedback only: no action, and the resident's frame is unchanged.
+    expect(h.actions.length).toBe(sent)
+    expect(h.controller.current.frame).toBe(frame)
+    // Moving within the same box does not repaint; leaving the canvas restores the frame.
+    const paints = h.painted.length
+    h.controller.hover(coreCenter(frame)[0] + 2, coreCenter(frame)[1])
+    expect(h.painted.length).toBe(paints)
+    h.controller.hoverEnd()
+    expect(h.painted.at(-1)).toBe(frame)
+    h.controller.close()
+  })
+
+  it('moves the dependency tooltip with the pointer while staying on the same relation', async () => {
+    const value: SceneFrame = { ...frame, hover: { complete: true, indicators: [], edges: [{
+      from: ':api', to: ':serde', viaIds: [],
+      rows: [{ text: 'api -> serde', violating: false, ink: { role: 'ink' } }],
+    }] } }
+    const h = harness([{ kind: 'frame', seq: 1, frame: value }])
+    await h.controller.open('session-a')
+    await settle(() => h.painted.length === 1, 'the frame')
+    const edge = frame.edges.find(e => e.kind === 'stroke' && e.from === ':api' && e.to === ':serde')
+    if (!edge || edge.kind !== 'stroke') throw new Error('edge')
+    const [a, b] = [edge.points[0]!, edge.points[1]!]
+    const [sx, sy] = worldToScreen(viewTransform(frame, 800, 600), (a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+    const x = sx * 800 / frame.viewport.width, y = sy * 600 / frame.viewport.height
+    h.controller.hover(x, y)
+    const first = h.painted.at(-1)!.chrome.at(-1)
+    expect(first?.kind).toBe('popup')
+    const before = h.painted.length
+    h.controller.hover(x + 0.25, y)
+    expect(h.painted.length).toBe(before + 1)
+    const second = h.painted.at(-1)!.chrome.at(-1)
+    if (first?.kind !== 'popup' || second?.kind !== 'popup') throw new Error('popup')
+    expect(second.rect.x).toBeGreaterThan(first.rect.x)
+    h.controller.close()
+  })
+
+  it('keeps the hover across a local pan and over the next resident frame', async () => {
+    const h = harness([{ kind: 'ready', actions: [] }, { kind: 'frame', seq: 1, frame }])
+    await h.controller.open('session-a')
+    await settle(() => h.painted.length === 1, 'the frame')
+    h.controller.hover(...coreCenter(frame))
+    // A wheel pan repaints the hovered frame with the new camera.
+    h.controller.wheel(10, 10, -1)
+    const panned = h.painted.at(-1)!
+    expect(panned.camera).not.toEqual(frame.camera)
+    expect(warm(panned)).toEqual(expectedWarm)
+    // A select answer from the resident (say, a reload) is painted with the hover on top.
+    const reloaded: SceneFrame = { ...frame }
+    h.emit({ kind: 'frame', seq: 2, frame: reloaded })
+    await settle(() => h.controller.current.frame === reloaded, 'the next frame')
+    expect(warm(h.painted.at(-1)!)).toEqual(expectedWarm)
+    expect(h.controller.current.frame).toBe(reloaded)
+    h.controller.close()
+  })
+})
