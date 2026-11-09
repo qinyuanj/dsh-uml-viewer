@@ -8,7 +8,8 @@ and acceptance criterion 1 of dsh-uml-viewer#33 ("four platform packages produce
 by CI") remains open until an authorized remote run.
 
 The files involved are `.github/workflows/package-release.yml`,
-`scripts/package.mjs` (assembler), `scripts/release.mjs` (release guards),
+`scripts/package.mjs` (assembler), `scripts/archive.mjs` (bounded gzip/ustar
+reader and writer), `scripts/release.mjs` (release guards),
 `scripts/test-package.mjs` and `scripts/version.mjs` (version authority).
 
 ## What the pipeline does
@@ -48,6 +49,36 @@ publishable. `scripts/release.mjs verify` requires all of:
   as evidence, and the published archive is the one whose bytes match its report;
 - exactly five `.tgz` files in total, all with expected names, so a stale or
   stray archive fails the run.
+
+Every archive that would be published is then opened and read with a bounded
+gzip/ustar reader (`scripts/archive.mjs`, Node builtins only, no dependency and
+no external `tar`). `verify` refuses a file named `.tgz` that is not real gzip
+data, a corrupt gzip stream or checksum, a tar header checksum mismatch, a
+duplicate entry, an absolute or traversing path, a symbolic link, a hard link or
+any other non-regular entry, and anything over 128 MiB compressed, 256 MiB
+decompressed, 128 MiB for a single entry or 4096 entries, so a decompression
+bomb cannot expand inside the verifier.
+
+It then checks the real contents against the assembler report and the source
+manifest:
+
+- exactly one `package/package.json` per archive, and no member outside
+  `package/`;
+- the main package's name, version, `os`, `cpu` and `optionalDependencies` from
+  the workspace and the platform table, with `private`, `scripts`,
+  `devDependencies` and `packageManager` stripped;
+- each platform package's name, version, `os` and `cpu`, plus a regular,
+  non-empty `bin/uml-viewer` (`bin/uml-viewer.exe`) entry;
+- the main archive holding `lib/host.js`, `lib/client.js`, the packaged Sarasa
+  face and its license, `dsh-plugin.json`, `cordis.patch.yml`, `icon.svg`,
+  `README.md` and `docs/plugin-development.md`;
+- every main member covered by the source `package.json` `files` list, so no
+  source, test or metrics file rides along;
+- the real member list equal to the assembler report's inventory, including a
+  per-file SHA-256 when a report supplies one.
+
+The archives are read as data: no packaged binary is executed, so this proves
+the archive and its metadata, not compiled binary behaviour.
 
 Byte identity of the main archive is not required across runners. `.gitattributes`
 pins `eol=lf` for EDN, Rust, fixtures, the prompt document and the git hooks, not
@@ -144,8 +175,15 @@ node scripts/release.mjs check-tag v1.0.0      # tag/version guard
 ```
 
 `scripts/release.test.mjs` drives the real `stage`, `verify` and `plan` commands
-over controlled fixture archives. Those fixtures prove the guards, not the
-native packages: they contain no built binary, font or plugin bundle.
+over controlled fixture archives. The fixtures are real small gzip/ustar archives
+written by the same writer a release uses, carrying fixture text and the exact
+inventory and SHA-256 the report claims. The negative cases prove the guards by
+execution: a plaintext `.tgz`, a corrupt gzip header, stream or checksum, a bad
+tar header checksum, duplicate, missing, traversing, absolute and linked
+entries, a lying package name, version, `os`, `cpu`, binary or
+`optionalDependencies`, an invented or unreported inventory, and the size and
+expansion limits. They are not native package acceptance: they contain no built
+binary, real font or plugin bundle.
 
 ## Failure modes
 
@@ -159,6 +197,12 @@ native packages: they contain no built binary, font or plugin bundle.
   different file set; the release is blocked. Compare the assembler report
   inventories and the `lib/`, `fonts/` and `locale/` contents before publishing
   anything. Do not relax the check to get a release out.
+- **An archive does not open, or does not hold what the report claims.** `verify`
+  names the archive and the reason (not gzip data, corrupt stream, header
+  checksum, duplicate entry, unsafe path, link, entry over a limit, missing or
+  unreported file, wrong manifest field) and no publish runs. Re-assemble that
+  runner's package from a clean build; never patch the report or the archive by
+  hand.
 - **Partial publish.** Versions are immutable, so a re-run fails with a conflict
   on the packages that already published. Publish the remaining archives manually
   in plan order (`npm publish <tgz> --provenance --access public`) or release a
@@ -172,6 +216,8 @@ native packages: they contain no built binary, font or plugin bundle.
   never executed;
 - the cross-runner main-archive inventory comparison is untested against real
   hosts, by nature of not having run it;
+- the archive reader and the metadata checks were exercised only against
+  controlled fixtures, never against an archive a hosted runner produced;
 - acceptance criterion 1 (four platform packages produced by CI) is **NOT
   VERIFIED**, and criteria 2 and 3 are configured but unexecuted. No workflow
   run is green on this evidence.

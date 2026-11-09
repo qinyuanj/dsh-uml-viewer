@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, writeFile, readFile, rm, chmod } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
+import { gunzipSync, gzipSync } from 'node:zlib'
 import path from 'node:path'
 import { test } from 'node:test'
+import { archiveLimits, readArchive, writeArchive } from './archive.mjs'
 import { platforms, mainPlatform, tagVersion, releaseTag, stageArchives, verifyInventory } from './release.mjs'
 import { releaseVersion } from './version.mjs'
 
@@ -14,39 +16,151 @@ async function scratch() {
   return mkdtemp(path.join(root, '.scratch-release-test-'))
 }
 
-// A controlled assembler output, read by the real stage command. These are
-// fixture bytes, not built native archives; they exercise the release guards.
-async function assembled(directory, { version, platform, corrupt = false }) {
+// The fixtures are real small gzip/ustar archives built with the production
+// writer, so every guard sees the bytes a release would ship. Their payload is
+// fixture text, not a built binary, font or plugin bundle: they prove the
+// guards, and they are no claim of native package acceptance.
+const fixtureMainMembers = {
+  'README.md': 'fixture readme for a controlled release archive\n',
+  'icon.svg': '<svg xmlns="http://www.w3.org/2000/svg"/>\n',
+  'cordis.patch.yml': '- id: fixture\n',
+  'dsh-plugin.json': '{"name":"dsh-uml-viewer"}\n',
+  'docs/plugin-development.md': 'fixture document\n',
+  'lib/host.js': 'export const fixture = "host"\n',
+  'lib/client.js': 'export const fixture = "client"\n',
+  'locale/en.json': '{}\n',
+  'locale/zh.json': '{}\n',
+  'fonts/SarasaMonoSC-Regular.ttf': 'fixture font bytes, not the packaged Sarasa face\n',
+  'fonts/LICENSE-Sarasa.txt': 'fixture license text, not the packaged license\n',
+}
+
+const source = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
+const dependencies = version => Object.fromEntries(platforms.map(entry => [`@dsh-uml-viewer/${entry.platform}`, version]))
+const binaryName = os => `bin/uml-viewer${os === 'win32' ? '.exe' : ''}`
+
+// The manifests an assembler run embeds, derived from the source package.json
+// exactly as scripts/package.mjs derives them.
+function mainManifest(version, overrides = {}) {
+  const { scripts, devDependencies, private: developmentOnly, packageManager, ...runtime } = source
+  return { ...runtime, version, optionalDependencies: dependencies(version), ...overrides }
+}
+
+function platformManifest(version, entry, overrides = {}) {
+  return {
+    name: `@dsh-uml-viewer/${entry.platform}`, version,
+    description: `Native UML viewer for ${entry.platform}`,
+    license: source.license, repository: source.repository,
+    os: [entry.os], cpu: [entry.cpu], files: ['bin'],
+    exports: { './package.json': './package.json' }, ...overrides,
+  }
+}
+
+function applyMembers(members, changes = {}) {
+  for (const [name, value] of Object.entries(changes)) {
+    if (value === null) delete members[name]
+    else members[name] = value
+  }
+  return members
+}
+
+function mainMembers(version, { manifest, members } = {}) {
+  return applyMembers({
+    ...fixtureMainMembers,
+    'package.json': JSON.stringify(mainManifest(version, manifest), null, 2) + '\n',
+  }, members)
+}
+
+function platformMembers(version, entry, { manifest, members } = {}) {
+  return applyMembers({
+    'package.json': JSON.stringify(platformManifest(version, entry, manifest), null, 2) + '\n',
+    [binaryName(entry.os)]: `fixture binary payload for ${entry.platform}\n`,
+  }, members)
+}
+
+const archiveOf = members => writeArchive(new Map(Object.entries(members)
+  .map(([name, value]) => [name, Buffer.isBuffer(value) ? value : Buffer.from(value)])))
+const inventory = members => Object.keys(members).sort()
+
+// A hostile tar: the production writer cannot emit duplicate, unsafe or linked
+// members, so the defects the verifier must refuse are built here. Names and
+// header checksums are real tar, so only the intended defect is unusual.
+function hostileTar(entries) {
+  const blocks = []
+  for (const { name, bytes = Buffer.alloc(0), type = '0', mode = 0o644 } of entries) {
+    const header = Buffer.alloc(512)
+    header.write(name, 0, 100, 'ascii')
+    header.write(mode.toString(8).padStart(7, '0') + '\0', 100, 8, 'ascii')
+    header.write('0000000\0', 108, 8, 'ascii')
+    header.write('0000000\0', 116, 8, 'ascii')
+    header.write(bytes.length.toString(8).padStart(11, '0') + '\0', 124, 12, 'ascii')
+    header.write('00000000000\0', 136, 12, 'ascii')
+    header.fill(32, 148, 156)
+    header.write(type, 156, 1, 'ascii')
+    header.write('ustar\0', 257, 6, 'ascii')
+    header.write('00', 263, 2, 'ascii')
+    const sum = header.reduce((total, byte) => total + byte, 0)
+    header.write(sum.toString(8).padStart(6, '0') + '\0 ', 148, 8, 'ascii')
+    blocks.push(header, bytes, Buffer.alloc((512 - bytes.length % 512) % 512))
+  }
+  blocks.push(Buffer.alloc(1024))
+  return gzipSync(Buffer.concat(blocks), { level: 9 })
+}
+
+// Rewrites a real archive's tar bytes while leaving the gzip stream valid.
+function retar(bytes, change) {
+  const tar = gunzipSync(bytes)
+  change(tar)
+  return gzipSync(tar, { level: 9 })
+}
+
+// A real main archive of this workspace's release version, to corrupt on purpose.
+const validMain = version => archiveOf(mainMembers(version))
+
+// Flips one byte, counting from the end for a negative index.
+function flip(bytes, index) {
+  const copy = Buffer.from(bytes)
+  copy[index < 0 ? copy.length + index : index] ^= 0xff
+  return copy
+}
+
+// A controlled assembler output read by the real `stage` command: real small
+// archives whose inventory and hashes are exactly the report's claim.
+async function assembled(directory, { version, platform, corrupt = false, main, binary }) {
+  const entry = platforms.find(item => item.platform === platform)
   const packageDir = path.join(directory, `assembled-${platform}`)
   await mkdir(packageDir, { recursive: true })
   const mainName = `dsh-uml-viewer-${version}.tgz`
   const platformName = `dsh-uml-viewer-${platform}-${version}.tgz`
-  const main = Buffer.from(`controlled main archive ${version}\n`)
-  const binary = Buffer.from(`controlled ${platform} archive ${version}\n`)
-  await writeFile(path.join(packageDir, mainName), main)
-  await writeFile(path.join(packageDir, platformName), binary)
+  const mainContent = main ?? mainMembers(version)
+  const binaryContent = binary ?? platformMembers(version, entry)
+  const mainBytes = archiveOf(mainContent)
+  const binaryBytes = archiveOf(binaryContent)
+  await writeFile(path.join(packageDir, mainName), mainBytes)
+  await writeFile(path.join(packageDir, platformName), binaryBytes)
   await writeFile(path.join(packageDir, 'package-report.json'), JSON.stringify({
     version, platform,
-    optionalDependencies: Object.fromEntries(platforms.map(entry => [`@dsh-uml-viewer/${entry.platform}`, version])),
-    main: { path: path.join(packageDir, mainName), sha256: sha(main), files: ['README.md', 'package.json'] },
+    optionalDependencies: dependencies(version),
+    main: { path: path.join(packageDir, mainName), sha256: sha(mainBytes), files: inventory(mainContent) },
     binary: {
       path: path.join(packageDir, platformName),
-      sha256: corrupt ? sha(Buffer.from('other')) : sha(binary),
-      files: [`bin/uml-viewer${platform === 'win32-x64' ? '.exe' : ''}`, 'package.json'],
+      sha256: corrupt ? sha(Buffer.from('other')) : sha(binaryBytes),
+      files: inventory(binaryContent),
     },
   }, null, 2) + '\n')
-  return packageDir
+  return { packageDir, main: inventory(mainContent), platform: inventory(binaryContent) }
 }
 
 // Staged upload trees for all four runners, optionally mutated to reproduce a
-// release-guard violation.
+// release-guard violation. Every archive is a real gzip/ustar archive.
 async function inventoryFixture(directory, options = {}) {
   const version = options.version ?? await releaseVersion()
   const artifactsDir = path.join(directory, 'artifacts')
   const mainName = `dsh-uml-viewer-${version}.tgz`
-  const main = Buffer.from(`controlled main archive ${version}\n`)
-  const mainHash = sha(main)
-  const optionalDependencies = Object.fromEntries(platforms.map(entry => [`@dsh-uml-viewer/${entry.platform}`, version]))
+  const mainContent = mainMembers(version, options.main)
+  const mainBytes = options.mainBytes ?? archiveOf(mainContent)
+  const mainHash = sha(mainBytes)
+  const mainList = options.mainReport ?? inventory(mainContent)
+  const optionalDependencies = dependencies(version)
   if (options.optionalShift) optionalDependencies['@dsh-uml-viewer/linux-x64'] = options.optionalShift
   for (const entry of platforms) {
     if (entry.platform === options.omit) continue
@@ -55,8 +169,10 @@ async function inventoryFixture(directory, options = {}) {
     const platformName = options.stalePlatform === entry.platform
       ? `dsh-uml-viewer-${entry.platform}-0.9.0.tgz`
       : `dsh-uml-viewer-${entry.platform}-${version}.tgz`
-    const binary = Buffer.from(`controlled ${entry.platform} archive ${version}\n`)
+    const content = platformMembers(version, entry, options.platform?.[entry.platform])
+    const binary = options.platformBytes?.[entry.platform] ?? archiveOf(content)
     await writeFile(path.join(upload, platformName), binary)
+    const platformList = options.platformReport?.[entry.platform] ?? inventory(content)
     const stagesMain = entry.platform === (options.mainRunner ?? mainPlatform) || entry.platform === options.secondMain
     const record = {
       platform: entry.platform, runner: entry.runner, version,
@@ -71,14 +187,14 @@ async function inventoryFixture(directory, options = {}) {
       inventory: {
         main: options.divergentInventory === entry.platform
           ? ['README.md', 'icon.svg', 'package.json']
-          : ['README.md', 'package.json'],
+          : mainList,
         platform: options.extraPlatformFile === entry.platform
-          ? ['bin/uml-viewer', 'package.json', 'extra.txt']
-          : [`bin/uml-viewer${entry.os === 'win32' ? '.exe' : ''}`, 'package.json'],
+          ? [...platformList, 'extra.txt']
+          : platformList,
       },
       staged: stagesMain ? ['main', 'platform'] : ['platform'],
     }
-    if (stagesMain) await writeFile(path.join(upload, mainName), main)
+    if (stagesMain) await writeFile(path.join(upload, mainName), mainBytes)
     await writeFile(path.join(upload, 'assemble-report.json'), JSON.stringify(record, null, 2) + '\n')
   }
   if (options.extraArchive) await writeFile(path.join(artifactsDir, options.extraArchive), 'stray\n')
@@ -116,9 +232,21 @@ function stepScript(text, stepName) {
   return body.join('\n')
 }
 
+// Bounds for an extracted workflow step: a blocking or flooding body must fail
+// the suite with a clear message instead of hanging it or exhausting memory.
+const stepLimits = Object.freeze({ timeout: 30_000, maxBuffer: 1024 * 1024, killSignal: 'SIGKILL' })
+
+// A failure message that names the bound that was hit, so a timeout or a buffer
+// overflow is never reported as a plain assertion mismatch.
+function stepFailure(result, limits = stepLimits) {
+  if (result.error) return `the workflow step did not complete (${result.error.code ?? 'error'}): ${result.error.message}`
+  if (result.signal) return `the workflow step was killed by ${result.signal} after ${limits.timeout} ms`
+  return result.stderr || result.stdout || `the workflow step exited with ${result.status}`
+}
+
 // Runs a workflow shell step with a stub `npm` that records its arguments, so a
 // publish never reaches a registry.
-async function runStep(directory, script) {
+async function runStep(directory, script, limits = stepLimits) {
   const bin = path.join(directory, 'stub-bin')
   await mkdir(bin, { recursive: true })
   const log = path.join(directory, 'npm-calls.txt')
@@ -131,6 +259,7 @@ async function runStep(directory, script) {
   await chmod(path.join(bin, 'npm'), 0o755)
   const result = spawnSync('bash', ['-euo', 'pipefail', '-c', script], {
     cwd: root, encoding: 'utf8',
+    timeout: limits.timeout, maxBuffer: limits.maxBuffer, killSignal: limits.killSignal,
     env: {
       ...process.env, RUNNER_TEMP: directory, NPM_LOG: log,
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
@@ -227,7 +356,7 @@ test('the publish step really publishes the five staged archives in plan order',
     await inventoryFixture(directory)
     const script = stepScript(await workflow(), 'Publish the platform packages, then the main package')
     const { result, calls } = await runStep(directory, script)
-    assert.equal(result.status, 0, result.stderr)
+    assert.equal(result.status, 0, stepFailure(result, stepLimits))
     assert.equal(calls.length, 5)
     for (const call of calls) {
       assert.equal(call.command, 'publish')
@@ -252,7 +381,7 @@ test('the pull-request step only dry-runs the same plan order', async t => {
     await inventoryFixture(directory)
     const script = stepScript(await workflow(), 'npm publish dry run')
     const { result, calls } = await runStep(directory, script)
-    assert.equal(result.status, 0, result.stderr)
+    assert.equal(result.status, 0, stepFailure(result, stepLimits))
     assert.equal(calls.length, 5)
     for (const call of calls) {
       assert.equal(call.command, 'publish')
@@ -284,8 +413,30 @@ test('a short publish plan stops the workflow before any publish', async t => {
     const script = stepScript(await workflow(), 'Publish the platform packages, then the main package')
       .replace(/node scripts\/release\.mjs plan[^\n]*\n/, '')
     const { result, calls } = await runStep(directory, script)
-    assert.notEqual(result.status, 0)
+    assert.notEqual(result.status, 0, 'a four-line plan must fail the step')
     assert.deepEqual(calls, [])
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('the extracted workflow step runner is bounded in time and output', async t => {
+  const probe = spawnSync('bash', ['-c', 'true'], { encoding: 'utf8' })
+  if (probe.error || probe.status !== 0) {
+    t.skip('bash is unavailable, so the workflow shell cannot be executed here')
+    return
+  }
+  // The defaults the real step execution inherits are the bound, not a hint.
+  assert.deepEqual({ ...stepLimits }, { timeout: 30_000, maxBuffer: 1024 * 1024, killSignal: 'SIGKILL' })
+  const directory = await scratch()
+  try {
+    const short = { timeout: 750, maxBuffer: 64 * 1024, killSignal: 'SIGKILL' }
+    const hung = await runStep(directory, 'sleep 30', short)
+    assert.equal(hung.result.error?.code, 'ETIMEDOUT')
+    assert.notEqual(hung.result.status, 0)
+    assert.match(stepFailure(hung.result, short), /did not complete \(ETIMEDOUT\)/)
+    const flooded = await runStep(directory, 'printf %20000s x', { ...short, timeout: 10_000, maxBuffer: 128 })
+    assert.equal(flooded.result.error?.code, 'ENOBUFS')
+    assert.notEqual(flooded.result.status, 0)
+    assert.match(stepFailure(flooded.result, short), /did not complete \(ENOBUFS\)/)
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
@@ -310,11 +461,11 @@ test('stage uploads the current platform archive and the main archive only on th
   const directory = await scratch()
   try {
     const version = await releaseVersion()
-    const packageDir = await assembled(directory, { version, platform: 'linux-x64' })
+    const { packageDir, main, platform } = await assembled(directory, { version, platform: 'linux-x64' })
     const platformOnly = await stageArchives({ packageDir, platform: 'linux-x64', uploadDir: path.join(directory, 'linux') })
     assert.deepEqual(platformOnly.staged, ['platform'])
-    assert.deepEqual(platformOnly.inventory, { main: ['README.md', 'package.json'], platform: ['bin/uml-viewer', 'package.json'] })
-    assert.equal(platformOnly.artifacts.main.sha256, sha(Buffer.from(`controlled main archive ${version}\n`)))
+    assert.deepEqual(platformOnly.inventory, { main, platform })
+    assert.equal(platformOnly.artifacts.main.sha256, sha(await readFile(path.join(packageDir, `dsh-uml-viewer-${version}.tgz`))))
     const upload = path.join(directory, 'linux')
     assert.match((await readFile(path.join(upload, 'assemble-report.json'), 'utf8')), /linux-x64/)
 
@@ -330,7 +481,7 @@ test('stage refuses a foreign main runner, an unknown platform and a stale assem
   const directory = await scratch()
   try {
     const version = await releaseVersion()
-    const arm = await assembled(directory, { version, platform: 'darwin-arm64' })
+    const { packageDir: arm } = await assembled(directory, { version, platform: 'darwin-arm64' })
     await assert.rejects(
       stageArchives({ packageDir: arm, platform: 'darwin-arm64', uploadDir: path.join(directory, 'arm'), main: true }),
       /main archive must be staged on linux-x64/)
@@ -340,38 +491,61 @@ test('stage refuses a foreign main runner, an unknown platform and a stale assem
     await assert.rejects(
       stageArchives({ packageDir: arm, platform: 'linux-x64', uploadDir: path.join(directory, 'mismatch') }),
       /Assembled report is for darwin-arm64, not linux-x64/)
-    const corrupt = await assembled(directory, { version, platform: 'win32-x64', corrupt: true })
+    const { packageDir: corrupt } = await assembled(directory, { version, platform: 'win32-x64', corrupt: true })
     await assert.rejects(
       stageArchives({ packageDir: corrupt, platform: 'win32-x64', uploadDir: path.join(directory, 'corrupt') }),
       /does not match the assembler report hash/)
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
+test('a plausible large payload stays inside the default archive limits', async () => {
+  // A built native binary is tens of MiB and the packaged Sarasa face is
+  // 25.6 MiB, so the caps must accept a realistic archive, not only reject a
+  // hostile one. This is the production verify path with the default limits.
+  const directory = await scratch()
+  try {
+    const artifactsDir = await inventoryFixture(directory, {
+      main: { members: { 'lib/payload.bin': Buffer.alloc(8 * 1024 * 1024, 7) } },
+    })
+    const release = await verifyInventory({ artifactsDir })
+    assert.equal(release.artifacts.length, 5)
+    assert.ok(release.artifacts.at(-1).files.includes('lib/payload.bin'))
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
 test('the staged inventory of four platforms and one main archive verifies and plans platforms first', async () => {
   const directory = await scratch()
   try {
+    const version = await releaseVersion()
+    const expectedMain = inventory(mainMembers(version))
     const artifactsDir = await inventoryFixture(directory)
-    const inventory = await verifyInventory({ artifactsDir })
-    assert.deepEqual(inventory.artifacts.map(artifact => artifact.platform), [...platforms.map(entry => entry.platform), null])
-    assert.deepEqual(inventory.publishOrder, inventory.artifacts)
-    assert.equal(inventory.reproducibleMain.runners, 4)
-    assert.deepEqual(inventory.reproducibleMain.files, ['README.md', 'package.json'])
+    const release = await verifyInventory({ artifactsDir })
+    assert.deepEqual(release.artifacts.map(artifact => artifact.platform), [...platforms.map(entry => entry.platform), null])
+    assert.deepEqual(release.publishOrder, release.artifacts)
+    assert.equal(release.reproducibleMain.runners, 4)
+    assert.deepEqual(release.reproducibleMain.files, expectedMain)
     // Every runner's main hash is evidence; only the staged one is published.
-    assert.deepEqual(inventory.mainHashes.map(item => item.platform), platforms.map(entry => entry.platform))
-    for (const item of inventory.mainHashes) assert.match(item.sha256, /^[0-9a-f]{64}$/)
-    for (const artifact of inventory.artifacts) {
+    assert.deepEqual(release.mainHashes.map(item => item.platform), platforms.map(entry => entry.platform))
+    for (const item of release.mainHashes) assert.match(item.sha256, /^[0-9a-f]{64}$/)
+    for (const artifact of release.artifacts) {
       assert.equal(artifact.sha256, sha(await readFile(artifact.path)))
       assert.equal(artifact.file, path.basename(artifact.path))
+      // The recorded list is read out of the real archive, which is what makes
+      // the inventory evidence rather than a copy of the assembler report.
+      assert.deepEqual(artifact.files, [...await readArchive(artifact.path)].map(([name]) => name.slice('package/'.length)).sort())
     }
-    assert.equal(inventory.artifacts.at(-1).file, `dsh-uml-viewer-${inventory.version}.tgz`)
+    assert.deepEqual(release.artifacts.at(-1).files, expectedMain)
+    assert.equal(release.artifacts.at(-1).file, `dsh-uml-viewer-${release.version}.tgz`)
 
     const cli = spawnSync(process.execPath, ['scripts/release.mjs', 'plan', '--artifacts', artifactsDir], { cwd: root, encoding: 'utf8' })
     assert.equal(cli.status, 0, cli.stderr)
     const planned = cli.stdout.trim().split(/\r?\n/)
-    assert.deepEqual(planned, inventory.publishOrder.map(artifact => artifact.path))
+    assert.deepEqual(planned, release.publishOrder.map(artifact => artifact.path))
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
+// Options may be a function of the release version, for a fixture that has to
+// corrupt or over-size a real archive of this workspace's version.
 for (const [name, options, message] of [
   ['a missing platform archive', { omit: 'darwin-x64' }, /assemble reports, found 3/],
   ['two runners staging the main archive', { secondMain: 'win32-x64' }, /Exactly one runner must stage the main archive, found 2/],
@@ -383,12 +557,93 @@ for (const [name, options, message] of [
   ['a stray fifth archive', { extraArchive: 'dsh-uml-viewer-src-1.0.0.tgz' }, /Expected exactly 5 release archives, found 6/],
   ['optional dependencies that drift from the workspace version', { optionalShift: '0.9.0' }, /optional dependencies must pin exactly/],
   ['a report from another release version', { version: '9.9.9' }, /platform package version 9\.9\.9 != workspace version/],
+  // An archive that is not really an archive is refused instead of trusted.
+  ['a plaintext main file named .tgz', { mainBytes: Buffer.from('controlled main archive\n') }, /not gzip data/],
+  ['a plaintext platform file named .tgz', { platformBytes: { 'linux-x64': Buffer.from('controlled archive\n') } }, /not gzip data/],
+  ['a corrupt gzip header', version => ({ mainBytes: flip(validMain(version), 0) }), /not gzip data/],
+  ['a corrupt gzip stream', version => ({ mainBytes: flip(validMain(version), 40) }), /gzip data is corrupt/],
+  ['a corrupt gzip checksum', version => ({ mainBytes: flip(validMain(version), -6) }), /gzip data is corrupt/],
+  ['a corrupt tar header checksum', version => ({ mainBytes: retar(validMain(version), tar => { tar[105] ^= 0x01 }) }), /header checksum .* does not match/],
+  ['a duplicate archive entry', { mainBytes: hostileTar([
+    { name: 'package/package.json', bytes: Buffer.from('{}') },
+    { name: 'package/package.json', bytes: Buffer.from('{}') },
+  ]) }, /appears more than once/],
+  ['an archive with no package/package.json', { mainBytes: archiveOf(fixtureMainMembers) }, /has no package\/package\.json/],
+  ['an archive whose package/package.json is not JSON', {
+    mainBytes: archiveOf({ ...fixtureMainMembers, 'package.json': 'not json\n' }),
+  }, /package\/package\.json is not valid JSON/],
+  ['a path that traverses out of package/', { mainBytes: hostileTar([
+    { name: 'package/package.json', bytes: Buffer.from('{}') },
+    { name: 'package/../evil.js', bytes: Buffer.from('x') },
+  ]) }, /unsafe path segment/],
+  ['an entry outside package/', { mainBytes: hostileTar([
+    { name: 'other/package.json', bytes: Buffer.from('{}') },
+  ]) }, /is outside package\//],
+  ['an absolute path entry', { mainBytes: hostileTar([{ name: '/etc/passwd', bytes: Buffer.from('x') }]) }, /absolute path/],
+  ['a symbolic link entry', { mainBytes: hostileTar([
+    { name: 'package/package.json', bytes: Buffer.from('{}') },
+    { name: 'package/bin/uml-viewer', type: '2' },
+  ]) }, /is a symbolic link, not a regular file/],
+  ['a directory entry', { mainBytes: hostileTar([{ name: 'package/lib', type: '5' }]) }, /is a directory, not a regular file/],
+  ['an entry over the size limit', () => ({
+    main: { members: { 'lib/huge.bin': Buffer.alloc(64 * 1024) } },
+    limits: { ...archiveLimits, entryBytes: 8 * 1024 },
+  }), /over the 8192 byte entry limit/],
+  ['an archive over the decompressed limit', () => ({
+    main: { members: { 'lib/bomb.bin': Buffer.alloc(2 * 1024 * 1024) } },
+    limits: { ...archiveLimits, totalBytes: 1024 * 1024 },
+  }), /decompressed archive limit/],
+  ['an archive over the compressed limit', { limits: { ...archiveLimits, compressedBytes: 64 } }, /compressed archive limit/],
+  // The archive's own manifest must agree with the workspace and the platform
+  // table, not only with the report that describes it.
+  ['a main package name that lies', { main: { manifest: { name: 'not-the-viewer' } } }, /main package name .* is not/],
+  ['a main package version that lies', { main: { manifest: { version: '9.9.9' } } }, /main package version .* != workspace version/],
+  ['main optional dependencies that lie', {
+    main: { manifest: { optionalDependencies: { '@dsh-uml-viewer/linux-x64': '0.9.0' } } },
+  }, /main package optional dependencies must pin exactly/],
+  ['a private main manifest', { main: { manifest: { private: true } } }, /main package\.json is private/],
+  ['a main manifest that still ships scripts', { main: { manifest: { scripts: { install: 'x' } } } }, /must not ship scripts/],
+  ['a main package cpu that lies', { main: { manifest: { cpu: ['arm64'] } } }, /main package cpu .* != source/],
+  ['a packaged font that is missing', { main: { members: { 'fonts/SarasaMonoSC-Regular.ttf': null } } }, /main archive has no fonts\/SarasaMonoSC-Regular\.ttf/],
+  ['a packaged license that is empty', { main: { members: { 'fonts/LICENSE-Sarasa.txt': '' } } }, /main archive fonts\/LICENSE-Sarasa\.txt is empty/],
+  ['a file the source package does not publish', { main: { members: { 'src/host.ts': 'export {}\n' } } }, /files list does not publish/],
+  ['an invented main inventory', version => ({
+    mainReport: [...inventory(mainMembers(version)), 'lib/invented.js'],
+  }), /main archive is missing reported lib\/invented\.js/],
+  ['an unreported main file', version => ({
+    main: { members: { 'lib/extra.js': 'export {}\n' } },
+    mainReport: inventory(mainMembers(version)),
+  }), /main archive contains unreported lib\/extra\.js/],
+  ['a per-file hash in the report that disagrees', version => ({
+    mainReport: inventory(mainMembers(version)).map(name => name === 'README.md' ? { name, sha256: sha(Buffer.from('other')) } : name),
+  }), /main archive entry README\.md does not match its reported sha256/],
+  ['a platform package name that lies', {
+    platform: { 'linux-x64': { manifest: { name: '@dsh-uml-viewer/darwin-arm64' } } },
+  }, /platform package name .* is not @dsh-uml-viewer\/linux-x64/],
+  ['a platform package version that lies', {
+    platform: { 'darwin-x64': { manifest: { version: '9.9.9' } } },
+  }, /platform package version .* != workspace version/],
+  ['a platform package os that lies', {
+    platform: { 'darwin-arm64': { manifest: { os: ['linux'] } } },
+  }, /platform package os .* is not \["darwin"\] for darwin-arm64/],
+  ['a platform package cpu that lies', {
+    platform: { 'win32-x64': { manifest: { cpu: ['arm64'] } } },
+  }, /platform package cpu .* is not \["x64"\] for win32-x64/],
+  ['a platform archive with no binary entry', {
+    platform: { 'linux-x64': { members: { 'bin/uml-viewer': null } } },
+    platformReport: { 'linux-x64': ['bin/uml-viewer', 'package.json'] },
+  }, /platform archive has no bin\/uml-viewer/],
+  ['a platform archive with an empty binary entry', {
+    platform: { 'linux-x64': { members: { 'bin/uml-viewer': '' } } },
+  }, /platform archive bin\/uml-viewer is empty/],
 ]) {
   test(`the release inventory refuses ${name}`, async () => {
     const directory = await scratch()
     try {
-      const artifactsDir = await inventoryFixture(directory, options)
-      await assert.rejects(verifyInventory({ artifactsDir }), message)
+      const version = await releaseVersion()
+      const resolved = typeof options === 'function' ? options(version) : options
+      const artifactsDir = await inventoryFixture(directory, resolved)
+      await assert.rejects(verifyInventory({ artifactsDir, limits: resolved.limits }), message)
     } finally { await rm(directory, { recursive: true, force: true }) }
   })
 }
@@ -399,7 +654,7 @@ test('stage and verify run end to end through the command line, as CI calls them
     const version = await releaseVersion()
     const artifactsDir = path.join(directory, 'artifacts')
     for (const entry of platforms) {
-      const packageDir = await assembled(directory, { version, platform: entry.platform })
+      const { packageDir } = await assembled(directory, { version, platform: entry.platform })
       const uploadDir = path.join(artifactsDir, `package-${entry.platform}`)
       const args = ['scripts/release.mjs', 'stage', '--package-dir', packageDir, '--platform', entry.platform, '--upload-dir', uploadDir]
       const result = spawnSync(process.execPath, entry.main ? [...args, '--main'] : args, { cwd: root, encoding: 'utf8' })
@@ -420,6 +675,17 @@ test('stage and verify run end to end through the command line, as CI calls them
     assert.equal(lines.length, 5)
     assert.match(lines[0], /dsh-uml-viewer-win32-x64-/)
     assert.match(lines.at(-1), /[\\/]dsh-uml-viewer-\d+\.\d+\.\d+\.tgz$/)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('the verify command fails closed on an archive that only looks like one', async () => {
+  const directory = await scratch()
+  try {
+    const artifactsDir = await inventoryFixture(directory, { mainBytes: Buffer.from('plaintext pretending to be a .tgz\n') })
+    const cli = spawnSync(process.execPath, ['scripts/release.mjs', 'verify', '--artifacts', artifactsDir], { cwd: root, encoding: 'utf8' })
+    assert.notEqual(cli.status, 0, 'a plaintext file named .tgz must not verify')
+    assert.match(cli.stderr, /not gzip data/)
+    assert.doesNotMatch(cli.stdout, /publishOrder/)
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 

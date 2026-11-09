@@ -93,8 +93,10 @@ jobs:
           retention-days: 7
 
   # One place decides whether the release is publishable: four distinct platform
-  # archives at the workspace version, exactly one main archive, identical main
-  # hashes from every runner, and no stray or stale archive.
+  # archives at the workspace version, exactly one main archive, the same main
+  # file inventory on every runner (one recorded main hash per runner, not byte
+  # identity), every archive opened and checked against its report and the source
+  # manifest, and no stray or stale archive.
   inventory:
     name: inventory and registry dry run
     needs: assemble

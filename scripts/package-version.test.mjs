@@ -13,7 +13,7 @@ async function fixture(run) {
   const scratch = await mkdtemp(path.join(parent, 'payload-gate-'))
   try {
     for (const dir of ['scripts', 'crates', 'packages', 'lib', 'fonts', 'locale', 'docs']) await mkdir(path.join(scratch, dir), { recursive: true })
-    for (const file of ['scripts/package.mjs', 'scripts/package.test.mjs', 'scripts/version.mjs', 'Cargo.toml', 'package.json', 'dsh-plugin.json', 'README.md', 'icon.svg', 'cordis.patch.yml', 'docs/plugin-development.md']) await copyFile(path.join(source, file), path.join(scratch, file))
+    for (const file of ['scripts/package.mjs', 'scripts/archive.mjs', 'scripts/package.test.mjs', 'scripts/version.mjs', 'Cargo.toml', 'package.json', 'dsh-plugin.json', 'README.md', 'icon.svg', 'cordis.patch.yml', 'docs/plugin-development.md']) await copyFile(path.join(source, file), path.join(scratch, file))
     for (const dir of ['crates', 'packages']) for (const entry of await readdir(path.join(source, dir), { withFileTypes: true })) if (entry.isDirectory()) {
       await mkdir(path.join(scratch, dir, entry.name))
       const file = dir === 'crates' ? 'Cargo.toml' : 'package.json'

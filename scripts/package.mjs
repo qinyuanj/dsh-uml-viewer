@@ -1,9 +1,9 @@
 import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
-import { gzipSync } from 'node:zlib'
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
+import { writeArchive } from './archive.mjs'
 import { checkVersions, root } from './version.mjs'
 
 const supported = ['win32-x64', 'linux-x64', 'darwin-arm64', 'darwin-x64']
@@ -61,30 +61,12 @@ export async function assemblePackage({ binary, output }, runVersion = spawnSync
   const binaryFiles = new Map([['package.json', json(platformManifest)], [`bin/${binaryName}`, await readFile(binary)]])
 
   // npm-compatible ustar with fixed metadata, sorted names and gzip timestamp 0.
-  // No npm lifecycle hooks, registry access, local dependency rewriting or host mtimes.
-  function archive(files) {
-    const blocks = []
-    for (const [name, bytes] of [...files].sort(([left], [right]) => left.localeCompare(right, 'en'))) {
-      const header = Buffer.alloc(512)
-      const field = (offset, length, value) => header.write(value, offset, length, 'ascii')
-      const octal = (offset, length, value) => field(offset, length, value.toString(8).padStart(length - 1, '0') + '\0')
-      const filename = `package/${name}`
-      if (Buffer.byteLength(filename) > 100) throw new Error(`ustar path exceeds 100 bytes: ${filename}`)
-      field(0, 100, filename)
-      octal(100, 8, name.startsWith('bin/') ? 0o755 : 0o644)
-      octal(108, 8, 0); octal(116, 8, 0); octal(124, 12, bytes.length); octal(136, 12, 0)
-      header.fill(32, 148, 156)
-      field(156, 1, '0'); field(257, 6, 'ustar\0'); field(263, 2, '00')
-      const checksum = header.reduce((sum, byte) => sum + byte, 0)
-      field(148, 8, checksum.toString(8).padStart(6, '0') + '\0 ')
-      blocks.push(header, bytes, Buffer.alloc((512 - bytes.length % 512) % 512))
-    }
-    blocks.push(Buffer.alloc(1024))
-    return gzipSync(Buffer.concat(blocks), { level: 9 })
-  }
+  // The bytes are written by the same module the release verifier reads them
+  // with (scripts/archive.mjs); no npm lifecycle hooks, registry access, local
+  // dependency rewriting or host mtimes.
   await mkdir(output, { recursive: true })
   async function emit(name, files) {
-    const bytes = archive(files)
+    const bytes = writeArchive(files)
     const destination = path.join(output, name)
     await writeFile(destination, bytes)
     return { path: destination, sha256: createHash('sha256').update(bytes).digest('hex'), files: [...files.keys()].sort() }

@@ -5,11 +5,18 @@
 // The assembler (scripts/package.mjs) runs the supplied binary as `--version`,
 // so a platform package must be built on the OS and CPU it ships to; no foreign
 // target binary is ever executed on this host.
+//
+// `verify` does not trust the assembler report: it opens every archive that
+// would be published with the bounded gzip/tar reader (scripts/archive.mjs),
+// checks the real file list against the report, and checks the archive's own
+// package.json against the workspace, the platform table and the platform
+// report. The archives are data here; no packaged binary is executed.
 import { readFile, writeFile, mkdir, copyFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
-import { releaseVersion } from './version.mjs'
+import { entryPrefix, readArchive } from './archive.mjs'
+import { releaseVersion, root } from './version.mjs'
 
 // Runner labels come from GitHub's hosted-runner reference (GitHub Docs,
 // "Supported runners and hardware resources"): `macos-latest` is arm64, so
@@ -38,12 +45,154 @@ export function releaseTag(tag, version) {
   return tagged
 }
 
+function digestBytes(bytes) {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
 async function digest(file) {
-  return createHash('sha256').update(await readFile(file)).digest('hex')
+  return digestBytes(await readFile(file))
 }
 
 function canonical(value) {
   return Object.fromEntries(Object.entries(value ?? {}).sort(([left], [right]) => left.localeCompare(right, 'en')))
+}
+
+// What the installable main package must really contain: the plugin runtime plus
+// the packaged Sarasa face and its license. The assembler already refuses to run
+// without them; this checks the archive a user would download.
+const mainPayload = [
+  'README.md', 'package.json', 'icon.svg', 'cordis.patch.yml', 'dsh-plugin.json',
+  'docs/plugin-development.md', 'lib/host.js', 'lib/client.js',
+  'fonts/SarasaMonoSC-Regular.ttf', 'fonts/LICENSE-Sarasa.txt',
+]
+
+// A main archive member is publishable only if the source package.json `files`
+// list covers it; npm always adds package.json and README.md, nothing else.
+function publishedMainFile(name, declared) {
+  if (name === 'package.json' || name === 'README.md') return true
+  return declared.some(item => name === item || name.startsWith(`${item}/`))
+}
+
+// The assembler report lists archive file names; an entry may also pin a
+// per-file SHA-256, which is then checked against the real bytes.
+function reportedInventory(list, { file, label }) {
+  if (!Array.isArray(list) || list.length === 0) throw new Error(`${file}: assembler report has no ${label} archive inventory`)
+  const listed = new Map()
+  for (const item of list) {
+    const name = typeof item === 'string' ? item : item?.name
+    if (typeof name !== 'string' || name === '') throw new Error(`${file}: ${label} archive inventory has an entry without a file name`)
+    if (listed.has(name)) throw new Error(`${file}: ${label} archive inventory lists ${name} twice`)
+    listed.set(name, typeof item === 'object' && item !== null && typeof item.sha256 === 'string' ? item.sha256 : undefined)
+  }
+  return listed
+}
+
+// Opens one archive and returns its real members below package/. The reader
+// refuses a non-gzip file, a corrupt stream, a bad header checksum, a duplicate,
+// an unsafe or absolute path, a link or other non-regular entry, and anything
+// over the archive limits.
+async function openArchive(file, { label, limits }) {
+  const entries = await readArchive(file, limits)
+  const files = new Map()
+  for (const [name, entry] of entries) {
+    if (!name.startsWith(entryPrefix)) throw new Error(`${file}: ${label} archive entry ${JSON.stringify(name)} is outside ${entryPrefix}`)
+    files.set(name.slice(entryPrefix.length), entry)
+  }
+  if (files.size === 0) throw new Error(`${file}: ${label} archive has no files`)
+  const manifestEntry = files.get('package.json')
+  if (!manifestEntry) throw new Error(`${file}: ${label} archive has no package/package.json`)
+  if (manifestEntry.size === 0) throw new Error(`${file}: ${label} package/package.json is empty`)
+  let manifest
+  try {
+    manifest = JSON.parse(manifestEntry.bytes.toString('utf8'))
+  } catch {
+    throw new Error(`${file}: ${label} package/package.json is not valid JSON`)
+  }
+  return { file, label, files, manifest, names: [...files.keys()].sort() }
+}
+
+function verifyReportedInventory(archive, reported) {
+  const { file, label, files, names } = archive
+  const listed = reportedInventory(reported, archive)
+  const missing = [...listed.keys()].filter(name => !files.has(name)).sort()
+  if (missing.length > 0) throw new Error(`${file}: ${label} archive is missing reported ${missing.join(', ')}`)
+  const unreported = names.filter(name => !listed.has(name))
+  if (unreported.length > 0) throw new Error(`${file}: ${label} archive contains unreported ${unreported.join(', ')}`)
+  for (const [name, sha256] of listed) {
+    if (sha256 === undefined) continue
+    if (digestBytes(files.get(name).bytes) !== sha256) {
+      throw new Error(`${file}: ${label} archive entry ${name} does not match its reported sha256`)
+    }
+  }
+}
+
+// A platform package is the native binary and its manifest, at the table's OS
+// and CPU. The binary entry must exist as a regular, non-empty file; it is never
+// executed, because a foreign target binary cannot run on this host.
+async function verifyPlatformArchive(item, { entry, version, limits }) {
+  const archive = await openArchive(item.platformFile, { label: 'platform', limits })
+  const { file, files, manifest } = archive
+  if (manifest.name !== `@dsh-uml-viewer/${entry.platform}`) {
+    throw new Error(`${file}: platform package name ${JSON.stringify(manifest.name)} is not @dsh-uml-viewer/${entry.platform}`)
+  }
+  if (manifest.version !== version) {
+    throw new Error(`${file}: platform package version ${JSON.stringify(manifest.version)} != workspace version ${version}`)
+  }
+  if (JSON.stringify(manifest.os) !== JSON.stringify([entry.os])) {
+    throw new Error(`${file}: platform package os ${JSON.stringify(manifest.os)} is not ${JSON.stringify([entry.os])} for ${entry.platform}`)
+  }
+  if (JSON.stringify(manifest.cpu) !== JSON.stringify([entry.cpu])) {
+    throw new Error(`${file}: platform package cpu ${JSON.stringify(manifest.cpu)} is not ${JSON.stringify([entry.cpu])} for ${entry.platform}`)
+  }
+  const binary = `bin/uml-viewer${entry.os === 'win32' ? '.exe' : ''}`
+  const payload = files.get(binary)
+  if (!payload) throw new Error(`${file}: platform archive has no ${binary}`)
+  if (payload.size === 0) throw new Error(`${file}: platform archive ${binary} is empty`)
+  verifyReportedInventory(archive, item.record.inventory?.platform)
+  return archive.names
+}
+
+// The main package is the plugin bundle: its own manifest must be the
+// installable one, its payload must be exactly what the source package.json
+// publishes, and its real file list must equal the assembler's report.
+async function verifyMainArchive(file, { version, optionalDependencies, source, reported, limits }) {
+  const archive = await openArchive(file, { label: 'main', limits })
+  const { files, manifest, names } = archive
+  if (manifest.name !== source.name) {
+    throw new Error(`${file}: main package name ${JSON.stringify(manifest.name)} is not ${JSON.stringify(source.name)}`)
+  }
+  if (manifest.version !== version) {
+    throw new Error(`${file}: main package version ${JSON.stringify(manifest.version)} != workspace version ${version}`)
+  }
+  if (manifest.private !== undefined) throw new Error(`${file}: main package.json is private, so the main package is never publishable`)
+  for (const stripped of ['scripts', 'devDependencies', 'packageManager']) {
+    if (manifest[stripped] !== undefined) throw new Error(`${file}: main package.json must not ship ${stripped}`)
+  }
+  const expectedDependencies = canonical(optionalDependencies)
+  if (JSON.stringify(canonical(manifest.optionalDependencies)) !== JSON.stringify(expectedDependencies)) {
+    throw new Error(`${file}: main package optional dependencies must pin exactly ${JSON.stringify(expectedDependencies)}`)
+  }
+  if (JSON.stringify(manifest.os) !== JSON.stringify(source.os)) {
+    throw new Error(`${file}: main package os ${JSON.stringify(manifest.os)} != source ${JSON.stringify(source.os)}`)
+  }
+  if (JSON.stringify(manifest.cpu) !== JSON.stringify(source.cpu)) {
+    throw new Error(`${file}: main package cpu ${JSON.stringify(manifest.cpu)} != source ${JSON.stringify(source.cpu)}`)
+  }
+  for (const name of mainPayload) {
+    const entry = files.get(name)
+    if (!entry) throw new Error(`${file}: main archive has no ${name}`)
+    if (entry.size === 0) throw new Error(`${file}: main archive ${name} is empty`)
+  }
+  if (!Array.isArray(source.files) || source.files.length === 0) {
+    throw new Error(`${file}: the source package.json declares no files to publish`)
+  }
+  for (const name of names) {
+    if (!publishedMainFile(name, source.files)) {
+      throw new Error(`${file}: main archive contains ${name}, which the source package.json files list does not publish`)
+    }
+  }
+  verifyReportedInventory(archive, reported)
+  return names
 }
 
 function expectedArchives(version) {
@@ -106,11 +255,13 @@ export async function stageArchives({ packageDir, platform, uploadDir, main = fa
 
 // Verify everything that must be true before a publish: four distinct platform
 // archives at the workspace version, one main archive built on the main runner,
-// the same main archive inventory on every runner, and no stray or stale
-// archive. Byte identity of the main archive is recorded per runner rather than
-// required, because checkout line endings are not pinned for packaged text.
-export async function verifyInventory({ artifactsDir, version }) {
+// the same main archive inventory on every runner, no stray or stale archive,
+// and the real contents of every staged archive. Byte identity of the main
+// archive is recorded per runner rather than required, because checkout line
+// endings are not pinned for packaged text.
+export async function verifyInventory({ artifactsDir, version, limits }) {
   const expected = version ?? await releaseVersion()
+  const source = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
   const files = await walk(artifactsDir)
   const reports = files.filter(file => path.basename(file) === reportName)
   if (reports.length !== platforms.length) {
@@ -144,10 +295,15 @@ export async function verifyInventory({ artifactsDir, version }) {
     if (JSON.stringify(platformInventory) !== JSON.stringify(expectedPlatformFiles)) {
       throw new Error(`${file}: platform archive inventory ${platformInventory.join(', ')} != ${expectedPlatformFiles.join(', ')}`)
     }
-    byPlatform.set(record.platform, { file, directory, record, platformFile })
+    byPlatform.set(record.platform, { file, directory, record, platformFile, entry })
   }
   for (const entry of platforms) {
     if (!byPlatform.has(entry.platform)) throw new Error(`Missing platform package ${entry.platform}`)
+  }
+  // Every platform archive that would be published is opened here; the report's
+  // file list alone is not proof that the archive holds those files.
+  for (const item of byPlatform.values()) {
+    item.verified = await verifyPlatformArchive(item, { entry: item.entry, version: expected, limits })
   }
 
   const mainRecords = [...byPlatform.values()].map(item => item.record).filter(record => record.staged.includes('main'))
@@ -178,6 +334,12 @@ export async function verifyInventory({ artifactsDir, version }) {
   if (await digest(mainFile) !== mainHash) {
     throw new Error(`${mainFile}: recorded sha256 does not match the staged bytes`)
   }
+  // The one main archive that ships is opened as well: it must hold the plugin
+  // payload the source package publishes, at the workspace version, and exactly
+  // the files every runner reported.
+  const verifiedMain = await verifyMainArchive(mainFile, {
+    version: expected, optionalDependencies: expectedDependencies, source, reported: mainInventory, limits,
+  })
 
   const names = expectedArchives(expected)
   const archives = files.filter(file => file.endsWith('.tgz'))
@@ -193,11 +355,14 @@ export async function verifyInventory({ artifactsDir, version }) {
     return {
       name: `@dsh-uml-viewer/${entry.platform}`, platform: entry.platform, runner: entry.runner,
       file: item.record.artifacts.platform.file, path: item.platformFile, sha256: item.record.artifacts.platform.sha256,
+      // The file list read out of the opened archive, not the report's claim.
+      files: item.verified,
     }
   })
   artifacts.push({
     name: 'dsh-uml-viewer', platform: null, runner: mainPlatform,
     file: path.basename(mainFile), path: mainFile, sha256: mainHash,
+    files: verifiedMain,
   })
   // Platform packages first: the main package's optional dependencies must
   // already exist when it becomes installable.
