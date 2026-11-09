@@ -6,8 +6,9 @@ use std::path::{Path, PathBuf};
 
 /// `std::fs::canonicalize`, or `path` itself when it does not resolve. On
 /// Windows the verbatim prefix is stripped (`\\?\C:\x` → `C:\x`,
-/// `\\?\UNC\s\sh` → `\\s\sh`): a verbatim path takes no `/` joins, and
-/// displayed paths are joined with `/`.
+/// `\\?\UNC\s\sh` → `\\s\sh`): a verbatim spelling names the same file as a
+/// different string, and this is the text a session saves and a restart has
+/// to reproduce, so it must be the ordinary path and not a `\\?\` form.
 pub fn canonical(path: &Path) -> PathBuf {
     let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     if cfg!(windows) {

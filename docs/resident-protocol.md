@@ -327,7 +327,7 @@ the host also compares `loadedDiagram` with the current file bytes.
 |---|---|---|
 | `schema` | string | `"dsh-uml-viewer/session-state"` |
 | `version` | integer | `1` |
-| `diagram` | string \| null | the diagram shown (absolute path); `null` while the canvas is still waiting for its first display |
+| `diagram` | string \| null | the diagram shown, as its canonical absolute path (the spelling a restore opens, so an unchanged view saves the same state); `null` while the canvas is still waiting for its first display |
 | `loadedDiagram` | `{version: 1, sha256: string}` \| null \| absent | additive fingerprint metadata: lowercase SHA-256 of the exact UTF-8 buffer accepted by the resident parser; `null` before any display, absent from older residents |
 | `context` | object \| null | the [discussion context](#discussion-context) |
 | `focus` | string[] | the namespace path drilled into (EDN keywords) |
