@@ -7,6 +7,9 @@
 *.edn text eol=lf
 *.rs text eol=lf
 fixtures/** text eol=lf
+# The plugin prompt section embeds this document verbatim; a CR would reach
+# the model's system prompt.
+docs/companion-rules.md text eol=lf
 # sh reads a CR as part of the command; the enabled hook must stay LF.
 .githooks/* text eol=lf
 

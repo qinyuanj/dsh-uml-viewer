@@ -9,6 +9,8 @@ await build({
   platform: 'node',
   target: 'node22',
   external: ['@deepseek-ai/*'],
+  // docs/companion-rules.md is the prompt section's only source (#18).
+  loader: { '.md': 'text' },
   sourcemap: true,
 })
 
