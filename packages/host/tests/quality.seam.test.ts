@@ -218,6 +218,29 @@ it('never turns signal termination into a valid quality result', async () => {
   })
 })
 
+it.each([
+  { label: 'before printing a record', quality: { stdout: '' } },
+  { label: 'after printing a success record', quality: {} },
+])('reports a killed quality child (no exit code) as terminated $label', async ({ quality }) => {
+  const { tool, services } = await setup({ quality })
+  services.subprocess.spawn = spec => {
+    const child = localSubprocess(spec)
+    return { ...child, done: child.done.then(() => ({ exitCode: null, signal: 'SIGKILL' })) }
+  }
+  expect(await tool('uml_crap', {})).toMatchObject({
+    operation: 'crap', exitCode: null, validResult: false, reason: expect.stringMatching(/terminated by SIGKILL/),
+  })
+  expect(await tool('uml_ir', {})).toMatchObject({ status: 'refused', reason: expect.stringMatching(/SIGKILL/) })
+})
+
+it('fails closed when the real quality child kills itself', async () => {
+  const { tool } = await setup({ quality: { signal: 'SIGKILL' } })
+  const result = await tool('uml_crap', {}) as unknown as Record<string, unknown>
+  expect(result).toMatchObject({ operation: 'crap', validResult: false })
+  expect(result.exitCode).not.toBe(0)
+  expect(result.reason).toEqual(expect.any(String))
+})
+
 it.each(['missing stdout', 'missing stderr', 'stdout throws', 'stderr throws'] as const)(
   'keeps the real quality exit when an output reader fails: %s', async failure => {
     const { tool, services } = await setup({ quality: { exitCode: 1 } })
@@ -301,6 +324,27 @@ it('serializes overlapping quality calls in one session FIFO', async () => {
   const log = await events(projects['session-a']!)
   expect(log.map(entry => entry.event)).toEqual(['start', 'end', 'start', 'end'])
   expect(log.map(entry => entry.argv[1])).toEqual(['crap', 'crap', 'dry', 'dry'])
+})
+
+it('orders three overlapping calls by arrival even when the first is slowest', async () => {
+  const { tool, projects } = await setup({ quality: { delay: 150 } })
+  const calls = [tool('uml_dry', {}), tool('uml_mutate', { targets: ['src/a.rs'] }), tool('uml_crap', {})]
+  await Promise.all(calls)
+  const log = await events(projects['session-a']!)
+  expect(log.map(entry => `${entry.event}:${entry.argv[1]}`)).toEqual([
+    'start:dry', 'end:dry', 'start:mutate', 'end:mutate', 'start:crap', 'end:crap',
+  ])
+})
+
+it('does not let uml_ir overtake an in-flight failing quality call', async () => {
+  const { tool, projects } = await setup({ quality: { delay: 200, exitCode: 1 } })
+  const crap = tool('uml_crap', {})
+  const ir = tool('uml_ir', {})
+  expect(await crap).toMatchObject({ exitCode: 1, validResult: false })
+  expect(await ir).toMatchObject({
+    status: 'refused', validResult: false, reason: expect.stringMatching(/latest quality call.*crap.*exit 1/),
+  })
+  expect(existsSync(path.join(projects['session-a']!, 'invocation.json'))).toBe(false)
 })
 
 it('blocks uml_ir after an invalid quality result and re-enables display after a fresh successful IR', async () => {

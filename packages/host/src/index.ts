@@ -8,7 +8,7 @@ import type { QualityOperation, QualityToolResult } from '@dsh-uml-viewer/contra
 import type { Config } from './binary.js'
 import { packageRoot } from './binary.js'
 import { displayResult, runDisplay } from './display.js'
-import type { HostServices } from './dsh.js'
+import type { HostServices, ToolRunContext } from './dsh.js'
 import { registerFontRoute } from './font.js'
 import { IrGate, QualityGate } from './gate.js'
 import { PanelPrompts } from './prompt.js'
@@ -49,37 +49,44 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.effect(() => services.tools.register({
     name: 'uml_ir',
-    description: 'Generate UML IR from the session project’s policy and source tree. Writes the IR output; requires workspace-write or full access. Refused while the latest quality call in this session has validResult false. Returns the actual exit code, validResult and bounded stdout/stderr.',
+    description: 'Generate UML IR from the session project’s policy and source tree. Writes the IR output; requires workspace-write or full access. Runs after any quality call already in progress in this session, and is refused while the latest one has validResult false. Returns the actual exit code, validResult and bounded stdout/stderr.',
     parameters: IR_PARAMETERS,
     timeoutMs: 10 * 60_000,
     isConcurrencySafe: () => false,
     output: { schema: IR_RESULT_SCHEMA, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
     async execute(args, exec) {
       const sessionId = exec.agent?.session.id
-      const root = exec.agent ? services.workingDirectory.get(exec.agent.session) : ''
-      let result: ReturnType<typeof irResult>
-      try {
-        const request = parseIrRequest(args)
-        const blocked = sessionId === undefined ? null : quality.check(sessionId)
-        if (blocked && !blocked.ok) {
-          result = irResult(root, { status: 'refused', reason: blocked.reason })
-        } else {
-          const argv: string[] = []
-          if (request.policy !== undefined) argv.push('--policy', request.policy)
-          if (request.output !== undefined) argv.push('--output', request.output)
-          result = await runIr(services, config, exec, argv)
-        }
-      } catch (error) {
-        result = irResult(root, { reason: error instanceof Error ? error.message : String(error) })
-      }
-      // Every completed invocation replaces the previous grant. In particular,
-      // a parse failure or refusal must not leave an earlier success displayable.
-      if (sessionId !== undefined) {
-        gate.record(sessionId, { validResult: result.validResult, exitCode: result.exitCode, reason: result.reason })
-      }
-      return result
+      // Queued behind earlier quality calls: IR reads the snapshots they write
+      // and must see their outcome, never the one before an in-flight call.
+      return sessionId === undefined ? generate(args, exec) : quality.run(sessionId, () => generate(args, exec))
     },
   }), 'dsh-uml-viewer: uml_ir')
+
+  async function generate(args: unknown, exec: ToolRunContext): Promise<ReturnType<typeof irResult>> {
+    const sessionId = exec.agent?.session.id
+    const root = exec.agent ? services.workingDirectory.get(exec.agent.session) : ''
+    let result: ReturnType<typeof irResult>
+    try {
+      const request = parseIrRequest(args)
+      const blocked = sessionId === undefined ? null : quality.check(sessionId)
+      if (blocked && !blocked.ok) {
+        result = irResult(root, { status: 'refused', reason: blocked.reason })
+      } else {
+        const argv: string[] = []
+        if (request.policy !== undefined) argv.push('--policy', request.policy)
+        if (request.output !== undefined) argv.push('--output', request.output)
+        result = await runIr(services, config, exec, argv)
+      }
+    } catch (error) {
+      result = irResult(root, { reason: error instanceof Error ? error.message : String(error) })
+    }
+    // Every completed invocation replaces the previous grant. In particular,
+    // a parse failure or refusal must not leave an earlier success displayable.
+    if (sessionId !== undefined) {
+      gate.record(sessionId, { validResult: result.validResult, exitCode: result.exitCode, reason: result.reason })
+    }
+    return result
+  }
 
   /**
    * One quality tool. Every invocation in a session is queued behind the

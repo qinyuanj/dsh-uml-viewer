@@ -8,7 +8,8 @@ export interface QualityRecord {
 }
 
 /**
- * Per-session FIFO for quality calls plus the latest quality outcome.
+ * Per-session FIFO for quality calls (and `uml_ir`, which queues behind them)
+ * plus the latest quality outcome.
  *
  * `uml_ir` is refused only after a quality call in that session ended without
  * `validResult: true`; with no quality call, IR remains available for requests

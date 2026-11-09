@@ -86,6 +86,13 @@ export async function runQuality(
         reason: `quality ${operation} ${outputError}${terminationSignal ? `; terminated by ${terminationSignal}` : ''}`,
       })
     }
+    // A terminated child is never a valid result, whatever it printed first;
+    // report the termination instead of a parse or exit mismatch it caused.
+    if (terminationSignal) {
+      return qualityResult(operation, root, {
+        exitCode: output.exitCode, reason: `quality ${operation} terminated by ${terminationSignal}`,
+      })
+    }
 
     let parsed
     try {
@@ -113,12 +120,6 @@ export async function runQuality(
       return qualityResult(operation, root, {
         exitCode: output.exitCode,
         reason: `uml-viewer quality ${operation} reported exit ${parsed.exitCode} but exited ${output.exitCode ?? 'without a code'}`,
-      })
-    }
-    if (terminationSignal) {
-      return qualityResult(operation, root, {
-        ...parsed, exitCode: output.exitCode, validResult: false,
-        reason: `quality ${operation} terminated by ${terminationSignal}`,
       })
     }
     if (exec.signal.aborted) {

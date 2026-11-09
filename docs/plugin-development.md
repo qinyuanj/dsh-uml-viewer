@@ -93,7 +93,10 @@ fields with `validResult: false` and an explanatory reason; a host refusal has
 `exitCode: null`. Mutation takes every target in one array and forwards them in
 one argv, because mutator shares one coverage run and baseline across them.
 
-Quality calls in one session are queued FIFO. Each completed quality result
+Quality calls in one session are queued FIFO, and `uml_ir` joins the same
+queue, so it sees the outcome of a quality call already in progress. A
+terminated quality child is reported as terminated, never as valid, whatever
+it printed first. Each completed quality result
 (including a refusal or malformed argument) becomes that session's latest
 quality outcome; while it has `validResult: false`, `uml_ir` refuses before
 spawning and names the failing operation. With no quality call in the session,
