@@ -70,7 +70,7 @@ async function clickRefresh(panel, frame, id, label) {
   expect(item, `frame contains ${id}`).toBeTruthy()
   const [x, y] = toScreen(frame, item.rect.x + item.rect.w / 2, item.rect.y + 10)
   await panel.canvas.click({ position: { x, y }, button: 'right' })
-  await panel.panel.getByRole('menu', { name: 'Quality refresh' }).getByRole('menuitem', { name: label, exact: true }).click()
+  await panel.panel.getByRole('menu', { name: 'Element requests' }).getByRole('menuitem', { name: label, exact: true }).click()
 }
 
 async function calls(root) {
