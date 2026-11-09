@@ -108,6 +108,26 @@ fn decluttered_triangles_at_block_zoom() {
     );
 }
 
+/// The panel primitives at a reading zoom under 1 (dsh-uml-viewer#24): a
+/// selected (marked) dependency port, its sibling ports and arrows, α/I,
+/// level numbers and stereotypes, all scaled and rounded like the window.
+#[test]
+fn a_selected_port_marks_itself_at_reading_zoom() {
+    golden(
+        "core-port-selected",
+        &[
+            "--focus",
+            "[:core]",
+            "--select",
+            "{:kind :port :id :api :parent :core.order :dir :in}",
+            "--zoom",
+            "0.6",
+            "--camera",
+            "0,40",
+        ],
+    );
+}
+
 #[test]
 fn a_proposal_names_itself_on_the_banner() {
     golden(

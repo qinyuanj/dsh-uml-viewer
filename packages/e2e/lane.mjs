@@ -83,7 +83,9 @@ export async function launchViewerLane(browser) {
       await composer.click()
       await composer.fill('Render the sample diagram')
       await composer.press('Enter')
-      await expect(summary).toContainText(project === 'shop' ? 'Shop' : 'Ledger', { timeout: 45_000 })
+      await expect(page.getByText('The isolated mock model displayed the generated IR.', { exact: false }).last())
+        .toBeVisible({ timeout: 45_000 })
+      await expect(summary).toContainText(`${project[0].toUpperCase()}${project.slice(1)}`, { timeout: 45_000 })
       if (project === 'ledger') await expect(summary).toHaveAttribute('data-view', 'proposal')
       expect(problems).toEqual([])
       return { page, panel, canvas, summary, before: await summary.innerText(), problems }
@@ -103,6 +105,17 @@ export async function launchViewerLane(browser) {
     await panel.page.mouse.up()
   }
 
+  /** Real wheel notches over the canvas centre; positive `notches` zoom out. */
+  async function wheel(panel, notches) {
+    const box = await panel.canvas.boundingBox()
+    if (!box) throw new Error('panel canvas has no box')
+    await panel.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    for (let i = 0; i < Math.abs(notches); i += 1) {
+      await panel.page.mouse.wheel(0, Math.sign(notches) * 100)
+      await panel.page.waitForTimeout(30)
+    }
+  }
+
   async function sendPrompt(panel, text) {
     const composer = panel.page.locator('[data-composer-input]').first()
     await composer.click()
@@ -118,5 +131,5 @@ export async function launchViewerLane(browser) {
     return file
   }
 
-  return { home, host, mock, projects, openPanel, pan, sendPrompt, screenshot, close }
+  return { home, host, mock, projects, openPanel, pan, wheel, sendPrompt, screenshot, close }
 }

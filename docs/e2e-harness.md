@@ -65,8 +65,10 @@ state.
 
 ## Sample projects
 
-`packages/e2e/projects.mjs` copies two distinct TypeScript projects into the
-scratch home: `shop` and `ledger`. Each has its own `policy.edn`, source files
+`packages/e2e/projects.mjs` copies three TypeScript projects into the
+scratch home: `shop`, `ledger` and `atlas` (the panel-primitives sample of
+#24: an interface, a CJK-named module, two architecture levels and `react` as
+a foreign package, all unmeasured). Each has its own `policy.edn`, source files
 and proposal. The scripted agent runs the real binary's `ir` subcommand, so the
 scene comes from real IR and the real resident, not a checked-in SceneFrame.
 The Rust scene-frame goldens remain the contract for the frame validator and
@@ -97,6 +99,24 @@ failure kind), `data-context` (`real` or `proposal`), and text of the form
 frame and context events that paint the Canvas. It gives later tickets a
 user-readable assertion seam without reaching into client internals.
 
+`primitives.spec.mjs` (#24) is the Playwright form of the egui class-box
+driver scenarios (`scripts/drivers/class_boxes.edn`, `font_parity.edn`,
+`lod_shots.edn`). It reads the real panel canvas pixel by pixel and compares
+it with the real producer frame for the same view: `canvas.mjs` runs
+`uml-viewer scene --frame --wide` with the panel's viewport and the camera
+from its summary, so the expected geometry comes from Rust, not from the
+painter under test. It asserts the translucent, dashed component box; the
+dashed unmeasured class frames; class names, level numbers, the I marker and
+«interface» inked at their producer positions; no label past a box edge; the
+foreign-package ellipse (canvas in its bounding-box corner, solid ring);
+Sarasa advances (CJK 1 em, Latin 0.5 em); and, after real wheel notches to the
+`frames` tier, names without the full tier's band and member lines. The egui
+italic glyph-vertex assertion has no Canvas counterpart; the italic font
+choice is covered by `packages/client/tests/primitives.test.ts`. Dependency
+ports appear only in a drilled-in view, which the panel cannot reach until
+#23 adds drill-in, so they are asserted against the `core-port-selected`
+golden in that unit suite.
+
 This ticket does not assert survival across a DSH restart. The `uml_display`
 gate is process-local (#21 residual); cross-restart restoration belongs to #23.
 
@@ -115,6 +135,7 @@ host bootstrap.
 | `projects` | `{ shop, ledger }` absolute sample roots |
 | `openPanel(name)` | create/select that session, open the sidebar tab, render IR, and return `{ page, panel, canvas, summary, before, problems }` |
 | `pan(panel)` | real pointer drag on that panel's canvas |
+| `wheel(panel, notches)` | real wheel notches over the canvas centre; positive zooms out |
 | `sendPrompt(panel, text)` | send a visible composer message in that session |
 | `screenshot(panel, name)` | write a full-page scratch screenshot |
 | `close()` | close browser contexts, host and mock, in that order |
@@ -126,8 +147,10 @@ the run home (`<project>-failure.txt` and `.png`), and the Playwright trace in
 `.scratch/e2e/results/`.
 
 Lower-level helpers are exported from `dsh-web.mjs` (`startDshWeb`,
-`bootDshWeb`, `dismissOverlays`), `mock-llm.mjs` (`startMockLlm`) and
-`projects.mjs` (`makeProjects`). A later ticket that needs another project
+`bootDshWeb`, `dismissOverlays`), `mock-llm.mjs` (`startMockLlm`),
+`projects.mjs` (`makeProjects`) and `canvas.mjs` (`producerFrame`,
+`panelCamera`, `sample`, `inkCount`: canvas pixel reads against the producer
+oracle). A later ticket that needs another project
 should add it to `makeProjects` and the workspace registry rather than editing
 the host bootstrap.
 

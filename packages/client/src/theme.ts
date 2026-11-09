@@ -168,6 +168,17 @@ export interface Theme {
   frame(role: string, grade?: number | null, ratio?: number | null): string
 }
 
+/** Package ramp alphas, 0-255, from `frame::theme` (docs/scene-frame.md). */
+const PACKAGE_FILL_ALPHA = 80
+const PACKAGE_STROKE_ALPHA = 170
+
+/** `rgba(r, g, b, a)` for a `#rrggbb` ramp color and a 0-255 alpha. */
+function withAlpha(color: string, alpha: number): string {
+  const n = hexChannel(color)
+  if (n < 0) return color
+  return `rgba(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}, ${Number((alpha / 255).toFixed(4))})`
+}
+
 function quality(grade: number | null, ramp: readonly [string, string, string], neutral: string): string {
   if (grade === null) return neutral
   const g = Math.min(10, Math.max(0, grade))
@@ -193,11 +204,14 @@ export function resolveTheme(el: HTMLElement): Theme {
   const frame = (role: string, grade: number | null = null, ratio: number | null = null): string => {
     switch (role) {
       case 'quality-fill':
-      case 'package-fill':
         return quality(grade, hues.fill, hues.neutralFill)
+      case 'package-fill':
+        // A component box is the quality ramp seen through (frame::theme: alpha 80).
+        return withAlpha(quality(grade, hues.fill, hues.neutralFill), PACKAGE_FILL_ALPHA)
       case 'quality-stroke':
-      case 'package-stroke':
         return quality(grade, hues.stroke, hues.neutralStroke)
+      case 'package-stroke':
+        return withAlpha(quality(grade, hues.stroke, hues.neutralStroke), PACKAGE_STROKE_ALPHA)
       case 'violation':
         return hues.violation
       case 'violation-hot':

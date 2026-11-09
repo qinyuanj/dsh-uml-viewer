@@ -4,9 +4,15 @@
  * geometry. Colors resolve through host theme tokens where the theme supplies
  * one, so the panel follows light/dark; the quality and violation roles keep
  * their hue and only change lightness with the mode.
+ *
+ * World primitives follow the native egui painter (crates/viewer/src/paint.rs)
+ * rule for rule: font sizes on whole pixels, corner radii dropped under 2 px,
+ * rect outlines stroked inside the rect, unmeasured outlines dashed square,
+ * foreign-package ellipses never dashed, and at the overview tiers class names
+ * painted after every box.
  */
 import type { SceneFrame } from '@dsh-uml-viewer/contracts'
-import { fittedSize, Measure, rectVisible, viewTransform, worldToScreen, type ViewTransform } from './fit.js'
+import { cornerPx, fittedSize, fontPx, Measure, rectVisible, viewTransform, worldToScreen, type ViewTransform } from './fit.js'
 import { resolveTheme } from './theme.js'
 
 export const FONT_STACK = '"UML Viewer Sarasa", "Sarasa Mono SC", monospace'
@@ -19,6 +25,22 @@ interface Painter {
   theme: ReturnType<typeof resolveTheme>
   measure: Measure
   frame: SceneFrame
+  /** The tier of the zoom on screen (a local pan/zoom keeps the producer's items). */
+  lod: SceneFrame['lod']
+  /** Overview class names, drawn after every world item (native `names`). */
+  deferred: (() => void)[] | null
+}
+
+/**
+ * The tier for the camera's zoom (`style.lodZoom`, like the native
+ * `lod::tier`). The producer tags every item with its coarsest tier, so a
+ * frame drawn after a local wheel zoom paints exactly the window's tier.
+ */
+export function tierOf(frame: SceneFrame): SceneFrame['lod'] {
+  const zoom = frame.camera.zoom > 0 ? frame.camera.zoom : 1
+  if (zoom < frame.style.lodZoom.frames) return 'blocks'
+  if (zoom < frame.style.lodZoom.full) return 'frames'
+  return 'full'
 }
 
 function dimAlpha(frame: SceneFrame): number {
@@ -35,6 +57,45 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.arcTo(x, y + h, x, y, rr)
   ctx.arcTo(x, y, x + w, y, rr)
   ctx.closePath()
+}
+
+/** egui `rect_filled` + `rect_stroke(StrokeKind::Inside)`, or `dashed_rect` when unmeasured. */
+function box(
+  p: Painter,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  corner: number,
+  fill: string,
+  stroke: string,
+  lineWidth: number,
+  dashed: boolean,
+): void {
+  const { ctx, frame } = p
+  ctx.setLineDash([])
+  ctx.fillStyle = fill
+  roundRect(ctx, x, y, w, h, corner)
+  ctx.fill()
+  ctx.strokeStyle = stroke
+  ctx.lineWidth = lineWidth
+  if (dashed) {
+    // The four edges of the rect, dash and gap in screen points, square corners.
+    ctx.setLineDash([frame.style.widths.dash, frame.style.widths.dashGap])
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+    ctx.lineTo(x + w, y)
+    ctx.lineTo(x + w, y + h)
+    ctx.lineTo(x, y + h)
+    ctx.closePath()
+    ctx.stroke()
+    ctx.setLineDash([])
+    return
+  }
+  // An inside stroke: the centre line runs half the width in from the edge.
+  const inset = Math.min(lineWidth / 2, w / 2, h / 2)
+  roundRect(ctx, x + inset, y + inset, w - 2 * inset, h - 2 * inset, Math.max(0, corner - inset))
+  ctx.stroke()
 }
 
 function polyline(ctx: CanvasRenderingContext2D, view: ViewTransform, points: readonly (readonly [number, number])[]): void {
@@ -85,42 +146,47 @@ function headPath(
   ctx.closePath()
 }
 
-function text(
+interface TextOptions {
+  bold?: boolean
+  italic?: boolean
+  align?: 'left' | 'center' | 'right'
+  baseline?: 'top' | 'middle'
+}
+
+/** Chrome and badge text: one draw at `px`, vertically centred on `y` by default. */
+function text(p: Painter, value: string, x: number, y: number, px: number, color: string, opts: TextOptions = {}): void {
+  const { ctx } = p
+  if (px < p.frame.style.minTextPx) return
+  ctx.font = `${opts.italic ? 'italic ' : ''}${px}px ${FONT_STACK}`
+  ctx.fillStyle = color
+  ctx.textBaseline = opts.baseline ?? 'middle'
+  ctx.textAlign = opts.align ?? 'left'
+  ctx.fillText(value, x, y)
+  if (opts.bold) {
+    // Bold is a second pass offset by 0.05·px, as the native draw_text does.
+    ctx.fillText(value, x + px * 0.05, y)
+  }
+}
+
+/**
+ * Native `draw_text` for canvas labels: `y` is the top of the label, `px` a
+ * whole-pixel size; with a `budget` (screen points) the label shrinks to the
+ * largest whole pixel that fits, measured in the packaged Sarasa face.
+ */
+function label(
   p: Painter,
   value: string,
   x: number,
   y: number,
   px: number,
   color: string,
-  opts: { bold?: boolean; italic?: boolean; align?: 'left' | 'center' | 'right' } = {},
+  opts: TextOptions & { budget?: number } = {},
 ): void {
-  const { ctx } = p
-  if (px < p.frame.style.minTextPx) return
-  ctx.font = `${opts.italic ? 'italic ' : ''}${opts.bold ? 'bold ' : ''}${px}px ${FONT_STACK}`
-  ctx.fillStyle = color
-  ctx.textBaseline = 'middle'
-  ctx.textAlign = opts.align ?? 'left'
-  ctx.fillText(value, x, y)
-  if (opts.bold && (opts.align ?? 'left') === 'left') {
-    // Bold is a second pass offset by 0.05·px, as the producer's frame does.
-    ctx.fillText(value, x + px * 0.05, y)
-  }
-}
-
-/** A fitted text draw: shrink to `maxW` when the face needs it. */
-function fittedText(
-  p: Painter,
-  value: string,
-  x: number,
-  y: number,
-  size: number,
-  maxW: number,
-  color: string,
-  opts: { bold?: boolean; italic?: boolean; align?: 'left' | 'center' | 'right'; zoom?: number } = {},
-): void {
-  const zoom = opts.zoom ?? p.view.zoom
-  const fitted = fittedSize(p.measure.measure.bind(p.measure), size, value, maxW, opts.bold ?? false, opts.italic ?? false)
-  text(p, value, x, y, fitted * zoom, color, opts)
+  if (value === '' || px < 1) return
+  const size = opts.budget === undefined
+    ? px
+    : fittedSize(p.measure.measure.bind(p.measure), px, value, opts.budget, opts.bold ?? false, opts.italic ?? false)
+  text(p, value, x, y, size, color, { ...opts, baseline: 'top' })
 }
 
 export function paintFrame(frame: SceneFrame, canvas: HTMLCanvasElement): void {
@@ -136,9 +202,10 @@ export function paintFrame(frame: SceneFrame, canvas: HTMLCanvasElement): void {
 
   const theme = resolveTheme(canvas)
   const view = viewTransform(frame, frame.viewport.width, frame.viewport.height)
+  const lod = tierOf(frame)
   const p: Painter = {
     ctx, view, width: frame.viewport.width, height: frame.viewport.height, theme,
-    measure: new Measure(ctx), frame,
+    measure: new Measure(ctx), frame, lod, deferred: lod === 'full' ? null : [],
   }
 
   ctx.globalAlpha = 1
@@ -153,40 +220,33 @@ export function paintFrame(frame: SceneFrame, canvas: HTMLCanvasElement): void {
   }
 
   for (const item of frame.world) paintWorld(p, item)
+  for (const draw of p.deferred ?? []) draw()
   for (const edge of frame.edges) paintEdge(p, edge)
   for (const item of frame.chrome) paintChrome(p, item)
 }
 
 function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
   const { ctx, view, theme, frame } = p
-  const lod = frame.lod
+  const lod = p.lod
+  const zoom = view.zoom
   const atOrBelow = (tier: 'blocks' | 'frames' | 'full'): boolean =>
     lod === 'blocks' ? tier === 'blocks' : lod === 'frames' ? tier !== 'full' : true
   const colorOf = (c: { role: string; grade?: number | null; ratio?: number | null }): string =>
     theme.frame(c.role, c.grade ?? null, c.ratio ?? null)
+  const alphaOf = (dimmed: boolean): number => (dimmed ? dimAlpha(frame) : 1)
 
   switch (item.kind) {
     case 'package': {
       if (!atOrBelow('blocks')) return
-      const [sx, sy] = worldToScreen(view, item.rect.x, item.rect.y)
-      const sw = item.rect.w * view.zoom
-      const sh = item.rect.h * view.zoom
       if (!rectVisible(view, item.rect.w, item.rect.h)) return
-      const radius = frame.style.radius.package * view.zoom
-      ctx.setLineDash(item.missing ? [frame.style.widths.dash, frame.style.widths.dashGap] : [])
-      ctx.globalAlpha = item.dimmed ? dimAlpha(frame) : 1
-      ctx.fillStyle = colorOf(item.fill)
-      ctx.strokeStyle = colorOf(item.selected ? { role: 'selected' } : item.stroke)
-      ctx.lineWidth = item.strokeWidth
-      roundRect(ctx, sx, sy, sw, sh, Math.max(0, Math.min(radius, sw / 2, sh / 2)))
-      ctx.fill()
-      ctx.stroke()
-      ctx.setLineDash([])
+      const [sx, sy] = worldToScreen(view, item.rect.x, item.rect.y)
+      ctx.globalAlpha = alphaOf(item.dimmed)
+      box(p, sx, sy, item.rect.w * zoom, item.rect.h * zoom, cornerPx(frame.style.radius.package, zoom),
+        colorOf(item.fill), colorOf(item.stroke), item.strokeWidth, item.missing)
       if (item.text !== null) {
-        // The title dims with its box, as the native ink(*title, *dimmed).
-        const [tx, ty] = worldToScreen(view, item.rect.x + 12, item.rect.y + 8)
-        fittedText(p, item.text, tx, ty + (item.size * view.zoom) / 2, item.size, item.maxW,
-          colorOf(item.ink), { italic: true, zoom: view.zoom })
+        // The italic title at (12, 8) scaled, fitted to maxW; it dims with its box.
+        label(p, item.text, sx + 12 * zoom, sy + 8 * zoom, fontPx(item.size, zoom), colorOf(item.ink),
+          { italic: true, budget: item.maxW * zoom })
       }
       ctx.globalAlpha = 1
       return
@@ -195,41 +255,41 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
       if (!atOrBelow('blocks')) return
       if (!rectVisible(view, item.rect.w, item.rect.h)) return
       const [sx, sy] = worldToScreen(view, item.rect.x, item.rect.y)
-      const sw = item.rect.w * view.zoom
-      const sh = item.rect.h * view.zoom
-      ctx.setLineDash(item.missing ? [frame.style.widths.dash, frame.style.widths.dashGap] : [])
-      ctx.globalAlpha = item.dimmed ? dimAlpha(frame) : 1
-      ctx.fillStyle = colorOf(item.fill)
-      ctx.strokeStyle = colorOf(item.selected ? { role: 'selected' } : item.stroke)
-      ctx.lineWidth = item.strokeWidth
+      const sw = item.rect.w * zoom
+      const sh = item.rect.h * zoom
+      ctx.globalAlpha = alphaOf(item.dimmed)
       if (item.shape === 'oval') {
+        // 外来包椭圆: a filled ellipse with a middle stroke, never dashed.
+        ctx.setLineDash([])
+        ctx.fillStyle = colorOf(item.fill)
+        ctx.strokeStyle = colorOf(item.stroke)
+        ctx.lineWidth = item.strokeWidth
         ctx.beginPath()
         ctx.ellipse(sx + sw / 2, sy + sh / 2, sw / 2, sh / 2, 0, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
       } else {
-        roundRect(ctx, sx, sy, sw, sh, Math.max(0, Math.min(frame.style.radius.class * view.zoom, sw / 2, sh / 2)))
+        box(p, sx, sy, sw, sh, cornerPx(frame.style.radius.class, zoom), colorOf(item.fill), colorOf(item.stroke),
+          item.strokeWidth, item.missing)
       }
-      ctx.fill()
-      ctx.stroke()
-      ctx.setLineDash([])
       ctx.globalAlpha = 1
       return
     }
     case 'quality': {
       if (!atOrBelow('frames')) return
       const [cx, cy] = worldToScreen(view, item.center[0], item.center[1])
-      const radius = item.radius * view.zoom
-      if (radius < 0.5) return
-      ctx.globalAlpha = item.dimmed ? dimAlpha(frame) : 1
+      const radius = item.radius * zoom
+      ctx.globalAlpha = alphaOf(item.dimmed)
       ctx.fillStyle = colorOf(item.fill)
       ctx.strokeStyle = colorOf(item.stroke)
-      ctx.lineWidth = Math.max(1, frame.style.widths.dot)
+      ctx.lineWidth = frame.style.widths.dot
       ctx.beginPath()
       ctx.arc(cx, cy, radius, 0, Math.PI * 2)
       ctx.fill()
       ctx.stroke()
       if (lod === 'full') {
         // The letter dims with its badge, as the native ink(*letter, *dimmed).
-        text(p, item.text, cx, cy, frame.style.fonts.badge * view.zoom, colorOf(item.ink), { align: 'center' })
+        text(p, item.text, cx, cy, fontPx(frame.style.fonts.badge, zoom), colorOf(item.ink), { align: 'center' })
       }
       ctx.globalAlpha = 1
       return
@@ -238,8 +298,8 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
     case 'level': {
       if (lod !== 'full') return
       const [sx, sy] = worldToScreen(view, item.at[0], item.at[1])
-      ctx.globalAlpha = item.dimmed ? dimAlpha(frame) : 1
-      text(p, item.text, sx, sy + (item.size * view.zoom) / 2, item.size * view.zoom, colorOf(item.ink))
+      ctx.globalAlpha = alphaOf(item.dimmed)
+      label(p, item.text, sx, sy, fontPx(item.size, zoom), colorOf(item.ink))
       ctx.globalAlpha = 1
       return
     }
@@ -248,7 +308,7 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
       if (lod !== 'full') return
       const [fx, fy] = worldToScreen(view, item.from[0], item.from[1])
       const [tx, ty] = worldToScreen(view, item.to[0], item.to[1])
-      ctx.globalAlpha = item.dimmed ? dimAlpha(frame) : 1
+      ctx.globalAlpha = alphaOf(item.dimmed)
       ctx.strokeStyle = colorOf(item.stroke)
       ctx.lineWidth = item.kind === 'band' ? frame.style.widths.band : frame.style.widths.rule
       ctx.beginPath()
@@ -260,34 +320,43 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
     }
     case 'text': {
       if (item.line === 'name' ? !atOrBelow('frames') : lod !== 'full') return
-      const size = item.slot * view.zoom
-      if (size < frame.style.minTextPx) return
-      const [sx, sy] = worldToScreen(view, item.center ? item.x + item.maxW / 2 : item.x, item.top + item.slot / 2)
-      ctx.globalAlpha = item.dimmed ? dimAlpha(frame) : 1
-      fittedText(p, item.text ?? '', sx, sy, item.slot, item.maxW, colorOf(item.ink),
-        { bold: item.bold, italic: item.italic, align: item.center ? 'center' : 'left' })
-      ctx.globalAlpha = 1
+      const px = fontPx(item.slot, zoom)
+      if (px < frame.style.minTextPx) return
+      const left = item.center ? item.x + item.maxW / 2 : item.x
+      const [sx, top] = worldToScreen(view, left, item.top)
+      // Centred in its slot by the unfitted size, like the native base_y.
+      const sy = top + Math.max(0, (item.slot * zoom - px) / 2)
+      const ink = colorOf(item.ink)
+      const alpha = alphaOf(item.dimmed)
+      const draw = (): void => {
+        ctx.globalAlpha = alpha
+        label(p, item.text ?? '', sx, sy, px, ink,
+          { bold: item.bold, italic: item.italic, align: item.center ? 'center' : 'left', budget: item.maxW * zoom })
+        ctx.globalAlpha = 1
+      }
+      if (p.deferred) p.deferred.push(draw)
+      else draw()
       return
     }
     case 'no-data': {
       if (lod !== 'full') return
       const [sx, sy] = worldToScreen(view, item.right, item.y)
-      ctx.globalAlpha = item.dimmed ? dimAlpha(frame) : 1
-      text(p, item.text, sx, sy, item.size * view.zoom, colorOf(item.ink), { align: 'right' })
+      ctx.globalAlpha = alphaOf(item.dimmed)
+      label(p, item.text, sx, sy, fontPx(item.size, zoom), colorOf(item.ink), { align: 'right' })
       ctx.globalAlpha = 1
       return
     }
     case 'child-wash': {
       if (lod !== 'full') return
       const [sx, sy] = worldToScreen(view, item.rect.x, item.rect.y)
-      const sw = item.rect.w * view.zoom
-      const sh = item.rect.h * view.zoom
-      ctx.globalAlpha = item.dimmed ? dimAlpha(frame) : 1
+      const sw = item.rect.w * zoom
+      const sh = item.rect.h * zoom
+      ctx.globalAlpha = alphaOf(item.dimmed)
       ctx.fillStyle = colorOf(item.marker.wash)
-      roundRect(ctx, sx, sy, sw, sh, Math.max(0, frame.style.radius.rowWash * view.zoom))
+      roundRect(ctx, sx, sy, sw, sh, cornerPx(frame.style.radius.rowWash, zoom))
       ctx.fill()
       ctx.fillStyle = colorOf(item.marker.bar)
-      ctx.fillRect(sx, sy, item.marker.barWidth * view.zoom, sh)
+      ctx.fillRect(sx, sy, item.marker.barWidth * zoom, sh)
       ctx.globalAlpha = 1
       return
     }
@@ -295,31 +364,29 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
       if (lod !== 'full') return
       const [fx, fy] = worldToScreen(view, item.behind[0], item.behind[1])
       const [tx, ty] = worldToScreen(view, item.tip[0], item.tip[1])
-      ctx.globalAlpha = item.dimmed ? dimAlpha(frame) : 1
+      ctx.globalAlpha = alphaOf(item.dimmed)
       ctx.strokeStyle = colorOf(item.stroke)
-      ctx.lineWidth = Math.max(1, frame.style.widths.portLink)
+      ctx.lineWidth = frame.style.widths.portLink
       ctx.beginPath()
       ctx.moveTo(fx, fy)
       ctx.lineTo(tx, ty)
       ctx.stroke()
-      arrowheadOpen(ctx, tx, ty, fx, fy, 10 * view.zoom)
+      // The head is 10 screen points at any zoom.
+      if (fx !== tx || fy !== ty) arrowheadOpen(ctx, tx, ty, fx, fy, 10)
       ctx.globalAlpha = 1
       return
     }
     case 'port': {
       if (lod !== 'full') return
       const [sx, sy] = worldToScreen(view, item.rect.x, item.rect.y)
-      const sw = item.rect.w * view.zoom
-      const sh = item.rect.h * view.zoom
-      ctx.globalAlpha = item.dimmed ? dimAlpha(frame) : 1
-      ctx.fillStyle = colorOf(item.marked ? { role: 'port-fill-marked' } : item.fill)
-      ctx.strokeStyle = colorOf(item.stroke)
-      ctx.lineWidth = item.strokeWidth
-      roundRect(ctx, sx, sy, sw, sh, Math.max(0, Math.min(frame.style.radius.port * view.zoom, sw / 2, sh / 2)))
-      ctx.fill()
-      ctx.stroke()
-      fittedText(p, item.text, sx + sw / 2, sy + sh / 2, frame.style.fonts.port, item.rect.w - 6,
-        colorOf(item.ink), { align: 'center' })
+      const sw = item.rect.w * zoom
+      const sh = item.rect.h * zoom
+      ctx.globalAlpha = alphaOf(item.dimmed)
+      box(p, sx, sy, sw, sh, cornerPx(frame.style.radius.port, zoom), colorOf(item.fill), colorOf(item.stroke),
+        item.strokeWidth, false)
+      // Centred, its top 5 points (scaled) above the port's centre.
+      label(p, item.text, sx + sw / 2, sy + sh / 2 - 5 * zoom, fontPx(frame.style.fonts.port, zoom), colorOf(item.ink),
+        { align: 'center', budget: sw - 6 * zoom })
       ctx.globalAlpha = 1
       return
     }
@@ -331,7 +398,7 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
 
 function paintEdge(p: Painter, edge: SceneFrame['edges'][number]): void {
   const { ctx, view, theme, frame } = p
-  const lod = frame.lod
+  const lod = p.lod
   const colorOf = (c: { role: string; grade?: number | null; ratio?: number | null }): string =>
     theme.frame(c.role, c.grade ?? null, c.ratio ?? null)
 
