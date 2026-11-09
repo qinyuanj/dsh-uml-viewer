@@ -40,11 +40,60 @@ The host chooses and pins the executable at activation, in this order:
    checkout**, with `.exe` on Windows.
 
 In an assembled package, activation resolves the matching exact-version
-`@dsh-uml-viewer/<platform>-<arch>` optional dependency and copies its binary
-to `<plugin home>/versions/<version>/`. All calls in that activation use the
+`@dsh-uml-viewer/<platform>-<arch>` optional dependency and publishes its
+binary to `<plugin home>/<version>/`. All calls in an activation use the
 pinned copy. Unsupported combinations and missing/mismatched dependencies
 fail before tools register, with an actionable reason. Config/environment
 overrides remain available for trusted development.
+
+### Version lifecycle (#32)
+
+The plugin home holds one directory per plugin version (`1.0.0/uml-viewer.exe`
+or `1.0.0/uml-viewer`) plus `current.json` — the last version an activation
+pinned, with the payload's size and SHA-256. Publishing is atomic and never
+rewrites a version in place: the payload is copied into a private
+`.staging-<uuid>/`, its size and SHA-256 are verified against the installed
+platform package, and only then is the directory renamed into place. Six
+concurrent loads therefore produce one intact copy, and the losers verify and
+reuse the winner.
+
+An update only reaches a fresh open. Every activation pins its own argv once
+and leases that version for as long as it may start a process: the lease file
+`leases/<version>/<pid>-<uuid>.lease` is written before the first spawn, its
+mtime is a heartbeat, and both residents and tool calls hold it until the
+child actually exits. Open panels keep their resident across a plugin
+replacement — a root-owned pool hands their actions to the old child while a
+new activation starts new sessions with the new version.
+
+A panel stream ending is **not** a panel close (D13). The gateway aborts the
+method signal and returns the stream whenever the browser half is unloaded, a
+carrier reconnects, or the panel moves between the sidebar and the main page,
+so the resident is kept for one bounded window (`WITHDRAWAL_GRACE_MS`, 30 s)
+waiting for the same session to re-attach. A remount inside that window joins
+the waiting child: same resident, same version, still one child and one lease.
+The panel's own `close` call, the window expiring with nobody attached, plugin
+uninstall and DSH shutdown stop it (each saves the view first), and only then
+does a later open start vN+1. So an in-session remount keeps vN; a **full page
+reload or app restart is a fresh open and legitimately runs vN+1**.
+
+Cleanup removes only version directories that are neither current nor leased
+by a live owner. A lease whose heartbeat is old but whose PID is still alive
+(DSH suspended) keeps its version; a lease with no live owner (crashed DSH) is
+dropped, and its version is retired by renaming it to `.trash-<uuid>` and
+deleting it. Windows needs no separate failure path: the plugin probes whether
+anything still maps the payload (a running exe cannot be opened for writing)
+and, if so, leaves the directory in place and retries at the next activation or
+lease release. It never kills a process to free a directory. `current.json`,
+unknown directories and DSH's own session state are never removed.
+
+Two consequences are deliberate. A version directory whose bytes differ from
+the installed payload is never written into: when another live activation holds
+it, activation refuses with the holder's PID instead of replacing a running
+executable (a same-version repack while a panel is open needs that panel closed
+first). And `current.json` records the version the latest activation pinned, so
+it follows whatever activation ran last, not necessarily the newest directory
+on disk. A `<plugin home>/versions/` directory from a pre-#32 build is left
+untouched; it is development-only and can be deleted by hand.
 
 There is no PATH or legacy `.uml-viewer/` fallback and no automatic build. A
 missing binary fails activation with an actionable reason. To use a separate Cargo
@@ -92,6 +141,22 @@ the binary's own path and policy validation still apply. With no policy argument
 `examples/<project-directory>.policy.edn`, otherwise the first sorted
 `examples/*.policy.edn`, otherwise `policy.edn`. With no output argument the
 binary uses the policy's `:out`, otherwise `diagram.edn`.
+
+`uml_ir` also takes `request`, the 32-hex `:request` id of a panel request that
+needs no quality refresh (#29: Hide sends `:omit`, 新建提案 sends
+`:new-proposal`). The host issues the id (128 random bits) when it queues the
+visible message, bound to that session; the first `uml_ir` that presents it
+consumes it, whatever the IR outcome. It skips only the "latest quality call
+failed" refusal: the IR still waits behind a quality call in progress, and
+`uml_display` still needs that IR to succeed. An unknown, used or other-session
+id is refused with a reason. A session keeps at most 32 pending ids (oldest
+dropped), an id DSH did not admit is withdrawn, and all ids end with the plugin
+activation, so after a plugin reload or a DSH restart the companion runs
+`uml_ir` without one. Choosing the discussion context switches the resident
+first and then queues `{:op :context …}`; it changes no file and carries no id.
+All panel requests of a session (quality, Hide, context, 新建提案) are
+admitted one at a time in click order through `sessionController.prompt`
+with `mode: 'queue'`, so the composer draft is never touched.
 
 Each call resolves `ctx.sandboxPolicy` with the actual session. Read-only
 refuses with a reason and no child. Workspace-write uses
@@ -204,10 +269,19 @@ The host's `dsh.ts` is a narrow structural boundary to the inspected DSH
 0.2.2-rc.1 services; `process.ts` owns confinement and bounded subprocess
 execution; `runner.ts` composes IR arguments and the tool result; `quality.ts`
 runs a quality operation and validates its stdout record; `binary.ts` owns
-executable location; `policy.ts` owns default policy selection; `index.ts` owns
+executable location, `versions.ts` the leased version directories;
+`policy.ts` owns default policy selection; `index.ts` owns
 the tool definitions, the IR handler's quality check and effect lifetime.
 `gate.ts` holds both per-session gates: the latest quality outcome with its FIFO,
-and the IR success `uml_display` requires.
+and the IR success `uml_display` requires. `lifetime.ts` keeps panel state on
+the root context so a replaced activation's open panels keep their resident.
+That root state is the plugin's one dependence on a not-yet-stable Cordis API:
+`ctx.root` is `@experimental` in Cordis 4.1.0 (`context.ts`), the peer range is
+`~4.1.0`, and any Cordis upgrade must re-verify it or move the pool to a
+documented root-scoped service. The version seam fails loudly if it disappears;
+nothing falls back silently. The state itself is keyed by
+`Symbol.for('dsh-uml-viewer.panel-state.v1')`, so any change to the pooled
+`ResidentPool`/`ResidentConnection` shape must bump that version.
 
 The `uml_display` gate is a per-session record of this plugin's own `uml_ir`
 outcomes, written by the `uml_ir` tool and read by `uml_display`.
@@ -241,7 +315,15 @@ Local package acceptance uses only a scratch DSH home and profile.
 The seam tests load the host into a real Cordis 4.1 Context, provide controlled
 DSH services, and spawn a real fake binary through the subprocess seam. They
 check actual argv/cwd, results for exits 0/1/3, refusal, confinement, authority
-changes and unload cleanup. The quality seam adds a fake quality binary that
+changes and unload cleanup. The version seam runs fake resident payloads from
+scratch DSH homes under two plugin versions: a live vN panel and a fresh vN+1
+panel in the same root, a withdrawn stream (abort plus iterator return, as the
+gateway leaves it) with the same session remounting on the same vN child, an
+explicit close stopping it, root shutdown clearing a pending withdrawal window,
+six simultaneous real loaders for one version, cleanup
+of unleased directories only, and — on Windows — a resident running from a real
+copied `node.exe` while the plugin is updated. The quality seam adds a fake
+quality binary that
 emits the version-1 stdout line, so exits 0/1/3, signal termination, failed
 output readers, malformed records, FIFO ordering and the quality→IR→display
 gate are observed at the tool boundary. `.uml-viewer/` fixtures exist **before

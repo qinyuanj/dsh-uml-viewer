@@ -53,6 +53,21 @@ it('renders supplied inspector summary lines and proposal choices with host toke
   expect(all(tree, e => e.props.className === 'dsh-uml-summary-segments')[0]!.props.style.color).toBe('#e8c448')
 })
 
+it('offers 新建提案 below the proposals; a click asks for a timestamp-named proposal (#29)', () => {
+  const newProposal = vi.fn()
+  const tree = elements().Inspector!({ theme: theme(), controller: { choose: vi.fn(), namespaceTree: vi.fn(), newProposal }, state: { inspector: {
+    labels, declutterLabel: '精简：无',
+    entries: [{ id: null, label: 'Shop', active: true }],
+    summary: { kind: 'empty', lines: [] },
+  } } })
+  const button = all(tree, e => e.type === 'button' && text(e) === '新建提案')
+  expect(button).toHaveLength(1)
+  button[0]!.props.onClick()
+  expect(newProposal).toHaveBeenCalledTimes(1)
+  // The name is left to the controller, which reads the local clock.
+  expect(Object.prototype.toString.call(newProposal.mock.calls[0]![0])).toBe('[object Date]')
+})
+
 it('renders producer rows and sends member/module/relationship activations through the controller', () => {
   const openSource = vi.fn(), locate = vi.fn(), closeCard = vi.fn()
   const item = { kind: 'stats', y: 134, h: 18, text: '+ target()', color: { role: 'ink' }, titleFont: false,

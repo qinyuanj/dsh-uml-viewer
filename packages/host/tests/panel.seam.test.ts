@@ -135,6 +135,7 @@ async function setup(options: {
   const viewer = () => ctx.get('umlViewer') as unknown as {
     watch(agent: Agent, signal: AbortSignal): AsyncIterable<PanelEvent>
     action(agent: Agent, action: unknown): Promise<{ accepted: boolean; reason: string | null }>
+    close(agent: Agent): Promise<{ closed: boolean }>
   }
   const stream = (session: string) => {
     const controller = new AbortController()
@@ -143,7 +144,17 @@ async function setup(options: {
     return {
       controller,
       next: async () => (await iterator.next()) as IteratorResult<PanelEvent>,
-      close: async () => { controller.abort(); await iterator.return?.(undefined) },
+      /** A user close: the explicit Remote call, then the stream's own teardown. */
+      close: async () => {
+        await viewer().close(agents[session]!)
+        controller.abort()
+        await iterator.return?.(undefined)
+      },
+      /** A carrier loss: abort the signal and return the iterator, as the gateway does. */
+      withdraw: async () => {
+        controller.abort()
+        await iterator.return?.(undefined)
+      },
     }
   }
   /** Provide an optional service after the plugin loaded (Cordis starts a late fiber). */
@@ -369,7 +380,7 @@ it('streams the resident scene frame to the panel bound to that session', async 
     .toEqual(['open', 'reload', 'save', 'search', 'save', 'quit'])
 })
 
-it('keeps one resident per session and stops it when the last panel stream closes', async () => {
+it('keeps one resident per session and stops it when the last panel closes', async () => {
   const { stream, projects } = await setup()
   const first = stream('session-a')
   await timeout(first.next())
@@ -393,6 +404,31 @@ it('keeps one resident per session and stops it when the last panel stream close
   expect(['quit', 'stdin']).toContain(exit.reason)
   expect(existsSync(path.join(projects['session-b']!, 'resident-exit.json'))).toBe(false)
   await other.close()
+})
+
+it('keeps the resident through a withdrawn stream and stops it only on an explicit close', async () => {
+  const { stream, projects, prompts } = await setup()
+  const reader = stream('session-a')
+  await timeout(reader.next())
+  await timeout(reader.next())
+  // A carrier loss (a gateway reconnect, an HMR client swap) returns the
+  // iterator: the panel is gone from the transport but was never closed.
+  await reader.withdraw()
+  expect(existsSync(path.join(projects['session-a']!, 'resident-exit.json'))).toBe(false)
+  expect(prompts['session-a']!.sections).toEqual([])
+  // The same session remounts and joins the waiting resident: no second child,
+  // no second `open`, and the prompt section is back for the live stream.
+  const remount = stream('session-a')
+  await timeout(remount.next())
+  expect(prompts['session-a']!.sections).toHaveLength(1)
+  expect(await contentActions(projects['session-a']!)).toEqual(['open'])
+  await remount.close()
+  await timeout(new Promise<void>(resolve => {
+    const timer = setInterval(() => {
+      if (existsSync(path.join(projects['session-a']!, 'resident-exit.json'))) { clearInterval(timer); resolve() }
+    }, 25)
+  }))
+  expect(['quit', 'stdin']).toContain((await readJson(path.join(projects['session-a']!, 'resident-exit.json'))).reason)
 })
 
 it('hands a session from a closing sidebar stream to an opening main-page stream', async () => {

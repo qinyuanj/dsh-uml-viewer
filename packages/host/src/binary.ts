@@ -1,7 +1,10 @@
-import { chmodSync, constants, copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { pinVersion } from './versions.js'
+
+const unpinned = (argv: string[]): ActivatedBinary => ({ argv, retain: () => () => {}, release: () => {} })
 
 export interface Config {
   /** Absolute executable, or trusted argv prefix (for dev/test launchers). No shell. */
@@ -30,16 +33,17 @@ export interface BinaryPlatform {
 }
 
 /** Resolve once at activation. Callers retain this argv for the plugin lifetime. */
-export function activationBinary(config: Config, home: string | undefined, platform: BinaryPlatform = process): string[] {
+export function activationBinary(config: Config, home: string | undefined, platform: BinaryPlatform = process): ActivatedBinary {
   const target = `${platform.platform}-${platform.arch}`
   if (!['win32-x64', 'linux-x64', 'darwin-arm64', 'darwin-x64'].includes(target)) {
     throw new Error(`Unsupported uml-viewer platform: ${platform.platform}/${platform.arch}; supported: win32/x64, linux/x64, darwin/arm64, darwin/x64`)
   }
   const root = platform.root ?? packageRoot()
-  if (config.binary !== undefined || process.env.UML_VIEWER_BIN !== undefined) return binaryArgv(config, root)
+  // Trusted overrides and checkout builds are not versioned copies: nothing to lease.
+  if (config.binary !== undefined || process.env.UML_VIEWER_BIN !== undefined) return unpinned(binaryArgv(config, root))
   const manifest = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'))
   // Checkout development remains private and uses its local Cargo output.
-  if (manifest.private === true && !manifest.optionalDependencies) return binaryArgv(config, root)
+  if (manifest.private === true && !manifest.optionalDependencies) return unpinned(binaryArgv(config, root))
   const dependency = `@dsh-uml-viewer/${target}`
   if (manifest.optionalDependencies?.[dependency] !== manifest.version) {
     throw new Error(`Packaged dsh-uml-viewer is missing the exact ${dependency}@${manifest.version} optional dependency declaration`)
@@ -59,17 +63,20 @@ export function activationBinary(config: Config, home: string | undefined, platf
     throw new Error(`Cannot load packaged binary ${dependency}@${manifest.version}: ${error instanceof Error ? error.message : String(error)}. Reinstall dsh-uml-viewer with optional dependencies enabled.`)
   }
   if (!home) throw new Error('Cannot pin packaged uml-viewer binary: configure home or provide dshHomePath / DSH_HOME')
-  const directory = path.join(home, 'versions', manifest.version)
-  const binary = path.join(directory, name)
-  mkdirSync(directory, { recursive: true })
-  try {
-    // Never overwrite a version already used by this or another host process.
-    copyFileSync(source, binary, constants.COPYFILE_EXCL)
-    if (platform.platform !== 'win32') chmodSync(binary, 0o755)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-  }
-  return [binary]
+  // #32: `<home>/<version>/`, verified and leased for this activation. Every
+  // resident and tool call of the activation runs this copy, so an update
+  // only reaches panels opened by a later (fresh) activation.
+  const pinned = pinVersion(home, manifest.version, source, name, platform.platform)
+  return { argv: [pinned.binary], retain: pinned.retain, release: pinned.release }
+}
+
+/** The executable an activation pinned, and the hold it keeps on that version. */
+export interface ActivatedBinary {
+  readonly argv: string[]
+  /** A resident holds the pinned version until its actual process exit. */
+  retain(): () => void
+  /** Drop the activation's version lease after its residents stopped. */
+  release(): void
 }
 
 export function binaryArgv(config: Config, root?: string): string[] {

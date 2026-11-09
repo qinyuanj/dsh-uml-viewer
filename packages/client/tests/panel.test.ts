@@ -15,6 +15,8 @@ interface Harness {
   actions: { sessionId: string; action: PanelAction }[]
   statuses: PanelStatus[]
   painted: SceneFrame[]
+  /** The sessions this panel reported closed, in order. */
+  closes: string[]
   ended(): boolean
   emit(event: PanelEvent): void
   finish(): void
@@ -24,6 +26,7 @@ function harness(initial: PanelEvent[] = []): Harness {
   const actions: Harness['actions'] = []
   const statuses: PanelStatus[] = []
   const painted: SceneFrame[] = []
+  const closes: string[] = []
   const queue: PanelEvent[] = [...initial]
   let waiting: ((value: IteratorResult<PanelEvent>) => void) | null = null
   let done = false
@@ -54,6 +57,10 @@ function harness(initial: PanelEvent[] = []): Harness {
       actions.push({ sessionId, action })
       return { ok: true, value: { accepted: true, reason: null } }
     },
+    async close(sessionId: string) {
+      closes.push(sessionId)
+      return { closed: true }
+    },
   }
   const controller = new PanelController({
     canvas: fakeCanvas({ width: 800, height: 600 }),
@@ -66,6 +73,7 @@ function harness(initial: PanelEvent[] = []): Harness {
     actions,
     statuses,
     painted,
+    closes,
     ended: () => ended,
     emit(event: PanelEvent) {
       queue.push(event)
@@ -103,6 +111,24 @@ describe('session-bound panel stream', () => {
     await settle(() => h.actions.some(entry => entry.action.action === 'viewport'), 'the viewport action')
     expect(h.actions[0]).toMatchObject({ sessionId: 'session-a', action: { action: 'viewport', viewport: { width: 800, height: 600 } } })
     h.controller.close()
+  })
+
+  it('reports a close, but never a rebind of the same session, as closed', async () => {
+    const h = harness([{ kind: 'ready', actions: [] }])
+    await h.controller.open('session-a')
+    await settle(() => h.controller.current.kind === 'live', 'the ready event')
+    // The sidebar/main reparent rebinds the same session: nothing was closed,
+    // so the resident the new stream re-attaches to must not be told to stop.
+    await h.controller.open('session-a')
+    expect(h.closes).toEqual([])
+    // A different session is left behind: that one is closed.
+    await h.controller.open('session-b')
+    expect(h.closes).toEqual(['session-a'])
+    h.controller.close()
+    expect(h.closes).toEqual(['session-a', 'session-b'])
+    // Closing an already closed panel says nothing twice.
+    h.controller.close()
+    expect(h.closes).toEqual(['session-a', 'session-b'])
   })
 
   it('shows the host’s refusal reason instead of an empty canvas', async () => {

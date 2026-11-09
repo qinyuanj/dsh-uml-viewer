@@ -15,6 +15,7 @@ import type { CardModel, InspectorModel, SourceModel } from './overlays.js'
 import { validateCardModel, validateInspectorModel, validateSourceModel } from './overlays.js'
 import type { QualityRequestOp } from './requests.js'
 import { parseElementId, parseQualityRequestOp } from './requests.js'
+import { parseProposalName } from './view-requests.js'
 
 /** The Remote namespace the panel mounts. */
 export const REMOTE_SERVICE = 'umlViewer'
@@ -52,6 +53,10 @@ export type PanelAction =
   // #28: a right-click quality refresh. The host resolves the files and
   // queues the visible request message in this panel's session.
   | { action: 'quality-request'; request: QualityRequestOp; id: string }
+  // #29: hiding an element and adding a proposal are messages to this panel's
+  // session too; the companion edits the policy and regenerates the IR.
+  | { action: 'omit'; id: string }
+  | { action: 'new-proposal'; name?: string }
 
 /** One action's outcome; the events it caused arrive on the watch stream. */
 export interface PanelAck {
@@ -63,6 +68,17 @@ export interface PanelAck {
   card?: CardModel
   /** The opened source, when the action was `open-source`. */
   source?: SourceModel
+}
+
+/**
+ * The answer to the panel's explicit `close`. Only this call is a definite
+ * close: a watch stream ending on its own is a carrier loss (a reconnect, an
+ * HMR client swap, the sidebar/main reparent) and keeps the resident in its
+ * bounded grace (D13, #32).
+ */
+export interface PanelCloseAck {
+  /** Whether a resident was still there to close; false when it was already gone. */
+  closed: boolean
 }
 
 export interface RemoteSchema { parse(value: unknown): unknown }
@@ -233,6 +249,10 @@ export function parsePanelAction(value: unknown, label = 'panel action'): PanelA
         const member = source.member === undefined || source.member === null ? undefined : str(source.member, `${label}.member`)
         return { action, id: str(source.id, `${label}.id`), ...(member === undefined ? {} : { member }) }
       }
+      case 'omit':
+        return { action, id: parseElementId(source.id, `${label}.id`) }
+      case 'new-proposal':
+        return source.name === undefined || source.name === null ? { action } : { action, name: parseProposalName(source.name) }
       case 'quality-request':
         return { action, request: parseQualityRequestOp(source.request, `${label}.request`),
           id: parseElementId(source.id, `${label}.id`) }
@@ -257,6 +277,19 @@ function parseAck(value: unknown, label = 'panel ack'): PanelAck {
   if (source.card !== undefined && source.card !== null) ack.card = validateCardModel(source.card, `${label}.card`)
   if (source.source !== undefined && source.source !== null) ack.source = validateSourceModel(source.source, `${label}.source`)
   return ack
+}
+
+/** Validate the answer to the panel's explicit close. */
+function parseCloseAck(value: unknown, label = 'panel close ack'): PanelCloseAck {
+  try {
+    const source = record(value, label)
+    const closed = source.closed
+    if (typeof closed !== 'boolean') at(`${label}.closed`, 'must be a boolean')
+    return { closed }
+  } catch (error) {
+    if (error instanceof Invalid) throw new Error(error.message)
+    throw error
+  }
 }
 
 const codec = (name: string, parse: (value: unknown) => unknown): RemoteCodec => ({
@@ -298,6 +331,18 @@ export const REMOTE_DESCRIPTORS: readonly RemoteDescriptor[] = Object.freeze([
       { name: 'action', wire: 'action', source: 'json', codec: codec('PanelAction', value => parsePanelAction(value)) },
     ],
     result: codec('PanelAck', value => parseAck(value)),
+  },
+  {
+    // Additive to the version-1 panel protocol: the one definite close. A watch
+    // stream ending is a carrier loss and is not this call.
+    id: 'dsh-uml-viewer#umlViewer/close',
+    service: REMOTE_SERVICE,
+    namespace: REMOTE_SERVICE,
+    method: 'close',
+    invocation: { kind: 'direct' },
+    scope: { context: 'agent', wire: 'agentId' },
+    parameters: [{ name: 'agent', wire: 'agentId', source: 'lookup', lookup: 'agent', codec: agentId() }],
+    result: codec('PanelCloseAck', value => parseCloseAck(value)),
   },
 ])
 

@@ -11,10 +11,10 @@ const frames = path.resolve(fileURLToPath(new URL('../../../crates/frame/tests/f
 const root = JSON.parse(readFileSync(path.join(frames, 'root.frame.json'), 'utf8')) as unknown
 
 describe('panel Remote descriptors', () => {
-  it('declares one typed watch stream bound to the calling agent and one action call', () => {
+  it('declares one typed watch stream, one action call and the explicit close, all agent-bound', () => {
     const descriptors = UML_VIEWER_REMOTE.descriptors
     expect(UML_VIEWER_REMOTE.package).toBe('dsh-uml-viewer')
-    expect(descriptors.map(descriptor => descriptor.method).sort()).toEqual(['action', 'watch'])
+    expect(descriptors.map(descriptor => descriptor.method).sort()).toEqual(['action', 'close', 'watch'])
     expect(new Set(descriptors.map(descriptor => descriptor.id)).size).toBe(descriptors.length)
     const watch = descriptors.find(descriptor => descriptor.method === 'watch')!
     expect(watch.mode).toBe('stream')
@@ -27,6 +27,21 @@ describe('panel Remote descriptors', () => {
     const action = descriptors.find(descriptor => descriptor.method === 'action')!
     expect(action.mode).toBeUndefined()
     expect(action.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup'], ['action', 'json']])
+    // #32/D13 additive close: a watch stream ending is a carrier loss, so the
+    // panel needs one definite call of its own.
+    const close = descriptors.find(descriptor => descriptor.method === 'close')!
+    expect(close.id).toBe('dsh-uml-viewer#umlViewer/close')
+    expect(close.service).toBe(REMOTE_SERVICE)
+    expect(close.mode).toBeUndefined()
+    expect(close.cancellation).toBeUndefined()
+    expect(close.scope).toEqual({ context: 'agent', wire: 'agentId' })
+    expect(close.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup']])
+    expect(close.parameters[0]!.codec.typeSymbol).toBe('@deepseek-ai/dsh-session/types#SessionId')
+    expect(close.result.create().parse({ closed: true })).toEqual({ closed: true })
+    expect(close.result.create().parse({ closed: false })).toEqual({ closed: false })
+    expect(() => close.result.create().parse({ closed: 'yes' })).toThrow(/closed/)
+    expect(() => close.result.create().parse({})).toThrow(/closed/)
+    expect(() => close.result.create().parse(null)).toThrow(/object/)
   })
 
   it('parses every event kind the panel receives, and rejects the rest', () => {

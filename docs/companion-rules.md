@@ -31,11 +31,19 @@ no proposal definition.
   Use the tool's returned version-1 record, never a snapshot result file or a generic
   exit-code rule. The host validates operation, project root and actual exit code.
 - `uml_ir` runs only after the latest quality call in this session returned `validResult`
-  true, or when the request needs no quality refresh (such as `:omit` or a proposal request).
+  true, or when the request needs no quality refresh (`:omit`, `:new-proposal`). Those requests
+  carry `:request "<id>"`: pass it as `uml_ir({request: "<id>"})` so the IR runs even after an
+  earlier failed quality call. Each id works once, in this session only; never reuse one or pass
+  it for any other IR.
 - `uml_display` runs only after the latest `uml_ir` in this session succeeded. If it is
   refused, fix the cause and run `uml_ir` again instead of retrying the display.
-- `:omit` adds the id to the current proposal's `:omit`, or to the policy `:omit` on the real
-  diagram, then regenerates the IR; display only after the IR succeeds.
+- `{:op :omit :target {:id … :kind …} :context {…} :request "…"}` hides that element: add the
+  id to the `:omit` of the proposal its `:context` names, or to the policy `:omit` when the
+  context is `{:context :real}`. Then run `uml_ir` with the request id; call `uml_display` only
+  after that IR succeeds.
+- `{:op :new-proposal :name "…" :request "…"}` adds one proposal with exactly that name (the
+  panel's default is a local timestamp) and an empty layer list to the policy `:proposals`, with a
+  fresh `:id`; then `uml_ir` with the request id and, after it succeeds, `uml_display`.
 - Proposals are named groupings that are not in the source. Preserve them when you rewrite the
   policy, do not invent them, and answer **P** (the panel's namespace-tree action) by returning
   to the namespace tree. A new proposal you are asked to add is named with a timestamp unless
@@ -44,5 +52,7 @@ no proposal definition.
   ordering and line layout. Never edit the generated IR; change the policy and run `uml_ir`.
 - A class with no CRAP or mutation data is shown red; never hide it to make the diagram look
   better.
-- The discussion context is the diagram under discussion. Stay on it until a later `:context`
-  request arrives.
+- `{:op :context :context {:context :real}}` or `{:op :context :context {:context :proposal
+  :proposal-id … :name …}}` names the discussion context: the diagram under discussion. The panel
+  already shows it; change no file. Stay on it, and make later proposal edits there, until a later
+  `:context` request arrives.

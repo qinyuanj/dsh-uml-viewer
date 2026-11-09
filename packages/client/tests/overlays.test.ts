@@ -286,6 +286,22 @@ describe('panel overlays', () => {
     expect(actions).toContainEqual({ action: 'locate', id: ':related' })
   })
 
+  it('asks for a new proposal named with the local time unless one is given (#29)', async () => {
+    const { controller, actions } = harness()
+    await controller.newProposal(new Date(2026, 10, 9, 14, 5, 6))
+    await controller.newProposal(new Date(2026, 10, 9, 14, 5, 7), 'Split core')
+    expect(actions).toEqual([
+      { action: 'new-proposal', name: '2026-11-09 14:05:06' },
+      { action: 'new-proposal', name: 'Split core' },
+    ])
+  })
+
+  it('shows a refused new-proposal request in the failure line', async () => {
+    const controller = new OverlayController(async () => ({ accepted: false, reason: 'no sessionController' }))
+    await controller.newProposal(new Date(2026, 10, 9, 14, 5, 6))
+    expect(controller.current.failure).toBe('no sessionController')
+  })
+
   it('reuses a source file window, keeps other files and closes only the chosen one', async () => {
     const { controller, actions } = harness()
     await controller.openSource(':order', 'target')

@@ -141,7 +141,7 @@ describe('mounted panel quality menu (#28)', () => {
     expect(event.defaultPrevented).toBe(true)
     const menu = host.descendants().find(el => el.attributes.role === 'menu')!
     expect(menu).toBeDefined()
-    expect(menu.children.map(el => el.textContent)).toEqual(['Refresh CRAP', 'Differential mutation', 'Full mutation (--mutate-all)'])
+    expect(menu.children.map(el => el.textContent)).toEqual(['Refresh CRAP', 'Differential mutation', 'Full mutation (--mutate-all)', 'Hide'])
     const id = golden.world[0]!.kind === 'package' ? golden.world[0]!.id : ':core'
     for (let i = 0; i < 3; i += 1) {
       canvas.fire('contextmenu', { offsetX: 400, offsetY: 300 })
@@ -153,6 +153,23 @@ describe('mounted panel quality menu (#28)', () => {
       { action: 'quality-request', request: 'refresh-mutate', id },
       { action: 'quality-request', request: 'refresh-mutate-all', id },
     ])
+    expect(draft.value).toBe('my unfinished draft')
+    expect(draft.ownerDocument.activeElement).toBe(draft)
+    expect(menu.hidden).toBe(true)
+  })
+
+  it('hides the bound element with one omit request (#29), leaving the draft alone', async () => {
+    const { host, canvas } = await mount()
+    const draft = new Element('textarea', canvas.ownerDocument)
+    draft.value = 'my unfinished draft'
+    draft.focus()
+    canvas.fire('contextmenu', { offsetX: 400, offsetY: 300 })
+    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    const id = golden.world[0]!.kind === 'package' ? golden.world[0]!.id : ':core'
+    menu.children[3]!.fire('click')
+    await settled()
+    expect(actions.filter(a => a.action === 'omit')).toEqual([{ action: 'omit', id }])
+    expect(actions.filter(a => a.action === 'quality-request')).toEqual([])
     expect(draft.value).toBe('my unfinished draft')
     expect(draft.ownerDocument.activeElement).toBe(draft)
     expect(menu.hidden).toBe(true)

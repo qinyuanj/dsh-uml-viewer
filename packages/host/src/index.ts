@@ -5,16 +5,15 @@ import {
   REMOTE_SERVICE, parseDisplayRequest, parseIrRequest, parseQualityToolRequest,
 } from '@dsh-uml-viewer/contracts'
 import type { QualityOperation, QualityToolResult } from '@dsh-uml-viewer/contracts'
-import type { BinaryPlatform, Config } from './binary.js'
+import type { ActivatedBinary, BinaryPlatform, Config } from './binary.js'
 import { activationBinary, packageRoot } from './binary.js'
 import { displayResult, runDisplay } from './display.js'
 import type { HostServices, ToolRunContext } from './dsh.js'
 import { registerFontRoute } from './font.js'
-import { IrGate, QualityGate } from './gate.js'
-import { PanelPrompts } from './prompt.js'
+import { IrGate, QualityGate, RequestGrants } from './gate.js'
 import { qualityResult, runQuality } from './quality.js'
+import { panelLifetime } from './lifetime.js'
 import { PanelRequests } from './requests.js'
-import { ResidentSessions } from './resident.js'
 import { irResult, runIr } from './runner.js'
 import { SessionStates, pluginHome } from './state.js'
 import { ViewerService } from './viewer.js'
@@ -42,26 +41,53 @@ export function applyWithPlatform(ctx: Context, config: Config = {}, platform: A
   })
   // Resolve before any effects, injected fibers or services can be registered.
   // The argv copy also pins trusted dev launchers and environment overrides.
-  const effectiveConfig: Config = { ...config, binary: activationBinary(config, home, platform) }
+  const pinned = activationBinary(config, home, platform)
+  try {
+    register(ctx, config, home, pinned)
+  } catch (error) {
+    pinned.release()
+    throw error
+  }
+}
+
+function register(ctx: Context, config: Config, home: string | undefined, pinned: ActivatedBinary): void {
+  const effectiveConfig: Config = { ...config, binary: pinned.argv }
 
   // Every service is resolved when it is used, never snapshotted at apply
   // time: a profile may activate an optional row (sandbox, typert, webServer)
   // after this plugin, and a captured `undefined` would silently disable the
   // panel's Remote, the Sarasa route or confinement for the whole session.
   const services = new Proxy({}, {
-    get: (_target, key) => (typeof key === 'string' && SERVICE_KEYS.has(key) ? ctx.get(key) : undefined),
+    get: (_target, key) => {
+      if (typeof key !== 'string' || !SERVICE_KEYS.has(key)) return undefined
+      const service = ctx.get(key)
+      if (key !== 'subprocess' || !service) return service
+      return { spawn: (spec: Parameters<HostServices['subprocess']['spawn']>[0]) => {
+        const release = pinned.retain()
+        try {
+          const child = (service as HostServices['subprocess']).spawn(spec)
+          // Tool calls, as well as residents, keep their executable until a
+          // real exit. A failed observation is not permission to clean up.
+          void child.done.then(release, () => {})
+          return child
+        } catch (error) {
+          release()
+          throw error
+        }
+      } }
+    },
   }) as unknown as HostServices
 
   const gate = new IrGate()
   const quality = new QualityGate()
+  const grants = new RequestGrants()
   const states = new SessionStates(home)
-  const sessions = new ResidentSessions(services, effectiveConfig, states)
-  const prompts = new PanelPrompts()
-  const viewer = new ViewerService(sessions, prompts, new PanelRequests(services, sessions))
+  const { sessions, prompts } = panelLifetime(ctx, home, services, effectiveConfig, states)
+  const viewer = new ViewerService(sessions, prompts, new PanelRequests(services, sessions, grants))
 
   ctx.effect(() => services.tools.register({
     name: 'uml_ir',
-    description: 'Generate UML IR from the session project’s policy and source tree. Writes the IR output; requires workspace-write or full access. Runs after any quality call already in progress in this session, and is refused while the latest one has validResult false. Returns the actual exit code, validResult and bounded stdout/stderr.',
+    description: 'Generate UML IR from the session project’s policy and source tree. Writes the IR output; requires workspace-write or full access. Runs after any quality call already in progress in this session, and is refused while the latest one has validResult false, unless `request` names the UML viewer panel request (:omit or :new-proposal) this IR answers; that id is single-use and valid only in this session. Returns the actual exit code, validResult and bounded stdout/stderr.',
     parameters: IR_PARAMETERS,
     timeoutMs: 10 * 60_000,
     isConcurrencySafe: () => false,
@@ -80,8 +106,14 @@ export function applyWithPlatform(ctx: Context, config: Config = {}, platform: A
     let result: ReturnType<typeof irResult>
     try {
       const request = parseIrRequest(args)
-      const blocked = sessionId === undefined ? null : quality.check(sessionId)
-      if (blocked && !blocked.ok) {
+      // A panel request that needs no quality refresh (#29) presents its
+      // single-use id: it skips only the failed-quality check. The FIFO above
+      // and the display gate below stay as they are.
+      const granted = request.request === undefined || sessionId === undefined ? null : grants.consume(sessionId, request.request)
+      const blocked = granted ? (granted.ok ? null : granted) : sessionId === undefined ? null : quality.check(sessionId)
+      if (request.request !== undefined && sessionId === undefined) {
+        result = irResult(root, { status: 'refused', reason: 'a panel request id needs the session that received the request' })
+      } else if (blocked && !blocked.ok) {
         result = irResult(root, { status: 'refused', reason: blocked.reason })
       } else {
         const argv: string[] = []
@@ -190,8 +222,14 @@ export function applyWithPlatform(ctx: Context, config: Config = {}, platform: A
   // The packaged Sarasa route follows the web server's lifetime, likewise late.
   ctx.inject(['webServer'], () => registerFontRoute(services, packageRoot()) ?? (() => {}))
 
+  // Replacement retires this activation, while open panel streams own their
+  // residents until last-panel close. The root lifetime stops them on shutdown.
   ctx.effect(() => async () => {
-    prompts.disposeAll()
-    await sessions.dispose()
-  }, 'dsh-uml-viewer: panel lifetime')
+    grants.clear()
+    try {
+      await sessions.checkpoint()
+    } finally {
+      pinned.release()
+    }
+  }, 'dsh-uml-viewer: activation version lease')
 }
