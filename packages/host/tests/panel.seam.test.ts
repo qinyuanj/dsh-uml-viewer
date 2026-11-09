@@ -366,7 +366,7 @@ it('streams the resident scene frame to the panel bound to that session', async 
   expect(await contentActions(projects['session-a']!)).toEqual(['open', 'reload', 'search'])
   await reader.close()
   expect((await actionLog(projects['session-a']!)).map(entry => entry.action))
-    .toEqual(['open', 'reload', 'search', 'save', 'quit'])
+    .toEqual(['open', 'reload', 'save', 'search', 'save', 'quit'])
 })
 
 it('keeps one resident per session and stops it when the last panel stream closes', async () => {
@@ -393,6 +393,22 @@ it('keeps one resident per session and stops it when the last panel stream close
   expect(['quit', 'stdin']).toContain(exit.reason)
   expect(existsSync(path.join(projects['session-b']!, 'resident-exit.json'))).toBe(false)
   await other.close()
+})
+
+it('hands a session from a closing sidebar stream to an opening main-page stream', async () => {
+  const { stream, projects } = await setup()
+  const first = stream('session-a')
+  expect((await timeout(first.next())).value).toMatchObject({ kind: 'ready' })
+  // The main page mounts as the sidebar unmounts. Its watcher must either
+  // join a still-live resident or wait for the close and start a fresh one,
+  // never attach to the stream that is being stopped.
+  const closing = first.close()
+  const second = stream('session-a')
+  expect((await timeout(second.next())).value).toMatchObject({ kind: 'ready' })
+  expect((await timeout(second.next())).value?.kind).toBe('frame')
+  await closing
+  await second.close()
+  expect(existsSync(path.join(projects['session-a']!, 'resident-invocation.json'))).toBe(true)
 })
 
 it('sends the restored discussion context with the first panel stream', async () => {
@@ -423,6 +439,9 @@ it('registers the companion prompt section only while that session’s panel str
   expect(prompts['session-a']!.sections).toHaveLength(1)
   expect(prompts['session-a']!.sections[0]).toMatchObject({ name: 'dsh-uml-viewer:companion-rules', interpolate: false })
   const text = prompts['session-a']!.sections[0]!.text as string
+  // One source: the section is the standalone rules document, verbatim.
+  const rules = await readFile(new URL('../../../docs/companion-rules.md', import.meta.url), 'utf8')
+  expect(text).toBe(rules.trimEnd())
   expect(text).toMatch(/uml_ir/)
   expect(text).toMatch(/uml_display/)
   expect(text).toMatch(/serial/i)
@@ -471,6 +490,37 @@ it('persists the panel view state per session and restores it when the panel reo
     .trim().split('\n')[3]!) as { state?: unknown }
   expect(openAction.state).toMatchObject({ declutter: ':triangles' })
   await reopen.close()
+})
+
+it('persists the view as soon as a panel action changes it, not only when the panel closes', async () => {
+  const { stream, viewer, agents, home, projects } = await setup()
+  const reader = stream('session-a')
+  await timeout(reader.next())
+  await timeout(reader.next())
+  expect(await viewer().action(agents['session-a']!, { action: 'drill-in', id: ':core' }))
+    .toEqual({ accepted: true, reason: null })
+  const stored = path.join(home, 'dsh-uml-viewer', 'sessions', 'session-a.json')
+  // The file is already there while the panel is still open: a DSH shutdown
+  // cannot lose the last drill-in, pan or zoom.
+  expect(await readJson(stored)).toMatchObject({
+    schema: 'dsh-uml-viewer/session-state', camera: { x: 4, y: 5, zoom: 0.75 },
+  })
+  expect((await actionLog(projects['session-a']!)).map(entry => entry.action))
+    .toEqual(['open', 'drill-in', 'save'])
+  await reader.close()
+})
+
+it('saves the open panel view when the plugin unloads, as on a DSH shutdown', async () => {
+  const { stream, home, fiber } = await setup()
+  const reader = stream('session-a')
+  await timeout(reader.next())
+  await timeout(reader.next())
+  const stored = path.join(home, 'dsh-uml-viewer', 'sessions', 'session-a.json')
+  expect(existsSync(stored)).toBe(false)
+  await fiber.dispose()
+  expect(JSON.parse(await readFile(stored, 'utf8'))).toMatchObject({
+    schema: 'dsh-uml-viewer/session-state', focus: [':core'], camera: { x: 4, y: 5, zoom: 0.75 },
+  })
 })
 
 it('publishes the Remote and the font route when the optional services arrive after the plugin', async () => {

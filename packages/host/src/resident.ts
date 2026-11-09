@@ -15,6 +15,9 @@ const ACTION_TIMEOUT_MS = 20_000
 const STOP_TIMEOUT_MS = 3_000
 
 const SOURCE_CONTEXT: DiscussionContext = { kind: 'real', edn: '{:context :real}' }
+/** Actions whose answer can change the view or the discussion context. */
+const SAVED_ACTIONS = new Set(['open', 'viewport', 'camera', 'display', 'reload', 'drill-in', 'back',
+  'namespace-tree', 'select', 'locate', 'context', 'declutter'])
 export const STALE_CONTEXT_REASON = 'previous proposal no longer exists; showing source diagram'
 
 /** A display refresh: the final event, plus why a persisted context was dropped. */
@@ -78,7 +81,7 @@ export class ResidentConnection {
   refs = 0
   seq = 0
   private readonly subscribers = new Set<Queue<ResidentEvent>>()
-  private readonly pending = new Map<number, { resolve: (event: ResidentEvent) => void; quietError: boolean }>()
+  private readonly pending = new Map<number, { resolve: (event: ResidentEvent) => void; quietError: boolean; quiet: boolean }>()
   private buffer = ''
   private settled = false
   readonly exited: Promise<void>
@@ -133,7 +136,7 @@ export class ResidentConnection {
       const pending = this.pending.get(seq)
       if (pending) {
         this.pending.delete(seq)
-        quiet = pending.quietError && event.event === 'error'
+        quiet = pending.quiet || (pending.quietError && event.event === 'error')
         pending.resolve(event)
       }
     }
@@ -144,7 +147,7 @@ export class ResidentConnection {
 
   /** Send one action and resolve with the first event that answers its `seq`. */
   request(action: { action: string } & Record<string, unknown>, timeoutMs = ACTION_TIMEOUT_MS,
-    options: { quietError?: boolean } = {}): Promise<ResidentEvent> {
+    options: { quietError?: boolean; quiet?: boolean } = {}): Promise<ResidentEvent> {
     const stdin = this.child.stdin
     if (!stdin) return Promise.reject(new Error('the resident session has no stdin channel'))
     const seq = ++this.seq
@@ -153,7 +156,7 @@ export class ResidentConnection {
         this.pending.delete(seq)
         reject(new Error(`uml-viewer resident did not answer ${action.action} within ${Math.round(timeoutMs / 1000)}s`))
       }, timeoutMs)
-      this.pending.set(seq, { quietError: options.quietError === true, resolve: event => {
+      this.pending.set(seq, { quietError: options.quietError === true, quiet: options.quiet === true, resolve: event => {
         clearTimeout(timer)
         resolve(event)
       } })
@@ -358,7 +361,22 @@ export class ResidentSessions {
       }
       return { event, note }
     } finally {
+      // Save the final view, including any restored discussion context.
+      if (SAVED_ACTIONS.has(action.action)) await this.save(connection)
       await this.release(connection)
+    }
+  }
+
+  /** Persist what the resident currently shows; best effort, never an action failure. */
+  private async save(connection: ResidentConnection): Promise<void> {
+    try {
+      // A stale/missing diagram reopens waiting. Preserve its last displayed
+      // snapshot rather than replacing it with the blank canvas on resize.
+      if (connection.latestFrame?.waiting && await this.states.read(connection.id)) return
+      const saved = await connection.request({ action: 'save' }, ACTION_TIMEOUT_MS, { quiet: true })
+      if (saved.event === 'state') await this.states.write(connection.id, saved.state)
+    } catch {
+      // A view-state write must not turn a successful action into an error.
     }
   }
 
@@ -378,12 +396,7 @@ export class ResidentSessions {
   private async stop(connection: ResidentConnection): Promise<void> {
     if (connection.isSettled) return
     this.connections.delete(connection.id)
-    try {
-      const state = await connection.request({ action: 'save' }, STOP_TIMEOUT_MS)
-      if (state.event === 'state') await this.states.write(connection.id, state.state)
-    } catch {
-      // A panel closing is not a place to fail: the view state is best effort.
-    }
+    await this.save(connection)
     try {
       await connection.request({ action: 'quit' }, STOP_TIMEOUT_MS)
     } catch {
@@ -402,6 +415,9 @@ export class ResidentSessions {
   async dispose(): Promise<void> {
     for (const connection of [...this.connections.values()]) {
       this.connections.delete(connection.id)
+      // DSH is shutting down: no panel close will follow, so this is the
+      // last chance to keep the view and discussion context.
+      await this.save(connection)
       connection.end()
       connection.child.terminate()
       await Promise.race([connection.exited, new Promise(resolve => setTimeout(resolve, STOP_TIMEOUT_MS))])

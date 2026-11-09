@@ -108,10 +108,12 @@ state.
 
 ## Sample projects
 
-`packages/e2e/projects.mjs` copies four TypeScript projects into the
-scratch home: `shop`, `ledger` and `atlas` (the panel-primitives sample of
+`packages/e2e/projects.mjs` copies five TypeScript projects into the
+scratch home: `shop`, `ledger`, `deep`, `atlas` and `nexus`. `deep` (#23) has
+nested namespaces, cross-namespace dependencies and same-named CJK classes
+for navigation and search. `atlas` is the panel-primitives sample of
 #24: an interface, a CJK-named module, two architecture levels and `react` as
-a foreign package, all unmeasured). Each has its own `policy.edn`, source files
+a foreign package, all unmeasured. Each has its own `policy.edn`, source files
 and proposal where needed. `nexus` (#25) scans six imports from a hub and uses
 the supported policy `:edge-kinds` overrides to produce association, dependency,
 inheritance, implements, aggregation and composition. A reverse dependency
@@ -161,9 +163,25 @@ Sarasa advances (CJK 1 em, Latin 0.5 em); and, after real wheel notches to the
 `frames` tier, names without the full tier's band and member lines. The egui
 italic glyph-vertex assertion has no Canvas counterpart; the italic font
 choice is covered by `packages/client/tests/primitives.test.ts`. Dependency
-ports appear only in a drilled-in view, which the panel cannot reach until
-#23 adds drill-in, so they are asserted against the `core-port-selected`
-golden in that unit suite.
+ports appear in drilled-in views: `navigation.spec.mjs` checks the painted
+port after a real drill-in, and the unit suite checks the `core-port-selected`
+golden.
+
+`navigation.spec.mjs` (#23) replaces the navigation/search driver scenarios:
+real double-click drill-in, an in-browser painted dependency-port assertion,
+selection with dependency-chain highlighting and dimming, Escape/back, P,
+Ctrl+F, CJK typing/paste, same-name namespace disambiguation and Down/Enter
+locate. It also expands the sidebar to the root-scoped `main` page, asserts
+its original session id, and returns to the conversation.
+
+`session.spec.mjs` replaces the session/restore scenarios: navigate, select,
+zoom and pan; reload the Web client and compare its restored summary; then
+stop and boot the real isolated DSH host on the same home and compare again,
+without another IR/display call. A proposal case proves discussion-context
+restoration too. The process-local IR→display gate stays conservative, as
+explained in the ADR 0013 #23 appendix; restoration only replays the saved IR
+when its persisted SHA-256 still matches. The host state seam also checks
+changed and missing IR, which must reopen waiting.
 
 `edges.spec.mjs` (#25) is the Playwright form of the edge-related egui
 settings in `route_library.edn`, `route_proposal.edn`, `route_shots.edn` and
@@ -183,8 +201,6 @@ Failure evidence and the Playwright trace stay under the run's scratch root.
 Native fixed-input screenshot scripts remain available for the egui shell;
 these cases cover the corresponding panel behavior.
 
-This ticket does not assert survival across a DSH restart. The `uml_display`
-gate is process-local (#21 residual); cross-restart restoration belongs to #23.
 
 ## Harness API for #23–#29
 
@@ -202,10 +218,13 @@ project data before either install or plugin load. It returns:
 | `home` | run-scoped `DSH_HOME` with projects, logs, traces |
 | `host` | `{ url, stop, exited, output }` for the isolated DSH |
 | `mock` | `{ url, requests, stop }`; inspect the exact model requests |
-| `projects` | `{ shop, ledger, atlas, nexus }` absolute sample roots |
-| `openPanel(name)` | create/select that session, open the sidebar tab, render IR, and return `{ page, panel, canvas, summary, before, problems }` |
+| `projects` | `{ shop, ledger, deep, atlas, nexus }` absolute sample roots |
+| `openPanel(name, options?)` | create/select that session, open the sidebar tab, render IR, and return `{ page, panel, canvas, summary, sessionId, before, problems }`; optional `state` overrides the seeded persisted session state before panel open |
 | `pan(panel)` | real pointer drag on that panel's canvas |
-| `wheel(panel, notches)` | real wheel notches over the canvas centre; positive zooms out |
+| `wheel(panel, notches)` | real Ctrl+wheel notches over the canvas centre; positive zooms out (plain wheel now pans, matching egui) |
+| `point(panel, [x,y], clicks?)` | real canvas-local click or double-click |
+| `reopenPanel(panel)` | reload the Web client and reopen the same session, without IR/display |
+| `restart(panel)` | stop and boot the isolated DSH host on the same home, reopen the same session |
 | `sendPrompt(panel, text)` | send a visible composer message in that session |
 | `screenshot(panel, name)` | write a full-page scratch screenshot |
 | `close()` | idempotently close browser contexts, host and mock, in that order |
@@ -222,8 +241,8 @@ Lower-level helpers are exported from `dsh-web.mjs` (`startDshWeb`,
 `bootDshWeb`, `dismissOverlays`), `mock-llm.mjs` (`startMockLlm`),
 `projects.mjs` (`makeProjects`) and `canvas.mjs` (`producerFrame`,
 `panelCamera`, `sample`, `inkCount`: canvas pixel reads against the producer
-oracle; `producerFrame` accepts optional `extra` and `select` EDN for the same
-selected/declutter view). A later ticket that needs another project
+oracle; `producerFrame` accepts optional `focus`, `extra` and `select` EDN
+for the same drilled-in, selected and declutter view). A later ticket that needs another project
 should add it to `makeProjects` and the workspace registry rather than editing
 the host bootstrap.
 

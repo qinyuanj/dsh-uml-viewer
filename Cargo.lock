@@ -359,14 +359,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "companion"
-version = "1.0.0"
-dependencies = [
- "edn",
- "platform",
-]
-
-[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2869,7 +2861,6 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 name = "uml-viewer"
 version = "1.0.0"
 dependencies = [
- "companion",
  "crapper",
  "dryer",
  "edn",
@@ -2964,7 +2955,6 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "viewer"
 version = "1.0.0"
 dependencies = [
- "companion",
  "edn",
  "eframe",
  "egui",
@@ -2985,6 +2975,7 @@ dependencies = [
  "frame",
  "scene",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

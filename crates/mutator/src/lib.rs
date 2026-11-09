@@ -1,6 +1,11 @@
-//! Differential mutation testing for seven languages with isolated test runs.
+//! Differential mutation testing for seven languages in isolated test runs
+//! (Linux, Windows).
 use quality_core::language::{Language, language_of};
 use std::{ffi::OsString, path::Path, process::ExitCode};
+#[cfg(any(windows, target_os = "linux"))]
+mod child_env;
+#[cfg(all(test, any(windows, target_os = "linux")))]
+mod child_env_tests;
 mod cli;
 mod clojure;
 #[cfg(windows)]

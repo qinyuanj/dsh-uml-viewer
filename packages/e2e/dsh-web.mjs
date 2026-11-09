@@ -93,6 +93,7 @@ export async function startDshWeb({ home, projects, packages = null }) {
     PLAYWRIGHT_BROWSERS_PATH: BROWSERS,
     npm_config_cache: path.join(home, 'cache', 'npm'),
     npm_config_store_dir: path.join(home, 'cache', 'pnpm-store'),
+    npm_config_state_dir: path.join(home, 'cache', 'pnpm-state'),
     PNPM_CACHE_DIR: path.join(home, 'cache', 'pnpm'),
     COREPACK_HOME: path.join(home, 'cache', 'corepack'),
     XDG_CACHE_HOME: path.join(home, 'cache', 'xdg'),

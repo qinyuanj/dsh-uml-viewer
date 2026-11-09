@@ -1,5 +1,7 @@
 # Windows Herdr native observations — issue #30
 
+> **历史记录**：本文描述的 Herdr companion、邮件与 `./uml` / `get-uml-viewer` 入口已在 qinyuanj/dsh-uml-viewer#18 删除，只在冻结的 qinyuanj/uml-viewer 中保留；本文不再是本仓库的现行契约或验收清单。
+
 2026-10-13. This record supplements the
 [automated baseline](windows-herdr-30-baseline.md). It does not close
 [#30](https://github.com/qinyuanj/uml-viewer/issues/30). It covers two native

@@ -21,7 +21,7 @@ pub fn mtime(path: &Path) -> io::Result<String> {
 
 /// Idle wake-up stamp (#143): stat-only fingerprint of every input a poll
 /// can reload (diagram, `.metrics/crap.edn`, `.metrics/mutate/**/*.edn`, and
-/// the caller's extra inputs such as the `to-viewer.edn` mailbox). The viewer repaints while idle only when it
+/// the caller's extra inputs). The viewer repaints while idle only when it
 /// changes; the frame's own poll then does the full reload comparison.
 #[derive(Debug)]
 pub struct Wake {

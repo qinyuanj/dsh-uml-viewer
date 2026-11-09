@@ -212,8 +212,14 @@ impl Slot {
             self.directory.clone().into_os_string(),
         ));
         let started = Instant::now();
-        let running =
-            process::start_supervised(program, &cwd, &environment, &output).map_err(message)?;
+        let running = process::start_supervised_with_env_removals(
+            program,
+            &cwd,
+            &environment,
+            &crate::child_env::inherited_removals(),
+            &output,
+        )
+        .map_err(message)?;
         drop(output);
         let code = match process::supervise(running, timeout, || interrupts::pending().is_some())
             .map_err(message)?

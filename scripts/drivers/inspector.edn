@@ -2,8 +2,8 @@
  :doc "检查器 driver（#141，原 Lua driver）：右键提案行打开 Rename/Delete 菜单；
        Rename 显出名称输入框与「取消」；Ctrl+A 后中文 textinput 进入输入框（egui TextEdit
        自身输入路径）；Sarasa 覆盖输入的中文；侧栏按钮用原绿底金字；确认改名后提案写回
-       IR 与同级 policy，并保留另一个提案和其余 policy 键；左键选提案进入提案视图并给
-       agent 发 :context；P 回到命名空间树；Regen 写入 :regen 邮件。
+       IR 与同级 policy，并保留另一个提案和其余 policy 键；左键选提案进入提案视图并把
+       讨论上下文切到该提案；P 回到命名空间树。
        imgui.ini 隔离断言无 egui 对应物（egui 不写 ini）。"
  :steps [{:op :wait-frames :n 3}
          {:op :gui-click :at "proposal:plan" :button :secondary}
@@ -42,27 +42,17 @@
          {:op :gui-click :at "proposal:plan"}
          {:op :wait-frames :n 3}
          {:op :assert-gui :path [:proposal] :equals true :message "choosing a proposal shows it"}
-         {:op :assert :project ".uml-viewer/to-agent.edn" :contains [":op :context" ":proposal-id :plan"]
-          :message "choosing a proposal tells the agent the discussion context"}
+         {:op :assert-gui :path [:document :context] :equals :proposal
+          :message "choosing a proposal makes it the discussion context"}
          {:op :key :key "p"}
          {:op :wait-frames :n 2}
          {:op :assert-gui :path [:proposal] :equals false :message "P returns to the namespace tree"}
          {:op :assert-gui :path [:proposal-id] :present false :message "P clears the proposal id"}
          {:op :assert-gui :path [:focus] :count 0 :message "P returns to the root"}
 
-         {:op :gui-click :at "regen"}
-         {:op :wait-frames :n 2}
-         ;; The driver runs without --backend: the mail-only companion records
-         ;; the wake attempt, so the Rust status is "Regen requested."; the
-         ;; durable :regen mail is the authoritative assertion below.
-         {:op :assert-gui :path [:status] :contains "Regen requested."
-          :message "Regen must report the queued request"}
-         {:op :assert :project ".uml-viewer/to-agent.edn" :contains ":op :regen"
-          :message "Regen must append a durable :regen mail"}
-
          {:op :wait-frames :n 2}
          {:op :screenshot :evidence "inspector.png"}
          {:op :dump-gui :evidence "inspector-gui.edn"}
          {:op :write :evidence "inspector-pass.txt"
-          :text "PASS egui proposal context menu -> rename -> Chinese textinput; policy write-back keeps other proposals and keys; Sarasa glyphs; P returns namespace tree; Regen requested\n"}
+          :text "PASS egui proposal context menu -> rename -> Chinese textinput; policy write-back keeps other proposals and keys; Sarasa glyphs; P returns namespace tree\n"}
          {:op :quit :code 0}]}

@@ -13,7 +13,6 @@ mod fonts;
 mod idle_wake;
 mod inspector;
 mod lod;
-mod mailbox;
 mod metrics;
 mod paint;
 mod real_input;

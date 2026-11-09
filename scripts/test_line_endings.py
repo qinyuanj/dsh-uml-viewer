@@ -1,8 +1,9 @@
-"""Tracked goldens, EDN and Rust sources hold no CR in the working tree.
+"""Tracked goldens, EDN and Rust sources and the prompt rules hold no CR in the working tree.
 
 A host with `core.autocrlf=true` checked golden fixtures out CRLF and the
 failure surfaced later as a golden mismatch. This names the files instead.
-Files `.gitattributes` marks `eol=crlf` (the `.cmd` entries) are exempt.
+Files `.gitattributes` marks `eol=crlf` are exempt (none since the `.cmd`
+entries were deleted, #18).
 """
 from pathlib import Path
 import subprocess
@@ -19,7 +20,9 @@ def git(*args, data=None):
 
 
 def guarded(path):
-    return path.startswith('fixtures/') or path.endswith(('.edn', '.rs'))
+    # docs/companion-rules.md is the plugin prompt section, embedded verbatim.
+    return (path.startswith('fixtures/') or path.endswith(('.edn', '.rs'))
+            or path == 'docs/companion-rules.md')
 
 
 def tracked():

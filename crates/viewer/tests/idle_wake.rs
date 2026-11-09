@@ -1,5 +1,5 @@
 //! Idle wake-ups (#143): an unchanged poll requests no repaint; a changed
-//! diagram, metrics snapshot or mailbox does.
+//! diagram, metrics snapshot or extra watched input does.
 
 use std::path::PathBuf;
 use viewer::watch::Wake;

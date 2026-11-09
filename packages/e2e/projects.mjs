@@ -26,6 +26,7 @@ export async function makeProjects(home) {
     projects[name] = root
   }
   projects.atlas = await makeAtlas(home)
+  projects.deep = await makeDeep(home)
   projects.nexus = await makeNexus(home)
   return projects
 }
@@ -49,6 +50,36 @@ async function makeNexus(home) {
   await fs.writeFile(path.join(root, 'src', 'observer.ts'), 'export class Observer {}\n')
   await fs.writeFile(path.join(root, 'src', 'hub.ts'), kinds.map((kind, i) =>
     `import { Target as T${i} } from './${kind}.js'`).join('\n') + '\nexport class Hub {}\n')
+  return root
+}
+
+/**
+ * The navigation/search sample (#23): nested namespaces to drill into, a
+ * cross-namespace dependency that becomes a port after drill-in, and two
+ * same-named CJK classes whose namespaces disambiguate the search results.
+ */
+async function makeDeep(home) {
+  const root = path.join(home, 'projects', 'deep')
+  await fs.mkdir(root, { recursive: true })
+  await fs.writeFile(path.join(root, 'policy.edn'), `{:hierarchical true
+ :title "Deep"
+ :prefix "deep"
+ :sources [{:lang :typescript :root "src" :prefix "deep"}]
+ :levels [[core] [api]]
+ :order [api core alpha beta]
+ :out "diagram.edn"}\n`)
+  const sources = {
+    'api.ts': "import { Order } from './core/order.js'\nexport class Api { order = new Order() }\n",
+    'core/order.ts': "import { Price } from './price.js'\nexport class Order { price = new Price() }\n",
+    'core/price.ts': 'export class Price { total(): number { return 42 } }\n',
+    'alpha/deep/解析器.ts': 'export class 解析器 { parse(): number { return 1 } }\n',
+    'beta/解析器.ts': 'export class 解析器 { parse(): number { return 2 } }\n',
+  }
+  for (const [name, text] of Object.entries(sources)) {
+    const file = path.join(root, 'src', name)
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    await fs.writeFile(file, text)
+  }
   return root
 }
 

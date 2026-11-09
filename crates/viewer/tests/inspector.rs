@@ -2,7 +2,6 @@
 //! `love/spec/inspector_spec.lua` and `display_spec.lua` (view units ==
 //! egui points).
 
-use companion::mailbox::Mailbox;
 use edn::Value;
 use edn::record::get;
 use scene::document::{self, ViewState};
@@ -130,23 +129,6 @@ fn temp_dir(tag: &str) -> std::path::PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
-}
-
-#[test]
-fn regen_appends_one_command_to_the_agent_queue() {
-    let root = temp_dir("outbox");
-    let path = root.join(".uml-viewer/to-agent.edn");
-    let mailbox = Mailbox::outbox(&root);
-    let first = mailbox.append("regen", &[]).unwrap();
-    assert_eq!(first, edn::parse("{:id 1 :op :regen}").unwrap());
-    std::fs::write(&path, r#"{:next-id 7 :queue [{:id 6 :op :omit}]}"#).unwrap();
-    mailbox.append("regen", &[]).unwrap();
-    let boxed = edn::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    assert_eq!(
-        boxed,
-        edn::parse("{:next-id 8 :queue [{:id 6 :op :omit} {:id 7 :op :regen}]}").unwrap()
-    );
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]

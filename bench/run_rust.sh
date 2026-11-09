@@ -14,7 +14,7 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 IR=$(realpath "$1"); OUT=$2
 BINARY=${UML_VIEWER_RUST_EXECUTABLE:-$REPO/target/release/uml-viewer}
 if [ ! -x "$BINARY" ]; then
-  echo "missing $BINARY; run cargo build --release --locked (or get-uml-viewer)" >&2
+  echo "missing $BINARY; run cargo build --release --locked" >&2
   exit 2
 fi
 MAX_LOAD=${UML_BENCH_MAX_LOAD:-2.0}

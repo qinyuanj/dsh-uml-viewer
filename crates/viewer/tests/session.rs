@@ -1,7 +1,6 @@
-//! Restart session (#142): the Rust viewer reads the `session.edn` the LOVE
-//! viewer writes on `:quit-for-restart` and writes the same schema itself.
-//! LOVE_SESSION is the exact file a real LOVE 11.5 viewer wrote
-//! (acceptance-evidence/142-mail-session-restart/love-session/).
+//! Snapshot compatibility for view/session restore. LOVE_SESSION preserves
+//! the historical LOVE 11.5 snapshot fixture; resident persistence retains
+//! its camera, chrome, selection, discussion context and cursor fields.
 
 use edn::Value;
 use edn::record::get;
