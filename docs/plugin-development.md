@@ -142,7 +142,18 @@ Right-click a class or namespace component and choose **Refresh CRAP**,
 'refresh-mutate-all', id}` through the panel's existing typed Remote. Its
 `agentId` is the panel's bound session, including when expanded to `main`.
 The host resolves the element's source files from the diagram the resident
-currently shows; the browser supplies no filenames.
+currently shows; the browser supplies no filenames. It reads the path and the
+current proposal from the resident's own `save` state (a quiet request, not
+persisted) and parses the IR's `:classes`. A class target is its own `:file`; a
+namespace component is every class under its id (`:core` and `:core.x`, never
+`:core-extra`), and a proposal component (`:proposal.<group>`) is that group's
+members, using the same rules as `scene::hierarchy::proposal_view` (exact module
+first, otherwise subtree; policy and proposal `:omit` subtracted; foreign
+packages and leftovers excluded, `:proposal.unassigned` being the leftovers).
+No element with no source files is ever delivered: the panel reports the
+refusal instead. The IR reader is a small EDN subset
+(`packages/host/src/edn.ts`), because the resident protocol exposes no
+component→files query and adding one is a Rust change.
 
 The host admits one visible user message through DSH's `sessionController.prompt`
 (the Host service backing `remote.session.prompt`), with a fresh `requestId`,
