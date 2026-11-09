@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
-  chmodSync, copyFileSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync,
+  chmodSync, closeSync, copyFileSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync,
   utimesSync, writeFileSync,
 } from 'node:fs'
 import path from 'node:path'
@@ -24,13 +24,23 @@ export const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-
 /** A lease not renewed for this long belongs to a host that is gone. */
 export const LEASE_TTL_MS = 10 * 60_000
 const HEARTBEAT_MS = 60_000
-const LEGACY_VERSIONS = 'versions'
 
 export interface PinnedVersion {
   /** The executable inside the version directory. */
   readonly binary: string
+  /** Hold this version until the returned disposer is called (e.g. child exit). */
+  retain(): () => void
   /** Release this activation's lease, then remove versions nobody uses. */
   release(): void
+}
+
+function once(fn: () => void): () => void {
+  let called = false
+  return () => {
+    if (called) return
+    called = true
+    fn()
+  }
 }
 
 interface Digest { size: number; sha256: string }
@@ -51,16 +61,60 @@ function sameDigest(file: string, expected: Digest): boolean {
 
 const errorCode = (error: unknown) => (error as NodeJS.ErrnoException | undefined)?.code
 
-/** Write a small file atomically: a crash leaves the old content or the new one. */
+/** Windows reports a file another process is replacing or holding this way. */
+const BUSY = ['EPERM', 'EACCES', 'EBUSY']
+
+function pause(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+/**
+ * Write a small file atomically: a crash leaves the old content or the new
+ * one. Windows refuses a rename onto a file that another host is renaming
+ * onto at the same moment; that is retried briefly.
+ */
 function writeAtomic(file: string, text: string): void {
   const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`
   writeFileSync(temporary, text)
   try {
-    renameSync(temporary, file)
-  } catch (error) {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        renameSync(temporary, file)
+        return
+      } catch (error) {
+        if (attempt >= 50 || !BUSY.includes(errorCode(error) ?? '')) throw error
+        pause(10 + Math.floor(Math.random() * 20))
+      }
+    }
+  } finally {
     rmSync(temporary, { force: true })
-    throw error
   }
+}
+
+/**
+ * Whether Windows still runs (or holds open) a file in `directory`. A running
+ * exe can be renamed on Windows but not opened for writing, so this probe is
+ * what keeps cleanup from moving the image of a live resident.
+ */
+function heldOnWindows(directory: string, platform: string): boolean {
+  if (platform !== 'win32') return false
+  let names: string[]
+  try {
+    names = readdirSync(directory)
+  } catch {
+    return false
+  }
+  for (const name of names) {
+    let descriptor: number | undefined
+    try {
+      descriptor = openSync(path.join(directory, name), 'r+')
+    } catch (error) {
+      if (BUSY.includes(errorCode(error) ?? '')) return true
+    } finally {
+      if (descriptor !== undefined) closeSync(descriptor)
+    }
+  }
+  return false
 }
 
 function removeQuietly(target: string): boolean {
@@ -69,6 +123,67 @@ function removeQuietly(target: string): boolean {
     return true
   } catch {
     return false
+  }
+}
+
+/**
+ * Probe only the owner named by this lease; signal 0 never sends a signal.
+ * No process enumeration, command-line matching, or termination. PID reuse
+ * conservatively retains a directory. A suspended owner's old heartbeat
+ * must never grant permission to delete its executable.
+ */
+function ownerMayBeAlive(file: string): boolean {
+  const record = JSON.parse(readFileSync(file, 'utf8')) as { pid?: unknown }
+  if (!Number.isSafeInteger(record.pid) || (record.pid as number) <= 0) return false
+  try {
+    process.kill(record.pid as number, 0)
+    return true
+  } catch (error) {
+    return errorCode(error) !== 'ESRCH'
+  }
+}
+
+/** Serialize publication and retirement across hosts, so cleanup cannot race a spawn's pin. */
+function withStoreLock<T>(home: string, run: () => T): T {
+  const lock = path.join(home, '.store-lock')
+  const owner = path.join(lock, 'owner.json')
+  const deadline = Date.now() + 10_000
+  for (;;) {
+    let acquired = false
+    try {
+      mkdirSync(lock)
+      acquired = true
+    } catch (error) {
+      if (errorCode(error) !== 'EEXIST') throw error
+    }
+    if (acquired) {
+      try {
+        writeFileSync(owner, JSON.stringify({ pid: process.pid }))
+        return run()
+      } finally {
+        removeQuietly(lock)
+      }
+    }
+    try {
+      // Only inspect the lock's named owner. A reused PID is conservative.
+      if (!ownerMayBeAlive(owner)) {
+        removeQuietly(lock)
+        continue
+      }
+    } catch (error) {
+      // Between mkdir and writing owner.json, or a host crashed there. The
+      // latter can be reclaimed after the normal lease grace period.
+      try {
+        if (errorCode(error) === 'ENOENT' && Date.now() - statSync(lock).mtimeMs > LEASE_TTL_MS) {
+          removeQuietly(lock)
+          continue
+        }
+      } catch {
+        // Lock changed while inspecting it; retry.
+      }
+    }
+    if (Date.now() >= deadline) throw new Error('uml-viewer version store is busy; reload the plugin')
+    pause(10 + Math.floor(Math.random() * 20))
   }
 }
 
@@ -86,13 +201,15 @@ function liveLeases(home: string, version: string, own?: string, now = Date.now(
     const file = path.join(directory, name)
     if (file === own) continue
     try {
-      if (now - statSync(file).mtimeMs < LEASE_TTL_MS) {
+      if (now - statSync(file).mtimeMs < LEASE_TTL_MS || ownerMayBeAlive(file)) {
         live += 1
         continue
       }
       unlinkSync(file)
-    } catch {
-      // Vanished meanwhile, or not ours to remove: neither keeps the version alive.
+    } catch (error) {
+      // Only an entry that vanished is known unused. Any other inability to
+      // inspect/remove a lease is conservative: keep the version.
+      if (errorCode(error) !== 'ENOENT') live += 1
     }
   }
   if (live === 0 && own === undefined) {
@@ -165,6 +282,10 @@ export function pinVersion(home: string, version: string, source: string, name: 
   platform: string = process.platform): PinnedVersion {
   if (!VERSION_PATTERN.test(version)) throw new Error(`Invalid uml-viewer version directory name: ${version}`)
   mkdirSync(home, { recursive: true })
+  return withStoreLock(home, () => pinLocked(home, version, source, name, platform))
+}
+
+function pinLocked(home: string, version: string, source: string, name: string, platform: string): PinnedVersion {
   // Lease before looking: cleanup re-checks leases after it moved a directory
   // away, so either it sees this lease and restores, or this sees it gone.
   const lease = acquireLease(home, version)
@@ -174,13 +295,23 @@ export function pinVersion(home: string, version: string, source: string, name: 
     const binary = path.join(directory, name)
     if (!sameDigest(binary, expected)) publish(home, version, directory, binary, source, name, expected, lease.file, platform)
     writeAtomic(path.join(home, 'current.json'), `${JSON.stringify({ version, ...expected })}\n`)
-    cleanupVersions(home, version)
-    return {
-      binary,
-      release() {
+    cleanupUnlocked(home, version)
+    let holders = 1
+    const drop = (): void => {
+      holders -= 1
+      if (holders === 0) {
         lease.stop()
         cleanupVersions(home)
+      }
+    }
+    return {
+      binary,
+      retain() {
+        if (holders === 0) throw new Error('This uml-viewer activation has ended; open the panel again')
+        holders += 1
+        return once(drop)
       },
+      release: once(drop),
     }
   } catch (error) {
     lease.stop()
@@ -204,7 +335,7 @@ function publish(home: string, version: string, directory: string, binary: strin
       if (!statExists(directory)) continue
       // Same version, other bytes. Never write into it; move it away only when
       // no other host leases it and the OS agrees nothing runs from it.
-      if (liveLeases(home, version, ownLease) > 0) {
+      if (liveLeases(home, version, ownLease) > 0 || heldOnWindows(directory, platform)) {
         throw new Error(`uml-viewer ${version} is already pinned with different bytes and is in use by another DSH host; close its viewer panels or restart DSH, then reload the plugin`)
       }
       const trash = path.join(home, `.trash-${randomUUID()}`)
@@ -245,6 +376,14 @@ function currentVersion(home: string): string | null {
  * holds (a running exe on Windows) stays until a later cleanup.
  */
 export function cleanupVersions(home: string, keep?: string): void {
+  try {
+    withStoreLock(home, () => cleanupUnlocked(home, keep))
+  } catch {
+    // A busy store is retried by the next activation or lease release.
+  }
+}
+
+function cleanupUnlocked(home: string, keep?: string): void {
   let names: string[]
   try {
     names = readdirSync(home)
@@ -268,19 +407,14 @@ export function cleanupVersions(home: string, keep?: string): void {
       }
       continue
     }
-    if (name === LEGACY_VERSIONS) {
-      // #31's unreleased layout had no leases; remove it when the OS allows.
-      retire(home, entry, () => false)
-      continue
-    }
     if (!VERSION_PATTERN.test(name) || name === current || name === keep) continue
     try {
       if (!statSync(entry).isDirectory()) continue
     } catch {
       continue
     }
-    if (liveLeases(home, name, undefined, now) > 0) continue
-    retire(home, entry, () => liveLeases(home, name) > 0)
+    if (liveLeases(home, name, undefined, now) > 0 || heldOnWindows(entry, process.platform)) continue
+    retire(home, entry, () => liveLeases(home, name) > 0 || heldOnWindows(entry, process.platform))
   }
 }
 

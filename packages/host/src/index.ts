@@ -13,7 +13,7 @@ import { registerFontRoute } from './font.js'
 import { IrGate, QualityGate } from './gate.js'
 import { PanelPrompts } from './prompt.js'
 import { qualityResult, runQuality } from './quality.js'
-import { ResidentSessions } from './resident.js'
+import { residentLifetime } from './lifetime.js'
 import { irResult, runIr } from './runner.js'
 import { SessionStates, pluginHome } from './state.js'
 import { ViewerService } from './viewer.js'
@@ -57,14 +57,32 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
   // after this plugin, and a captured `undefined` would silently disable the
   // panel's Remote, the Sarasa route or confinement for the whole session.
   const services = new Proxy({}, {
-    get: (_target, key) => (typeof key === 'string' && SERVICE_KEYS.has(key) ? ctx.get(key) : undefined),
+    get: (_target, key) => {
+      if (typeof key !== 'string' || !SERVICE_KEYS.has(key)) return undefined
+      const service = ctx.get(key)
+      if (key !== 'subprocess') return service
+      return { spawn: (spec: Parameters<HostServices['subprocess']['spawn']>[0]) => {
+        const release = pinned.retain()
+        try {
+          const child = (service as HostServices['subprocess']).spawn(spec)
+          // Tool calls, as well as residents, keep their executable until a
+          // real exit. A failed observation is not permission to clean up.
+          void child.done.then(release, () => {})
+          return child
+        } catch (error) {
+          release()
+          throw error
+        }
+      } }
+    },
   }) as unknown as HostServices
 
   const gate = new IrGate()
   const quality = new QualityGate()
   const states = new SessionStates(home)
-  const sessions = new ResidentSessions(services, effectiveConfig, states)
+  const sessions = residentLifetime(ctx, home, services, effectiveConfig, states)
   const prompts = new PanelPrompts()
+  ctx.root.effect(() => () => prompts.disposeAll(), 'dsh-uml-viewer: prompt root lifetime')
   const viewer = new ViewerService(sessions, prompts)
 
   ctx.effect(() => services.tools.register({
@@ -198,13 +216,13 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
   // The packaged Sarasa route follows the web server's lifetime, likewise late.
   ctx.inject(['webServer'], () => registerFontRoute(services, packageRoot()) ?? (() => {}))
 
+  // Replacement retires this activation, while open panel streams own their
+  // residents until last-panel close. The root lifetime stops them on shutdown.
   ctx.effect(() => async () => {
-    prompts.disposeAll()
     try {
-      await sessions.dispose()
+      await sessions.checkpoint()
     } finally {
-      // Only after its residents stopped may this activation's version go.
       pinned.release()
     }
-  }, 'dsh-uml-viewer: panel lifetime')
+  }, 'dsh-uml-viewer: activation version lease')
 }

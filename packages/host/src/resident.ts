@@ -283,15 +283,24 @@ export class ResidentConnection {
  * Owns the resident children. One per session; it starts when the first panel
  * stream (or `uml_display`) needs it and stops when the last one releases it.
  */
+export class ResidentPool {
+  readonly connections = new Map<string, ResidentConnection>()
+  readonly opening = new Map<string, Promise<ResidentConnection>>()
+}
+
 export class ResidentSessions {
-  private readonly connections = new Map<string, ResidentConnection>()
-  private readonly opening = new Map<string, Promise<ResidentConnection>>()
+  private readonly connections: ResidentPool['connections']
+  private readonly opening: ResidentPool['opening']
 
   constructor(
     private readonly services: HostServices,
     private readonly config: Config,
     private readonly states: SessionStates,
-  ) {}
+    pool = new ResidentPool(),
+  ) {
+    this.connections = pool.connections
+    this.opening = pool.opening
+  }
 
   private writablePolicy(agent: Agent): Policy {
     const policy = this.services.sandboxPolicy.resolve({ session: agent.session })
@@ -503,7 +512,14 @@ export class ResidentSessions {
     }
   }
 
+  /** Save during replacement without interrupting the panel's live resident. */
+  async checkpoint(): Promise<void> {
+    for (const connection of [...this.connections.values()]) await this.save(connection)
+  }
+
   async dispose(): Promise<void> {
+    // A spawn already preparing at shutdown must become owned before teardown.
+    await Promise.allSettled([...this.opening.values()])
     for (const connection of [...this.connections.values()]) {
       this.connections.delete(connection.id)
       // DSH is shutting down: no panel close will follow, so this is the

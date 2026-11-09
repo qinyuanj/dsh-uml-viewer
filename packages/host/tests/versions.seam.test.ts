@@ -79,26 +79,35 @@ function localSubprocess(spec: SpawnSpec, wrappers: Map<string, string>) {
       child.on('close', (exitCode, signal) => resolve({ exitCode, signal }))
     }),
     terminate: () => child.kill(),
+    alive: () => child.exitCode === null && child.signalCode === null,
     waitForExit: async () => true,
   }
 }
 
 /** A DSH host process: its own Cordis context and sessions, sharing the DSH home. */
-async function host(dshHome: string, packageRoot: string, wrappers = new Map<string, string>()) {
+async function host(dshHome: string, packageRoot: string, wrappers = new Map<string, string>(),
+  existing?: { ctx: Context; projects: Record<string, string>; children: ReturnType<typeof localSubprocess>[] }) {
   vi.stubEnv('UML_VIEWER_BIN', undefined)
-  const projects: Record<string, string> = {}
+  const projects: Record<string, string> = existing?.projects ?? {}
+  const children = existing?.children ?? [] as ReturnType<typeof localSubprocess>[]
   const agents: Record<string, Agent> = {}
   const services: HostServices = {
     tools: { register: () => () => {} },
     sandboxPolicy: { resolve: ({ session }) => ({ mode: 'danger-full-access', workspaceRoot: projects[session.id]! }) },
     workingDirectory: { get: session => projects[session.id]!, ensure: async agent => projects[agent.session.id]! },
-    subprocess: { spawn: spec => localSubprocess(spec, wrappers) },
+    subprocess: { spawn: spec => {
+      const child = localSubprocess(spec, wrappers)
+      children.push(child)
+      return child
+    } },
     typert: { register: () => async () => {} },
     dshHomePath: (...segments: string[]) => path.join(dshHome, ...segments),
   }
-  const ctx = new Context()
-  contexts.push(ctx)
-  for (const [key, value] of Object.entries(services)) ctx.provide(key, value)
+  const ctx = existing?.ctx ?? new Context()
+  if (!existing) contexts.push(ctx)
+  for (const [key, value] of Object.entries(services)) {
+    if (!existing || !ctx.get(key)) ctx.provide(key, value)
+  }
   const fiber = ctx.plugin({ name: 'uml-viewer-version-host',
     apply: (scope: Context) => plugin.applyWithPlatform(scope, {}, { platform: process.platform, arch: process.arch, root: packageRoot }) })
   await fiber
@@ -128,7 +137,7 @@ async function host(dshHome: string, packageRoot: string, wrappers = new Map<str
       },
     }
   }
-  return { ctx, fiber, panel, dispose: () => ctx.fiber.dispose() }
+  return { ctx, projects, children, fiber, panel, unload: () => fiber.dispose(), dispose: () => ctx.fiber.dispose() }
 }
 
 const sha256 = async (file: string) => createHash('sha256').update(await readFile(file)).digest('hex')
@@ -165,6 +174,33 @@ it('keeps an old panel on vN after updating, while a fresh open runs vN+1', asyn
   expect(JSON.parse(await readFile(path.join(home, 'current.json'), 'utf8'))).toMatchObject({ version: '1.1.0' })
 })
 
+it('survives unloading vN and loading vN+1 in the same Cordis root until the old panel closes', async () => {
+  const dshHome = await scratch('reload home')
+  const home = path.join(dshHome, 'dsh-uml-viewer')
+  const old = await host(dshHome, await install('1.0.0'))
+  const before = await old.panel('old-session')
+  await old.unload()
+  expect(existsSync(path.join(before.project, 'resident-exit.json'))).toBe(false)
+  const updated = await host(dshHome, await install('1.1.0'), new Map(), old)
+  const fresh = await updated.panel('fresh-session')
+  const currentViewer = updated.ctx.get('umlViewer') as { action(agent: Agent, action: unknown): Promise<unknown> }
+  expect(await currentViewer.action({ id: 'old-session', session: { id: 'old-session' } },
+    { action: 'viewport', width: 640, height: 480 })).toMatchObject({ accepted: true })
+  expect(await before.runs()).toEqual([{ version: '1.0.0', binary: path.join(home, '1.0.0', exe) }])
+  expect(await fresh.runs()).toEqual([{ version: '1.1.0', binary: path.join(home, '1.1.0', exe) }])
+  expect(existsSync(path.join(home, '1.0.0', exe))).toBe(true)
+  await before.close()
+  expect(existsSync(path.join(home, '1.0.0'))).toBe(false)
+  expect(existsSync(path.join(home, '1.1.0', exe))).toBe(true)
+  // Root shutdown remains a second owner even if a panel never closes.
+  expect(updated.children.map(child => child.alive())).toEqual([false, true])
+  await updated.dispose()
+  expect(updated.children.map(child => child.alive())).toEqual([false, false])
+  // A process stopped at shutdown frees its version too, with no lease left.
+  expect(existsSync(path.join(home, '1.0.0'))).toBe(false)
+  expect(existsSync(path.join(home, 'leases', '1.0.0'))).toBe(false)
+})
+
 it('removes the old version directory once the host still using it has stopped', async () => {
   const dshHome = await scratch('home')
   const home = path.join(dshHome, 'dsh-uml-viewer')
@@ -181,3 +217,111 @@ it('removes the old version directory once the host still using it has stopped',
   await updated.dispose()
   expect(await readFile(path.join(home, '1.1.0', exe), 'utf8')).toBe(payloadScript('1.1.0'))
 })
+
+it('cleans up only version directories that are neither current nor leased by a live host', async () => {
+  const dshHome = await scratch('home')
+  const home = path.join(dshHome, 'dsh-uml-viewer')
+  const hour = new Date(Date.now() - 60 * 60_000)
+  for (const version of ['0.9.0', '0.9.1', '0.9.2', '0.9.3']) {
+    await mkdir(path.join(home, version), { recursive: true })
+    await writeFile(path.join(home, version, exe), `old ${version}`)
+  }
+  // 0.9.1: a live host (fresh heartbeat). 0.9.2: a host that died an hour ago.
+  await mkdir(path.join(home, 'leases', '0.9.1'), { recursive: true })
+  await writeFile(path.join(home, 'leases', '0.9.1', 'live-host.lease'), '{}')
+  await mkdir(path.join(home, 'leases', '0.9.2'), { recursive: true })
+  await writeFile(path.join(home, 'leases', '0.9.2', 'dead-host.lease'), '{}')
+  await utimes(path.join(home, 'leases', '0.9.2', 'dead-host.lease'), hour, hour)
+  // 0.9.3 was current before this activation; what is not a version stays.
+  await writeFile(path.join(home, 'current.json'), JSON.stringify({ version: '0.9.3' }))
+  await mkdir(path.join(home, 'sessions'))
+  await writeFile(path.join(home, 'sessions', 'session-a.json'), '{}')
+  await mkdir(path.join(home, 'not-a-version'))
+  // An old staging copy from a crashed activation, a fresh one from a live one.
+  await mkdir(path.join(home, '.staging-crashed'))
+  await utimes(path.join(home, '.staging-crashed'), hour, hour)
+  await mkdir(path.join(home, '.staging-in-progress'))
+
+  await host(dshHome, await install('1.0.0'))
+  expect((await readdir(home)).sort()).toEqual(['.staging-in-progress', '0.9.1', '1.0.0', 'current.json', 'leases',
+    'not-a-version', 'sessions'])
+  expect(await readdir(path.join(home, 'leases'))).toEqual(expect.arrayContaining(['0.9.1', '1.0.0']))
+  expect(await readdir(path.join(home, 'leases'))).toHaveLength(2)
+  expect(await readFile(path.join(home, '0.9.1', exe), 'utf8')).toBe('old 0.9.1')
+})
+
+it('publishes one intact copy when several hosts load the same version at once', async () => {
+  const dshHome = await scratch('home')
+  const home = path.join(dshHome, 'dsh-uml-viewer')
+  const source = path.join(await scratch('payload'), exe)
+  // Large enough that unsynchronized writers would interleave visibly.
+  const bytes = Buffer.alloc(8 << 20)
+  for (let i = 0; i < bytes.length; i += 4) bytes.writeUInt32LE((i * 2654435761) >>> 0, i)
+  await writeFile(source, bytes)
+  const expected = createHash('sha256').update(bytes).digest('hex')
+  // Each loader is a separate Node process running the real pinVersion.
+  const bundle = path.join(await scratch('bundle'), 'versions.mjs')
+  const esbuild = await import('esbuild')
+  await esbuild.build({ entryPoints: [fileURLToPath(new URL('../src/versions.ts', import.meta.url))], bundle: true,
+    platform: 'node', format: 'esm', outfile: bundle, logLevel: 'silent' })
+  const script = `const { pinVersion } = await import(${JSON.stringify(pathToFileURL(bundle).href)})
+const pinned = pinVersion(process.argv[1], '1.0.0', process.argv[2], ${JSON.stringify(exe)})
+process.stdout.write(pinned.binary)
+process.exit(0)`
+  const loaders = Array.from({ length: 6 }, () => new Promise<{ code: number | null; out: string; err: string }>(resolve => {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', script, home, source], { stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = ''
+    let err = ''
+    child.stdout.on('data', chunk => { out += chunk })
+    child.stderr.on('data', chunk => { err += chunk })
+    child.on('close', code => resolve({ code, out, err }))
+  }))
+  const results = await Promise.all(loaders)
+  expect(results.map(result => [result.code, result.out, result.err]))
+    .toEqual(Array.from({ length: 6 }, () => [0, path.join(home, '1.0.0', exe), '']))
+  expect(await sha256(path.join(home, '1.0.0', exe))).toBe(expected)
+  expect(await readdir(path.join(home, '1.0.0'))).toEqual([exe])
+  expect((await readdir(home)).filter(name => name.startsWith('.'))).toEqual([])
+  expect(JSON.parse(await readFile(path.join(home, 'current.json'), 'utf8'))).toEqual({ version: '1.0.0', size: bytes.length, sha256: expected })
+}, 60_000)
+
+it.runIf(process.platform === 'win32')('updates while an exe in the old version directory is running, and removes it after exit', async () => {
+  const dshHome = await scratch('home')
+  const home = path.join(dshHome, 'dsh-uml-viewer')
+  // The vN payload is a real Windows executable (a copy of node.exe); the
+  // resident it runs keeps that exe image mapped, so Windows denies moving or
+  // deleting its directory while the panel is open.
+  const wrapperDirectory = await scratch('wrapper')
+  const wrapper = path.join(wrapperDirectory, 'resident-1.0.0.cjs')
+  await writeFile(wrapper, `require('node:fs').appendFileSync('resident-versions.log', JSON.stringify({ version: '1.0.0', binary: process.execPath }) + '\\n')\nimport(${JSON.stringify(residentFixture)})\n`)
+  const nativeExe = path.join(home, '1.0.0', exe)
+  const old = await host(dshHome, await install('1.0.0', { native: true }), new Map([[nativeExe, wrapper]]))
+  const before = await old.panel('session-old')
+  expect(await before.runs()).toEqual([{ version: '1.0.0', binary: nativeExe }])
+  // Simulate a lost owner's lease with its resident still running: only the
+  // OS now knows the exe is in use. This exercises cleanup's Windows guard,
+  // independently of the ordinary live-lease path.
+  const leases = path.join(home, 'leases', '1.0.0')
+  const longGone = new Date(Date.now() - 60 * 60_000)
+  for (const lease of await readdir(leases)) {
+    const file = path.join(leases, lease)
+    // A dead host: stale heartbeat and no process with that PID.
+    await writeFile(file, JSON.stringify({ pid: 2 ** 22 + 17, version: '1.0.0' }))
+    await utimes(file, longGone, longGone)
+  }
+
+  const updated = await host(dshHome, await install('1.1.0'))
+  const fresh = await updated.panel('session-new')
+  expect(await fresh.runs()).toEqual([{ version: '1.1.0', binary: path.join(home, '1.1.0', exe) }])
+  // Deferred, not failed: the running exe is untouched and still serving.
+  expect(existsSync(nativeExe)).toBe(true)
+  expect(await before.action({ action: 'viewport', width: 320, height: 200 })).toMatchObject({ accepted: true })
+  expect((await readdir(home)).filter(name => name.startsWith('.'))).toEqual([])
+
+  await before.close()
+  await old.dispose()
+  await fresh.close()
+  await updated.dispose()
+  expect(existsSync(path.join(home, '1.0.0'))).toBe(false)
+  expect(existsSync(path.join(home, '1.1.0', exe))).toBe(true)
+}, 60_000)

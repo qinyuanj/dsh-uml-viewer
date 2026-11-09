@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { pinVersion } from './versions.js'
 
-const unpinned = (argv: string[]): ActivatedBinary => ({ argv, release: () => {} })
+const unpinned = (argv: string[]): ActivatedBinary => ({ argv, retain: () => () => {}, release: () => {} })
 
 export interface Config {
   /** Absolute executable, or trusted argv prefix (for dev/test launchers). No shell. */
@@ -67,12 +67,14 @@ export function activationBinary(config: Config, home: string | undefined, platf
   // resident and tool call of the activation runs this copy, so an update
   // only reaches panels opened by a later (fresh) activation.
   const pinned = pinVersion(home, manifest.version, source, name, platform.platform)
-  return { argv: [pinned.binary], release: pinned.release }
+  return { argv: [pinned.binary], retain: pinned.retain, release: pinned.release }
 }
 
 /** The executable an activation pinned, and the hold it keeps on that version. */
 export interface ActivatedBinary {
   readonly argv: string[]
+  /** A resident holds the pinned version until its actual process exit. */
+  retain(): () => void
   /** Drop the activation's version lease after its residents stopped. */
   release(): void
 }
