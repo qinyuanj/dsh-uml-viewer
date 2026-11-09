@@ -1,5 +1,7 @@
 # Platform acceptance — issue #5 / spec #1
 
+> **历史记录**：本文描述的 Herdr companion、邮件与 `./uml` / `get-uml-viewer` 入口已在 qinyuanj/dsh-uml-viewer#18 删除，只在冻结的 qinyuanj/uml-viewer 中保留；本文不再是本仓库的现行契约或验收清单。
+
 Herdr is the sole companion backend **on every supported platform** (ADR 0007).
 The delivery targets are WSL2 + Ubuntu 24.04 + WSLg and macOS (ADR 0007,
 2026-10-27 addendum); native Windows is unsupported.

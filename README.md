@@ -1,10 +1,12 @@
 # UML viewer
 
-The DeepSeek Harness plugin host is in development. See
-[Plugin host development](docs/plugin-development.md) for the pnpm workspace,
-`uml_ir`, `uml_crap`, `uml_mutate`, `uml_dry`, their IR gate, binary location
-and Cordis seam tests. The legacy flow below remains available during the
-ADR 0013 transition.
+The viewer is a DeepSeek Harness plugin (`dsh-uml-viewer`): a panel bound to
+the session, the `uml_ir`, `uml_display`, `uml_crap`, `uml_mutate` and
+`uml_dry` tools, and the panel's prompt rules ([docs/companion-rules.md](docs/companion-rules.md)).
+See [Plugin host development](docs/plugin-development.md) for the pnpm
+workspace, the IR gate, the binary location and the Cordis seam tests. The
+old `get-uml-viewer` / `./uml` flow with its Herdr companion was deleted
+(#18); it stays frozen in qinyuanj/uml-viewer.
 
 ## Abstract
 
@@ -12,7 +14,7 @@ This project displays a project as UML. The UML is *dynamic*. You can click
 elements to drill down — all the way to source code. You can also play
 what-if games by proposing architecture changes.
 
-The app is coupled to an agent assistant. The two communicate, so you can
+The panel is coupled to the session's agent. The two communicate, so you can
 display the UML, drill down, tell the agent what you don't like, and watch
 it make the changes. Describe a proposal and the agent will build a new
 diagram. Keep revising that proposal until you like it, then tell the
@@ -42,12 +44,11 @@ level.
 A Rust app (egui/eframe) that lays out and draws UML from an EDN IR. A
 **policy** plus a language-specific scanner writes the topology; this tool
 displays it, routes the arrows, colors CRAP, and lets you click. One Rust
-binary runs the viewer, IR generation, the four scanners, and the companion's
-headless roles. The JVM/Clojure implementation was removed in the JVM cutover
+binary runs the egui window, the panel's resident session, IR generation, the
+four scanners and the three quality tools. The JVM/Clojure implementation was removed in the JVM cutover
 and the Lua/LOVE implementation in the #144 cutover (ADR 0008). The supported platforms are **WSL2 + Ubuntu 24.04 + WSLg**,
-**macOS** (Metal, Terminal.app attach) and **native Windows 11 / Windows 10 22H2
-(build 19045) or later** on x64 (DX12, Windows Terminal attach; ADR 0010, see
-[Native Windows](#native-windows)).
+**macOS** (Metal) and **native Windows 11 / Windows 10 22H2 (build 19045) or
+later** on x64 (DX12; ADR 0010).
 
 The IR is **topology**: the namespace tree, classes, and edges. **Metrics**
 (CC, coverage, CRAP, killed/survived/uncovered) come from `.metrics/`
@@ -58,541 +59,46 @@ policy, not the IR. See [Policy](#policy).
 
 [dryer](https://github.com/qinyuanj/dryer) is the third quality tool. It
 reports structurally duplicated forms in `.metrics/dry.edn`; the viewer does
-not overlay that snapshot yet, so `./uml dry` is a report you read from the
-terminal.
+not overlay that snapshot yet, so `uml-viewer quality dry` is a report you
+read from the terminal.
 
 ## Run
 
 Needs the Rust toolchain pinned by `rust-toolchain.toml` (1.99.1 with
-`rustfmt` and `clippy`), `git`, Herdr >= 0.9.3, and Python 3.11+. There is no
-Java, Clojure, Lua, LOVE, cimgui or PowerShell dependency.
-
-From **this repo** (the viewer, IR generator, scanners and companion roles
-are the Cargo workspace):
+`rustfmt` and `clippy`), `git`, and for the plugin Node 24 and pnpm. There
+is no Herdr, Python, Java, Clojure, Lua, LOVE or PowerShell dependency.
 
 ```sh
 cargo build --release --locked
-./uml ir ./examples/uml-viewer.policy.edn
-./uml ./examples/uml-viewer.edn
+target/release/uml-viewer ir examples/uml-viewer.policy.edn   # policy → IR
+target/release/uml-viewer viewer examples/uml-viewer.edn      # standalone window
 cargo test --workspace --locked          # pure and integration suites
+python -I scripts/check.py               # source rules + the two above
 git config core.hooksPath .githooks      # once per clone: enable the pre-commit hook
 ```
 
-The versioned `.githooks/pre-commit` runs `cargo fmt --all -- --check` and
-`cargo clippy --workspace --all-targets --locked -- -D warnings`; a failure
-blocks the commit.
+The window runs standalone and hot-reloads the diagram and its `.metrics/`
+snapshots; inside DeepSeek Harness the panel replaces it (see
+[docs/plugin-development.md](docs/plugin-development.md)). The versioned
+`.githooks/pre-commit` runs `cargo fmt --all -- --check`, the static source
+rules and `cargo clippy --workspace --all-targets --locked -- -D warnings`; a
+failure blocks the commit.
 
-From **any project** you want to view (no local uml-viewer checkout
-needed):
-
-```bash
-cd /path/to/the-project
-curl -fsSL https://raw.githubusercontent.com/qinyuanj/uml-viewer/main/scripts/get-uml-viewer -o get-uml-viewer
-chmod +x get-uml-viewer
-./get-uml-viewer               # fetch, write ./uml, start
-./uml                          # later fresh starts (returns immediately)
-./uml --restart                # companion only: new Rust process, restore last view
-./uml ir                       # policy → IR
-./uml crap                     # .metrics/crap.edn for the declared tree
-./uml mutate 'src/file with spaces.rs'  # differential mutation of these files
-```
-
-`scripts/get-uml-viewer` is in this repo. It clones uml-viewer into
-**gitignored** `.uml-viewer/uml-viewer/` (a nested `.git` there is invisible
-to the project's repo), writes `./uml`, and starts the viewer. `--install-only`
-skips the start. `UML_VIEWER_REPO_URL` and `UML_VIEWER_REF` override the clone
-source (default `qinyuanj/uml-viewer`, branch `main`). Installation and analysis
-use the native POSIX entry (`scripts/get-uml-viewer`), which runs Python
-directly and performs every step with literal argv; no PowerShell is
-required. The Rust toolchain, git, Herdr, and Python 3.11+ are user-installed
-prerequisites. Install the pinned toolchain with `rustup toolchain install
-1.99.1`; the installer runs `cargo build --release --locked` in
-`.uml-viewer/uml-viewer/` and records the resulting binary in
-`.uml-viewer/install.json`. There is no LOVE, Lua, cimgui or LuaJIT
-provisioning any more (#144). Upgrading from the LOVE version: every install
-deletes the `cimgui-love-*` directories the old installer provisioned directly
-under `.uml-viewer/` (real directories holding `cimgui.so`, `cimgui.dll` or
-`cimgui/init.lua`), whatever `install.json` records, and names each removed
-path on stderr. Symlinks are not followed, unmarked directories of that name
-and everything else stay, and an install refused because of live runtime
-state deletes nothing (#167). Live means held companion ownership, a
-recovery not in a terminal phase (`failed`, `cancelled`, `normal`) or the
-identity of a viewer still running; the records a normal close leaves do not
-block an install. The installer leaves two things for you to
-remove by hand: `~/.local/share/love/uml-viewer/` (LOVE's own save directory,
-for example `imgui.ini`) and the apt `love` / `lua` packages, if nothing else
-uses them.
-The installer also provisions Sarasa Mono SC Regular v1.0.42: it downloads the
-pinned TTF release, verifies the archive and face SHA256 (the pins from #82),
-and extracts only that face into `.uml-viewer/fonts/`; any failure exits
-non-zero. A download with no data for 60 seconds fails naming the URL and the
-timeout, and writes no font. Upstream ships the release only as 7z, so extraction uses `py7zr` in
-`.uml-viewer/installer/.venv` (created on first use) — no system 7z package is
-needed. The viewer's font lookup is an explicit path, then `UML_CJK_FONT`, then
-that provisioned Sarasa, then a system CJK font (Noto CJK on Ubuntu) with a one-time stderr warning naming `get-uml-viewer`.
-Install Herdr >= 0.9.3 from
-https://github.com/herdrdev/herdr/releases. The installer preserves existing
-policies and proposals and does not create a policy or generate a diagram
-during `--install-only`.
-
-Download `scripts/get-uml-viewer` from the same ref, then run from the
-project:
+Quality data comes from the same binary. `uml-viewer quality crap|mutate|dry`
+applies the declared scope in `uml-quality.json` (ADR 0001;
+[docs/quality-dispatch.md](docs/quality-dispatch.md)) and prints the
+version-1 result record; `crap`, `mutate` and `dry` are also subcommands of
+their own with the original tools' options. Mutation isolation is per
+platform: [docs/mutation-linux.md](docs/mutation-linux.md) and
+[docs/mutation-windows.md](docs/mutation-windows.md); macOS `mutate` refuses
+with exit 1.
 
 ```sh
-sh ./get-uml-viewer --install-only
-./uml ir
-./uml crap
-./uml mutate 'src/file with spaces.lua'
+uml-viewer quality crap                              # .metrics/crap.edn
+uml-viewer quality mutate crates/edn/src/lib.rs      # differential mutation
+uml-viewer quality dry                               # .metrics/dry.edn
+uml-viewer ir examples/uml-viewer.policy.edn         # then regenerate the IR
 ```
-
-The installer writes a POSIX `uml` entry that forwards to the installed
-Python command module. Arguments are passed as a literal argv: no shell
-re-parses them, so spaces, Unicode and shell metacharacters reach the tool
-unchanged.
-`UML_VIEWER_TOOL_ROOT` overrides the tool checkout the entry runs: point it at
-a working tree (for example this repository) to launch its Cargo workspace
-instead of the pinned `.uml-viewer/uml-viewer/` clone. The path must contain
-`Cargo.toml`; anything else fails and names the variable. When the selected
-tool root is a different git checkout at a different commit, startup prints a
-one-line stderr warning with both short SHAs and never blocks the launch.
-`UML_VIEWER_RUST_EXECUTABLE` selects the built binary (default
-`<tool root>/target/release/uml-viewer`). The default binary is rebuilt with
-`cargo build --release --locked` before use whenever a crate source, a
-manifest, `Cargo.lock` or `rust-toolchain.toml` is newer than it, so a
-relaunch never runs code older than the tree; the Herdr backend preflight reads one
-line from its stdout. The viewer launcher starts that binary with individual
-arguments and writes its output to `.uml-viewer/viewer.log`.
-Fresh startup uses **Herdr as the sole companion backend** on WSL.
-Historical Windows and macOS evidence remains historical.
-`--backend herdr` remains accepted; `--backend tmux` and `--backend psmux` are
-rejected before creating resources. Restart, wake and
-close require explicit Herdr ownership and verify its recorded identities.
-Legacy or unmarked ownership is retained and refused; see
-[legacy migration](docs/herdr-backend-contract.md#9-旧后端退役与迁移).
-Startup checks the preinstalled CLI is **>= 0.9.3** and the bundled protocol is **22**
-without starting a server, terminal, companion or detached Viewer. With several
-`herdr` executables on `PATH`, the highest compatible release is used for every
-Herdr call ([ADR 0004](docs/adr/0004-herdr-executable-selection.md)). Install from
-[the official release](https://github.com/herdrdev/herdr/releases)
-or [herdr.dev](https://herdr.dev), then verify the version.
-There is no download, upgrade or fallback. `--backend herdr` creates an isolated
-named session and records its server, shell, pane and process creation identities.
-On WSL the companion opens a Windows Terminal window running
-`herdr session attach <session>` through `wt.exe` interop. Without `wt.exe`, or
-when it fails to start, the viewer's status line, the ready event and the project
-log carry that command to run in a separate terminal (#49). Do not
-start a second companion to retry attachment. Herdr starts a detached project recovery
-controller. A verified abnormal Claude exit is retried at most three times,
-after 1, 2 and 4 seconds; the count resets only after 60 seconds of verified
-continuous child uptime. A normal exit, unknown exit evidence, or lost pane
-ownership stops recovery and retains mail with a diagnostic. Closing the
-diagram revokes recovery and waits for the controller to exit before removing
-only this project's Herdr resources. Recovery needs an executable that can be
-`exec`ed directly (`claude`, or `node` plus the official `cli.js`); script
-wrappers cannot prove the child identity. Native Windows is a delivery
-platform again ([ADR 0010](docs/adr/0010-native-windows-delivery-platform.md),
-superseding that part of [ADR 0007](docs/adr/0007-posix-platforms-drop-windows-native.md));
-the earlier Windows Herdr records stay historical in
-[the #30 baseline](docs/windows-herdr-30-baseline.md). Historical backend
-evidence remains in [platform acceptance](docs/platform-acceptance.md).
-A standalone downloaded installer script fetches its entry point from
-`UML_VIEWER_REF`; for custom hosts, keep the checkout layout or set
-`UML_VIEWER_INSTALLER_URL` explicitly.
-
-The Rust binary must be built for the host architecture; the installer
-verifies the pinned toolchain before building. There is no JVM, Clojure, Lua or
-LOVE requirement. A launcher record from a removed runtime (`love` or `jvm`)
-is refused; fresh-start the viewer instead.
-
-`CLAUDE_BIN` selects the companion program; it defaults to `claude` on PATH.
-The runner execs it directly so its recorded identity is the agent's own
-process, and argv is passed literally, never through a shell. It also sets
-`UML_COMPANION_ROOT` to the project root for the agent: inside a companion,
-`./uml` refuses a fresh start and any lifecycle entry for another directory,
-and allows only `./uml --restart` of its own project.
-
-The companion can be Codex CLI instead of Claude Code:
-`./uml --coding-agent codex` (fresh start; `./uml --restart` reuses the
-recorded provider, and an explicit conflicting choice is refused). The option
-belongs only to the lifecycle entries; `ir`, `scene`, `crap`, `mutate` and
-`dry` refuse it. Before creating anything the preflight requires `CODEX_BIN`
-(a literal path) or `codex` on PATH reporting `codex-cli` **>= 0.166.0**,
-`codex login status` exit 0, `codex --enable hooks features list` reporting
-`hooks` `true`, the selected Herdr **>= 0.9.5**, and
-`herdr integration status` reporting `codex: current`. Nothing is installed,
-logged in or configured for you, and a refusal never falls back to Claude.
-Herdr's Codex hook must also be trusted in your own Codex config. No Stable
-read-only Codex interface reports hook trust (ADR 0009), so the preflight
-cannot check it: an untrusted hook shows up as a 45-second identity timeout
-that names it as the likely cause, after which this start's Herdr session is
-released. Attach to the companion pane during that wait: an untrusted hook
-leaves Codex on its "Hooks need review" screen, where you review and trust
-Herdr's SessionStart hook (`herdr-agent-state.sh`); then start again. On macOS
-(#200) trusting it in a separate `codex` run did not persist, while trusting it
-on that screen did. The companion runs the Stable interactive
-TUI with `--dangerously-bypass-approvals-and-sandbox --enable hooks
---no-daemon -C <project>`, the standing rules as `developer_instructions`,
-and a per-invocation trust of the project root
-(`-c projects={"<root>"={trust_level="trusted"}}`), so a git project's
-"Trust this folder?" screen does not stop an unattended start; Codex saves
-none of these and `~/.codex/config.toml` is not modified. Ownership records
-`:coding-agent :codex` and the session UUID Herdr reports. Restart rebinds
-the same Codex process and UUID; recovery after a verified abnormal exit runs
-`codex resume <options> <saved uuid>`, never `--last` or a picker. Starting a
-new conversation in the companion pane (`/new`) breaks the companion: once the
-new conversation reports its own UUID, wakes are refused and mail stays
-queued until you close the viewer. `:omit` and proposal mail change only the
-policy: they run no quality refresh, so a failed refresh before them does not
-stop their display. Acceptance with real Codex 0.166.0 and Herdr 0.9.5 is
-recorded per platform: WSL2 in
-[acceptance-evidence/199-wsl-codex/](acceptance-evidence/199-wsl-codex/README.md),
-macOS in
-[acceptance-evidence/200-macos-codex/](acceptance-evidence/200-macos-codex/README.md)
-(see [docs/platform-acceptance.md](docs/platform-acceptance.md) for the macOS
-PATH note).
-
-Every project gets
-[crapper](https://github.com/qinyuanj/crapper),
-[mutator](https://github.com/qinyuanj/mutator) and
-[dryer](https://github.com/qinyuanj/dryer) cloned side by side into
-`.uml-viewer/` (branch `main`; override with `CRAPPER_REPO_URL`,
-`CRAPPER_REF`, `MUTATOR_REPO_URL`, `MUTATOR_REF`, `DRYER_REPO_URL`,
-`DRYER_REF`). The installer always
-fetches all three tools, including in repositories that still contain a `deps.edn`
-from the removed Clojure implementation. It then provisions each dispatcher
-path: `.uml-viewer/<tool>/.venv` with the tool installed editable. Failure to
-fetch any tool is fatal instead of a warning. They need Python 3.11+
-(select the interpreter with `UML_PYTHON_EXECUTABLE` when needed). Re-run
-`get-uml-viewer --install-only` to fetch updates; the editable installs use
-the updated source. Each tool runs from its own `.venv/bin/python -m <tool>`;
-sibling checkouts are not on `PATH` and are not used by the dispatcher. Keep a
-WSL project in the Linux home directory rather than `/mnt/c`. The quality tools
-analyze the project's own language; this repository is Rust. crapper generates
-Rust coverage with `cargo llvm-cov` (installed into `~/.cargo` on first use when
-absent) and mutator uses `cargo test`. No Lua, Busted or LuaCov setup is needed
-for Rust analysis. See
-[mutator's setup and limitations](https://github.com/qinyuanj/mutator/tree/main).
-
-mutator runs every mutant in an overlayfs view inside a private user namespace
-(its ADR 0006), so a test's writes never reach the project. That needs Linux:
-the WSL2 kernel allows unprivileged user namespaces; where AppArmor restricts
-them (native Ubuntu 23.10 and later), mutator exits 1 with the `sysctl` that allows them. On macOS
-`./uml mutate` and right-click mutation exit 1 until mutator gains macOS
-isolation ([mutator#26](https://github.com/qinyuanj/mutator/issues/26)); the
-classes keep their missing-data red, and `./uml crap` and `./uml dry` are
-unaffected.
-
-Analysis always runs from the examined project, forwards individual arguments,
-and preserves the tool's exit status. Standard crapper/mutator/dryer invocation
-is the primary quality route; a repository command override is an optional
-extension. The installed standard tools accept CLI options rather than loading
-persistent business-scope settings. `uml-quality.json` can persist these options
-through `standardTools`, independently of optional executable overrides in
-`operations`:
-
-```json
-{"version":1,"standardTools":{
-  "sourceRoots":["business tree","common"],
-  "exclude":["business tree/generated","**/vendor"],
-  "crapperOptions":[],
-  "mutatorOptions":["--max-workers","3"],
-  "dryerOptions":["--threshold","0.9"]
-}}
-```
-
-Every field is an optional array of nonempty strings. Unknown fields fail.
-`standardTools` is the primary quality route. There is no Clojure alias route
-after the cutover; without a declaration the standard tools inspect the whole
-project. Explicit `operations` take priority
-and still require complete valid command declarations; `crap` and `mutate`
-remain mandatory there, while a `dry` entry is optional and leaves the standard
-dryer in place. Roots resolve from the
-project root and must be existing directories inside it. Exclusions are anchored
-at the project root, use either separator, and forbid absolute paths or `..`.
-`*` and `?` match within one segment; `**` matches whole directory segments,
-including zero segments; matching a directory excludes descendants. Matching is
-case-sensitive. Tool option arrays cannot declare owned routing flags (`--root`,
-`--source-root`, `-s`, `--exclude`, `--full-tree`, `--changed`, `--mutate-all`,
-`--edn`, `--text`).
-Scope fields own roots/exclusions; only explicit refresh arguments request full
-mutation. Refresh arguments cannot override configured roots/exclusions.
-
-With standard scope configured, `./uml mutate` passes the declared roots and
-exclusions to Mutator as `-s` and `--exclude` and forwards its targets without
-expanding them: either `--changed`, forwarded as the flag, or named files and
-directories, each forwarded once as its project-relative path, in the order
-named. `--changed` together with a named target fails (exit 1) without
-launching a tool or publishing a record, because Mutator would mutate only the
-changed set and ignore the names; run them separately.
-A named file outside every root or matching an exclusion is not forwarded, nor
-is a named directory that is excluded or that neither lies inside a root nor
-contains one; each gets this line on stderr:
-`uml: omitted mutation target outside business scope: <path>`. Missing paths,
-symbolic links and paths outside the project fail; scoped refresh does not accept textual path filters. A call with neither
-`--changed` nor a remaining target fails (exit 1) without launching a tool or
-publishing a record. Mutator decides which files in a forwarded directory or
-changed set are sources, by crapper's selection rules, and exits 0 with `No
-source files to mutate.` when none remain. Mutation retains differential
-behavior and snapshots.
-
-When it passes `-s` or `--exclude`, `./uml mutate` or `./uml dry` first runs
-`<tool> --help`. If the installed Mutator or Dryer does not list `--exclude`,
-the call fails (exit 1) and asks for `get-uml-viewer --install-only`; it does
-not launch the tool or publish a record. An older tool would reject
-`--exclude`, or mutate the whole `-s` tree instead of the named file. Without
-declared roots or exclusions nothing is probed.
-
-Without persistent configuration, supply scope flags per invocation:
-
-```sh
-./uml crap --source-root 'business tree' --source-root common --exclude 'business tree/generated'
-./uml mutate 'business tree/file with spaces.rs' --max-workers 3
-./uml dry --threshold 0.9
-```
-
-External `crap` adds `--full-tree`: crapper publishes every class under the
-specified roots in one `.metrics/crap.edn` snapshot. Roots default to the project
-root, must exist inside it, and exclusions are project-relative paths or globs.
-The tool rejects positional class paths, `--changed` and existing-coverage reuse
-in a full-tree refresh. A failed refresh preserves the previous snapshot rather
-than replacing other classes' metrics with a partial result. `--no-coverage`
-explicitly requests complexity only; it does not establish fresh coverage.
-
-The direct `uml-viewer crap` subcommand also accepts `--changed`: it selects
-git's existing added, modified and untracked files, narrowed by source roots
-and exclusions. A successful coverage run writes
-`target/coverage/crapper-stamp.json` per language. The stamp records the
-coverage command and fingerprints the tree (including tests); edits during
-coverage invalidate that run. Skipped directories and coverage-tool caches do
-not make coverage stale. A missing or invalid fresh custom LCOV report fails
-without replacing `.metrics/crap.edn`.
-
-Mutator accepts repeated `-s`/`--source-root` and `--exclude` and selects files
-by crapper's rules. With `-s`, named paths and `--changed` are narrowed to the
-source roots: a named file outside every root is dropped with
-`Skipping <path>; it is outside the source roots` on stderr, files reached through a named
-directory or `--changed` are dropped silently, and `--exclude` applies
-afterwards. Given both `--changed` and named paths, Mutator takes only the
-changed set. Without a `standardTools` declaration no `-s` or `--exclude` is
-passed and the scope is the project root; declare roots/exclusions or supply
-changed business files explicitly. Crapper exclusions alone do not apply to
-mutation.
-`mutate` stays
-differential; only explicitly passing `--mutate-all` requests all sites. Passing `--max-workers 3`
-to `./uml mutate src/calc/init.lua` caps parallel workers without changing
-differential selection. Mutator writes the same
-`.metrics/mutate/<namespace>.edn` snapshots used by the overlay; private
-functions are included as `defn-/…`.
-
-The standard contracts were inspected read-only in local crapper `1417c43`
-and Mutator `844a0d7`. CRAP exit 0 means analysis completed; exit 2 means a
-threshold finding after a valid snapshot was published; exit 1 denotes invalid
-arguments or analysis/coverage/publication failure. Mutation exit 0 includes
-uncovered sites recorded as coverage gaps; exit 3 means survivors with published
-snapshots; exit 2 means baseline failure; usage and infrastructure errors are
-failures. Findings retain snapshots and never request an automatic rerun or
-`--mutate-all`. Snapshot joins remain by class namespace, then class id; missing
-CRAP or mutation remains red.
-
-Dryer writes `.metrics/dry.edn` on exit 0 only; exit 1 is a usage error and exit
-2 an unknown `--format`, so neither is a valid quality result. `./uml dry`
-passes the declared roots and exclusions as `-s` and `--exclude`, then
-`dryerOptions` and the caller's arguments, and never lists files itself. Dryer
-selects files by crapper's rules, so its rows name the same sources as
-`crap.edn`; without declared roots it walks the project root, and with nothing
-left to analyze it exits 0 with `No source files to analyze.`. Nothing in the
-viewer reads `dry.edn` yet.
-
-Run `python -I scripts/test_posix_entries.py` for the public-entry checks: real
-`./uml ir`, the four scanners, standard and configured quality scope, serial
-per-file mutation, installer idempotence and the launch/preflight contract. They
-do not establish real tool coverage/mutation or companion mailbox acceptance, which
-remains part of consumer integration (`scripts/test_posix_e2e.py`).
-
-Public-entry acceptance on POSIX (Python 3 + git + Rust toolchain):
-
-- `python3 -I scripts/test_posix_entries.py` — installer, IR, quality dispatch.
-- `python3 -I scripts/test_posix_restart_entries.py` — restart refusal rules.
-- `python3 -I scripts/test_posix_codex_companion.py` — Codex provider mail, quality
-  gate, isolation and normal close through the real worker, with stand-ins for
-  Herdr and Codex (no window, login or network).
-- `python3 -I scripts/test_posix_viewer.py` — real window, reload, frame capture.
-- `python3 -I scripts/test_posix_e2e.py` — launch, companion ready, FIFO, close.
-- `python3 -I scripts/test_posix_restart_e2e.py` and
-  `scripts/test_posix_recovery_e2e.py` — restart and recovery.
-- `python3 -I scripts/run_viewer_driver.py <driver>` — GUI driver evidence.
-
-These run in isolated projects and never touch a working checkout.
-
-`./uml ir` runs the Rust IR generator on `examples/<dir>.policy.edn` (else the
-first `examples/*.policy.edn`, else `policy.edn`). `./uml crap` and
-`./uml mutate` run the project-local crapper and mutator. Run `./uml crap` on
-the declared tree: `.metrics/crap.edn` is replaced every run. The companion uses
-these three commands for every language.
-
-`./uml` returns immediately and starts the Rust viewer through the detached launcher.
-Exceptions and viewer output append to **`uml-viewer-log.txt`** in the project
-directory (gitignored).
-
-A **Herdr** session unique to the examined project starts interactive Claude
-Code in
-that directory (`--dangerously-skip-permissions --append-system-prompt …`
-plus a launch prompt). The name is
-`uml-viewer-<project>-<hash>`, stored in `.uml-viewer/companion.edn`. On start
-it writes a hierarchical policy from that project's namespaces and regenerates
-the IR. Type there; Esc is the real TUI interrupt. Closing the diagram kills
-**only that** companion session and its terminal window — other Claude sessions
-stay
-up. Verified abnormal Claude exits use the bounded recovery policy described
-above; normal or unknown exits stop recovery. That
-instance also runs `./uml crap`, `./uml mutate`, and `./uml ir` after later
-changes. Project-wide rules live in `AGENTS.md`.
-
-Prefer `./uml` in the examined project (from `get-uml-viewer`).
-
-| Command | Who | What |
-|---------|-----|------|
-| `./uml` | anyone | Fresh Rust viewer in the background. Starts the companion. Waits for `:display`. |
-| `./uml --restart` | **associated agent only** | New Rust viewer process, same companion. Restores the last view. |
-
-Do **not** pass `--restart` unless you are that companion recycling the
-window after source changes. The wrapper requires the existing launcher/viewer
-records and recorded companion ownership, and refuses restart rather than
-leaving a diagram with no agent or replacing a missing companion. The
-companion recycles the window by writing `:quit-for-restart` to
-`.uml-viewer/to-viewer.edn`, waiting for the viewer to exit, then running
-`./uml --restart`. The new process restores the saved diagram path, discussion
-context, depth, pan, zoom, and which proposal was showing
-(`.uml-viewer/session.edn`). An explicit path after `--restart` opens that
-diagram instead; omit the path to reuse the saved one. Only a legacy session
-without a saved path falls back to the policy output. Policy selection matches
-`./uml ir`: `examples/<project-directory>.policy.edn`, otherwise the first
-`examples/*.policy.edn` sorted by filename, otherwise root `policy.edn`.
-Relative `:out` paths resolve from the project root; absent `:out` uses the IR
-default `diagram.edn` in the project root. Missing or malformed policy, invalid output,
-and unreadable diagrams fail explicitly. A saved or explicit path that fails
-to load does not trigger fallback. A launcher record from a removed runtime (`love` or
-`jvm`) is refused. Do not SIGKILL.
-Closing the window kills only that project's companion, not other Claude
-sessions.
-
-On a fresh start the canvas stays blank until the companion sends `:display`,
-with **Waiting for agent to create diagram.** `R` reloads the current EDN
-immediately and does not wait. A missing or unreadable file prints
-`UML viewer: file not found: …` in the inspector instead of throwing.
-
-`lua-fixture/` is a Lua project with `.metrics/` snapshots written by
-crapper and mutator. The Rust cargo tests scan it and check the overlay joins
-those snapshots; Lua remains a supported scanner language even though the
-viewer no longer runs on Lua.
-
-```sh
-cargo build --release --locked
-./uml ir                                               # examples policy → IR
-./uml crap                                             # .metrics/crap.edn
-./uml mutate crates/edn/src/value.rs                   # differential mutation
-./uml dry                                              # .metrics/dry.edn
-```
-
-This repository's `uml-quality.json` declares
-`standardTools.sourceRoots: ["crates"]`; the dispatcher runs the
-project-local crapper and mutator. The full export pipeline is
-`crapper` (CRAP + coverage) and `mutator` (differential mutation), both
-installed by `get-uml-viewer` into `.uml-viewer/<tool>/.venv`. Commit
-`.metrics/` so a clone has numbers without re-running those tools.
-
-Rename or move of a function is a new form: overlay does not match old names.
-
-The `fixtures/jvm-goldens/` files are the frozen parity oracle captured from
-the removed JVM viewer. The Rust cargo golden tests read them unchanged; only
-the JVM regeneration tooling was deleted.
-
-### Linux / WSL2
-
-Linux is the primary delivery path, exercised through WSL2 + Ubuntu 24.04 +
-WSLg; no separate distribution is promised. `./uml`, `./uml ir`, the three
-quality tools and the Herdr companion all run natively, with no PowerShell or
-Windows executable involved. WSLg presents the window; Chinese rendering,
-reload and the companion lifecycle were verified there (see
-`acceptance-evidence/106-wsl/`). Chinese IME composition needs a Linux input
-method in the WSL session; it is not provided by the Windows IME.
-
-Existing legacy resources and queues are retained; follow the migration
-instructions before starting fresh.
-
-### Native Windows
-
-Windows 11 and Windows 10 22H2 (build 19045) or later on x64 are delivered
-natively (ADR 0010); an older build is refused before anything is created, with
-`Windows build N is not supported: the minimum is Windows 10 22H2 (build 19045)`.
-Prerequisites, all user-installed:
-
-- the Rust **MSVC** toolchain pinned by `rust-toolchain.toml`
-  (`rustup toolchain install 1.99.1-x86_64-pc-windows-msvc`, with the Visual
-  Studio Build Tools "Desktop development with C++" workload for the linker);
-- `git` (Git for Windows);
-- Python 3.11+ from python.org (the `py` launcher) or another native CPython;
-- Herdr >= 0.9.3 (protocol 22), the native `herdr.exe` on `PATH`;
-- Windows Terminal (`wt.exe`) for the companion attach window.
-
-The entries are `uml.cmd` and `get-uml-viewer.cmd`. They do the same job as the
-sh entries and call the same Python implementation; there is no PowerShell
-entry. Both look for Python as `UML_PYTHON_EXECUTABLE`, then `py -3`, then
-`python`. From cmd or PowerShell, in the project:
-
-```bat
-cd C:\path\to\the-project
-curl.exe -fsSLO https://raw.githubusercontent.com/qinyuanj/uml-viewer/main/scripts/get-uml-viewer.cmd
-get-uml-viewer.cmd --install-only
-uml.cmd ir
-uml.cmd crap
-uml.cmd mutate "src\file with spaces.rs"
-```
-
-`get-uml-viewer.cmd` beside a checkout's `uml_posix.py` runs it directly. A
-standalone copy downloads `uml_posix.py` with `curl.exe` (shipped since Windows
-10 1803) from `UML_VIEWER_INSTALLER_URL`, default the `UML_VIEWER_REF` (`main`)
-raw file. The installer then works as on POSIX: it builds
-`.uml-viewer\uml-viewer\target\release\uml-viewer.exe` with
-`cargo build --release --locked`, provisions Sarasa (hash-checked; an http(s)
-pin is downloaded with `curl.exe`, a `file://` pin read directly), creates the
-three tool venvs (`.uml-viewer\<tool>\.venv\Scripts\python.exe`) and copies
-`uml.cmd` into the project. A `uml.cmd` without the `Thin Windows entry` marker
-is not overwritten. A development install (`UML_VIEWER_TOOL_ROOT`) links
-`.uml-viewer\uml-viewer` as a **directory junction**, which needs neither
-Developer Mode nor elevation. The installer never fetches through it. IR,
-`.metrics/` snapshots and the IR bytes are identical to Linux (`/` separators,
-LF, no drive letter).
-
-The viewer renders through native DX12 with the system title bar. The launcher
-starts it in its own process group with a hidden console and outside the
-caller's job, so closing the terminal does not end it. A quality command
-configured in `uml-quality.json` must be a native `.exe`; `.cmd`, `.bat` and
-`.ps1` are refused. A child that dies with an NTSTATUS is reported as
-128 + the matching POSIX signal (`0xC000013A` → 130, `0xC0000005` → 139,
-`0xC0000409` → 134); any other code above 255 is reported as 255. The raw
-NTSTATUS is named on stderr.
-
-Optional: put projects on a **Dev Drive** (ReFS). mutator then block-clones its
-per-worker copies instead of copying them in full; results are the same, only
-faster.
-
-Known limits:
-
-- `uml.cmd` forwards `%*` through cmd, which re-parses it. Spaces, Unicode,
-  `;`, `$` and `'` reach Python intact; an argument containing `^ & | < > %` or
-  `"` does not. Rename such a file, or run the Python entry directly:
-  `py -3 -I -B .uml-viewer\uml-viewer\scripts\uml_posix.py command . <args>`.
-- There are no bench readings on Windows (`bench` reports no CPU or load).
-- mutator's isolation on Windows is weaker than on Linux: each worker gets a
-  project copy, a Job Object and redirected `HOME`/`USERPROFILE`/`TEMP`/`APPDATA`,
-  but nothing stops a test from writing outside its copy (ADR 0010).
-
-The public-entry suites run natively:
-`py -3 -I scripts\test_posix_entries.py`,
-`py -3 -I scripts\test_posix_restart_entries.py` and
-`py -3 -I scripts\test_windows_entries.py` (`.cmd`, junction and `.exe`
-behaviour). `py -3 -I scripts\check.py` runs all of them.
 
 ## Navigation
 
@@ -603,25 +109,25 @@ behaviour). `py -3 -I scripts\check.py` runs all of them.
   collapse to one arrow. Each component lists nested namespaces.
 - Double-click a component to open the next level. Esc or the ← label goes
   up a level, including after drilling a proposal group. Esc does not quit.
-  The window close box or a `:quit-for-restart` mail message exits the app.
-  Reload, mail and exit handling keep running while the window is hidden;
-  SIGTERM/SIGINT follows the normal close path and releases the companion.
+  The window close box exits the app. Reload and exit handling keep running
+  while the window is hidden; SIGTERM/SIGINT closes it with exit 0.
 - Hover an arrow for a popup of every `from -> to` it bundles, in any
   declutter mode. Violating pairs are red.
-- Right-click a class or component for **刷新 CRAP**, **刷新 mutation**,
-  **全量 mutation**, or **隐藏** (Refresh CRAP / Refresh Mutation / Refresh
-  All Mutation / Omit). Each writes
-  `to-agent.edn` and wakes the companion. CRAP runs on that class or the
-  files under that component. Mutation is differential `./uml mutate` on
-  those src files; All Mutation passes `--mutate-all`. Omit adds the id to
-  the current proposal's `:omit`, or to policy `:omit` on the real diagram.
+- The element operations **刷新 CRAP**, **刷新 mutation**, **全量 mutation**
+  and **隐藏** (Refresh CRAP / Refresh Mutation / Refresh All Mutation / Omit)
+  are panel requests to the session's agent
+  ([docs/companion-rules.md](docs/companion-rules.md)).
+  CRAP runs on that class or the files under that component. Mutation is
+  differential on those src files; All Mutation passes `--mutate-all`. Omit
+  adds the id to the current proposal's `:omit`, or to policy `:omit` on the
+  real diagram. The standalone window has no agent and no such menu.
 - Component titles paint **on top of** crossing arrows.
 - The viewer UI is Chinese (one string table, `crates/frame/src/strings.rs`);
   metric and tool names stay English. The inspector (检查器) lists the
   **real diagram** (源码图, the namespace tree) above
   **Proposals**. Click the real row to return to the tree; click a proposal
-  to show it (marked as not in the code). Either click writes `:context`
-  so the companion treats that diagram as the discussion. **New Proposal**
+  to show it (marked as not in the code). Either click makes that diagram
+  the discussion context (the panel tells the agent). **New Proposal**
   (新建提案) adds a timestamp-named proposal. Right-click to rename or delete.
   **Declutter** cycles Declutter arrows / Remove arrows / Declutter
   elements / Declutter classes / Declutter none. **Remove arrows** hides
@@ -645,8 +151,6 @@ behaviour). `py -3 -I scripts\check.py` runs all of them.
   horizontal. Pan can follow arrows that bow past the origin.
 - **Ctrl+** (or **Ctrl+=**) zooms in 10%; **Ctrl-** zooms out 10%;
   **Ctrl+0** restores 100%. Zoom keeps the view center still.
-- **Regen** in the inspector asks the companion to rewrite policy and IR
-  (see [Companion mailbox](#companion-mailbox)).
 - `R` reloads the current EDN. The watcher also reloads on save, and when
   `.metrics/` snapshots change. An open class card updates with the new
   numbers.
@@ -656,7 +160,8 @@ behaviour). `py -3 -I scripts\check.py` runs all of them.
 ## Policy
 
 This project's diagram is **generated**. Do not edit `examples/uml-viewer.edn`.
-Edit `examples/uml-viewer.policy.edn`, then run `./uml ir` (or press Regen).
+Edit `examples/uml-viewer.policy.edn`, then run
+`uml-viewer ir examples/uml-viewer.policy.edn` (in the panel: `uml_ir`).
 
 The **scanner** reads source and emits facts. One class is emitted per module.
 A project-local import/require is a dependency. External requires/imports
@@ -696,7 +201,7 @@ To write a policy for a project:
    (see [Dependency rule](#dependency-rule)).
 7. Optionally set `:proposals` to name design components that are not namespaces
    (see [Proposed components](#proposed-components)).
-8. Run `./uml ir` (or Regen).
+8. Run `uml-viewer ir` with the policy (in the panel: `uml_ir`).
 
 If `foo.bar` and `foo.bar.baz` both exist, the `bar` box lists `bar` (the
 module) and `baz` (the child). Module titles are the last namespace
@@ -724,13 +229,12 @@ Right (the ns tree):
  :sources [{:lang :rust :root "crates/edn/src" :prefix "uml.edn"}
            {:lang :rust :root "crates/ir/src" :prefix "uml.ir"}
            {:lang :rust :root "crates/scene/src" :prefix "uml.scene"}
-           {:lang :rust :root "crates/companion/src" :prefix "uml.companion"}
            {:lang :rust :root "crates/viewer/src" :prefix "uml.viewer"}
            {:lang :rust :root "crates/uml-viewer/src" :prefix "uml.main"}]
  :proposals [{:id :p-1791033119418, :name "test", :layers []}]
  :foreign [libc egui eframe image winit log]
- :order [main viewer companion scene ir edn]
- :levels [[edn] [ir scene companion] [viewer] [main]]}
+ :order [main viewer scene ir edn]
+ :levels [[edn] [ir scene] [viewer] [main]]}
 ```
 
 A project with more than one language lists each tree under `:sources`.
@@ -763,18 +267,18 @@ tree's namespace root. `src/model.ts` becomes `bookwriter.model`
 | `:sources` | One scan per `{:lang :root :prefix?}`. The entry `:prefix` is that tree's namespace root |
 | `:foreign` | External libs as ovals. A listed prefix collapses `at.tauri-apps.api` to `at.tauri-apps`. Unlisted externals are dropped |
 
-**Viewer Claude loop** (passed with `--append-system-prompt` to the
-companion session only)
+**Agent loop** (the panel's prompt section adds the request rules,
+[docs/companion-rules.md](docs/companion-rules.md))
 
-On launch: from the examined directory, write or update the hierarchical
-policy and regenerate the IR, then wait.
+When asked to show a project: from its directory, write or update the
+hierarchical policy and regenerate the IR, then wait.
 
 After **every** later source or policy change, refresh metrics and
 regenerate the IR.
 
 For this repository the maintainer runs that refresh by hand during
-development (see `AGENTS.md`): `./uml crap`, then `./uml mutate` on the changed
-source files, then `./uml ir`. Uncovered mutants that remain are coverage
+development (see `AGENTS.md`): `uml-viewer quality crap`, then
+`uml-viewer quality mutate` on the changed source files, then `uml-viewer ir`. Uncovered mutants that remain are coverage
 gaps. Keep the snapshot. Do not re-run the file or force a full mutation
 because mutate exited non-zero.
 
@@ -782,14 +286,14 @@ For another language, run that language's CRAP and mutation tools when
 they exist. The overlay joins each snapshot by `:ns`, then by the class
 id. Missing CRAP or mutation data is red. Then regenerate the IR.
 
-- Add/rename/delete a namespace: the tree updates on `./uml ir`. Put a new
+- Add/rename/delete a namespace: the tree updates on `uml-viewer ir`. Put a new
   top-level **segment** in `:order` if you care about box order.
 - Nested nses appear as contents of the parent component.
 - “This require is really an association”: one `:edge-kinds` entry.
 - Show a library like egui as an oval: add it to `:foreign`.
 - Do not add `:packages` to fake Clean Architecture components. Use
   `:proposals` to view a grouping that is not in the code.
-- Preserve `:proposals` when rewriting policy. Do not invent them on launch.
+- Preserve `:proposals` when rewriting policy. Do not invent them.
   If instructed, add a named proposal (default name is a timestamp).
 
 Hand-written sample IRs (e.g. `examples/library.edn`) are still valid; they
@@ -828,7 +332,8 @@ Those names are not namespaces. Each item is `{:id :name :layers [...] :omit [..
 The inspector lists the real diagram (the namespace tree) just above
 **Proposals**; click it to return to the tree. Click a proposal to show it
 (canvas marked **PROPOSAL — not instantiated in code**). Either click
-tells the companion that diagram is the context of discussion. **New
+makes that diagram the context of discussion (in the panel the agent is
+told). **New
 Proposal** adds an empty proposal named with a timestamp. Right-click a
 name to rename or delete it. Double-click a ns box to drill; **←** at the
 top returns to the proposal.
@@ -870,102 +375,11 @@ and C/M dots; double-click still opens a component.
              :omit [cli]}]
 ```
 
-The companion must not invent `:proposals` on launch and must keep them when
-updating `:order`. If instructed, add a named proposal and regenerate the IR.
+The agent must not invent `:proposals` and must keep them when updating
+`:order`. If instructed, add a named proposal and regenerate the IR.
 
 The viewer draws a violating arrow **red**, and **bold red** when a selected
 element highlights it. Hand-written IR may set `:violating true` directly.
-
-## Companion mailbox
-
-The viewer and the companion Claude talk through `.uml-viewer/` in the examined
-project (gitignored). The file is the mail; Herdr delivers the wake-up.
-
-| File | Direction |
-|------|-----------|
-| `.uml-viewer/to-viewer.edn` | Claude → viewer |
-| `.uml-viewer/to-agent.edn` | viewer → Claude |
-
-Each mailbox file is a small queue `{:next-id n :queue [cmd …]}` (tmp-then-rename).
-Commands have a rising `:id`. Append; do not overwrite. Handling a command
-**pops** it from `:queue` and rewrites the file (oldest first). The viewer
-does this itself on `to-viewer.edn`. The companion must pop each
-`to-agent.edn` command as it handles it.
-
-`.uml-viewer/session.edn` is the last view (diagram path, discussion context,
-depth, pan, zoom, proposal, and mail cursor) written on `:quit-for-restart`
-and restored by `--restart`. `.uml-viewer/viewer-process.json` records the
-launcher identity, and `.uml-viewer/viewer-process-identity.json` records the
-exact viewer PID/start; the public wrapper verifies and waits for those
-identities before starting a replacement. `.uml-viewer/viewer-jvm.json` is no
-longer recognized. `.uml-viewer/companion.edn`
-records the Herdr session, socket, workspace, pane, server/shell process
-identities and recovery-controller reference. Each operation verifies this
-project's resources before acting; other projects and the shared Herdr service
-remain untouched. Terminal attachment failure retains the companion and prints
-an attach command to the project log.
-
-| `:op` | Meaning |
-|-------|---------|
-| `:display` | Viewer loads `:path` (relative to the project root). Canonical paths identifying the current diagram reload IR/metrics and retain its valid view; a different diagram starts at its own root. |
-| `:regen` | Claude rewrites hierarchical policy, regenerates IR, then `:display` |
-| `:quit-for-restart` | Viewer saves the diagram path, discussion context, view, and mail cursor, then exits the viewer process without killing Claude. The associated agent waits for exit and runs `./uml --restart`. |
-| `:refresh-crap` | Public `./uml crap` with declared scope (standard tools: whole business tree; operation override: targets or whole tree); valid result → successful IR → display |
-| `:refresh-mutate` | Public `./uml mutate` on target files, differential; valid results → successful IR → display |
-| `:refresh-mutate-all` | Public `./uml mutate --mutate-all` on target files only; valid results → successful IR → display |
-| `:omit` | Add `:target` `:id` to proposal or policy `:omit`, then IR |
-| `:context` | Inspector selection is the discussion context: `{:context :real}` or `{:context :proposal :proposal-id id :name "…"}` |
-
-Quality refreshes share CLI dispatch and its configured scope/exclusions. Install
-an absent public entry with `get-uml-viewer --install-only`. Process mail oldest
-first, popping and rewriting the queue; keep real/proposal discussion context
-until later context mail, and preserve proposal definitions and omit semantics.
-Pass every selected source file to one mutation call: mutator shares one
-coverage run and baseline and still publishes each file's snapshot. Scoped
-mutation passes selected files without adding source-root flags.
-
-Before each serialized quality invocation remove the previous
-`.uml-viewer/quality-result.json`, await completion and capture the actual exit.
-The newly published record must have version 1, the requested operation, this
-canonical project root, the actual exit code and `validResult: true`. Require
-all component results to pass before IR. Missing, stale, malformed or mismatched
-records and invalid results stop that request's IR/display and report the cause.
-IR must itself exit 0 before display. Continue later FIFO requests after a
-failure. Recovery follows the same gate and never displays a failed refresh.
-Survivors and uncovered mutants retain their snapshots; they do not trigger
-retries or implicit full mutation.
-
-The optional version-1 `uml-quality.json` declares `standardTools` or
-complete `operations` overrides. The Clojure alias route and
-`aliasResultExitCodes` were removed with the JVM implementation. Standard
-CRAP accepts exit 0 (analysis completed) and 2 (threshold finding after a
-valid snapshot); standard mutation accepts 0 (including uncovered coverage
-gaps) and 3 (survivors with published snapshots). Exit 3 is never universally
-accepted: it requires the tool contract or an explicit project operation
-declaration. Direct tool commands publish no wrapper result record.
-Noninteractive wrapper and application tests establish these boundaries; the
-real-tool right-click/FIFO/display path is recorded in
-[acceptance-evidence/106-wsl](acceptance-evidence/106-wsl/README.md).
-
-Same-diagram display keeps focus, pan, zoom, proposal/open layer, declutter,
-and valid selection/detail cards. A missing focus falls back to the nearest
-remaining namespace ancestor; a missing layer returns to proposal root; a
-missing proposal returns to the namespace tree. Missing selection/card targets
-are cleared. Display preserves discussion context until another `:context`
-arrives. Automated application specs cover this refresh contract.
-
-Clicking **Real diagram** or a proposal (including **New Proposal**) writes
-`:context` and wakes Claude. Stay on that architecture until the next
-`:context`.
-
-Right-click ops include `:target {:id :ns :kind :class|:component :proposal-id?}`.
-`:kind` is `:component` for a layer box (and its nested nses) and `:class`
-for a module.
-
-**Regen** in the inspector queues `:regen` before asking Herdr to wake the
-verified companion. The wake-up tells Claude to consume the FIFO mailbox; if
-Claude is busy, it finishes first. A failed wake keeps the queued request and
-the inspector reports that the session is not attached.
 
 ## Language graphs
 
