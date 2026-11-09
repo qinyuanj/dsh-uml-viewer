@@ -172,7 +172,7 @@ pub fn jacoco_lines_tree(tree: ReportTree<'_>) -> Vec<(String, BTreeSet<usize>)>
 /// Read exactly one freshly generated module report, retaining the existing
 /// malformed-XML behavior of the JaCoCo line reader.
 pub fn jacoco_report(path: &Path) -> Vec<(String, BTreeSet<usize>)> {
-    jacoco_texts(std::fs::read_to_string(path).into_iter())
+    jacoco_texts(std::fs::read_to_string(path))
 }
 
 fn jacoco_texts(texts: impl IntoIterator<Item = String>) -> Vec<(String, BTreeSet<usize>)> {
