@@ -590,6 +590,10 @@ fn an_action_line_over_the_transport_cap_stops_the_session_with_a_reason() {
         "{event}"
     );
     let status = child.wait().unwrap();
-    assert_eq!(status.code(), Some(1), "a capped session fails, never exits 0");
+    assert_eq!(
+        status.code(),
+        Some(1),
+        "a capped session fails, never exits 0"
+    );
     let _ = std::fs::remove_dir_all(&project);
 }

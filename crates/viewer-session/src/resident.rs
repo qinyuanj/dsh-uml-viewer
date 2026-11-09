@@ -99,7 +99,10 @@ pub fn run(args: &[OsString]) -> ExitCode {
                     let Ok(text) = String::from_utf8(bytes) else {
                         break;
                     };
-                    let line = text.trim_end_matches('\n').trim_end_matches('\r').to_string();
+                    let line = text
+                        .trim_end_matches('\n')
+                        .trim_end_matches('\r')
+                        .to_string();
                     if tx.send(Ok(line)).is_err() {
                         break;
                     }
