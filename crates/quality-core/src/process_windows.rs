@@ -74,6 +74,29 @@ fn quote(value: &OsStr) -> Vec<u16> {
     out
 }
 
+/// Only quote an argument when the command line would otherwise rewrite it.
+/// Quoting every argument is not the same line to a program that parses its own
+/// switches: `cmd.exe "/d" "/c" "set"` leaves a stray quote after `/c`, so cmd
+/// runs `"set` and exits 1 instead of printing the environment. MSVCRT reads a
+/// bare argument as itself, so this quotes the same set as `list2cmdline`.
+fn append_argument(line: &mut Vec<u16>, arg: &OsStr) {
+    line.push(b' ' as u16);
+    if needs_quotes(arg) {
+        line.extend(quote(arg));
+    } else {
+        line.extend(arg.encode_wide());
+    }
+}
+
+/// A space, tab, newline or vertical tab would split the argument, a quote
+/// would rewrite it, and an empty one would vanish: only those are quoted.
+fn needs_quotes(value: &OsStr) -> bool {
+    value.is_empty()
+        || value
+            .encode_wide()
+            .any(|ch| matches!(ch, 0x20 | 0x09 | 0x0a | 0x0b | 0x22))
+}
+
 fn comspec() -> OsString {
     std::env::var_os("COMSPEC").unwrap_or_else(|| {
         PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into()))
@@ -106,11 +129,10 @@ fn prepare(program: &Program, cwd: &Path) -> io::Result<Prepared> {
                 .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty argv"))?;
             let launcher = resolve(first, cwd);
             if let Some((exe, args)) = node_entry(&launcher, rest) {
-                let line = args.iter().fold(quote(&exe), |mut line, arg| {
-                    line.push(b' ' as u16);
-                    line.extend(quote(OsStr::new(arg)));
-                    line
-                });
+                let mut line = quote(&exe);
+                for arg in &args {
+                    append_argument(&mut line, OsStr::new(arg));
+                }
                 return Ok(Prepared {
                     exe,
                     line,
@@ -125,8 +147,7 @@ fn prepare(program: &Program, cwd: &Path) -> io::Result<Prepared> {
             let exe = launcher.into_os_string();
             let mut line = quote(&exe);
             for arg in rest {
-                line.push(b' ' as u16);
-                line.extend(quote(OsStr::new(arg)));
+                append_argument(&mut line, OsStr::new(arg));
             }
             Ok(Prepared {
                 exe,
