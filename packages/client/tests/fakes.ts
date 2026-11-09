@@ -20,6 +20,8 @@ export interface DrawOp {
   /** Every numeric argument of the call, in order (path geometry). */
   args?: number[]
   lineWidth?: number
+  lineJoin?: string
+  lineCap?: string
   lineDash?: number[]
   textAlign?: string
   textBaseline?: string
@@ -48,6 +50,8 @@ export function recordingContext(measure?: (text: string, sizePx: number) => num
     fillStyle: '#000000',
     strokeStyle: '#000000',
     lineWidth: 1,
+    lineJoin: 'miter',
+    lineCap: 'butt',
     globalAlpha: 1,
     textAlign: 'left',
     textBaseline: 'alphabetic',
@@ -59,6 +63,8 @@ export function recordingContext(measure?: (text: string, sizePx: number) => num
     font: state.font,
     globalAlpha: state.globalAlpha,
     lineWidth: state.lineWidth,
+    lineJoin: state.lineJoin,
+    lineCap: state.lineCap,
     lineDash: [...state.lineDash],
     textAlign: state.textAlign,
     textBaseline: state.textBaseline,
@@ -77,6 +83,10 @@ export function recordingContext(measure?: (text: string, sizePx: number) => num
     set strokeStyle(value: string) { state.strokeStyle = value },
     get lineWidth() { return state.lineWidth },
     set lineWidth(value: number) { state.lineWidth = value },
+    get lineJoin() { return state.lineJoin },
+    set lineJoin(value: string) { state.lineJoin = value },
+    get lineCap() { return state.lineCap },
+    set lineCap(value: string) { state.lineCap = value },
     get globalAlpha() { return state.globalAlpha },
     set globalAlpha(value: number) { state.globalAlpha = value },
     get textAlign() { return state.textAlign },

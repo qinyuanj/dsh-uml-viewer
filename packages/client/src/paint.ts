@@ -112,37 +112,100 @@ function polyline(ctx: CanvasRenderingContext2D, view: ViewTransform, points: re
   }
 }
 
+/**
+ * Mid-tier edge strokes (`render_cache::decimated` + `lod::simplify`): at the
+ * `frames` tier drop interior points closer than `edgeDecimatePx` on screen,
+ * and those within 0.5 screen points of the chord from the last kept point to
+ * their successor. Ends always survive. The budget follows the quarter-octave
+ * zoom step, not the raw zoom, so pan and small zooms keep the same polyline.
+ */
+function decimateEdgePoints(frame: SceneFrame, zoom: number, points: readonly (readonly [number, number])[]): readonly (readonly [number, number])[] {
+  if (tierOf(frame) !== 'frames' || points.length <= 2) return points
+  const octave = Math.log2(zoom) * 4
+  // Rust f64::round rounds negative halfway values away from zero.
+  const step = Math.sign(octave) * Math.round(Math.abs(octave))
+  const stepZoom = Math.pow(2, step / 4)
+  const minDist = frame.style.edgeDecimatePx / stepZoom
+  const tolerance = 0.5 / stepZoom
+  const out = [points[0]!]
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const last = out[out.length - 1]!
+    const p = points[i]!
+    const next = points[i + 1]!
+    const [px, py] = [p[0] - last[0], p[1] - last[1]]
+    if (px * px + py * py < minDist * minDist) continue
+    const [dx, dy] = [next[0] - last[0], next[1] - last[1]]
+    const len = Math.sqrt(dx * dx + dy * dy)
+    if (len > 0 && Math.abs(px * dy - py * dx) / len < tolerance) continue
+    out.push(p)
+  }
+  out.push(points[points.length - 1]!)
+  return out
+}
+
+/**
+ * A stroke at the tier the native painter draws as one unfeathered quad mesh
+ * (`MESH_EDGE_SCALE`): each segment is its own butt-ended quad, so no round
+ * join bulges at a bend. Below that scale a 1.6 pt line needs no anti-aliasing.
+ */
+function segments(ctx: CanvasRenderingContext2D, view: ViewTransform, points: readonly (readonly [number, number])[]): void {
+  for (let i = 1; i < points.length; i += 1) {
+    const [ax, ay] = worldToScreen(view, points[i - 1]![0], points[i - 1]![1])
+    const [bx, by] = worldToScreen(view, points[i]![0], points[i]![1])
+    if (ax === bx && ay === by) continue
+    ctx.beginPath()
+    ctx.lineJoin = 'miter'
+    ctx.lineCap = 'butt'
+    ctx.moveTo(ax, ay)
+    ctx.lineTo(bx, by)
+    ctx.stroke()
+  }
+}
+
+/** The native `paint_head` vertices: tip, wing A, wing C and the diamond back. */
+function headVertices(tx: number, ty: number, bx: number, by: number, len: number): {
+  a: [number, number]
+  c: [number, number]
+  back: [number, number]
+} {
+  let dx = tx - bx
+  let dy = ty - by
+  const dist = Math.sqrt(dx * dx + dy * dy)
+  if (dist === 0) {
+    dx = 1
+    dy = 0
+  } else {
+    dx /= dist
+    dy /= dist
+  }
+  // egui rotates the direction vector by ±PI/9 (20°).
+  const sin = Math.sin(Math.PI / 9)
+  const cos = Math.cos(Math.PI / 9)
+  return {
+    a: [tx - len * (dx * cos - dy * sin), ty - len * (dy * cos + dx * sin)],
+    c: [tx - len * (dx * cos + dy * sin), ty - len * (dy * cos - dx * sin)],
+    back: [tx - len * dx, ty - len * dy],
+  }
+}
+
 function arrowheadOpen(ctx: CanvasRenderingContext2D, tx: number, ty: number, bx: number, by: number, len: number): void {
-  const angle = Math.atan2(ty - by, tx - bx)
-  const spread = (20 * Math.PI) / 180
-  for (const sign of [-1, 1]) {
+  const { a, c } = headVertices(tx, ty, bx, by, len)
+  for (const [wx, wy] of [a, c]) {
     ctx.beginPath()
     ctx.moveTo(tx, ty)
-    ctx.lineTo(tx - len * Math.cos(angle + sign * spread), ty - len * Math.sin(angle + sign * spread))
+    ctx.lineTo(wx, wy)
     ctx.stroke()
   }
 }
 
 /** The closed-head outline; the caller fills it before stroking. */
-function headPath(
-  ctx: CanvasRenderingContext2D,
-  tx: number,
-  ty: number,
-  bx: number,
-  by: number,
-  len: number,
-  diamond: boolean,
-): void {
-  const angle = Math.atan2(ty - by, tx - bx)
-  const spread = (20 * Math.PI) / 180
+function headPath(ctx: CanvasRenderingContext2D, tx: number, ty: number, bx: number, by: number, len: number, diamond: boolean): void {
+  const { a, c, back } = headVertices(tx, ty, bx, by, len)
   ctx.beginPath()
   ctx.moveTo(tx, ty)
-  ctx.lineTo(tx - len * Math.cos(angle - spread), ty - len * Math.sin(angle - spread))
-  if (diamond) {
-    // The diamond's back vertex sits 16·zoom behind the tip.
-    ctx.lineTo(tx - len * Math.cos(angle), ty - len * Math.sin(angle))
-  }
-  ctx.lineTo(tx - len * Math.cos(angle + spread), ty - len * Math.sin(angle + spread))
+  ctx.lineTo(a[0], a[1])
+  if (diamond) ctx.lineTo(back[0], back[1])
+  ctx.lineTo(c[0], c[1])
   ctx.closePath()
 }
 
@@ -407,8 +470,12 @@ function paintEdge(p: Painter, edge: SceneFrame['edges'][number]): void {
     ctx.globalAlpha = edge.dimmed ? dimAlpha(frame) : 1
     ctx.strokeStyle = colorOf(edge.stroke)
     ctx.lineWidth = edge.width
-    polyline(ctx, view, edge.points)
-    ctx.stroke()
+    const points = decimateEdgePoints(frame, view.zoom, edge.points)
+    if (lod === 'frames' || view.zoom < 0.6) segments(ctx, view, points)
+    else {
+      polyline(ctx, view, points)
+      ctx.stroke()
+    }
     ctx.globalAlpha = 1
     return
   }

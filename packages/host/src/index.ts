@@ -5,8 +5,8 @@ import {
   REMOTE_SERVICE, parseDisplayRequest, parseIrRequest, parseQualityToolRequest,
 } from '@dsh-uml-viewer/contracts'
 import type { QualityOperation, QualityToolResult } from '@dsh-uml-viewer/contracts'
-import type { Config } from './binary.js'
-import { packageRoot } from './binary.js'
+import type { BinaryPlatform, Config } from './binary.js'
+import { activationBinary, packageRoot } from './binary.js'
 import { displayResult, runDisplay } from './display.js'
 import type { HostServices, ToolRunContext } from './dsh.js'
 import { registerFontRoute } from './font.js'
@@ -26,7 +26,21 @@ export const inject = ['tools', 'sandboxPolicy', 'workingDirectory', 'subprocess
 const SERVICE_KEYS = new Set(['tools', 'sandboxPolicy', 'workingDirectory', 'subprocess', 'sandbox',
   'typert', 'webServer', 'dshHomePath'])
 
+export type ActivationPlatform = BinaryPlatform
+
 export function apply(ctx: Context, config: Config = {}): void {
+  applyWithPlatform(ctx, config, process)
+}
+
+/** Public activation boundary, including platform validation before any registration. */
+export function applyWithPlatform(ctx: Context, config: Config = {}, platform: ActivationPlatform = process): void {
+  const home = pluginHome(config.home, () => {
+    const resolve = ctx.get('dshHomePath') as ((...segments: string[]) => string) | undefined
+    return resolve ? resolve('dsh-uml-viewer') : undefined
+  })
+  // Resolve before any effects, injected fibers or services can be registered.
+  // The argv copy also pins trusted dev launchers and environment overrides.
+  const effectiveConfig: Config = { ...config, binary: activationBinary(config, home, platform) }
 
   // Every service is resolved when it is used, never snapshotted at apply
   // time: a profile may activate an optional row (sandbox, typert, webServer)
@@ -38,12 +52,8 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const gate = new IrGate()
   const quality = new QualityGate()
-  const states = new SessionStates(pluginHome(config.home, () => {
-    // Resolved lazily: `dshHomePath` may arrive after this plugin.
-    const resolve = ctx.get('dshHomePath') as ((...segments: string[]) => string) | undefined
-    return resolve ? resolve('dsh-uml-viewer') : undefined
-  }))
-  const sessions = new ResidentSessions(services, config, states)
+  const states = new SessionStates(home)
+  const sessions = new ResidentSessions(services, effectiveConfig, states)
   const prompts = new PanelPrompts()
   const viewer = new ViewerService(sessions, prompts)
 
@@ -75,7 +85,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         const argv: string[] = []
         if (request.policy !== undefined) argv.push('--policy', request.policy)
         if (request.output !== undefined) argv.push('--output', request.output)
-        result = await runIr(services, config, exec, argv)
+        result = await runIr(services, effectiveConfig, exec, argv)
       }
     } catch (error) {
       result = irResult(root, { reason: error instanceof Error ? error.message : String(error) })
@@ -113,7 +123,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           const root = exec.agent ? services.workingDirectory.get(exec.agent.session) : ''
           let result: QualityToolResult
           try {
-            result = await runQuality(services, config, exec, operation, parseQualityToolRequest(operation, args))
+            result = await runQuality(services, effectiveConfig, exec, operation, parseQualityToolRequest(operation, args))
           } catch (error) {
             result = qualityResult(operation, root, { reason: error instanceof Error ? error.message : String(error) })
           }
