@@ -42,7 +42,8 @@ On Windows use Windows-absolute paths and `uml-viewer.exe`. Check disk space
 before building; the script consumes an explicit binary and never installs
 a toolchain or builds other platforms. It writes deterministic npm tarballs
 and a SHA-256/inventory report, with no install scripts or registry calls.
-The source checkout stays private; only the assembled main package is installable.
+The source checkout stays private; the assembler removes development-only
+fields from the installable main package.
 Keep generated archives, binaries, IR and metrics out of commits. CI #33 owns
 the other platform builds; publish/tag/provenance operations belong to #34.
 

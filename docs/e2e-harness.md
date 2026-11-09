@@ -64,7 +64,7 @@ With neither variable set, the regular checkout lane remains available and
 `package.spec.mjs` skips with an explicit reason.
 
 Packaged mode installs both tarballs in one `dsh plugin --profile web add
---ignore-scripts <main> <platform>` invocation under the unique scratch
+--ignore-scripts --store-dir <scratch-store> <main> <platform>` invocation under the unique scratch
 `DSH_HOME`. It removes inherited `UML_VIEWER_BIN` and omits the Loader `binary`
 config, exercising the shipped platform dependency and DSH-home binary locator.
 The mock model still invokes real `uml_ir` and `uml_display`; acceptance opens
@@ -73,7 +73,7 @@ the real Shop panel and requires a displayed frame and visible canvas.
 Before installation the spec seeds proposal and nested binary metrics fixtures
 in every sample project and captures policy, proposal and `.metrics/` bytes,
 directory membership and nanosecond mtimes. After display it closes the browser
-contexts and host, then runs `dsh plugin --profile web remove --ignore-scripts
+contexts and host, then runs `dsh plugin --profile web remove --store-dir <scratch-store>
 dsh-uml-viewer @dsh-uml-viewer/<platform>` in the same isolated home. CLI failure
 fails the test. The final snapshot must match the pre-install snapshot exactly,
 including inline policy proposals and their formatting. The run home retains
@@ -87,7 +87,10 @@ holds its own `web` profile, sessions, workspace registry, plugin state, mock
 request log, failure screenshots and Playwright traces. The host listens on
 port 0 and is started with `--no-open`. npm, pnpm store, Corepack and XDG
 caches are explicitly rooted under the run home's `cache/`; Chromium uses
-the separate scratch browser prefix. Inherited `DSH_PROFILE` and
+the separate scratch browser prefix. The store path is passed explicitly to
+DSH's bundled pnpm, because environment-only store configuration was ignored
+by Desktop 0.2.2-rc.1. Removal omits `--ignore-scripts`, which pnpm 11 rejects;
+the assembled packages contain no lifecycle scripts. Inherited `DSH_PROFILE` and
 `DSH_PROFILE_DIR` are removed from CLI/host environment. The harness rejects
 any URL whose host is not loopback and rejects port 14227, which is the user's
 live GUI.
