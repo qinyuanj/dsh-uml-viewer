@@ -396,9 +396,10 @@ impl Session {
         saved["loadedDiagram"] = if self.state.waiting || self.state.document.is_none() {
             serde_json::Value::Null
         } else {
-            self.loaded_digest.as_ref().map_or(serde_json::Value::Null, |digest| {
-                serde_json::json!({"version": 1, "sha256": digest})
-            })
+            self.loaded_digest.as_ref().map_or(
+                serde_json::Value::Null,
+                |digest| serde_json::json!({"version": 1, "sha256": digest}),
+            )
         };
         saved
     }

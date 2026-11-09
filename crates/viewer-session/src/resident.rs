@@ -449,7 +449,10 @@ impl Resident {
         let mut session = Session::open(self.project.clone(), diagram.clone(), start)?;
         // Verify against the bytes this Session actually parsed, closing the
         // host-read → resident-open race as well as refusing legacy metadata.
-        if displayed && pending.is_none() && !saved.is_some_and(|s| same_loaded_diagram(s, &session)) {
+        if displayed
+            && pending.is_none()
+            && !saved.is_some_and(|s| same_loaded_diagram(s, &session))
+        {
             session = Session::open(self.project.clone(), diagram, Start::Waiting)?;
         }
         self.session = Some(session);
@@ -519,7 +522,8 @@ mod fingerprint_tests {
     fn replacing_ir_between_load_and_save_never_labels_the_old_view_with_new_bytes() {
         static SERIAL: AtomicUsize = AtomicUsize::new(0);
         let directory = std::env::temp_dir().join(format!(
-            "uml-loaded-fingerprint-{}-{}", std::process::id(),
+            "uml-loaded-fingerprint-{}-{}",
+            std::process::id(),
             SERIAL.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&directory).unwrap();
@@ -529,26 +533,44 @@ mod fingerprint_tests {
         std::fs::write(&diagram, a).unwrap();
         let mut resident = Resident::new(directory.clone());
         ask(&mut resident, json!({"action": "open", "waiting": true}));
-        ask(&mut resident, json!({"action": "display", "path": "diagram.edn"}));
+        ask(
+            &mut resident,
+            json!({"action": "display", "path": "diagram.edn"}),
+        );
         std::fs::write(&diagram, b).unwrap();
         // Direct protocol calls deliberately do not tick: no timing assumption
         // about the 250 ms idle poll can conceal this load/save race.
-        ask(&mut resident, json!({"action": "camera", "x": 12, "y": 34, "zoom": 0.6}));
+        ask(
+            &mut resident,
+            json!({"action": "camera", "x": 12, "y": 34, "zoom": 0.6}),
+        );
         let saved = ask(&mut resident, json!({"action": "save"}))["state"].clone();
-        assert_eq!(json!({"version": 1, "sha256": crate::display::digest(a)}), saved["loadedDiagram"]);
+        assert_eq!(
+            json!({"version": 1, "sha256": crate::display::digest(a)}),
+            saved["loadedDiagram"]
+        );
         assert_eq!(json!({"x": 12.0, "y": 34.0, "zoom": 0.6}), saved["camera"]);
         ask(&mut resident, json!({"action": "quit"}));
         let mut reopened = Resident::new(directory.clone());
-        let changed = ask(&mut reopened, json!({"action": "open", "waiting": true, "state": saved}));
+        let changed = ask(
+            &mut reopened,
+            json!({"action": "open", "waiting": true, "state": saved}),
+        );
         assert_eq!(json!(true), changed["frame"]["waiting"]);
         std::fs::write(&diagram, a).unwrap();
-        let same = ask(&mut reopened, json!({"action": "open", "waiting": true, "state": saved}));
+        let same = ask(
+            &mut reopened,
+            json!({"action": "open", "waiting": true, "state": saved}),
+        );
         assert_eq!(json!(false), same["frame"]["waiting"]);
         let again = ask(&mut reopened, json!({"action": "save"}));
         assert_eq!(saved, again["state"]);
         let mut legacy = saved;
         legacy.as_object_mut().unwrap().remove("loadedDiagram");
-        let old = ask(&mut reopened, json!({"action": "open", "waiting": true, "state": legacy}));
+        let old = ask(
+            &mut reopened,
+            json!({"action": "open", "waiting": true, "state": legacy}),
+        );
         assert_eq!(json!(true), old["frame"]["waiting"]);
         std::fs::remove_dir_all(directory).unwrap();
     }
