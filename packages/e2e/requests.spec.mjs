@@ -5,7 +5,8 @@ import { launchViewerLane } from './lane.mjs'
 import { producerFrame, toScreen } from './canvas.mjs'
 
 /**
- * #28: not yet run against a real binary. Run only with an EXISTING binary:
+ * #28: both cases passed against a real binary in CI5 (42591228938, f4c12e3).
+ * Run only with an EXISTING binary:
  * UML_VIEWER_BIN=<absolute existing exe>
  * UML_VIEWER_E2E_SCRATCH=<scratch>/e2e-uml-viewer
  * PLAYWRIGHT_BROWSERS_PATH=<scratch>/e2e-uml-viewer/browsers

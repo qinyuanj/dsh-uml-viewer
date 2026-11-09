@@ -31,6 +31,22 @@
   “没有 `DSH_HOME` 就什么都不持久化”的边界见 [ADR 0013](0013-repository-migration.md)
   的同日附录。
 
+## 后续运行证据（2026-11-09）
+
+D20 中的 **UNVERIFIED** 与 “#14 open” 保留为 `83d6076` 评审时的历史状态。
+后续 [CI5（`f4c12e3`）](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42591228938)
+和 [CI6（`6147980`）Linux job](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42595826593/job/129088076802)
+中 Go/Java/Clojure 的 golden 7 项、report 5 项和 site 比对通过，#14 已关闭。
+CI6 的 Windows mutation 与 macOS quality job 也通过，详见
+[平台运行证据](../mutation-windows.md#ci-evidence)。这不表示 CI6 全绿：
+Linux CLI 为 157 pass、2 fail、1 ignored，普通浏览器套件为 22 pass、3 fail、1 skip。
+
+#22、#28、#30、#31 也已关闭；会话隔离、重启视图、请求与独立真实 tarball
+安装/展示/卸载的证据及边界见 [浏览器 CI 记录](../e2e-harness.md#ci)。
+真实 LLM 遵守规则尚未测试，真实已安装 profile 更新 #32 仍为 **UNVERIFIED**。
+发布矩阵与 dry-run 已通过，实际 tag、publish 与 provenance 尚未运行（#34），
+见 [发布证据](../releasing.md)。这些运行都使用 scratch profile，未使用 live profile。
+
 ## 接受但推迟（本轮不重构）
 
 - **M2 进程组与捕获无上限**：`crates/quality-core/src/process.rs` 用 `process_group(0)`

@@ -58,8 +58,8 @@ dependency tooltip rows, and the overview class-name popup clearing on leave.
 The producer oracle accepts `hover`, `pointer` and `--hover-metadata`, so tooltip
 expectations come from Rust; no frames are injected.
 
-These cases are **authored, not yet run** in this repository: the lane never
-builds, so a run needs an existing matching executable supplied from outside.
+These cases have run in remote CI; see the [partial results below](#ci).
+The lane never builds, so a run needs an existing matching executable supplied from outside.
 Do not follow the build commands above to make one inside the lane. A run sets
 **both** environment variables for browser installation and tests:
 
@@ -299,8 +299,8 @@ behavior. "Retired" marks window-only behavior with no panel counterpart.
 | `terminate.edn`, `window_controls.edn` | none | retired: WM_CLOSE/SIGTERM and undecorated-window close buttons belong to the deleted window; the panel's lifecycle is the host seams' and `package.spec.mjs` |
 
 `display.spec.mjs`, `reload.spec.mjs` and the camera/declutter case of
-`navigation.spec.mjs` were authored in #30 under the resource policy and have
-not been run in a browser.
+`navigation.spec.mjs` were authored in #30 under the resource policy and later
+ran in CI. #30 is closed; the aggregate browser results remain [partial](#ci).
 
 
 ## Deterministic companion policy acceptance (#29)
@@ -430,11 +430,21 @@ $env:UML_VIEWER_BIN = '<absolute path to an existing uml-viewer.exe>'
 pnpm --filter @dsh-uml-viewer/e2e test:e2e overlays.spec.mjs
 ```
 
-These are authored acceptance cases; adding them does not claim a browser run.
+These cases have run in CI; see the [aggregate results and remaining failures](#ci).
 
 ## CI
 
-`.github/workflows/ci.yml` has a `panel-e2e` Windows job that installs a
-scratch Chromium, builds the binary and runs this suite. It is configuration
-only: it has not been run on GitHub from this worktree. Local execution on this
-Windows host is the evidence for #22.
+`.github/workflows/ci.yml` has a `panel-e2e` Windows job that installs scratch
+Chromium, builds the binary and runs this suite. All acceptance uses scratch
+profiles, not the user's live profile.
+
+| Pinned evidence | Result and boundary |
+| --- | --- |
+| [CI5 at `f4c12e3`](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42591228938) | Both real-binary `requests.spec.mjs` cases passed (#28 closed). Real two-session isolation and restart/view restoration also passed (#22 closed). |
+| [CI6 panel job at `6147980`](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42595826593/job/129088076561) | Ordinary suite: 22 passed, 3 failed, 1 skipped. The three test-only corrections are in `7fbace6`; this result does not establish their pass. |
+| Same CI6 job, dedicated `package.spec.mjs` step | Real current-source tarball install/display/uninstall: 1/1 passed, including protected project bytes and mtimes (#31 closed). |
+| [CI7 at `7fbace6`](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42600985418) | Main workflow still in progress when checked on 2026-11-09; no final browser result claimed. It also includes the strengthened #29 policy-edit cases described above. |
+
+Real installed-profile update acceptance remains **UNVERIFIED** (#32).
+The scripted companion proves only its deterministic protocol behavior;
+actual LLM compliance has not been tested.

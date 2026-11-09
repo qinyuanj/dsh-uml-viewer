@@ -59,7 +59,11 @@ platform builds and the npm provenance release are configured in
 runs `npm publish --dry-run`, and a `v<version>` tag on the canonical repository
 is the only publishing path. `scripts/release.mjs verify` opens every staged
 archive and checks its real contents and package metadata before anything is
-published. That pipeline has not run yet, so no platform package is verified.
+published. [Release CI7 at `7fbace6`](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42600985433)
+passed all four native builds, archive-content inventory and `npm publish --dry-run`.
+Actual tag publishing and provenance have not run (#34). Browser acceptance is
+[partial, with a separate passing packaged lifecycle case](docs/e2e-harness.md#ci);
+installed-profile update acceptance remains unverified (#32).
 
 `Cargo.toml` `[workspace.package].version` is the release version authority;
 every crate inherits it. Change it, run `pnpm version:sync`, update the Cargo

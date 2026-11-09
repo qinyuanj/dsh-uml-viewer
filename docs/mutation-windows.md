@@ -69,10 +69,10 @@ cannot follow a cache directory back into the user's profile.
 
 The Go golden test is enabled on native Windows and compares the pinned
 Linux oracle with the original's Windows isolation field (`:copy`). Its first
-run was interrupted under the user's Rust resource restriction; final native
-Go execution and Java/Clojure WSL acceptance remain pending. The existing
-11 Windows isolation tests passed earlier in #14, before the final adapters.
-No final cross-platform runtime claim follows from compilation alone.
+run was interrupted under the user's Rust resource restriction. Subsequent
+CI supplied runtime evidence: the Windows mutation job passed, and Linux
+Go/Java/Clojure goldens (7), reports (5) and site comparisons passed (#14 closed).
+See the pinned jobs below; this does not claim a new WSL acceptance run.
 
 ## Weaker than Linux, and honest about it
 
@@ -100,11 +100,24 @@ calls `unshare` through `ctypes`, which does not exist there, so it fails with
 a traceback rather than a message. The one-line refusal is a deliberate
 improvement, not parity. `crap` and `dry` are unchanged.
 
-## CI (configured, not run remotely)
+## CI evidence
 
 `windows-mutate` (windows-latest) installs the pinned toolchain's `llvm-tools`
 and `cargo-llvm-cov`, sets `MUTATOR_REQUIRE_TOOLCHAINS=1` so a missing
 toolchain fails instead of skipping, and runs the mutator suite plus the
 `uml-viewer` mutate tests. `macos-quality` (macos-latest) asserts the refusal
-and runs the crap and dry suites. Neither job has been pushed or executed
-remotely.
+and runs the crap and dry suites.
+
+In [main CI6 at `6147980`](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42595826593),
+[Windows mutation](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42595826593/job/129088076784),
+[Windows CRAP](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42595826593/job/129088077023)
+(including the pipe-backpressure regression) and
+[macOS quality](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42595826593/job/129088076761)
+all succeeded. All three TypeScript jobs also succeeded.
+
+The [Linux job](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42595826593/job/129088076802)
+passed the Go/Java/Clojure goldens, reports and site comparisons, with coverage
+tool prerequisites installed and the real namespace probe configured for CI.
+Its full CLI suite finished with 157 passed, 2 failed and 1 ignored; the two
+test-only corrections are in `7fbace6`. The overall CI6 workflow failed, so
+these passing jobs are partial evidence, not a claim that the full suite passed.

@@ -1,11 +1,21 @@
 # Release packaging and publishing
 
-Status: **configured in source, NOT RUN** (2026-11-09). No workflow in this file
-has executed on a remote runner. No native binary or npm archive has been built
-on this host, because the current resource policy forbids local Cargo builds and
-native executable generation. The four platform artifacts are **NOT VERIFIED**
-and acceptance criterion 1 of dsh-uml-viewer#33 ("four platform packages produced
-by CI") remains open until an authorized remote run.
+Status (2026-11-09): **remote packaging and publish dry-run passed**. Each run
+below passed all four native platform builds, real archive-content inventory
+verification and `npm publish --dry-run`, establishing the four-platform CI
+packaging evidence for dsh-uml-viewer#33. These runs do not establish actual
+publishing, provenance or installed behavior on all four platforms.
+
+| Release run | Source head | Result |
+| --- | --- | --- |
+| [42585882805](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42585882805) | `0d115b2` | Success |
+| [42587783277](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42587783277) | `ab9064c` | Success |
+| [42591228972](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42591228972) | `f4c12e3` | Success |
+| [42595826538](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42595826538) | `6147980` | Success |
+| [42600985433](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42600985433) | `7fbace6` | Success |
+
+Actual tag creation, registry publication and provenance remain **NOT RUN**,
+intentionally pending authorization for #34.
 
 The files involved are `.github/workflows/package-release.yml`,
 `scripts/package.mjs` (assembler), `scripts/archive.mjs` (bounded gzip/ustar
@@ -208,19 +218,15 @@ binary, real font or plugin bundle.
   in plan order (`npm publish <tgz> --provenance --access public`) or release a
   new patch version. The workflow never un-publishes or re-tags.
 
-## Not verified here
+## Remaining acceptance gaps
 
-- the remote matrix never ran, so no real Windows, Linux or macOS artifact exists;
-- no current-source native binary was built under the resource policy;
-- `npm publish`, provenance attestation and the trusted publisher handshake were
-  never executed;
-- the cross-runner main-archive inventory comparison is untested against real
-  hosts, by nature of not having run it;
-- the archive reader and the metadata checks were exercised only against
-  controlled fixtures, never against an archive a hosted runner produced;
-- acceptance criterion 1 (four platform packages produced by CI) is **NOT
-  VERIFIED**, and criteria 2 and 3 are configured but unexecuted. No workflow
-  run is green on this evidence.
+- Actual `npm publish`, provenance attestation and the trusted publisher
+  handshake have not run (#34); the successful dry-runs do not establish them.
+- Native builds and archive verification do not establish installed runtime
+  behavior on every platform. The separate Windows real-tarball
+  [install/display/uninstall case](e2e-harness.md#ci) passed in CI6 (#31).
+- Real installed-profile update acceptance remains **UNVERIFIED** (#32).
+  Acceptance uses scratch profiles; no live profile was exercised.
 
 ## Hardening items (open, not done)
 
