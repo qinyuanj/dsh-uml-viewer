@@ -2,10 +2,9 @@
 //! `love/uml/application/strings.lua`). Terms follow GLOSSARY.md; metric and
 //! tool names (CRAP, CC, Cov, mutation, killed, survived, uncovered, IR) and
 //! key names stay English. EDN keywords, mail commands, stderr and the window
-//! title are not UI copy. Every string here is part of [`glyph_text`], the
-//! probe the fonts driver checks for glyph coverage. Entries the inspector,
-//! class card and menus use land with #141/#142; they live here already so
-//! the font coverage stays that of the LOVE viewer.
+//! title are not UI copy. The table keeps the LOVE viewer's full copy; the
+//! window's glyph-coverage probe and F3 performance line left with the
+//! standalone window (dsh-uml-viewer#30).
 
 pub const REAL_DIAGRAM: &str = "源码图";
 pub const INSPECTOR: &str = "检查器";
@@ -108,76 +107,10 @@ pub fn declutter_label(mode: &str) -> &'static str {
         .map_or(DECLUTTER, |(_, label)| label)
 }
 
-/// F3 overlay; matches `性能：%d FPS · 帧耗时 %.2f ms`.
-pub fn performance(fps: u32, frame_ms: f64) -> String {
-    format!("性能：{fps} FPS · 帧耗时 {frame_ms:.2} ms")
-}
 /// Empty canvas while a `--backend herdr` launch waits for mail (#139; the
 /// mailbox itself is #142).
 pub const WAITING_DISPLAY: &str = "等待 :display 命令加载图示…";
 /// The diagram file named on the command line does not exist.
 pub fn missing_file(path: &str) -> String {
     format!("找不到 IR 文件：{path}")
-}
-
-/// Every UI string concatenated: the glyph-coverage probe.
-pub fn glyph_text() -> String {
-    let mut out: Vec<&str> = vec![
-        REAL_DIAGRAM,
-        INSPECTOR,
-        SEARCH,
-        SEARCH_OPEN,
-        SEARCH_EMPTY,
-        TREE_AND_PROPOSALS,
-        NEW_PROPOSAL,
-        DECLUTTER,
-        RENAME,
-        DELETE,
-        PROPOSAL_NAME,
-        RENAME_PROPOSAL,
-        CANCEL,
-        P_HINT,
-        PROPOSALS_LABEL,
-        CLASS_COUNT,
-        PACKAGE_CRAP,
-        PACKAGE_MUTATION,
-        PACKAGE_UNCOVERED,
-        NO_DATA,
-        SELECT_CLASS,
-        REGEN,
-        SOURCE_NOT_OPENED,
-        BACK,
-        PROPOSAL_BANNER,
-        PERFORMANCE,
-        HELP,
-        LEVEL,
-        PACKAGE,
-        FIELDS,
-        RELATIONSHIPS,
-        NO_MUTATION_SITES,
-        MEMBER,
-        EMPTY_DETAIL,
-        CRAP_LINE,
-        CRAP_SINGLE,
-        GROUP_CRAP,
-        GROUP_MUTATION,
-        PHRASE_FALLBACK.0,
-        PHRASE_FALLBACK.1,
-        EXTRA_GLYPHS,
-        WAITING_DISPLAY,
-        "找不到 IR 文件：",
-    ];
-    for (_, label) in DECLUTTER_MODES
-        .iter()
-        .chain(&MENU)
-        .chain(&COLUMNS)
-        .chain(&COLUMN_TIPS)
-    {
-        out.push(label);
-    }
-    for (_, outgoing, incoming) in &PHRASES {
-        out.push(outgoing);
-        out.push(incoming);
-    }
-    out.concat()
 }
