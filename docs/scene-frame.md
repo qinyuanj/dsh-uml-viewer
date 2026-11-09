@@ -189,7 +189,7 @@ low-zoom flush-order defect, which paints its shaft mesh after the heads.
 
 Selection, 依赖链高亮 and 关系淡化 are the resident's: a `select` answers a frame
 that already carries them. Hover is the client's (ADR 0013), but two things it
-needs are not visible in `edges`: which leaf classes a bundled relation passes
+needs are not visible in `edges`: which classes a bundled relation passes
 through (`via-ids`), and the dependency tooltip rows. The resident adds them in
 this optional field, derived from the scene by `crates/frame/src/hover.rs`; the
 goldens omit it, so a consumer must treat it as a capability.
