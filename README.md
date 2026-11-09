@@ -409,9 +409,9 @@ The inspector lists the real diagram (the namespace tree) just above
 **Proposals**; click it to return to the tree. Click a proposal to show it
 (canvas marked **PROPOSAL — not instantiated in code**). Either click
 makes that diagram the context of discussion (in the panel the agent is
-told). **New
-Proposal** adds an empty proposal named with a timestamp. Right-click a
-name to rename or delete it. Double-click a ns box to drill; **←** at the
+told). **新建提案** (New Proposal) asks the agent to add an empty proposal
+named with a timestamp; renaming or deleting a proposal is also a request
+to the agent, which edits the policy in place. Double-click a ns box to drill; **←** at the
 top returns to the proposal.
 
 The **Declutter** button cycles **Declutter arrows** (one arrow per
