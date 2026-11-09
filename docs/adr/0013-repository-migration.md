@@ -206,6 +206,24 @@ ADR 0011 说面板由宿主注入 `dsh-client-ui-primitives`。实际落地时
 的每动作保存、卸载保存；SessionStates 对相同、修改、删除 IR 的重开行为；#22 的
 隔离 Playwright lane 验证导航、搜索、全宽页绑定、重开与 DSH 重启。
 
+## 附录（2026-11-09，#32 修复）：面板流结束不等于面板关闭，以及根作用域风险
+
+- **D13（流结束不是面板关闭）**：浏览器半被卸载、carrier 重连、面板在侧栏与 main 页
+  之间换挂载点时，网关会 abort method signal 并 return 迭代器。若把这条路当成"面板
+  已关"，仍在使用的会话就会被切到新版本。因此：面板流自然结束只进入一个有界等待窗口
+  （`WITHDRAWAL_GRACE_MS` = 30 s，`resident.ts`），同一会话在其中重挂载即接回原来的
+  resident（同一子进程、同一版本、同一 lease，引用计数不重复）；真正的关闭是面板显式
+  调用新增的 `umlViewer/close` Remote（加法协议，结果 `PanelCloseAck { closed }` 经
+  contracts 校验），以及窗口到期、插件卸载、DSH 退出——它们都先保存视图再停止。
+  结论：同一会话内重挂载保持 vN；整页刷新或应用重启是"全新打开"，用 vN+1。旧文档中
+  "重连复用 pooled vN 连接"的说法在旧代码下不成立，已删除。
+- **风险 S1（`ctx.root` 是 `@experimental`）**：面板池与提示词段落挂在 `ctx.root`
+  （`lifetime.ts`，`Symbol.for('dsh-uml-viewer.panel-state.v1')`），让插件替换后的新
+  激活能找到旧 resident。Cordis 4.1.0 在 `context.ts` 中把 `root` 标为 `@experimental`；
+  本插件 peer 范围是 `~4.1.0`，升级 Cordis 前必须确认该 API 仍在，或改挂到文档化的
+  root 作用域服务。版本接缝测试会直接失败，而不是静默退化；池/连接内部形状改变时还要
+  提升 symbol 版本，否则新模块会驱动旧实例。
+
 ## 附录（2026-11-09，#26）：质量叠加、依赖链高亮与本地悬停
 
 - **依赖链高亮色相固定**：`dependency-chain` 与质量色、违规关系色、无数据一样，

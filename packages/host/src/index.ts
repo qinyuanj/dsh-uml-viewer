@@ -5,16 +5,15 @@ import {
   REMOTE_SERVICE, parseDisplayRequest, parseIrRequest, parseQualityToolRequest,
 } from '@dsh-uml-viewer/contracts'
 import type { QualityOperation, QualityToolResult } from '@dsh-uml-viewer/contracts'
-import type { BinaryPlatform, Config } from './binary.js'
+import type { ActivatedBinary, BinaryPlatform, Config } from './binary.js'
 import { activationBinary, packageRoot } from './binary.js'
 import { displayResult, runDisplay } from './display.js'
 import type { HostServices, ToolRunContext } from './dsh.js'
 import { registerFontRoute } from './font.js'
 import { IrGate, QualityGate } from './gate.js'
-import { PanelPrompts } from './prompt.js'
 import { qualityResult, runQuality } from './quality.js'
+import { panelLifetime } from './lifetime.js'
 import { PanelRequests } from './requests.js'
-import { ResidentSessions } from './resident.js'
 import { irResult, runIr } from './runner.js'
 import { SessionStates, pluginHome } from './state.js'
 import { ViewerService } from './viewer.js'
@@ -42,21 +41,47 @@ export function applyWithPlatform(ctx: Context, config: Config = {}, platform: A
   })
   // Resolve before any effects, injected fibers or services can be registered.
   // The argv copy also pins trusted dev launchers and environment overrides.
-  const effectiveConfig: Config = { ...config, binary: activationBinary(config, home, platform) }
+  const pinned = activationBinary(config, home, platform)
+  try {
+    register(ctx, config, home, pinned)
+  } catch (error) {
+    pinned.release()
+    throw error
+  }
+}
+
+function register(ctx: Context, config: Config, home: string | undefined, pinned: ActivatedBinary): void {
+  const effectiveConfig: Config = { ...config, binary: pinned.argv }
 
   // Every service is resolved when it is used, never snapshotted at apply
   // time: a profile may activate an optional row (sandbox, typert, webServer)
   // after this plugin, and a captured `undefined` would silently disable the
   // panel's Remote, the Sarasa route or confinement for the whole session.
   const services = new Proxy({}, {
-    get: (_target, key) => (typeof key === 'string' && SERVICE_KEYS.has(key) ? ctx.get(key) : undefined),
+    get: (_target, key) => {
+      if (typeof key !== 'string' || !SERVICE_KEYS.has(key)) return undefined
+      const service = ctx.get(key)
+      if (key !== 'subprocess' || !service) return service
+      return { spawn: (spec: Parameters<HostServices['subprocess']['spawn']>[0]) => {
+        const release = pinned.retain()
+        try {
+          const child = (service as HostServices['subprocess']).spawn(spec)
+          // Tool calls, as well as residents, keep their executable until a
+          // real exit. A failed observation is not permission to clean up.
+          void child.done.then(release, () => {})
+          return child
+        } catch (error) {
+          release()
+          throw error
+        }
+      } }
+    },
   }) as unknown as HostServices
 
   const gate = new IrGate()
   const quality = new QualityGate()
   const states = new SessionStates(home)
-  const sessions = new ResidentSessions(services, effectiveConfig, states)
-  const prompts = new PanelPrompts()
+  const { sessions, prompts } = panelLifetime(ctx, home, services, effectiveConfig, states)
   const viewer = new ViewerService(sessions, prompts, new PanelRequests(services, sessions))
 
   ctx.effect(() => services.tools.register({
@@ -190,8 +215,13 @@ export function applyWithPlatform(ctx: Context, config: Config = {}, platform: A
   // The packaged Sarasa route follows the web server's lifetime, likewise late.
   ctx.inject(['webServer'], () => registerFontRoute(services, packageRoot()) ?? (() => {}))
 
+  // Replacement retires this activation, while open panel streams own their
+  // residents until last-panel close. The root lifetime stops them on shutdown.
   ctx.effect(() => async () => {
-    prompts.disposeAll()
-    await sessions.dispose()
-  }, 'dsh-uml-viewer: panel lifetime')
+    try {
+      await sessions.checkpoint()
+    } finally {
+      pinned.release()
+    }
+  }, 'dsh-uml-viewer: activation version lease')
 }

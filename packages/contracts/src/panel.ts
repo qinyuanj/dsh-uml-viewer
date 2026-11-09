@@ -65,6 +65,17 @@ export interface PanelAck {
   source?: SourceModel
 }
 
+/**
+ * The answer to the panel's explicit `close`. Only this call is a definite
+ * close: a watch stream ending on its own is a carrier loss (a reconnect, an
+ * HMR client swap, the sidebar/main reparent) and keeps the resident in its
+ * bounded grace (D13, #32).
+ */
+export interface PanelCloseAck {
+  /** Whether a resident was still there to close; false when it was already gone. */
+  closed: boolean
+}
+
 export interface RemoteSchema { parse(value: unknown): unknown }
 export interface RemoteCodec {
   readonly mode: 'strict'
@@ -259,6 +270,19 @@ function parseAck(value: unknown, label = 'panel ack'): PanelAck {
   return ack
 }
 
+/** Validate the answer to the panel's explicit close. */
+function parseCloseAck(value: unknown, label = 'panel close ack'): PanelCloseAck {
+  try {
+    const source = record(value, label)
+    const closed = source.closed
+    if (typeof closed !== 'boolean') at(`${label}.closed`, 'must be a boolean')
+    return { closed }
+  } catch (error) {
+    if (error instanceof Invalid) throw new Error(error.message)
+    throw error
+  }
+}
+
 const codec = (name: string, parse: (value: unknown) => unknown): RemoteCodec => ({
   mode: 'strict',
   typeSymbol: `dsh-uml-viewer#${name}`,
@@ -298,6 +322,18 @@ export const REMOTE_DESCRIPTORS: readonly RemoteDescriptor[] = Object.freeze([
       { name: 'action', wire: 'action', source: 'json', codec: codec('PanelAction', value => parsePanelAction(value)) },
     ],
     result: codec('PanelAck', value => parseAck(value)),
+  },
+  {
+    // Additive to the version-1 panel protocol: the one definite close. A watch
+    // stream ending is a carrier loss and is not this call.
+    id: 'dsh-uml-viewer#umlViewer/close',
+    service: REMOTE_SERVICE,
+    namespace: REMOTE_SERVICE,
+    method: 'close',
+    invocation: { kind: 'direct' },
+    scope: { context: 'agent', wire: 'agentId' },
+    parameters: [{ name: 'agent', wire: 'agentId', source: 'lookup', lookup: 'agent', codec: agentId() }],
+    result: codec('PanelCloseAck', value => parseCloseAck(value)),
   },
 ])
 

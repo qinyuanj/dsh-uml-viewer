@@ -1,4 +1,4 @@
-import type { PanelAck, PanelAction, PanelEvent, ResidentEvent } from '@dsh-uml-viewer/contracts'
+import type { PanelAck, PanelAction, PanelCloseAck, PanelEvent, ResidentEvent } from '@dsh-uml-viewer/contracts'
 import { parsePanelAction } from '@dsh-uml-viewer/contracts'
 import type { Agent } from './dsh.js'
 import type { PanelPrompts } from './prompt.js'
@@ -74,8 +74,21 @@ export class ViewerService {
     } finally {
       connection.detach(queue)
       this.prompts.closePanel(agent.session.id)
-      await this.sessions.release(connection)
+      // A stream ending is a carrier loss, not a panel close: the gateway aborts
+      // the method signal and returns this generator on a client unload, on a
+      // reconnect and on the sidebar/main reparent. Only `close` is definite, so
+      // a withdrawn stream leaves the resident in its bounded grace (#32, D13).
+      await this.sessions.release(connection, connection.closeRequested ? 'closed' : 'withdrawn')
     }
+  }
+
+  /**
+   * The panel's explicit close, and the only definite "this panel is gone"
+   * signal: it stops the session's resident at once (when no other panel holds
+   * it) instead of waiting out the withdrawal grace.
+   */
+  async close(agent: Agent): Promise<PanelCloseAck> {
+    return { closed: await this.sessions.close(agent) }
   }
 
   async action(agent: Agent, action: PanelAction): Promise<PanelAck> {

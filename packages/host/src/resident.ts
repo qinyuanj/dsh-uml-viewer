@@ -14,6 +14,16 @@ export const READ_ONLY_REASON = 'read-only sandbox: the viewer panel runs `uml-v
 const READY_TIMEOUT_MS = 20_000
 const ACTION_TIMEOUT_MS = 20_000
 const STOP_TIMEOUT_MS = 3_000
+/**
+ * How long a session's resident survives its last panel stream ending without
+ * an explicit close (#32, D13). A carrier loss — a gateway reconnect, an HMR
+ * client swap, the sidebar/main reparent — must not switch a session that is
+ * still in use to a newer plugin version, so the resident (and its version
+ * lease) waits this long for the same session to re-attach. A real page reload
+ * or app restart is a fresh open and legitimately gets the newer version; this
+ * is only the transport-loss window, so it stays small and bounded.
+ */
+export const WITHDRAWAL_GRACE_MS = 30_000
 
 const SOURCE_CONTEXT: DiscussionContext = { kind: 'real', edn: '{:context :real}' }
 /** Actions whose answer can change the view or the discussion context. */
@@ -80,6 +90,12 @@ export class ResidentConnection {
   /** The discussion context restored with `open`, before any context event. */
   latestContext: DiscussionContext | null = null
   refs = 0
+  /**
+   * A panel called the Remote `close` for this session: the next release that
+   * leaves no holder stops the child at once instead of entering the
+   * withdrawal grace. Re-attaching clears it — a new live panel is not closed.
+   */
+  closeRequested = false
   seq = 0
   private readonly subscribers = new Set<Queue<ResidentEvent>>()
   private readonly pending = new Map<number, {
@@ -280,18 +296,71 @@ export class ResidentConnection {
 }
 
 /**
- * Owns the resident children. One per session; it starts when the first panel
- * stream (or `uml_display`) needs it and stops when the last one releases it.
+ * Owns the resident children and their bounded withdrawal windows. One child
+ * per session; it starts when the first panel stream (or `uml_display`) needs
+ * it and stops at the last holder's release, at an explicit close, when its
+ * withdrawal grace expires, or at root shutdown.
  */
+export class ResidentPool {
+  readonly connections = new Map<string, ResidentConnection>()
+  readonly opening = new Map<string, Promise<ResidentConnection>>()
+  /** Armed withdrawal timers, by session id; only a live connection has one. */
+  readonly graces = new Map<string, NodeJS.Timeout>()
+  /** The withdrawal window every connection of this pool gets; tests shorten it. */
+  readonly graceMs: number
+
+  constructor(graceMs = WITHDRAWAL_GRACE_MS) {
+    this.graceMs = graceMs
+  }
+}
+
+/** Persist one live view; best effort, never an action failure. */
+export async function saveView(states: SessionStates, connection: ResidentConnection): Promise<void> {
+  try {
+    // A stale/missing diagram reopens waiting. Preserve its last displayed
+    // snapshot rather than replacing it with the blank canvas on resize.
+    if (connection.latestFrame?.waiting && await states.read(connection.id)) return
+    const saved = await connection.request({ action: 'save' }, ACTION_TIMEOUT_MS, { quiet: true })
+    if (saved.event === 'state') await states.write(connection.id, saved.state)
+  } catch {
+    // A view-state write must not turn a successful action into an error.
+  }
+}
+
+/** DSH shutting down: save and stop every resident a root pool still owns. */
+export async function disposePool(states: SessionStates, pool: ResidentPool): Promise<void> {
+  // No withdrawal window may outlive the root: clear every timer before the
+  // children stop, so an expiry cannot race the shutdown and nothing is left.
+  for (const timer of pool.graces.values()) clearTimeout(timer)
+  pool.graces.clear()
+  await Promise.allSettled([...pool.opening.values()])
+  for (const connection of [...pool.connections.values()]) {
+    pool.connections.delete(connection.id)
+    await saveView(states, connection)
+    connection.end()
+    connection.child.terminate()
+    await Promise.race([connection.exited, new Promise(resolve => setTimeout(resolve, STOP_TIMEOUT_MS))])
+  }
+}
+
+/** Why a holder let go of a resident. */
+export type ReleaseReason =
+  /** A panel stream ended without an explicit close — a carrier loss. */
+  | 'withdrawn'
+  /** The holder is done with the child (a tool call, or a closed panel). */
+  | 'closed'
+
 export class ResidentSessions {
-  private readonly connections = new Map<string, ResidentConnection>()
-  private readonly opening = new Map<string, Promise<ResidentConnection>>()
+  private readonly pool: ResidentPool
 
   constructor(
     private readonly services: HostServices,
     private readonly config: Config,
     private readonly states: SessionStates,
-  ) {}
+    pool = new ResidentPool(),
+  ) {
+    this.pool = pool
+  }
 
   private writablePolicy(agent: Agent): Policy {
     const policy = this.services.sandboxPolicy.resolve({ session: agent.session })
@@ -306,12 +375,17 @@ export class ResidentSessions {
     // another panel stream merely because a resident already exists.
     this.writablePolicy(agent)
     const id = agent.session.id
-    const existing = this.connections.get(id)
+    const existing = this.pool.connections.get(id)
     if (existing && !existing.isSettled) {
+      // A panel is attaching again. It joins the same child and the same
+      // version, and its hold cancels the withdrawal window: one holder, one
+      // ref, and no expiry may stop the resident under the new stream.
+      this.clearGrace(id)
+      existing.closeRequested = false
       existing.refs += 1
       return existing
     }
-    const inflight = this.opening.get(id)
+    const inflight = this.pool.opening.get(id)
     if (inflight) {
       const joined = await inflight
       this.writablePolicy(agent)
@@ -319,18 +393,18 @@ export class ResidentSessions {
       return joined
     }
     const started = this.startFresh(agent, signal)
-    this.opening.set(id, started)
+    this.pool.opening.set(id, started)
     try {
       return await started
     } finally {
-      this.opening.delete(id)
+      this.pool.opening.delete(id)
     }
   }
 
   private async startFresh(agent: Agent, signal: AbortSignal): Promise<ResidentConnection> {
     const connection = await this.start(agent, signal)
     connection.refs = 1
-    this.connections.set(connection.id, connection)
+    this.pool.connections.set(connection.id, connection)
     try {
       const state = await this.states.read(connection.id)
       connection.latestContext = state?.context ?? null
@@ -378,8 +452,10 @@ export class ResidentSessions {
           connection.fail(`uml-viewer resident exited (${outcome.exitCode === null ? `signal ${outcome.signal}` : `exit ${outcome.exitCode}`})`)
         }
         connection.end()
+        // A dead child needs no window: no grace timer may outlive its resident.
+        this.clearGrace(connection.id)
         // A replacement may already serve this session; remove only this one.
-        if (this.connections.get(connection.id) === connection) this.connections.delete(connection.id)
+        if (this.pool.connections.get(connection.id) === connection) this.pool.connections.delete(connection.id)
       }, error => connection.fail(`uml-viewer resident failed: ${String(error)}`))
       try {
         await this.waitForReady(connection, ready)
@@ -408,10 +484,61 @@ export class ResidentSessions {
     if (first.value.event !== 'ready') throw new Error(`uml-viewer resident started with ${first.value.event} instead of ready`)
   }
 
-  /** Release one holder; the child stops with the last one. */
-  async release(connection: ResidentConnection): Promise<void> {
-    connection.refs -= 1
+  /**
+   * Release one holder. A withdrawn panel stream keeps the child (and its
+   * version lease) alive for the pool's grace, so a carrier loss does not
+   * switch a session that is still in use to another version; every other
+   * release that leaves no holder stops the child at once.
+   */
+  async release(connection: ResidentConnection, reason: ReleaseReason = 'closed'): Promise<void> {
+    if (connection.refs > 0) connection.refs -= 1
+    if (connection.refs > 0) return
+    if (reason === 'withdrawn' && !connection.closeRequested) {
+      this.armGrace(connection)
+      return
+    }
+    await this.stop(connection)
+  }
+
+  /**
+   * A panel's explicit close (the Remote `close`, a user closing the panel).
+   * That is the definite close a withdrawn stream is not: the resident stops
+   * now when no holder is left, and the holder's own stream ending stops it.
+   */
+  async close(agent: Agent): Promise<boolean> {
+    const id = agent.session.id
+    this.clearGrace(id)
+    const connection = this.pool.connections.get(id)
+    if (!connection) return false
+    connection.closeRequested = true
     if (connection.refs <= 0) await this.stop(connection)
+    return true
+  }
+
+  /**
+   * Hold the resident for a bounded window after its last panel stream ended.
+   * The window is one timer per session: re-arming replaces it, an explicit
+   * close, a re-attach, a child exit or root shutdown clears it, and it never
+   * keeps the host process alive on its own.
+   */
+  private armGrace(connection: ResidentConnection): void {
+    this.clearGrace(connection.id)
+    const timer = setTimeout(() => {
+      this.pool.graces.delete(connection.id)
+      // A re-attach or a child that exited meanwhile wins over the expiry.
+      if (connection.refs > 0 || connection.isSettled) return
+      // Nobody came back: save the view and stop the resident (stop saves too).
+      void this.stop(connection).catch(() => {})
+    }, this.pool.graceMs)
+    timer.unref()
+    this.pool.graces.set(connection.id, timer)
+  }
+
+  private clearGrace(id: string): void {
+    const timer = this.pool.graces.get(id)
+    if (timer === undefined) return
+    clearTimeout(timer)
+    this.pool.graces.delete(id)
   }
 
   /**
@@ -485,16 +612,8 @@ export class ResidentSessions {
   }
 
   /** Persist what the resident currently shows; best effort, never an action failure. */
-  private async save(connection: ResidentConnection): Promise<void> {
-    try {
-      // A stale/missing diagram reopens waiting. Preserve its last displayed
-      // snapshot rather than replacing it with the blank canvas on resize.
-      if (connection.latestFrame?.waiting && await this.states.read(connection.id)) return
-      const saved = await connection.request({ action: 'save' }, ACTION_TIMEOUT_MS, { quiet: true })
-      if (saved.event === 'state') await this.states.write(connection.id, saved.state)
-    } catch {
-      // A view-state write must not turn a successful action into an error.
-    }
+  private save(connection: ResidentConnection): Promise<void> {
+    return saveView(this.states, connection)
   }
 
   /** Persisted view state that names a vanished proposal must stop naming it. */
@@ -511,8 +630,9 @@ export class ResidentSessions {
   }
 
   private async stop(connection: ResidentConnection): Promise<void> {
+    this.clearGrace(connection.id)
     if (connection.isSettled) return
-    this.connections.delete(connection.id)
+    this.pool.connections.delete(connection.id)
     await this.save(connection)
     try {
       await connection.request({ action: 'quit' }, STOP_TIMEOUT_MS)
@@ -529,15 +649,12 @@ export class ResidentSessions {
     }
   }
 
+  /** Save during replacement without interrupting the panel's live resident. */
+  async checkpoint(): Promise<void> {
+    for (const connection of [...this.pool.connections.values()]) await this.save(connection)
+  }
+
   async dispose(): Promise<void> {
-    for (const connection of [...this.connections.values()]) {
-      this.connections.delete(connection.id)
-      // DSH is shutting down: no panel close will follow, so this is the
-      // last chance to keep the view and discussion context.
-      await this.save(connection)
-      connection.end()
-      connection.child.terminate()
-      await Promise.race([connection.exited, new Promise(resolve => setTimeout(resolve, STOP_TIMEOUT_MS))])
-    }
+    await disposePool(this.states, this.pool)
   }
 }

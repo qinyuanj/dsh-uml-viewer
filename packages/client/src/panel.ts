@@ -25,6 +25,13 @@ export interface PanelStream extends AsyncIterable<PanelEvent> {
 export interface PanelRemoteApi {
   watch(sessionId: string): PanelStream
   action(sessionId: string, action: PanelAction): Promise<unknown>
+  /**
+   * The explicit close (#32, D13). A stream ending is a carrier loss — the host
+   * keeps that session's resident for a bounded grace — so closing the panel
+   * must say so. Optional: a host without the added Remote method still works,
+   * and the resident then falls back to its grace.
+   */
+  close?(sessionId: string): Promise<unknown>
 }
 
 /** The search overlay: the egui window's Ctrl+F box and its result list. */
@@ -107,7 +114,12 @@ export class PanelController {
 
   /** Open the stream bound to this session; a second open replaces the first. */
   public async open(sessionId: string): Promise<void> {
-    this.close()
+    const previous = this.sessionId
+    // Rebinding is not a close: when the same session is replaced (the
+    // sidebar/main reparent), saying "closed" would stop the resident the new
+    // stream is about to re-attach to. Only a different session is left behind.
+    this.teardown()
+    if (previous !== null && previous !== sessionId) this.sayClosed(previous)
     this.sessionId = sessionId
     const abort = new AbortController()
     this.abort = abort
@@ -131,14 +143,32 @@ export class PanelController {
     })()
   }
 
+  /** Close the panel and tell the host this is a close, not a lost carrier. */
   public close(): void {
+    const sessionId = this.sessionId
+    this.teardown()
+    if (sessionId !== null) this.sayClosed(sessionId)
+  }
+
+  /** Send the explicit-close Remote call; best effort, never blocks teardown. */
+  private sayClosed(sessionId: string): void {
+    try {
+      const closing = this.api.close?.(sessionId)
+      void closing?.catch(() => {})
+    } catch {
+      // The host keeps the resident for its withdrawal grace when this call
+      // never arrives, so a failed send only delays the stop.
+    }
+  }
+
+  private teardown(): void {
     this.abort?.abort()
     this.abort = null
     this.sessionId = null
     const stream = this.stream
     this.stream = null
-    // The Remote handle owns the carrier subscription; ending it is what tells
-    // the host this panel closed (and releases the session's resident).
+    // The Remote handle owns the carrier subscription; ending it releases this
+    // panel's hold on the session's resident on the host side.
     try { stream?.end?.() } catch { /* already closed */ }
     try { stream?.dispose?.() } catch { /* already closed */ }
     this.observer?.disconnect()
