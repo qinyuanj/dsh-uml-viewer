@@ -12,7 +12,6 @@ edn = { path = "../edn" }
 scene = { path = "../scene" }
 frame = { path = "../frame" }
 viewer-session = { path = "../viewer-session" }
-companion = { path = "../companion" }
 eframe = { version = "0.37", default-features = false, features = [
     "default_fonts",
     "wgpu",
