@@ -187,16 +187,16 @@ FIXTURES = {
 
 
 def sarasa_font():
-    """The provisioned Sarasa font, when the installer has put it in place."""
-    path = REPO / '.uml-viewer/fonts/SarasaMonoSC-Regular.ttf'
+    """The Sarasa face the plugin package ships in `fonts/`."""
+    path = REPO / 'fonts/SarasaMonoSC-Regular.ttf'
     return path if path.is_file() else None
 
 
 def provision_sarasa(project):
     font = sarasa_font()
     if not font:
-        raise AssertionError('Sarasa is required by this driver: provision '
-                             '.uml-viewer/fonts/SarasaMonoSC-Regular.ttf')
+        raise AssertionError('Sarasa is required by this driver: fonts/SarasaMonoSC-Regular.ttf '
+                             'is missing from this checkout')
     target = project / '.uml-viewer/fonts'
     target.mkdir(parents=True, exist_ok=True)
     shutil.copy2(font, target / 'SarasaMonoSC-Regular.ttf')
