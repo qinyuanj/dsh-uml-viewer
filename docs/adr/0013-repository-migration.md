@@ -205,3 +205,20 @@ ADR 0011 说面板由宿主注入 `dsh-client-ui-primitives`。实际落地时
 验证接缝：真实二进制 resident 的 waiting+state 恢复与首次 display；Cordis 工具面
 的每动作保存、卸载保存；SessionStates 对相同、修改、删除 IR 的重开行为；#22 的
 隔离 Playwright lane 验证导航、搜索、全宽页绑定、重开与 DSH 重启。
+
+## 附录（2026-11-09，#26）：质量叠加、依赖链高亮与本地悬停
+
+- **依赖链高亮色相固定**：`dependency-chain` 与质量色、违规关系色、无数据一样，
+  使用 `theme.ts` 的字面色板（暗 `#3e98ec`，即 egui 的 `frame::theme` RELATED；
+  亮 `#136ec3`，同色相、只降明度），不再读 `--dsw-alias-state-business-primary`。
+  默认暗色 token 中这个 token 是金色，皮肤（如 dsh-claude-style）又会改成别的强调色，
+  两种情况都与 egui 窗口不一致。界面骨架色仍随宿主 token。
+- **悬停在客户端完成，依赖链不在客户端计算**：选中、依赖链与淡化仍只来自 resident 帧。
+  `packages/client/src/hover.ts` 按 `scene::hit::at` 的顺序在帧几何上做悬停命中，
+  再按 `frame::commands::edge_style` 的悬停分支改样式：与悬停类相连或指针下的关系
+  变为 `relation-hover`，违规关系变为 `violation-hot`、宽 3.2，悬停的关系不淡化，
+  闭合箭头仍用生产者给的不透明填充；概览层级下用弹窗显示悬停类的类名。
+  违规与否只读生产者已给的角色，不在客户端求依赖规则。
+- **已知差异**：帧里的关系线不带 `deps`，所以悬停关系时不显示依赖列表弹窗；
+  经过类（`via-ids`）的捆绑关系也不会因悬停这些中间类而变亮。补齐这两点需要在
+  帧里增加字段并重新生成 goldens，留给后续工单。

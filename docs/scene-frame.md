@@ -73,7 +73,9 @@ contract, locked byte for byte by `crates/frame/tests/golden_frame.rs`.
 A color is `{"role": <name>}`; the quality roles add `"grade"` (0–10,
 `null` = unmeasured, drawn as the worst grade's neutral) or `"ratio"`
 (0–1, `null` unknown). The renderer resolves roles through host theme
-tokens; 质量色 and 违规关系色 keep their hue and adapt only to light/dark.
+tokens; 质量色, 违规关系色, 无数据 (`no-data`) and 依赖链高亮
+(`dependency-chain`) keep their hue and adapt only to light/dark, so neither a
+host accent token nor a skin repaints them.
 The dark palette below is what the egui window paints (`frame::theme::rgba`).
 
 | role | meaning | dark palette |
