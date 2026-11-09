@@ -32,6 +32,12 @@ export async function launchViewerLane(browser) {
     pages.push(page)
     const problems = []
     page.on('pageerror', error => problems.push(error.message))
+    // On a busy Windows host the preview notice can arrive after the initial
+    // quiet window. Dismiss it through its real button whenever it obstructs
+    // a later user action, rather than sleeping or forcing clicks through it.
+    await page.addLocatorHandler(page.getByRole('dialog', { name: 'Preview Notice' }), async dialog => {
+      await dialog.getByRole('button', { name: 'Continue', exact: true }).click()
+    })
     return { page, problems }
   }
 

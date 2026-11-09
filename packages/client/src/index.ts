@@ -27,7 +27,7 @@ const REMOTE_NAMESPACE = 'umlViewer'
 const STYLE = `
 .dsh-uml-viewer-panel { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; width: 100%; }
 .dsh-uml-viewer-toolbar {
-  display: flex; align-items: center; gap: 4px; flex: 0 0 auto; min-height: 36px; padding: 4px 8px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: 0 0 auto; min-height: 36px; padding: 4px 8px;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary);
   font: 12px/1.4 var(--dsw-font-family, system-ui);
