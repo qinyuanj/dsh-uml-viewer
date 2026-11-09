@@ -285,5 +285,12 @@ jobs:
           cargo test -p uml-viewer --test integration mutate:: --locked -- --test-threads=1
           cargo test -p uml-viewer --test integration quality_selection:: --locked -- --test-threads=1
 
+      # The full Rust mutation suite exercises default coverage, not only custom commands.
+      - name: LLVM tools for Linux coverage goldens
+        run: rustup component add llvm-tools
+      - name: cargo-llvm-cov for Linux coverage goldens
+        run: cargo install cargo-llvm-cov --locked
+      - name: Verify Linux coverage toolchain
+        run: cargo llvm-cov --version
       - name: scripts/check.py (source rules + cargo test --workspace --locked)
         run: python3 -I scripts/check.py
