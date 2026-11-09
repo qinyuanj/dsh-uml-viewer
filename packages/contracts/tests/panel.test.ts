@@ -14,7 +14,8 @@ describe('panel Remote descriptors', () => {
   it('declares one typed watch stream, one action call and the explicit close, all agent-bound', () => {
     const descriptors = UML_VIEWER_REMOTE.descriptors
     expect(UML_VIEWER_REMOTE.package).toBe('dsh-uml-viewer')
-    expect(descriptors.map(descriptor => descriptor.method).sort()).toEqual(['action', 'close', 'watch'])
+    // #32/D13: the owned pair is additive; the three version-1 methods keep their wire shape.
+    expect(descriptors.map(descriptor => descriptor.method).sort()).toEqual(['action', 'close', 'closeOwned', 'watch', 'watchOwned'])
     expect(new Set(descriptors.map(descriptor => descriptor.id)).size).toBe(descriptors.length)
     const watch = descriptors.find(descriptor => descriptor.method === 'watch')!
     expect(watch.mode).toBe('stream')
@@ -42,6 +43,32 @@ describe('panel Remote descriptors', () => {
     expect(() => close.result.create().parse({ closed: 'yes' })).toThrow(/closed/)
     expect(() => close.result.create().parse({})).toThrow(/closed/)
     expect(() => close.result.create().parse(null)).toThrow(/object/)
+  })
+
+  it('declares owned watch/close with agent lookup plus a strict primitive owner', () => {
+    const descriptors = UML_VIEWER_REMOTE.descriptors
+    const watch = descriptors.find(descriptor => descriptor.method === 'watchOwned')!
+    const close = descriptors.find(descriptor => descriptor.method === 'closeOwned')!
+    expect(watch.id).toBe('dsh-uml-viewer#umlViewer/watchOwned')
+    expect(watch.mode).toBe('stream')
+    expect(watch.cancellation).toEqual({ parameter: 'signal' })
+    expect(close.id).toBe('dsh-uml-viewer#umlViewer/closeOwned')
+    expect(close.mode).toBeUndefined()
+    expect(close.cancellation).toBeUndefined()
+    for (const descriptor of [watch, close]) {
+      expect(descriptor.scope).toEqual({ context: 'agent', wire: 'agentId' })
+      expect(descriptor.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup'], ['owner', 'json']])
+      expect(descriptor.parameters[0]!.codec.typeSymbol).toBe('@deepseek-ai/dsh-session/types#SessionId')
+      const owner = descriptor.parameters[1]!.codec.create()
+      expect(owner.parse({ pageId: 'page-1', holderId: 'a_b-C' })).toEqual({ pageId: 'page-1', holderId: 'a_b-C' })
+      expect(() => owner.parse({ pageId: 'page', holderId: '' })).toThrow(/owner/)
+      expect(() => owner.parse({ pageId: 'x'.repeat(129), holderId: 'h' })).toThrow(/owner/)
+      expect(() => owner.parse({ pageId: '../p', holderId: 'h' })).toThrow(/owner/)
+      expect(() => owner.parse({ pageId: 'p' })).toThrow(/holderId/)
+      // Extra fields are dropped; nothing beyond the two ids crosses.
+      expect(owner.parse({ pageId: 'p', holderId: 'h', sessionId: 'other' })).toEqual({ pageId: 'p', holderId: 'h' })
+    }
+    expect(close.result.create().parse({ closed: false })).toEqual({ closed: false })
   })
 
   it('parses every event kind the panel receives, and rejects the rest', () => {

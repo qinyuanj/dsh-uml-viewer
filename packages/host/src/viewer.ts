@@ -1,5 +1,5 @@
 import type { PanelAck, PanelAction, PanelCloseAck, PanelEvent, ResidentEvent } from '@dsh-uml-viewer/contracts'
-import { parsePanelAction } from '@dsh-uml-viewer/contracts'
+import { parsePanelAction, parsePanelOwner, type PanelOwner } from '@dsh-uml-viewer/contracts'
 import type { Agent } from './dsh.js'
 import type { PanelPrompts } from './prompt.js'
 import type { PanelRequests } from './requests.js'
@@ -51,10 +51,18 @@ export class ViewerService {
     private readonly requests: PanelRequests,
   ) {}
 
-  async *watch(agent: Agent, signal: AbortSignal): AsyncIterable<PanelEvent> {
+  watchOwned(agent: Agent, owner: PanelOwner, signal: AbortSignal): AsyncIterable<PanelEvent> {
+    return this.watch(agent, signal, parsePanelOwner(owner))
+  }
+
+  async closeOwned(agent: Agent, owner: PanelOwner): Promise<PanelCloseAck> {
+    return { closed: await this.sessions.closeOwned(agent, parsePanelOwner(owner)) }
+  }
+
+  async *watch(agent: Agent, signal: AbortSignal, owner?: PanelOwner): AsyncIterable<PanelEvent> {
     let connection
     try {
-      connection = await this.sessions.open(agent, signal)
+      connection = owner ? await this.sessions.openOwned(agent, signal, owner) : await this.sessions.open(agent, signal, true)
     } catch (error) {
       yield error instanceof Refusal ? { kind: 'refused', reason: error.message } : { kind: 'failed', reason: reasonOf(error) }
       return
@@ -78,7 +86,8 @@ export class ViewerService {
       // the method signal and returns this generator on a client unload, on a
       // reconnect and on the sidebar/main reparent. Only `close` is definite, so
       // a withdrawn stream leaves the resident in its bounded grace (#32, D13).
-      await this.sessions.release(connection, connection.closeRequested ? 'closed' : 'withdrawn')
+      if (owner) await this.sessions.releaseOwned(connection, owner)
+      else await this.sessions.release(connection, connection.closeRequested ? 'closed' : 'withdrawn')
     }
   }
 

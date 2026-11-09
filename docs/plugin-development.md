@@ -65,16 +65,42 @@ child actually exits. Open panels keep their resident across a plugin
 replacement — a root-owned pool hands their actions to the old child while a
 new activation starts new sessions with the new version.
 
-A panel stream ending is **not** a panel close (D13). The gateway aborts the
-method signal and returns the stream whenever the browser half is unloaded, a
-carrier reconnects, or the panel moves between the sidebar and the main page,
-so the resident is kept for one bounded window (`WITHDRAWAL_GRACE_MS`, 30 s)
-waiting for the same session to re-attach. A remount inside that window joins
-the waiting child: same resident, same version, still one child and one lease.
-The panel's own `close` call, the window expiring with nobody attached, plugin
-uninstall and DSH shutdown stop it (each saves the view first), and only then
-does a later open start vN+1. So an in-session remount keeps vN; a **full page
-reload or app restart is a fresh open and legitimately runs vN+1**.
+A panel stream ending is **not** a panel close (D13). The shell's sidebar tab
+props carry only `sessionId` and `layout` has no close hook, so an unmount
+cannot say why it happened: a React detach, a client bundle swap or a
+sidebar/main move is a **withdrawal**. The mount disposer only ends its own
+stream; it never sends a close. The resident then waits one bounded window
+(`WITHDRAWAL_GRACE_MS`, 30 s), and a remount inside it joins the same child,
+version and lease. Actions or tool calls that arrive during the window borrow
+the child without ending the window early.
+
+Each mount opens with `watchOwned(owner)`, where `owner` is `{pageId,
+holderId}`. `pageId` is a random id kept as a plain string on the browser
+`document`, so it stays the same across client HMR and surface moves.
+`holderId` is new for every mount. The definite close is the panel's
+**Close viewer** button: `closeOwned(owner)` releases that one holder, and the
+resident stops once no holder is left. **Open viewer** opens fresh, so it runs
+the current activation's version. A stale `closeOwned` from an old mount
+targets only its own holder; it cannot close a newer mount. The window
+expiring, plugin uninstall and DSH shutdown also stop the resident, saving
+the view first.
+
+A new document gets a new `pageId`. If the session's resident has no live
+holder at that moment, it stops and the new page starts vN+1. If another live
+page or window still holds the session, the new page joins that resident and
+stays on vN until every holder has closed or withdrawn. This is deliberate:
+one resident per session, no extra processes. An app restart starts with an
+empty pool. Owner ids grant nothing: actions, `uml_display` and the IR gate
+still depend only on the gateway's `agent` lookup and sandbox policy.
+
+The version-1 `watch` and `close` methods stay available. The new client falls
+back to them when an older host refuses `watchOwned` before sending any event.
+A legacy `close` still stops a resident that only legacy watches use, but it
+is ignored once a resident has an owned holder, so an old client's close
+cannot cut off a new panel; that resident ends at its window instead. These
+are Node seam tests through the real `mountPanel` disposer, a new mount and
+the root pool. Real browser HMR, sidebar/main moves, page reload and app
+restart are **not** run-verified.
 
 Cleanup removes only version directories that are neither current nor leased
 by a live owner. A lease whose heartbeat is old but whose PID is still alive
@@ -328,8 +354,11 @@ check actual argv/cwd, results for exits 0/1/3, refusal, confinement, authority
 changes and unload cleanup. The version seam runs fake resident payloads from
 scratch DSH homes under two plugin versions: a live vN panel and a fresh vN+1
 panel in the same root, a withdrawn stream (abort plus iterator return, as the
-gateway leaves it) with the same session remounting on the same vN child, an
-explicit close stopping it, root shutdown clearing a pending withdrawal window,
+gateway leaves it) with the same session remounting on the same vN child, the
+real `mountPanel` disposer followed by a new mount keeping the vN child and
+lease until **Close viewer**, after which **Open viewer** runs vN+1, a distinct
+withdrawn document opening fresh while a live second page shares the resident,
+an explicit close stopping it, root shutdown clearing a pending withdrawal window,
 six simultaneous real loaders for one version, cleanup
 of unleased directories only, and — on Windows — a resident running from a real
 copied `node.exe` while the plugin is updated. The quality seam adds a fake

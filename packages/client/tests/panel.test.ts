@@ -97,6 +97,46 @@ async function settle(predicate: () => boolean, label: string): Promise<void> {
 }
 
 describe('session-bound panel stream', () => {
+  it('falls back to the legacy watch and close when an older host refuses the owned stream', async () => {
+    const calls: string[] = []
+    let finish: (() => void) | null = null
+    const legacy = {
+      async *[Symbol.asyncIterator]() {
+        yield { kind: 'ready', actions: [] } as PanelEvent
+        await new Promise<void>(resolve => { finish = resolve })
+      },
+      end: () => finish?.(),
+    }
+    const api: PanelRemoteApi = {
+      watch: sessionId => { calls.push(`watch ${sessionId}`); return legacy },
+      watchOwned: () => {
+        calls.push('watchOwned')
+        return { [Symbol.asyncIterator]: () => ({ next: async () => { throw new Error('gateway/method-not-found') } }) }
+      },
+      async closeOwned() { calls.push('closeOwned') },
+      async close(sessionId) { calls.push(`close ${sessionId}`) },
+      async action() { return { accepted: true, reason: null } },
+    }
+    const controller = new PanelController({ canvas: fakeCanvas({ width: 800, height: 600 }), api, paint: () => {},
+      owner: () => ({ pageId: 'page', holderId: 'holder' }) })
+    await controller.open('session-a')
+    await settle(() => controller.current.kind === 'live', 'the legacy ready')
+    expect(calls).toEqual(['watchOwned', 'watch session-a'])
+    await controller.close()
+    // The owner was never accepted, so the legacy close is the one that can work.
+    expect(calls).toEqual(['watchOwned', 'watch session-a', 'close session-a'])
+  })
+
+  it('waits for its watch to acquire ownership before sending viewport actions', async () => {
+    const h = harness()
+    await h.controller.open('session-a')
+    expect(h.actions).toEqual([])
+    h.emit({ kind: 'ready', actions: [] })
+    await settle(() => h.actions.length === 1, 'the owned watch ready')
+    expect(h.actions[0]).toMatchObject({ sessionId: 'session-a', action: { action: 'viewport' } })
+    h.controller.close()
+  })
+
   it('paints each frame the session stream sends and reports live', async () => {
     const h = harness()
     await h.controller.open('session-a')

@@ -162,6 +162,11 @@ export class ResidentConnection {
    * withdrawal grace. Re-attaching clears it — a new live panel is not closed.
    */
   closeRequested = false
+  /** Primitive ownership only; no client/activation context is retained. */
+  readonly holders = new Map<string, { pageId: string; active: boolean; closed: boolean }>()
+  pageId: string | null = null
+  /** Its last panel withdrew; borrowed calls must not end the grace early. */
+  withdrawn = false
   seq = 0
   private readonly subscribers = new Set<Queue<ResidentEvent>>()
   private readonly pending = new Map<number, {
@@ -394,6 +399,8 @@ export class ResidentConnection {
 export class ResidentPool {
   readonly connections = new Map<string, ResidentConnection>()
   readonly opening = new Map<string, Promise<ResidentConnection>>()
+  readonly transitions = new Map<string, Promise<unknown>>()
+  disposed = false
   /** Armed withdrawal timers, by session id; only a live connection has one. */
   readonly graces = new Map<string, NodeJS.Timeout>()
   /** The withdrawal window every connection of this pool gets; tests shorten it. */
@@ -423,9 +430,14 @@ export async function disposePool(states: SessionStates, pool: ResidentPool): Pr
   // children stop, so an expiry cannot race the shutdown and nothing is left.
   for (const timer of pool.graces.values()) clearTimeout(timer)
   pool.graces.clear()
+  pool.disposed = true
+  await Promise.allSettled([...pool.transitions.values()])
+  pool.transitions.clear()
   await Promise.allSettled([...pool.opening.values()])
   for (const connection of [...pool.connections.values()]) {
     pool.connections.delete(connection.id)
+    connection.holders.clear()
+    connection.refs = 0
     await saveView(states, connection)
     connection.end()
     connection.child.terminate()
@@ -459,19 +471,27 @@ export class ResidentSessions {
     return policy as Policy
   }
 
-  /** Start or join this session's resident, and open its waiting canvas. */
-  async open(agent: Agent, signal: AbortSignal): Promise<ResidentConnection> {
+  /**
+   * Start or join this session's resident, and open its waiting canvas.
+   * `panel` marks a watch stream attaching; a short call (an action, a tool)
+   * only borrows the child and leaves a pending withdrawal window running.
+   */
+  async open(agent: Agent, signal: AbortSignal, panel = true): Promise<ResidentConnection> {
     // Reuse is still an open: a session that became read-only must not acquire
     // another panel stream merely because a resident already exists.
     this.writablePolicy(agent)
+    if (this.pool.disposed) throw new Refusal('Viewer root is shut down')
     const id = agent.session.id
     const existing = this.pool.connections.get(id)
     if (existing && !existing.isSettled) {
       // A panel is attaching again. It joins the same child and the same
       // version, and its hold cancels the withdrawal window: one holder, one
       // ref, and no expiry may stop the resident under the new stream.
-      this.clearGrace(id)
-      existing.closeRequested = false
+      if (panel) {
+        this.clearGrace(id)
+        existing.withdrawn = false
+        existing.closeRequested = false
+      }
       existing.refs += 1
       return existing
     }
@@ -489,6 +509,58 @@ export class ResidentSessions {
     } finally {
       this.pool.opening.delete(id)
     }
+  }
+
+  /** Serialize ownership changes per session, including zero-ref replacement. */
+  private async transition<T>(id: string, run: () => Promise<T>): Promise<T> {
+    const previous = this.pool.transitions.get(id)
+    const pending = (async () => { await previous?.catch(() => {}); return run() })()
+    this.pool.transitions.set(id, pending)
+    try { return await pending } finally {
+      if (this.pool.transitions.get(id) === pending) this.pool.transitions.delete(id)
+    }
+  }
+
+  async openOwned(agent: Agent, signal: AbortSignal, owner: { pageId: string; holderId: string }): Promise<ResidentConnection> {
+    return this.transition(agent.session.id, async () => {
+      this.writablePolicy(agent)
+      const old = this.pool.connections.get(agent.session.id)
+      // A distinct document is fresh only when nobody still holds the session.
+      // Live same-session panels always share one resident, across pages too.
+      if (old && old.refs === 0 && old.pageId !== null && old.pageId !== owner.pageId) await this.stop(old)
+      const connection = await this.open(agent, signal, true)
+      for (const [id, holder] of connection.holders) if (!holder.active) connection.holders.delete(id)
+      if (connection.holders.has(owner.holderId)) {
+        await this.release(connection, 'withdrawn')
+        throw new Refusal('Viewer holder is already attached')
+      }
+      connection.pageId = owner.pageId
+      connection.holders.set(owner.holderId, { pageId: owner.pageId, active: true, closed: false })
+      return connection
+    })
+  }
+
+  async releaseOwned(connection: ResidentConnection, owner: { pageId: string; holderId: string }): Promise<void> {
+    const holder = connection.holders.get(owner.holderId)
+    if (!holder || !holder.active || holder.pageId !== owner.pageId) return
+    holder.active = false
+    if (holder.closed) connection.holders.delete(owner.holderId)
+    await this.release(connection, holder.closed ? 'closed' : 'withdrawn')
+  }
+
+  async closeOwned(agent: Agent, owner: { pageId: string; holderId: string }): Promise<boolean> {
+    return this.transition(agent.session.id, async () => {
+      const connection = this.pool.connections.get(agent.session.id)
+      const holder = connection?.holders.get(owner.holderId)
+      if (!connection || !holder || holder.pageId !== owner.pageId || holder.closed) return false
+      holder.closed = true
+      connection.holders.delete(owner.holderId)
+      // Close consumes exactly this holder's ref. Its later stream-finally is
+      // idempotent, and a new open after the ack can select this activation.
+      if (holder.active) await this.release(connection, 'closed')
+      else if (connection.refs === 0) await this.stop(connection)
+      return true
+    })
   }
 
   private async startFresh(agent: Agent, signal: AbortSignal): Promise<ResidentConnection> {
@@ -585,6 +657,13 @@ export class ResidentSessions {
   async release(connection: ResidentConnection, reason: ReleaseReason = 'closed'): Promise<void> {
     if (connection.refs > 0) connection.refs -= 1
     if (connection.refs > 0) return
+    // A call borrowed a child whose panels withdrew: the window decides, not
+    // the call. One that expired while the call ran stops the child now.
+    if (reason === 'closed' && connection.withdrawn && !connection.closeRequested) {
+      if (this.pool.graces.has(connection.id)) return
+      await this.stop(connection)
+      return
+    }
     if (reason === 'withdrawn' && !connection.closeRequested) {
       this.armGrace(connection)
       return
@@ -599,9 +678,11 @@ export class ResidentSessions {
    */
   async close(agent: Agent): Promise<boolean> {
     const id = agent.session.id
-    this.clearGrace(id)
     const connection = this.pool.connections.get(id)
-    if (!connection) return false
+    // Legacy session-wide close has no identity with which to target an owned
+    // panel. Ignore it rather than poisoning a newer client holder.
+    if (!connection || connection.pageId !== null) return false
+    this.clearGrace(id)
     connection.closeRequested = true
     if (connection.refs <= 0) await this.stop(connection)
     return true
@@ -615,6 +696,7 @@ export class ResidentSessions {
    */
   private armGrace(connection: ResidentConnection): void {
     this.clearGrace(connection.id)
+    connection.withdrawn = true
     const timer = setTimeout(() => {
       this.pool.graces.delete(connection.id)
       // A re-attach or a child that exited meanwhile wins over the expiry.
@@ -643,7 +725,7 @@ export class ResidentSessions {
    */
   async refresh(agent: Agent, signal: AbortSignal, action: { action: string } & Record<string, unknown>,
     restoreContext = false): Promise<RefreshOutcome> {
-    const connection = await this.open(agent, signal)
+    const connection = await this.open(agent, signal, false)
     try {
       let event = await connection.request(action, ACTION_TIMEOUT_MS)
       let note: string | null = null
@@ -685,7 +767,7 @@ export class ResidentSessions {
    * is persisted.
    */
   async qualityTarget(agent: Agent, signal: AbortSignal, id: string): Promise<QualityTarget> {
-    const connection = await this.open(agent, signal)
+    const connection = await this.open(agent, signal, false)
     try {
       if (connection.latestFrame?.waiting) {
         throw new Error('no diagram: the panel shows nothing yet; run uml_ir and uml_display first')
@@ -714,7 +796,7 @@ export class ResidentSessions {
    * name an element of this frame and quote this context.
    */
   async shownView(agent: Agent, signal: AbortSignal): Promise<{ frame: SceneFrame | null; context: DiscussionContext }> {
-    const connection = await this.open(agent, signal)
+    const connection = await this.open(agent, signal, false)
     try {
       return { frame: connection.latestFrame, context: connection.latestContext ?? SOURCE_CONTEXT }
     } finally {
@@ -738,7 +820,8 @@ export class ResidentSessions {
   private async stop(connection: ResidentConnection): Promise<void> {
     this.clearGrace(connection.id)
     if (connection.isSettled) return
-    this.pool.connections.delete(connection.id)
+    if (this.pool.connections.get(connection.id) === connection) this.pool.connections.delete(connection.id)
+    connection.holders.clear()
     await this.save(connection)
     try {
       await connection.request({ action: 'quit' }, STOP_TIMEOUT_MS)

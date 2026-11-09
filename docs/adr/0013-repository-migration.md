@@ -215,8 +215,17 @@ ADR 0011 说面板由宿主注入 `dsh-client-ui-primitives`。实际落地时
   resident（同一子进程、同一版本、同一 lease，引用计数不重复）；真正的关闭是面板显式
   调用新增的 `umlViewer/close` Remote（加法协议，结果 `PanelCloseAck { closed }` 经
   contracts 校验），以及窗口到期、插件卸载、DSH 退出——它们都先保存视图再停止。
-  结论：同一会话内重挂载保持 vN；整页刷新或应用重启是"全新打开"，用 vN+1。旧文档中
-  "重连复用 pooled vN 连接"的说法在旧代码下不成立，已删除。
+  旧文档中"重连复用 pooled vN 连接"的说法在旧代码下不成立，已删除。
+- **#32 客户端修复（持有者身份）**：原实现中，`mountPanel` 的 disposer 无条件发送
+  会话级 `close`，所以 React 卸载、HMR 或侧栏/main 切换会停掉 vN，或让新挂载失去
+  grace。现在 disposer 只撤回自己的流。宿主侧栏 tab 的 props 只有 `sessionId`，
+  `layout` 也没有关闭钩子，因此关闭意图改由面板上的「Close viewer / Open viewer」
+  按钮表达。加法方法 `watchOwned` / `closeOwned` 携带 `{pageId, holderId}`：
+  `pageId` 是存在 document 上的原始字符串，HMR 后不变；`holderId` 每次挂载各不相同。
+  过时的 close 只作用于它自己的持有者。新 document 只在会话无人持有时替换 resident
+  并选新版本；若另一页面仍持有该会话，新页面加入同一个 resident（每会话仍只有一个
+  进程）。旧版 `close` 对有持有者的 resident 无效。真实浏览器的 HMR、整页刷新和应用
+  重启尚未运行验证。
 - **风险 S1（`ctx.root` 是 `@experimental`）**：面板池与提示词段落挂在 `ctx.root`
   （`lifetime.ts`，`Symbol.for('dsh-uml-viewer.panel-state.v1')`），让插件替换后的新
   激活能找到旧 resident。Cordis 4.1.0 在 `context.ts` 中把 `root` 标为 `@experimental`；

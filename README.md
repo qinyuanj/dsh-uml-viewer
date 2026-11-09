@@ -27,9 +27,12 @@ dsh plugin --profile web remove dsh-uml-viewer @dsh-uml-viewer/win32-x64
 Use the matching platform archive. The plugin pins its packaged binary under
 `<DSH_HOME>/dsh-uml-viewer/<version>/` (atomic, hash-verified copy) and records
 the current version in `current.json`; an open panel keeps its version across a
-plugin update, because a lost panel stream is not a panel close — the resident
-waits a short bounded window for the same session to re-attach — while a full
-page reload or app restart is a fresh open and runs the new version. Only an
+plugin update. Unmounting, moving or hot-reloading the panel is not a close:
+the resident waits a short bounded window for the same page to re-attach. The
+panel's **Close viewer** button is the close, and **Open viewer** then runs the
+new version. A new page runs the new version when no other open page still uses
+that session; otherwise it shares the running one (see
+`docs/plugin-development.md`; browser behavior is not yet run-verified). Only an
 unused version directory is removed. Uninstall
 removes packages and the Loader contribution, preserving project policy,
 proposals and `.metrics/`. It does not migrate old `.uml-viewer/` data. Use a

@@ -58,6 +58,24 @@ export type PanelAction =
   | { action: 'omit'; id: string }
   | { action: 'new-proposal'; name?: string }
 
+/** Presentation ownership, scoped by the Remote's authoritative agent lookup. */
+export interface PanelOwner {
+  /** Stable for one browser document, including client HMR and surface moves. */
+  pageId: string
+  /** Unique for one mount/open; a stale mount cannot close its replacement. */
+  holderId: string
+}
+
+export function parsePanelOwner(value: unknown): PanelOwner {
+  const source = record(value, 'panel owner')
+  const pageId = str(source.pageId, 'panel owner.pageId')
+  const holderId = str(source.holderId, 'panel owner.holderId')
+  for (const id of [pageId, holderId]) {
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) throw new Error('panel owner ids must contain 1–128 ASCII letters, digits, underscores or hyphens')
+  }
+  return { pageId, holderId }
+}
+
 /** One action's outcome; the events it caused arrive on the watch stream. */
 export interface PanelAck {
   accepted: boolean
@@ -307,6 +325,18 @@ const agentId = (): RemoteCodec => ({
 
 /** One hand-written declaration of the panel's typed Remote. */
 export const REMOTE_DESCRIPTORS: readonly RemoteDescriptor[] = Object.freeze([
+  ...(['watchOwned', 'closeOwned'] as const).map(method => ({
+    id: `dsh-uml-viewer#umlViewer/${method}`,
+    service: REMOTE_SERVICE, namespace: REMOTE_SERVICE, method,
+    ...(method === 'watchOwned' ? { mode: 'stream' as const, cancellation: { parameter: 'signal' as const } } : {}),
+    invocation: { kind: 'direct' as const },
+    scope: { context: 'agent' as const, wire: 'agentId' },
+    parameters: [
+      { name: 'agent', wire: 'agentId', source: 'lookup' as const, lookup: 'agent', codec: agentId() },
+      { name: 'owner', wire: 'owner', source: 'json' as const, codec: codec('PanelOwner', parsePanelOwner) },
+    ],
+    result: method === 'watchOwned' ? codec('PanelEvent', value => parsePanelEvent(value)) : codec('PanelCloseAck', value => parseCloseAck(value)),
+  })),
   {
     id: 'dsh-uml-viewer#umlViewer/watch',
     service: REMOTE_SERVICE,

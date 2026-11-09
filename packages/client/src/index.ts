@@ -125,11 +125,12 @@ export interface ClientPanelProps {
 }
 
 /** The mountable Remote contribution and its resolved panel API. */
-let mountedRemote: Promise<PanelRemoteApi | null> | null = null
+const mountedRemotes = new WeakMap<ClientContext, Promise<PanelRemoteApi | null>>()
 
 async function mountRemote(ctx: ClientContext): Promise<PanelRemoteApi | null> {
-  if (mountedRemote) return mountedRemote
-  mountedRemote = (async () => {
+  const previous = mountedRemotes.get(ctx)
+  if (previous) return previous
+  const mountedRemote = (async () => {
     const remote = ctx.get('remote') as
       | { $mount(contribution: unknown): Promise<unknown>; [name: string]: unknown }
       | undefined
@@ -143,7 +144,14 @@ async function mountRemote(ctx: ClientContext): Promise<PanelRemoteApi | null> {
     const service = ctx.get(`remote.${REMOTE_NAMESPACE}`) as PanelRemoteApi | undefined
     return service ?? null
   })()
+  mountedRemotes.set(ctx, mountedRemote)
   return mountedRemote
+}
+
+/** Only a primitive survives a client bundle swap. A new document gets a new ID. */
+function pageId(doc: Document): string {
+  const data = doc as Document & { __umlViewerPageId?: string }
+  return data.__umlViewerPageId ??= crypto.randomUUID()
 }
 
 function summaryLine(): HTMLElement {
@@ -181,7 +189,7 @@ export interface MountOptions {
   onExpand?: (sessionId: string) => void
   onCollapse?: () => void
   /** Receives this mount's overlay controller (inspector, card, sources). */
-  onOverlays?: (controller: OverlayController) => void
+  onOverlays?: (controller: OverlayController | null) => void
 }
 
 /**
@@ -231,6 +239,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   const controller = new PanelController({
     canvas,
     api,
+    owner: () => ({ pageId: pageId(host.ownerDocument), holderId: crypto.randomUUID() }),
     paint: (frame, target) => paintFrame(frame, target),
     onStatus: (state: PanelStatus) => {
       const frame = state.frame
@@ -323,7 +332,26 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     })
   toolbar.append(back, tree, search)
   const disposeDeclutter = mountDeclutterControl(toolbar, controller)
-  toolbar.append(spacer, expand)
+  let closed = false
+  const close = button('Close viewer', 'Close viewer', () => {
+    close.disabled = true
+    if (closed) {
+      closed = false
+      close.textContent = 'Close viewer'
+      close.title = 'Close viewer'
+      close.setAttribute('aria-label', 'Close viewer')
+      void controller.open(options.sessionId).finally(() => { close.disabled = false })
+    } else {
+      closed = true
+      void controller.close().finally(() => {
+        close.textContent = 'Open viewer'
+        close.title = 'Open viewer'
+        close.setAttribute('aria-label', 'Open viewer')
+        close.disabled = false
+      })
+    }
+  })
+  toolbar.append(spacer, close, expand)
   // The overlays sit below the (wrapping) toolbar instead of covering it.
   const placeOverlays = (): void => {
     panelElement.style.setProperty?.('--dsh-uml-toolbar-height', `${toolbar.offsetHeight ?? 0}px`)
@@ -427,6 +455,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     observer?.disconnect()
     overlays?.dispose()
     overlays = null
+    options.onOverlays?.(null)
     if (panelElement !== host) panelElement.removeEventListener('keydown', onPanelKey)
     disposeDeclutter()
     disposeQualityMenu()
@@ -440,7 +469,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     host.removeEventListener('keydown', onKeyDown)
     input.removeEventListener('keydown', onSearchKey)
     input.removeEventListener('input', onSearchInput)
-    controller.close()
+    controller.detach()
     host.replaceChildren()
   }
 }
