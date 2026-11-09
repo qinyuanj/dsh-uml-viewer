@@ -479,7 +479,7 @@ impl CoverageBundle {
     }
 }
 
-const LCOV_REPORTS: &[&str] = &[
+pub(crate) const LCOV_REPORTS: &[&str] = &[
     "target/coverage/lcov.info",
     "coverage/lcov.info",
     "target/coverage/typescript/lcov.info",

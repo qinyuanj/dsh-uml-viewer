@@ -7,6 +7,8 @@
 *.edn text eol=lf
 *.rs text eol=lf
 fixtures/** text eol=lf
+# The CRLF Clojure site case is the point of the file: keep its bytes.
+fixtures/mutate/sites/gjc/src/demo/crlf.clj -text
 # sh reads a CR as part of the command; the enabled hook must stay LF.
 .githooks/* text eol=lf
 

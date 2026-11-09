@@ -1,0 +1,10 @@
+(ns demo.core-test
+  (:require [clojure.test :refer [deftest is run-tests]] [demo.core :as core]))
+(deftest clamps (is (= 5 (core/clamp 5 0 10))) (is (= 0 (core/clamp -1 0 10))) (is (= 10 (core/clamp 11 0 10))))
+(deftest totals (is (= 6 (core/total [1 2 3]))))
+(deftest shouts (is (= "HI" (core/loud "hi"))))
+(deftest filters (is (= [2 4] (core/evens [1 2 3 4]))))
+(deftest ends (is (= [1 3] (core/ends [1 2 3]))))
+(deftest readies (is (true? (core/ready? true))))
+(deftest quotes (is (= 3 (count (core/quoted)))))
+(defn -main [& _] (let [r (run-tests 'demo.core-test)] (System/exit (+ (:fail r) (:error r)))))

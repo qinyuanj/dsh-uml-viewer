@@ -1,0 +1,178 @@
+{
+  "references": {
+    "mutator": "f772a8329fba3f2f81bfca0a81abfa3210af9f4a",
+    "crapper": "4068857bc44e6383cf4a5e4d0b5c1111b49ce0b4"
+  },
+  "clock": "2026-11-07T12:00:00+00:00",
+  "isolation": "namespace-view",
+  "toolchain": {
+    "python": "3.12.3",
+    "go": "go version go1.26.3 linux/amd64",
+    "java": "openjdk version \"17.0.21\" 2026-10-20",
+    "maven": "Apache Maven 3.9.11 (3e54c93a704957b63ee3494413a2b544fd3d825b)",
+    "clojure": "Clojure CLI version 1.12.6.1673"
+  },
+  "original_tests": {
+    "files": [
+      "test_sites.py",
+      "test_runner.py",
+      "test_coverage.py",
+      "test_snapshot_bytes.py"
+    ],
+    "summary": "60 passed, 1 skipped in 20.97s"
+  },
+  "projects": {
+    "go": {
+      "targets": [
+        "demo/calc.go",
+        "widgets/widget.go"
+      ],
+      "arguments": [
+        "--root",
+        "<native-/tmp-copy>/project",
+        "--max-workers",
+        "1",
+        "--timeout-factor",
+        "20",
+        "demo/calc.go",
+        "widgets/widget.go"
+      ],
+      "first_run": {
+        "prepend": [
+          "--mutate-all"
+        ],
+        "exit": 3,
+        "no_coverage_warnings": [
+          "No coverage data for widgets/widget.go; its sites are uncovered. Pass --no-coverage to run them anyway."
+        ]
+      },
+      "unchanged_rerun": {
+        "exit": 3,
+        "identical_snapshot_bytes": true,
+        "summary": [
+          "Decisions demo/Clamp: executed=2 reused=0 uncovered=0 excluded=0",
+          "Decisions demo/Double: executed=0 reused=1 uncovered=0 excluded=0",
+          "Decisions demo/isEven: executed=0 reused=2 uncovered=0 excluded=0",
+          "Decisions demo/Ready: executed=1 reused=2 uncovered=0 excluded=0",
+          "Decisions demo/Untested: executed=0 reused=0 uncovered=2 excluded=0",
+          "Decisions demo.Counter/Add: executed=0 reused=1 uncovered=0 excluded=0",
+          "Decisions example.com/widgets/Area: executed=0 reused=0 uncovered=1 excluded=0",
+          "Decisions example.com/widgets.Box/Empty: executed=0 reused=0 uncovered=2 excluded=0",
+          "Decisions total: executed=3 reused=6 uncovered=5 excluded=0 (previous-survived=3 unchanged-killed=6 uncovered=5)"
+        ]
+      },
+      "original_source_bytes_unchanged": true,
+      "snapshots": {
+        "demo.Counter.edn": {
+          "bytes": 418,
+          "sha256": "681fd5a8de4dea0917ac93ab08226ac47c2d21cf4703e3e4316bfa1b4d51ac3f"
+        },
+        "demo.edn": {
+          "bytes": 1904,
+          "sha256": "09e6e1f5d64effc24ac6ce6f8b2eeb613054110f1bd16a844895e3e5d57063ab"
+        },
+        "example.com/widgets.Box.edn": {
+          "bytes": 362,
+          "sha256": "6d55e9fb5ea1792fd1673878f863c606a5e9d049bbb89716c0e11a0591fafeb6"
+        },
+        "example.com/widgets.edn": {
+          "bytes": 356,
+          "sha256": "96ef6c7f9b2246ee38816ca9c69c49a66c5c9b727f8f92fe8dfc0226fdbaf834"
+        }
+      }
+    },
+    "java": {
+      "targets": [
+        "src/main/java/demo/Board.java"
+      ],
+      "arguments": [
+        "--root",
+        "<native-/tmp-copy>/project",
+        "--max-workers",
+        "1",
+        "--timeout-factor",
+        "20",
+        "src/main/java/demo/Board.java"
+      ],
+      "first_run": {
+        "prepend": [
+          "--mutate-all"
+        ],
+        "exit": 3,
+        "no_coverage_warnings": []
+      },
+      "unchanged_rerun": {
+        "exit": 3,
+        "identical_snapshot_bytes": true,
+        "summary": [
+          "Decisions demo.Board/inside: executed=0 reused=4 uncovered=0 excluded=0",
+          "Decisions demo.Board/area: executed=0 reused=1 uncovered=0 excluded=0",
+          "Decisions demo.Board/half: executed=0 reused=1 uncovered=0 excluded=0",
+          "Decisions demo.Board/max: executed=1 reused=0 uncovered=0 excluded=0",
+          "Decisions demo.Board/tiny: executed=0 reused=0 uncovered=2 excluded=0",
+          "Decisions demo.Board/flip: executed=0 reused=3 uncovered=0 excluded=0",
+          "Decisions demo.Board/negate: executed=0 reused=1 uncovered=0 excluded=0",
+          "Decisions demo.Board/unused: executed=0 reused=0 uncovered=2 excluded=0",
+          "Decisions demo.Board.Cell/value: executed=0 reused=2 uncovered=0 excluded=0",
+          "Decisions total: executed=1 reused=12 uncovered=4 excluded=0 (previous-survived=1 unchanged-killed=12 uncovered=4)"
+        ]
+      },
+      "original_source_bytes_unchanged": true,
+      "snapshots": {
+        "demo.Board.Cell.edn": {
+          "bytes": 580,
+          "sha256": "0351e49ff8cf4c7829d263cb12116bc9e009249ca7bf908623cd5b1eaf68c852"
+        },
+        "demo.Board.edn": {
+          "bytes": 2903,
+          "sha256": "ab876fb7f057cf686554431324b38bf516c2518548c98b69ea0acbdc49c7f626"
+        }
+      }
+    },
+    "clojure": {
+      "targets": [
+        "src/demo/core.clj"
+      ],
+      "arguments": [
+        "--root",
+        "<native-/tmp-copy>/project",
+        "--max-workers",
+        "1",
+        "--timeout-factor",
+        "20",
+        "src/demo/core.clj"
+      ],
+      "first_run": {
+        "prepend": [
+          "--mutate-all"
+        ],
+        "exit": 3,
+        "no_coverage_warnings": []
+      },
+      "unchanged_rerun": {
+        "exit": 3,
+        "identical_snapshot_bytes": true,
+        "summary": [
+          "Decisions demo.core/clamp: executed=2 reused=0 uncovered=0 excluded=0",
+          "Decisions demo.core/total: executed=0 reused=1 uncovered=0 excluded=0",
+          "Decisions demo.core/shout: executed=0 reused=1 uncovered=0 excluded=0",
+          "Decisions demo.core/evens: executed=0 reused=1 uncovered=0 excluded=0",
+          "Decisions demo.core/ends: executed=0 reused=1 uncovered=0 excluded=0",
+          "Decisions demo.core/ready?: executed=1 reused=1 uncovered=0 excluded=0",
+          "Decisions demo.core/untested: executed=0 reused=0 uncovered=1 excluded=0",
+          "Decisions total: executed=3 reused=5 uncovered=1 excluded=0 (previous-survived=3 unchanged-killed=5 uncovered=1)"
+        ]
+      },
+      "original_source_bytes_unchanged": true,
+      "snapshots": {
+        "demo.core.edn": {
+          "bytes": 2638,
+          "sha256": "dc7b5f5670779674beb91116f06766cc6779025bf0d9eac518b0bd421eadff7b"
+        }
+      }
+    }
+  },
+  "sites_files": 21,
+  "sites_total": 288,
+  "reference_worktrees_clean": true
+}

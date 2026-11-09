@@ -29,6 +29,7 @@ pub mod digits;
 pub mod functions;
 pub mod grammar;
 pub mod language;
+pub mod native_coverage;
 pub mod number;
 pub mod paths;
 pub mod platform;

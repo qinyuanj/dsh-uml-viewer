@@ -119,6 +119,10 @@ fn private(language: Language, name: &str, source: &str, start: usize, end: usiz
     match language {
         Language::Python => crate::python::private(name),
         Language::TypeScript => crate::typescript::private(name, &header),
+        Language::Clojure => crate::clojure::private(&header),
+        Language::Java => crate::typescript::mentions_private(&header),
+        // `name[:1].islower()`: an unexported Go identifier.
+        Language::Go => name.chars().next().is_some_and(char::is_lowercase),
         // A Lua function is private only when its declaration is `local`.
         Language::Lua => header
             .strip_prefix("local")
@@ -233,6 +237,14 @@ fn leaf_site(
     match language {
         Language::Python => crate::python::site(node, token),
         Language::TypeScript => crate::typescript::site(node, token),
+        // mutate4java: Java's decisions, no bitwise, shift or remainder swaps.
+        Language::Java => crate::operators::leaf(node, token, crate::operators::binary),
+        // mutate4go: the same, but `/` is never rewritten (`*` -> `/` is one way).
+        Language::Go => crate::operators::leaf(node, token, |token| {
+            (token != "/")
+                .then(|| crate::operators::binary(token))
+                .flatten()
+        }),
         _ => replacement(language, token, parent)
             .or_else(|| match (node.kind(), token) {
                 ("true", "true") => Some(("false", "boolean")),
@@ -246,6 +258,46 @@ fn leaf_site(
 }
 type FormParts = (usize, Vec<(usize, usize, String)>);
 
+/// A raw site: line, UTF-8 byte span, original, mutant and category.
+pub type RawSite = (usize, usize, usize, String, String, &'static str);
+
+/// The original's `discover_raw`: every site of `source` in source order,
+/// before sites are bound to functions. Clojure is read by its own reader;
+/// every other language walks its grammar's leaves.
+pub fn raw_sites(language: Language, source: &str, path: &Path) -> Vec<RawSite> {
+    let grammar = match language {
+        Language::Clojure => return crate::clojure::raw_sites(source),
+        Language::Rust => Grammar::Rust,
+        Language::Lua => Grammar::Lua,
+        Language::Python => Grammar::Python,
+        Language::TypeScript => crate::typescript::grammar(path),
+        Language::Go => Grammar::Go,
+        Language::Java => Grammar::Java,
+    };
+    let tree = grammar.parse(source);
+    let mut found = Vec::new();
+    for node in preorder(tree.root_node()) {
+        if node.child_count() != 0 {
+            continue;
+        }
+        let token = text(source, node);
+        let parent = node.parent().map_or("", |node| node.kind());
+        let Some((mutant, category)) = leaf_site(language, node, token, parent) else {
+            continue;
+        };
+        found.push((
+            node.start_position().row + 1,
+            node.start_byte(),
+            node.end_byte(),
+            token.to_string(),
+            mutant,
+            category,
+        ));
+    }
+    found.sort_by_key(|site| (site.0, site.1, site.2));
+    found
+}
+
 /// Mutation sites in source order and forms in first-line order. Test code is
 /// excluded by shared function discovery; private forms retain their defn-/ IDs.
 pub fn discover(
@@ -256,13 +308,6 @@ pub fn discover(
 ) -> std::io::Result<(Vec<Site>, Vec<Form>)> {
     let Some(language) = language_of(path) else {
         return Ok((Vec::new(), Vec::new()));
-    };
-    let grammar = match language {
-        Language::Rust => Grammar::Rust,
-        Language::Lua => Grammar::Lua,
-        Language::Python => Grammar::Python,
-        Language::TypeScript => crate::typescript::grammar(path),
-        _ => return Ok((Vec::new(), Vec::new())),
     };
     let located = if path.is_absolute() {
         resolve(path)
@@ -335,20 +380,8 @@ pub fn discover(
                 .collect::<String>(),
         );
     }
-    let tree = grammar.parse(source);
     let mut found = Vec::new();
-    for node in preorder(tree.root_node()) {
-        if node.child_count() != 0 {
-            continue;
-        }
-        let token = text(source, node);
-        let parent = node.parent().map_or("", |node| node.kind());
-        let changed = leaf_site(language, node, token, parent);
-        let Some((mutant, category)) = changed else {
-            continue;
-        };
-        let mutant = mutant.as_str();
-        let line = node.start_position().row + 1;
+    for (line, start, end, token, mutant, category) in raw_sites(language, source, path) {
         let Some((function, position)) = owners
             .iter()
             .filter(|(function, _)| function.start_line <= line && line <= function.end_line)
@@ -365,20 +398,20 @@ pub fn discover(
             form_id: form.id.clone(),
             name: function.name.clone(),
             line,
-            start: node.start_byte(),
-            end: node.end_byte(),
-            original: token.to_string(),
-            mutant: mutant.to_string(),
-            category: category.to_string(),
+            start,
+            end,
             mutation_id: mutation_id(
                 file_key,
                 &function.namespace,
                 &form.id,
-                node.start_byte(),
-                node.end_byte(),
-                token,
-                mutant,
+                start,
+                end,
+                &token,
+                &mutant,
             ),
+            original: token,
+            mutant,
+            category: category.to_string(),
         });
     }
     found.sort_by_key(|site| (site.line, site.start, site.end));

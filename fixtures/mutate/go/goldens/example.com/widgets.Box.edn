@@ -1,0 +1,1 @@
+{:version 1 :tested-at "2026-11-07T12:00:00+00:00" :isolation :namespace-view :source "widgets/widget.go" :namespace "example.com/widgets.Box" :outcomes {} :forms [{:id "defn/Empty" :kind "defn" :file "widgets/widget.go" :line 9 :end-line 11 :hash "8c85a2bbb9dd63b4f84d3afd4e9390c7a0d79f31448f154120f4b2134fcfe5bf" :killed 0 :survived 0 :uncovered 2 :sites 2}]}

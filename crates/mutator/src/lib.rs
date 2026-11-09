@@ -2,6 +2,7 @@
 use quality_core::language::{Language, language_of};
 use std::{ffi::OsString, path::Path, process::ExitCode};
 mod cli;
+mod clojure;
 #[cfg(windows)]
 mod copies;
 mod engine;
