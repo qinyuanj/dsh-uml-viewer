@@ -106,6 +106,7 @@ export class PanelController {
   public close(): void {
     this.abort?.abort()
     this.abort = null
+    this.sessionId = null
     const stream = this.stream
     this.stream = null
     // The Remote handle owns the carrier subscription; ending it is what tells
@@ -123,7 +124,11 @@ export class PanelController {
 
   public async send(action: PanelAction): Promise<PanelAck | null> {
     if (this.sessionId === null) return null
+    const binding = this.abort
     const result = await this.api.action(this.sessionId, action)
+    // A continuation must not act on a closed or replacement panel binding,
+    // even when the replacement opens the same session id.
+    if (binding !== this.abort || binding?.signal.aborted) return null
     return ackOf(result)
   }
 

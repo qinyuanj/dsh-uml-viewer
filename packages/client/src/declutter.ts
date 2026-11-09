@@ -40,7 +40,7 @@ export function mountDeclutterControl(host: HTMLElement, controller: PanelContro
     update()
     try {
       const ack = await controller.send({ action: 'declutter' })
-      if (ack?.accepted) await controller.send({ action: 'save' })
+      if (!disposed && ack?.accepted) await controller.send({ action: 'save' })
     } finally {
       pending = false
       if (!disposed) update()
