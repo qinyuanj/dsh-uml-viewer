@@ -25,9 +25,9 @@ function cli() {
   return { file: 'dsh', args: [], shell: false }
 }
 
-function run(command, args, env) {
+function run(command, args, env, timeout) {
   const result = spawnSync(command.file, [...command.args, ...args], {
-    env, shell: command.shell, stdio: 'inherit',
+    env, shell: command.shell, stdio: 'inherit', ...(timeout ? { timeout } : {}),
   })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`${command.file} ${args.join(' ')} exited ${result.status}`)
@@ -111,7 +111,16 @@ export async function startDshWeb({ home, projects, packages = null }) {
   // pnpm 11 remove does not accept --ignore-scripts; these archives have no scripts.
   const uninstall = () => run(command, ['plugin', '--profile', 'web', 'remove', ...store,
     'dsh-uml-viewer', ...(packages ? [`@dsh-uml-viewer/${process.platform}-${process.arch}`] : [])], env)
-  return { command, env, packages, uninstall }
+  // Used only after the running manager has acknowledged removal. Re-adding
+  // the bundle changes selection, which pinned HMR watches; dependency-only
+  // `add` over a still-selected bundle would not request reconciliation.
+  const installPackages = inputs => {
+    const pair = packageInputs({ packageMain: inputs.main, packagePlatform: inputs.platform })
+    if (!pair) throw new Error('An upgrade requires both package tarballs')
+    run(command, ['plugin', '--profile', 'web', 'add', '--ignore-scripts', ...store,
+      pair.main, pair.platform], env, 20_000)
+  }
+  return { command, env, packages, uninstall, installPackages }
 }
 
 export async function bootDshWeb({ command, env, home, mockUrl, packages = null }) {
@@ -175,7 +184,7 @@ export async function bootDshWeb({ command, env, home, mockUrl, packages = null 
     stop()
     throw new Error(`refusing non-isolated or live GUI URL: ${url}`)
   }
-  return { url, home, stop, exited, output: () => output }
+  return { url, home, pid: child.pid, stop, exited, output: () => output }
 }
 
 export async function dismissOverlays(page) {

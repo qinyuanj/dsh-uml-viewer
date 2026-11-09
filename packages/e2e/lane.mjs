@@ -289,5 +289,20 @@ export async function launchViewerLane(browser, options = {}) {
   return {
     home, get host() { return host }, mock, projects, packages,
     openPanel, reopenPanel, restart, pan, wheel, point, sendPrompt, screenshot, close, uninstall,
+    installPackages: inputs => installed.installPackages(inputs),
+    // A replacement may re-register the sidebar contribution. Let an automatic
+    // remount win; otherwise select the real UML tab, never a synthetic mount.
+    // A panel that stays closed after either is a failed acceptance, not retried.
+    reattachPanel: async panel => {
+      const framed = () => expect(panel.summary).toHaveAttribute('data-kind', 'frame', { timeout: 10_000 })
+      try { await framed() } catch {
+        const expand = panel.page.locator('[data-sidebar-right-expand]').first()
+        if (await expand.isVisible().catch(() => false)) await expand.click({ timeout: 30_000 })
+        const uml = panel.page.getByText('UML', { exact: true }).last()
+        if (await uml.count()) await uml.click().catch(() => {})
+        await framed()
+      }
+      return result(panel.page, panel.problems, panel)
+    },
   }
 }

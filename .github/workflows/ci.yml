@@ -86,11 +86,28 @@ jobs:
       - name: Real panel acceptance
         run: pnpm test:e2e
       - name: Packaged install display and removal acceptance
+        id: packaged-acceptance
         if: ${{ !cancelled() && steps.panel-packages.outcome == 'success' && steps.panel-version.outcome == 'success' }}
         env:
           UML_VIEWER_PACKAGE_MAIN: ${{ github.workspace }}/.scratch/panel-packages/dsh-uml-viewer-${{ steps.panel-version.outputs.version }}.tgz
           UML_VIEWER_PACKAGE_PLATFORM: ${{ github.workspace }}/.scratch/panel-packages/dsh-uml-viewer-win32-x64-${{ steps.panel-version.outputs.version }}.tgz
         run: pnpm --filter @dsh-uml-viewer/e2e exec playwright test package.spec.mjs --output ../../.scratch/e2e/package-results
+      # Run last: the disposable version build reuses target only after every
+      # ordinary lane finished; the immutable 1.0.0 tarballs remain unchanged.
+      - name: Build and assemble disposable 1.0.1 upgrade packages
+        id: upgrade-packages
+        if: ${{ !cancelled() && steps.packaged-acceptance.outcome == 'success' }}
+        timeout-minutes: 12
+        run: node scripts/ci-upgrade-package.mjs
+      - name: Installed live upgrade acceptance
+        if: ${{ !cancelled() && steps.upgrade-packages.outcome == 'success' }}
+        timeout-minutes: 5
+        env:
+          UML_VIEWER_PACKAGE_MAIN: ${{ github.workspace }}/.scratch/panel-packages/dsh-uml-viewer-${{ steps.panel-version.outputs.version }}.tgz
+          UML_VIEWER_PACKAGE_PLATFORM: ${{ github.workspace }}/.scratch/panel-packages/dsh-uml-viewer-win32-x64-${{ steps.panel-version.outputs.version }}.tgz
+          UML_VIEWER_UPGRADE_MAIN: ${{ github.workspace }}/.scratch/upgrade-packages/dsh-uml-viewer-${{ steps.upgrade-packages.outputs.version }}.tgz
+          UML_VIEWER_UPGRADE_PLATFORM: ${{ github.workspace }}/.scratch/upgrade-packages/dsh-uml-viewer-win32-x64-${{ steps.upgrade-packages.outputs.version }}.tgz
+        run: pnpm --filter @dsh-uml-viewer/e2e exec playwright test upgrade.spec.mjs --output ../../.scratch/e2e/upgrade-results
       - name: Preserve panel diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -101,7 +118,9 @@ jobs:
           path: |
             .scratch/e2e/results/**
             .scratch/e2e/package-results/**
+            .scratch/e2e/upgrade-results/**
             .scratch/e2e/run-*/package-preservation.json
+            .scratch/e2e/run-*/upgrade-acceptance.json
             .scratch/e2e/evidence/**
             .scratch/e2e/diagnostics/**
             .scratch/e2e/run-*/mock-requests/*.json

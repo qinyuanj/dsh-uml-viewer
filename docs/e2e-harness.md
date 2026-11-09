@@ -115,6 +115,50 @@ including inline policy proposals and their formatting. The run home retains
 `package-preservation.json` with both snapshots; the screenshot is
 `<scratch>/evidence/packaged-shop.png`. No live profile is consulted or changed.
 
+## Installed live upgrade acceptance (#32)
+
+`upgrade.spec.mjs` is a separate Windows CI case. Alongside the initial main and
+platform tarballs above it requires absolute `UML_VIEWER_UPGRADE_MAIN` and
+`UML_VIEWER_UPGRADE_PLATFORM` paths for disposable version 1.0.1. With no upgrade
+pair it skips; the ordinary panel and package lifecycle cases are unchanged.
+
+The pinned DSH 0.2.2-rc.1 manager documents updates as removal followed by
+installation. The scripted scratch model calls the public `plugin_manager` tool
+(`list_bundles`, then `remove_bundle`); any requested approval is answered through
+the scratch page's **Allow once** button. The test requires the real removal
+result's `application: applied` before the CLI installs both new tarballs in the
+same home. Re-adding the bundle changes selection and triggers HMR reconciliation.
+A dependency-only CLI replacement would not trigger that watcher; directly
+replacing a mapped platform package can instead require a `package-moved`
+restart. The host and document remain running throughout this sequence.
+
+The case requires the exact old resident PID, process creation identity,
+executable path and lease to survive; its canvas pixels and camera state must
+survive remount and another canvas gesture must work. It verifies both installed
+executables with `--version`, then clicks **Close viewer / Open viewer**, requires
+a new PID on 1.0.1 and checks that the 1.0.0 lease and directory disappear.
+Windows write access to the mapped old executable must fail before the update.
+The CLI installation is bounded at 20 seconds and must finish soon enough for
+the real panel to rejoin within the unchanged 30-second withdrawal grace. A slow
+or failed transition fails acceptance; neither the grace nor global test/job
+budgets are increased. Evidence is `upgrade-acceptance.json` and the two upgrade
+screenshots, under the existing explicit CI artifact whitelist.
+
+CI runs `scripts/ci-upgrade-package.mjs` only after ordinary panel/package checks.
+It copies tracked sources to an owned disposable directory, changes that copy's
+Cargo authority to 1.0.1, runs the existing npm version writer, rebuilds both
+plugin libraries against the copy's contracts and builds the real second native
+binary with jobs 4, debug information off and incremental compilation off. Cargo
+updates only the copy's lockfile. Reusing the CI target is safe at this point:
+all ordinary binary consumers have finished and the 1.0.0 tarballs are already
+immutable. The real package producer rejects a binary whose version differs.
+The source copy is removed afterward. No release versions, tags or registry
+publication are involved. The script refuses execution outside GitHub Actions.
+
+This case has been authored and checked offline; installed-upgrade browser
+acceptance remains **NOT RUN until CI executes it**. Source or Node fixture
+checks do not establish this outcome.
+
 ## Isolation
 
 Every run creates a unique `DSH_HOME` under `.scratch/e2e/run-*`. That home
