@@ -1,5 +1,6 @@
+import { realpath } from 'node:fs/promises'
 import path from 'node:path'
-import type { HostServices, Policy, ConfinedArgv } from './dsh.js'
+import type { Agent, HostServices, Policy, ConfinedArgv } from './dsh.js'
 
 /** DSH authority checked once per invocation; the caller re-resolves after I/O. */
 export type CommandError = { status: 'refused' | 'error'; reason: string }
@@ -20,6 +21,62 @@ export async function confinedCommand(services: HostServices, argv: string[], po
     return { error: { status: 'refused', reason: 'Invalid DSH confinement result; refusing unconfined execution' } }
   }
   return { argv: confined.argv, confined }
+}
+
+/** Why the shared authority sequence refused, so the caller can word it. */
+export type PrepareRefusal = 'read-only' | 'invalid-policy' | 'changed-policy'
+
+/** A confined command line and the canonical root it must run in. */
+export interface PreparedCommand {
+  argv: string[]
+  /** Where enforcement is not full access, the provider's own record. */
+  confined?: ConfinedArgv
+}
+
+/** Either the command to spawn, or the reason this invocation was refused. */
+export type CommandPreparation =
+  | { root: string; command: PreparedCommand; reason?: undefined }
+  | { root: string; command?: undefined; reason: string }
+
+/**
+ * The one authority sequence every child spawn shares (#review M4): resolve the
+ * session's policy, refuse read-only, reject an invalid policy, ensure and
+ * canonicalize the session cwd, confine the argv, resolve the policy again
+ * after that asynchronous work and require the SAME authority, then honour a
+ * cancelled signal. It was copied into `runner.ts`, `quality.ts` and
+ * `resident.ts`; a fix to one copy would have missed the others, which is why
+ * the sequence lives here once. A caller supplies only its argv — which may
+ * depend on the canonical root — and the wording of its own refusals.
+ *
+ * @param services the host services this invocation uses.
+ * @param agent the session whose sandbox authority applies.
+ * @param signal the invocation's cancellation signal.
+ * @param argvFor the argv to confine, given the canonical root.
+ * @param reasonFor the caller's wording for each authority refusal.
+ * @returns the canonical root, and either the prepared command or the reason.
+ */
+export async function prepareConfinedCommand(
+  services: HostServices,
+  agent: Agent,
+  signal: AbortSignal,
+  argvFor: (root: string) => string[] | Promise<string[]>,
+  reasonFor: (refusal: PrepareRefusal, current: Policy | undefined) => string,
+): Promise<CommandPreparation> {
+  let root = services.workingDirectory.get(agent.session)
+  const policy = services.sandboxPolicy.resolve({ session: agent.session })
+  if (policy.mode === 'read-only') return { root, reason: reasonFor('read-only', policy) }
+  if (!validPolicy(policy)) return { root, reason: reasonFor('invalid-policy', policy) }
+  root = await realpath(await services.workingDirectory.ensure(agent, signal))
+  const command = await confinedCommand(services, await argvFor(root), policy, signal)
+  // Confinement and directory validation are asynchronous. A policy change
+  // during either step invalidates the prepared command; never reuse authority.
+  if (command.error) return { root, reason: command.error.reason }
+  const current = services.sandboxPolicy.resolve({ session: agent.session })
+  if (!validPolicy(current) || !samePolicy(policy, current)) {
+    return { root, reason: reasonFor('changed-policy', current) }
+  }
+  signal.throwIfAborted()
+  return { root, command: { argv: command.argv!, ...(command.confined ? { confined: command.confined } : {}) } }
 }
 
 export function validPolicy(policy: Policy): boolean {

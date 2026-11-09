@@ -1,11 +1,10 @@
-import { realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { parseQualityResult } from '@dsh-uml-viewer/contracts'
 import type { QualityOperation, QualityToolResult } from '@dsh-uml-viewer/contracts'
 import { binaryArgv } from './binary.js'
 import type { Config } from './binary.js'
 import type { HostServices, ToolRunContext } from './dsh.js'
-import { confinedCommand, confinementError, samePolicy, spawnCommand, validPolicy } from './process.js'
+import { confinementError, prepareConfinedCommand, spawnCommand } from './process.js'
 
 const ATTEMPTED_TOOL: Record<QualityOperation, string> = {
   crap: 'crapper', mutate: 'mutator', dry: 'dryer',
@@ -49,28 +48,21 @@ export async function runQuality(
   if (!agent?.session) return qualityResult(operation, '', { reason: `uml_${operation} requires a live DSH session` })
   let root = services.workingDirectory.get(agent.session)
   try {
-    const policy = services.sandboxPolicy.resolve({ session: agent.session })
-    if (policy.mode === 'read-only') {
-      return qualityResult(operation, root, {
-        reason: `read-only sandbox: uml_${operation} writes quality snapshots. Switch the session to workspace-write to run it; no elevation was attempted.`,
-      })
-    }
-    if (!validPolicy(policy)) {
-      return qualityResult(operation, root, { reason: 'Invalid authoritative sandbox policy; no binary was started' })
-    }
-    root = await realpath(await services.workingDirectory.ensure(agent, exec.signal))
-    const command = await confinedCommand(services, [...binaryArgv(config), 'quality', operation, ...args], policy, exec.signal)
-    if (command.error) return qualityResult(operation, root, { reason: command.error.reason })
-    // Confinement and directory validation are asynchronous; never reuse a
-    // policy that changed while either was in progress.
-    const current = services.sandboxPolicy.resolve({ session: agent.session })
-    if (!validPolicy(current) || !samePolicy(policy, current)) {
-      return qualityResult(operation, root, {
-        reason: `Sandbox policy changed during preparation (${current?.mode}); run uml_${operation} again under the current mode`,
-      })
-    }
-    exec.signal.throwIfAborted()
-    const output = await spawnCommand(services, command.argv!, root, exec.signal)
+    const prepared = await prepareConfinedCommand(
+      services, agent, exec.signal,
+      () => [...binaryArgv(config), 'quality', operation, ...args],
+      (refusal, current) => {
+        if (refusal === 'read-only') {
+          return `read-only sandbox: uml_${operation} writes quality snapshots. Switch the session to workspace-write to run it; no elevation was attempted.`
+        }
+        if (refusal === 'invalid-policy') return 'Invalid authoritative sandbox policy; no binary was started'
+        return `Sandbox policy changed during preparation (${current?.mode}); run uml_${operation} again under the current mode`
+      },
+    )
+    root = prepared.root
+    if (prepared.command === undefined) return qualityResult(operation, root, { reason: prepared.reason })
+    const command = prepared.command
+    const output = await spawnCommand(services, command.argv, root, exec.signal)
     if ('reason' in output) return qualityResult(operation, root, { reason: output.reason })
     const { signal: terminationSignal, outputError } = output
     const denied = command.confined && confinementError(command.confined, output.exitCode, output.stderr)

@@ -1,11 +1,10 @@
-import { realpath } from 'node:fs/promises'
 import { StringDecoder } from 'node:string_decoder'
 import type { DiscussionContext, QualityTarget, ResidentEvent, SceneFrame, SessionState } from '@dsh-uml-viewer/contracts'
 import { parseResidentLine, RESIDENT_LINE_MAX_BYTES, residentAction, validateQualityTarget } from '@dsh-uml-viewer/contracts'
 import { binaryArgv } from './binary.js'
 import type { Config } from './binary.js'
 import type { Agent, HostServices, Policy, SubprocessHandle } from './dsh.js'
-import { confinedCommand, samePolicy, validPolicy } from './process.js'
+import { prepareConfinedCommand, validPolicy } from './process.js'
 import type { SessionStates } from './state.js'
 
 /** Read-only sessions get no resident process: the panel says why instead of escalating. */
@@ -511,22 +510,24 @@ export class ResidentSessions {
   }
 
   private async start(agent: Agent, signal: AbortSignal): Promise<ResidentConnection> {
-    const policy = this.writablePolicy(agent)
-    const cwd = await realpath(await this.services.workingDirectory.ensure(agent, signal))
-    const command = await confinedCommand(this.services, [...binaryArgv(this.config), 'resident'], policy as Policy, signal)
-    if (command.error) throw new Refusal(command.error.reason)
-    const current = this.services.sandboxPolicy.resolve({ session: agent.session })
-    if (!validPolicy(current) || !samePolicy(policy, current)) {
-      throw new Refusal(`Sandbox policy changed during preparation (${current?.mode}); open the panel again`)
-    }
-    signal.throwIfAborted()
+    const prepared = await prepareConfinedCommand(
+      this.services, agent, signal,
+      () => [...binaryArgv(this.config), 'resident'],
+      (refusal, current) => {
+        if (refusal === 'read-only') return READ_ONLY_REASON
+        if (refusal === 'invalid-policy') return 'Invalid authoritative sandbox policy; no resident was started'
+        return `Sandbox policy changed during preparation (${current?.mode}); open the panel again`
+      },
+    )
+    if (prepared.command === undefined) throw new Refusal(prepared.reason)
+    const cwd = prepared.root
     const child = this.services.subprocess.spawn({
-      argv: command.argv!,
+      argv: prepared.command.argv,
       cwd,
       stdio: { stdin: 'pipe', stdout: 'pipe', stderr: { maxBytes: 64 * 1024 } },
       graceMs: 2000,
     })
-    const connection = new ResidentConnection(agent.session.id, cwd, child, Boolean(command.confined))
+    const connection = new ResidentConnection(agent.session.id, cwd, child, Boolean(prepared.command.confined))
     // This connection is not in `connections` until startFresh returns. Every
     // failure before then must therefore clean up the child right here.
     try {
