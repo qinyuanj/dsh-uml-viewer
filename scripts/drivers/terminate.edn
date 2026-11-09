@@ -1,9 +1,0 @@
-{:version 1
- :doc "终止 driver（UV-3 close path）：viewer 就绪后写出 terminate-ready.txt，由
-       run_viewer_driver.py 发出平台的礼貌终止——Windows 向 viewer 窗口投递 WM_CLOSE，
-       POSIX 发 SIGTERM。viewer 必须走正常关闭（释放 companion，exit 0），并在发出后
-       10 秒内退出；若终止无效，脚本走到 :quit 1，driver 失败。"
- :steps [{:op :wait-frames :n 3}
-         {:op :write :evidence "terminate-ready.txt" :text "ready\n"}
-         {:op :wait-frames :n 100000}
-         {:op :quit :code 1}]}

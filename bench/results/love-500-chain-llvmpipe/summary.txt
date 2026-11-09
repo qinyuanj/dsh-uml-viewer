@@ -1,3 +1,0 @@
-renderer=OpenGL | llvmpipe (LLVM 20.1.2, 256 bits) gallium=llvmpipe fit_zoom=0.1000
-phase=idle frames=106 fps=10.46 mean_ms=95.65 median_ms=87.38 p95_ms=139.51 p99_ms=166.17 max_ms=186.50 cpu_pct=109.30 zoom=-..-
-phase=pan-fit frames=103 fps=10.26 mean_ms=97.46 median_ms=88.04 p95_ms=145.32 p99_ms=167.34 max_ms=168.95 cpu_pct=109.08 zoom=0.10..0.10

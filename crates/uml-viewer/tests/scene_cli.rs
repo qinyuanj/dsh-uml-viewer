@@ -134,27 +134,3 @@ fn usage_errors_exit_2_and_bad_ir_exits_1() {
     let output = run(&["--ir", "x.edn", "--focus", ":not-a-vector"]);
     assert_eq!(Some(2), output.status.code());
 }
-
-#[test]
-fn the_2000_class_bench_scene_exports_through_the_binary() {
-    let ir = repo().join("bench/scenes/synthetic-2000.edn");
-    let started = std::time::Instant::now();
-    let output = run(&["--ir", ir.to_str().unwrap()]);
-    let elapsed = started.elapsed();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let out = parse(&String::from_utf8_lossy(&output.stdout)).unwrap();
-    let view = &items(get(&out, "views"))[0];
-    assert_eq!(1, items(get(view, "sections")).len());
-    assert_eq!(
-        2000,
-        items(get(&items(get(view, "sections"))[0], "classes")).len()
-    );
-    eprintln!("scene: binary exported 2000 classes in {elapsed:?}");
-    // Debug binaries are slower; the release figure is measured in
-    // bench_scene.rs. Still, this must not be anywhere near the 532 s baseline.
-    assert!(elapsed.as_secs() < 120, "binary took {elapsed:?}");
-}

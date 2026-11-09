@@ -2,7 +2,7 @@
 //! window as resident-protocol JSON. Every text, count, CRAP/mutation figure,
 //! no-data line, card row, metric column, color role and source line comes
 //! from the shared window-free models (`frame::inspector`, `frame::detail`,
-//! `frame::source`) that the egui window paints. Nothing is recomputed here
+//! `frame::source`). Nothing is recomputed here
 //! beyond serializing those models, so the TypeScript panel only renders.
 //!
 //! Source text is read here, in the resident, from the session project; the

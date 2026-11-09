@@ -7,7 +7,7 @@ publish.workspace = true
 # tests/main.rs is the one test binary.
 autotests = false
 
-# No egui, eframe or winit: the window-free viewer model (#16).
+# No window or GUI stack: the window-free viewer model (#16).
 [dependencies]
 edn = { path = "../edn" }
 scene = { path = "../scene" }

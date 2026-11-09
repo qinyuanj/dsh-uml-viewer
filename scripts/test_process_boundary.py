@@ -7,7 +7,7 @@ escape from that lint in production sources (`crates/*/src`) a deliberate,
 listed one. A crate root may lift it for its own tests only
 (`#![cfg_attr(test, allow(clippy::disallowed_methods))]`). The Herdr
 companion and its OS adapter were deleted with the Python entry (#18); the
-viewer launches no process at all.
+viewer model and session launch no process at all.
 """
 from pathlib import Path
 import re
@@ -62,9 +62,9 @@ class ProcessBoundary(unittest.TestCase):
                   '#[allow(clippy::disallowed_methods)]\n'
                   'fn b() { std::process::Command::new("x"); }\n'
                   '    #![allow( clippy::disallowed_methods )]\n')
-        self.assertEqual([f'crates/viewer/src/app.rs:3: #[allow(clippy::disallowed_methods)]; {FIX}',
-                          f'crates/viewer/src/app.rs:5: #![allow( clippy::disallowed_methods )]; {FIX}'],
-                         violations([('crates/viewer/src/app.rs', source)]))
+        self.assertEqual([f'crates/frame/src/frame.rs:3: #[allow(clippy::disallowed_methods)]; {FIX}',
+                          f'crates/frame/src/frame.rs:5: #![allow( clippy::disallowed_methods )]; {FIX}'],
+                         violations([('crates/frame/src/frame.rs', source)]))
         self.assertEqual([], violations([('crates/quality-core/src/process.rs', source)]))
 
 

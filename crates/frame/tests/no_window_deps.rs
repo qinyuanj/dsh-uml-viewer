@@ -1,7 +1,7 @@
-//! The moved modules stay window-free (#16): the resolved dependency
-//! closure of `frame` in the workspace `Cargo.lock` holds no egui, eframe,
-//! winit or wgpu package, so the panel's host binary and the egui window
-//! share one model and only the window links a GUI stack.
+//! The model stays window-free (#16): the resolved dependency closure of
+//! `frame` in the workspace `Cargo.lock` holds no egui, eframe, winit or
+//! wgpu package. Since the standalone window and its `viewer` crate were
+//! deleted (dsh-uml-viewer#30), no workspace package links a GUI stack.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -38,6 +38,13 @@ fn lock_graph() -> BTreeMap<String, Vec<String>> {
 #[test]
 fn the_frame_crate_links_no_window_or_gui_stack() {
     let graph = lock_graph();
+    let is_gui = |n: &String| {
+        n.starts_with("egui")
+            || n.starts_with("eframe")
+            || n.starts_with("winit")
+            || n.starts_with("wgpu")
+            || n.as_str() == "viewer"
+    };
     assert!(graph.contains_key("frame"), "frame is a workspace package");
     let mut seen = BTreeSet::new();
     let mut todo = vec!["frame".to_owned()];
@@ -46,19 +53,11 @@ fn the_frame_crate_links_no_window_or_gui_stack() {
             todo.extend(graph.get(&name).cloned().unwrap_or_default());
         }
     }
-    let gui: Vec<&String> = seen
-        .iter()
-        .filter(|n| {
-            n.starts_with("egui")
-                || n.starts_with("eframe")
-                || n.starts_with("winit")
-                || n.starts_with("wgpu")
-                || n.as_str() == "viewer"
-        })
-        .collect();
+    let gui: Vec<&String> = seen.iter().filter(|&n| is_gui(n)).collect();
     assert!(gui.is_empty(), "frame depends on {gui:?}");
     // The closure is the model's own: IR codec, scene core and JSON.
     assert!(seen.contains("scene") && seen.contains("edn"));
-    // Sanity: the lock graph does see the window's stack.
-    assert!(graph["viewer"].iter().any(|d| d == "eframe"));
+    // #30: the lock file itself holds no window crate or GUI stack.
+    let locked: Vec<&String> = graph.keys().filter(|&n| is_gui(n)).collect();
+    assert!(locked.is_empty(), "Cargo.lock still locks {locked:?}");
 }

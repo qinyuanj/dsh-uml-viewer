@@ -30,10 +30,9 @@ use std::path::Path;
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Run the binary the way every test here does. A dispatch fault can route
-/// any arguments to the viewer, which writes project state into its working
-/// directory and opens a window; a private scratch directory and no display
-/// keep such a run out of the tree under test and let it fail fast.
+/// Run the binary the way every test here does: in a private scratch
+/// directory, so a role that writes project state into its working
+/// directory stays out of the tree under test, and without a display.
 pub fn binary<I, S>(args: I) -> Output
 where
     I: IntoIterator<Item = S>,

@@ -1,6 +1,6 @@
 //! Inspector sidebar model (#141): port of `application/inspector.lua` and
 //! the inspector-width rules of `domain/display.lua`. Widths are points
-//! (the Lua DPI-independent view units); egui applies the display scale.
+//! (the Lua DPI-independent view units); the panel applies the display scale.
 
 use edn::Value;
 use edn::record::{get, local_name, num};

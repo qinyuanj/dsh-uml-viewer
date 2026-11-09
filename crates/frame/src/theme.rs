@@ -4,8 +4,8 @@
 //!
 //! Drawn output never carries RGB: a frame item names a role (a quality
 //! role also carries its 0-10 grade or coverage ratio) and the renderer
-//! resolves it. The egui window resolves roles through [`rgba`]; the panel
-//! resolves them through host theme tokens, keeping the quality and
+//! resolves it. [`rgba`] is the reference dark palette; the panel
+//! resolves roles through host theme tokens, keeping the quality and
 //! violation hues and adapting only to light and dark mode (ADR 0011).
 //! Sizes are in points; the renderer applies the display scale.
 

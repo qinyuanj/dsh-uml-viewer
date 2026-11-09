@@ -1,5 +1,5 @@
 //! Three-tier zoom LOD, viewport culling and geometry decimation (the #131
-//! egui prototype's rules; ADR 0008 "即时模式加视口剔除、三档 LOD 已经够用").
+//! prototype's rules; ADR 0008 "即时模式加视口剔除、三档 LOD 已经够用").
 //!
 //! - `Blocks` (zoom < 0.15): filled silhouettes and package titles only.
 //! - `Frames` (zoom < 0.4): frames, titles, C/M dots, edges decimated at 8px.
@@ -83,10 +83,4 @@ pub fn simplify(points: &[[f64; 2]], min_dist: f64, tolerance: f64) -> Vec<[f64;
     }
     out.push(points[points.len() - 1]);
     out
-}
-
-/// Quantize a scaled font size to whole points (minimum 1) so egui's glyph
-/// cache is shared across near-identical zooms.
-pub fn font_px(size: f64, scale: f64) -> f32 {
-    ((size * scale).round() as f32).max(1.0)
 }

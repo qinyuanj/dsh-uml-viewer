@@ -1,5 +1,6 @@
 //! Seam A (#134): the binary's process boundary. Each role is a
-//! subcommand; unknown `--` options are refused with usage (exit 2).
+//! subcommand; a missing or unknown subcommand and unknown `--` options are
+//! refused with usage (exit 2).
 
 use std::process::Output;
 
@@ -24,28 +25,35 @@ fn listed_subcommands() -> Vec<String> {
 }
 
 #[test]
-fn the_subcommands_are_the_viewer_the_headless_roles_and_the_quality_tools() {
-    // #18 removed the Herdr companion roles with the companion itself.
+fn the_subcommands_are_the_headless_roles_and_the_quality_tools() {
+    // #18 removed the Herdr companion roles with the companion itself;
+    // dsh-uml-viewer#30 removed the standalone `viewer` window.
     assert_eq!(
-        vec![
-            "viewer", "ir", "scene", "resident", "crap", "mutate", "dry", "quality"
-        ],
+        vec!["ir", "scene", "resident", "crap", "mutate", "dry", "quality"],
         listed_subcommands()
     );
 }
 
 #[test]
-fn the_window_names_the_removed_companion_options_as_unknown() {
-    for option in ["--restart", "--backend", "--coding-agent"] {
-        let output = run(&["viewer", option]);
-        assert_eq!(Some(2), output.status.code(), "{option}");
+fn the_removed_viewer_window_is_an_unknown_subcommand() {
+    // dsh-uml-viewer#30: `viewer` and a bare diagram path no longer open a
+    // window; both are usage errors naming the argument.
+    for argument in ["viewer", "diagram.edn"] {
+        let output = run(&[argument]);
+        assert_eq!(Some(2), output.status.code(), "{argument}");
         let err = stderr(&output);
-        assert!(err.contains(&format!("unknown option: {option}")), "{err}");
-        assert!(
-            err.contains("usage: uml-viewer viewer [diagram.edn]"),
-            "{err}"
-        );
+        assert!(err.contains(&format!("未知子命令 {argument}")), "{err}");
+        assert!(err.contains("usage: uml-viewer"), "{err}");
     }
+}
+
+#[test]
+fn no_arguments_is_a_usage_error() {
+    let output = run(&[]);
+    assert_eq!(Some(2), output.status.code());
+    let err = stderr(&output);
+    assert!(err.contains("缺少子命令"), "{err}");
+    assert!(err.contains("usage: uml-viewer"), "{err}");
 }
 
 #[test]
@@ -87,36 +95,12 @@ fn ir_refuses_an_ir_document_as_the_policy_with_a_usage_hint() {
 }
 
 #[test]
-fn arguments_without_a_subcommand_go_to_the_viewer() {
-    // #139 ports the viewer, so it is reached instead of EX_UNAVAILABLE. A
-    // real positional path would open a window and block the test; an
-    // option-looking argument exercises the same dispatch and fails usage.
-    let output = run(&["-x"]);
-    assert_eq!(Some(2), output.status.code());
-    assert!(
-        stderr(&output).contains("usage: uml-viewer viewer"),
-        "{}",
-        stderr(&output)
-    );
-}
-
-#[test]
-fn viewer_is_ported_and_reports_usage_errors_without_opening_a_window() {
-    // #139: the viewer role parses argv before creating a window.
-    let output = run(&["viewer", "--bogus"]);
-    assert_eq!(Some(2), output.status.code());
-    assert!(
-        stderr(&output).contains("usage: uml-viewer viewer"),
-        "{}",
-        stderr(&output)
-    );
-}
-
-#[test]
 fn an_unknown_leading_option_is_refused_with_usage() {
     let output = run(&["--bogus"]);
     assert_eq!(Some(2), output.status.code());
-    assert!(stderr(&output).contains("usage"), "{}", stderr(&output));
+    let err = stderr(&output);
+    assert!(err.contains("未知选项 --bogus"), "{err}");
+    assert!(err.contains("usage"), "{err}");
 }
 
 #[test]

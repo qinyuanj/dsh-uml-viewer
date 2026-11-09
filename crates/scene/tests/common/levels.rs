@@ -1,6 +1,6 @@
-//! Regenerable `:levels` bench scenes (#188): one package ranked by
+//! Regenerable `:levels` scaling scenes (#188): one package ranked by
 //! levels plus foreign ovals, the shape a real `:levels` package view
-//! compiles to. The committed `bench/scenes/synthetic-*.edn` predate this:
+//! compiles to. The deleted `bench/scenes/synthetic-*.edn` (#30) predated this:
 //! their Lua generator is gone, and their ten packages of four equal levels
 //! with a quarter of the edges inside a level match no real project.
 //!

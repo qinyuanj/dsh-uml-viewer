@@ -1,7 +1,6 @@
 //! The crate's one integration test binary (see `autotests` in
 //! Cargo.toml): each file below is a module of it.
 
-mod bench_scene;
 mod class_card;
 mod common;
 mod document;
@@ -17,4 +16,5 @@ mod port_overlaps;
 mod quality_targets;
 mod rating;
 mod route_goldens;
+mod scaling;
 mod wide_layout;

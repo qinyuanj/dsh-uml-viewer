@@ -11,7 +11,7 @@ use scene::document::ViewState;
 use scene::{Dims, Rect, vec2};
 use std::collections::HashMap;
 
-/// The viewer's members threshold (`viewer::lod::FULL_ZOOM`).
+/// The viewer's members threshold (`frame::lod::FULL_ZOOM`).
 const FULL_ZOOM: f64 = 0.4;
 
 fn rect(v: &Value) -> Option<Rect> {

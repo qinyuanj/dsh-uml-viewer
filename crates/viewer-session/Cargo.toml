@@ -7,7 +7,7 @@ publish.workspace = true
 # tests/main.rs is the one test binary.
 autotests = false
 
-# The viewer session (#17): no companion, no egui, eframe or winit.
+# The viewer session (#17): no companion and no window or GUI stack.
 [dependencies]
 edn = { path = "../edn" }
 scene = { path = "../scene" }

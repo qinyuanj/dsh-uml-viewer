@@ -1,6 +1,6 @@
 //! Semantic color roles (#16): every color the viewer drew before the frame
 //! existed is a role, and the dark palette resolves each role to exactly
-//! the color (and alpha) the egui window painted for that use. The
+//! the color (and alpha) the deleted egui window painted for that use. The
 //! literals are the pre-frame theme constants and paint alphas.
 
 use frame::theme::{self, Rgba, Role};

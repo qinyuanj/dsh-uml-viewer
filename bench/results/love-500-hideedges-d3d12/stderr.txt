@@ -1,3 +1,0 @@
-love: /home/appveyor/projects/cimgui-love/cimgui/imgui/imgui_draw.cpp:1900: void ImGui::AddDrawListToDrawDataEx(ImDrawData*, ImVector<ImDrawList*>*, ImDrawList*): Assertion `draw_list->_VtxCurrentIdx < (1 << 16) && "Too many vertices in ImDrawList using 16-bit indices. Read comment above"' failed.
-timeout: the monitored command dumped core
-Aborted

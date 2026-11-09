@@ -2,7 +2,7 @@
 //! content-space rows, scroll clamping, row hits) and
 //! `application/detail_view.lua` (the paint plan: fixed right-aligned metric
 //! columns, colors, swatches, Cov / kill-rate bars, stripes). Window-free;
-//! the egui window only paints [`Item`]s and reports pointer rows.
+//! the panel only paints [`Item`]s and reports pointer rows.
 
 use edn::Value;
 use edn::record::{flag, get, local_name, num, seq};

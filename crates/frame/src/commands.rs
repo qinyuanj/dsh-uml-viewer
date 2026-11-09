@@ -1,8 +1,8 @@
 //! Pure drawing model (port of `love/uml/adapters/class_boxes.lua` and
 //! `edges.lua`): scene EDN plus the selection/hover hits in, renderer
-//! commands out. No egui here; `paint` translates commands into shapes and
-//! owns LOD/culling. Colors are egui colors resolved through the theme;
-//! widths stay in points and scale with DPI at paint time, never with zoom.
+//! commands out; `frame` turns them into its typed draw lists. Colors are
+//! semantic theme roles; widths stay in points and scale with DPI at paint
+//! time, never with zoom.
 
 use edn::Value;
 use edn::record::{flag, get, local_name, seq};
@@ -954,7 +954,7 @@ pub fn edge_commands(
 }
 
 /// Natural advance fallback: the layout's 8px/char monospace estimate at
-/// 16px, scaled. The real measure comes from egui at paint time.
+/// 16px, scaled. The real measure comes from the renderer at paint time.
 pub fn estimate_w(text: &str, size: f64) -> f64 {
     scene::text_w(Some(text)) / 16.0 * size
 }
@@ -980,8 +980,8 @@ pub fn fit(
     let budget = max_w.max(0.0);
     let mut fitted = size * budget / natural;
     // Real glyph advances snap to the pixel grid, so width is not linear in
-    // size: shrink until the measured text is inside the budget (egui would
-    // otherwise wrap the label).
+    // size: shrink until the measured text is inside the budget (a wider
+    // label would overrun its slot).
     for _ in 0..8 {
         let w = width(fitted);
         if w <= budget || w <= 0.0 {

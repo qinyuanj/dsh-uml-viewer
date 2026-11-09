@@ -23,7 +23,6 @@ ir = { path = "../ir" }
 mutator = { path = "../mutator" }
 quality-dispatch = { path = "../quality-dispatch" }
 scene = { path = "../scene" }
-viewer = { path = "../viewer" }
 viewer-session = { path = "../viewer-session" }
 
 [dev-dependencies]

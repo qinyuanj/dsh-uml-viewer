@@ -1,10 +1,11 @@
 //! The single uml-viewer binary (#134). It only dispatches: each role is a
 //! subcommand whose implementation lives in its own workspace library crate
 //! (`crates/<role>`), exposing `pub fn run(args: &[OsString]) -> ExitCode`.
-//! All roles are ported (#134-#139).
-//! Arguments after the subcommand are passed on literally (no re-quoting,
-//! no lossy UTF-8 conversion). Without a subcommand, all arguments go to
-//! the viewer, so `uml-viewer diagram.edn` opens a diagram.
+//! All roles are ported (#134-#139); the standalone `viewer` window was
+//! deleted with its crate (dsh-uml-viewer#30), so the panel's `resident`
+//! session is the only viewer. Arguments after the subcommand are passed on
+//! literally (no re-quoting, no lossy UTF-8 conversion). A missing or
+//! unknown subcommand is a usage error.
 
 use std::ffi::OsString;
 use std::process::ExitCode;
@@ -14,9 +15,6 @@ type Entry = fn(&'static str, &[OsString]) -> ExitCode;
 /// Role table: each role wraps its crate's `run`, e.g. `|_, args| ir::run(args)`.
 /// The Herdr companion roles left with the companion (#18).
 const ROLES: &[(&str, &str, Entry)] = &[
-    ("viewer", "egui viewer (default)", |_, args| {
-        viewer::run(args)
-    }),
     (
         "ir",
         "generate IR from a policy and source tree, headless",
@@ -58,7 +56,7 @@ const ROLES: &[(&str, &str, Entry)] = &[
 const USAGE: u8 = 2;
 
 fn usage() -> String {
-    let mut text = String::from("usage: uml-viewer [<subcommand>] [args]\n\nsubcommands:\n");
+    let mut text = String::from("usage: uml-viewer <subcommand> [args]\n\nsubcommands:\n");
     for (name, summary, _) in ROLES {
         text.push_str(&format!("  {name:<22}{summary}\n"));
     }
@@ -83,12 +81,15 @@ fn main() -> ExitCode {
     if let Some(&(name, _, entry)) = ROLES.iter().find(|(name, _, _)| Some(*name) == first) {
         return entry(name, &args[1..]);
     }
-    if first.is_some_and(|a| a.starts_with("--")) {
-        eprintln!("uml-viewer: 未知选项 {}\n{}", first.unwrap(), usage());
-        return ExitCode::from(USAGE);
-    }
-    let (name, _, entry) = ROLES[0];
-    entry(name, &args)
+    let message = match args.first() {
+        None => "缺少子命令".to_owned(),
+        Some(arg) if arg.to_string_lossy().starts_with("--") => {
+            format!("未知选项 {}", arg.to_string_lossy())
+        }
+        Some(arg) => format!("未知子命令 {}", arg.to_string_lossy()),
+    };
+    eprintln!("uml-viewer: {message}\n{}", usage());
+    ExitCode::from(USAGE)
 }
 
 #[cfg(test)]

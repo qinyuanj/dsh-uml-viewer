@@ -1,5 +1,5 @@
 //! Acceptance (#135): every EDN file in the repository (IR, policy, JVM
-//! goldens, `.metrics`, mail samples, evidence, bench scenes) round-trips.
+//! goldens, `.metrics`, mail samples, evidence) round-trips.
 //! Round-trip means parse -> encode -> parse yields the same value, and the
 //! encoded bytes are a fixed point of encode(parse(_)).
 

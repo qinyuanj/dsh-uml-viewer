@@ -35,7 +35,7 @@ fn span(r: Rect) -> (i64, i64, i64, i64) {
 }
 
 /// Most cells a dense grid may hold; a wider spread scans the obstacles
-/// instead (16 MiB of empty cells, 64 times the 2000-class bench scene).
+/// instead (16 MiB of empty cells, 64 times a 2000-class scene).
 const MAX_CELLS: i64 = 1 << 20;
 
 /// Obstacle slots per cell, dense over the cells the obstacles cover. An

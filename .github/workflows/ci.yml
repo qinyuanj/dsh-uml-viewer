@@ -3,7 +3,7 @@
 # --release and cargo test --workspace). The old public entry and its Python
 # suites were deleted with the companion (#18), so nothing here is skipped by
 # platform. The quality refresh (uml-viewer quality crap|mutate|dry, then
-# uml-viewer ir) and real-window drivers stay manual.
+# uml-viewer ir) stays manual; the panel's Playwright suite is panel-e2e.
 name: ci
 
 on:
@@ -138,15 +138,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The viewer dlopens these at run time (no -dev headers to build).
-      - name: Viewer runtime libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 libwayland-cursor0 \
-            libwayland-egl1 libegl1 libgl1 libgl1-mesa-dri libvulkan1 mesa-vulkan-drivers \
-            libfontconfig1 fonts-dejavu-core fonts-noto-cjk
-
       - name: Rust toolchain pinned by rust-toolchain.toml
         run: rustup toolchain install
 
@@ -163,6 +154,7 @@ jobs:
         run: python -m pip install coverage pytest
       - name: Lua 5.4 fixture toolchain
         run: |
+          sudo apt-get update
           sudo apt-get install -y --no-install-recommends lua5.4 luarocks
           sudo luarocks --lua-version=5.4 install busted
           sudo luarocks --lua-version=5.4 install luacov

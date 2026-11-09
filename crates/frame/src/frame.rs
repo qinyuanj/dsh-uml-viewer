@@ -1,7 +1,6 @@
 //! The scene frame (#16): one view, fully drawable, as a versioned JSON
-//! document. The egui window paints the same [`Frame`] parts
-//! ([`layers`] cached by `render_cache`, [`chrome`] every paint); the
-//! viewer panel receives [`Frame::to_json`]. The schema is
+//! document: the typed parts ([`layers`], [`chrome`]) and the
+//! [`Frame::to_json`] the viewer panel receives. The schema is
 //! `docs/scene-frame.md`; `version` changes only on an incompatible change.
 //!
 //! Colors are semantic [`Role`]s, never RGB. World items are in scene

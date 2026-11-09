@@ -16,7 +16,6 @@
   {:lang :rust, :root "crates/quality-dispatch/src", :prefix "uml.quality_dispatch"}
   {:lang :rust, :root "crates/frame/src", :prefix "uml.frame"}
   {:lang :rust, :root "crates/viewer-session/src", :prefix "uml.viewer_session"}
-  {:lang :rust, :root "crates/viewer/src", :prefix "uml.viewer"}
   {:lang :rust, :root "crates/uml-viewer/src", :prefix "uml.main"}
   {:lang :typescript, :root "packages/contracts/src", :prefix "uml.contracts"}
   {:lang :typescript, :root "packages/host/src", :prefix "uml.host"}
@@ -28,8 +27,7 @@
   [quality_dispatch]
   [frame]
   [viewer_session]
-  [viewer]
   [main host client]],
  :out "examples/uml-viewer.edn",
- :order [main host client viewer viewer_session frame quality_dispatch dryer crapper mutator scene ir quality_core edn platform contracts],
- :foreign [libc egui eframe image winit log tree_sitter tree_sitter_rust]}
+ :order [main host client viewer_session frame quality_dispatch dryer crapper mutator scene ir quality_core edn platform contracts],
+ :foreign [libc log tree_sitter tree_sitter_rust]}

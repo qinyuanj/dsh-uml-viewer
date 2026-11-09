@@ -1,7 +1,7 @@
 //! The viewer session does not depend on the companion (#17): the resolved
 //! dependency closure of `viewer-session` in the workspace `Cargo.lock`
 //! holds no `companion` package and no window stack, so the resident mode
-//! the plugin host drives links neither Herdr nor egui.
+//! the plugin host drives links neither Herdr nor a GUI toolkit.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -63,8 +63,8 @@ fn the_viewer_session_links_no_companion_and_no_window_stack() {
         .collect();
     assert!(banned.is_empty(), "viewer-session depends on {banned:?}");
     assert!(seen.contains("scene") && seen.contains("frame"));
-    // Sanity: the lock graph does see the window stack where it is.
-    assert!(graph["viewer"].iter().any(|d| d == "eframe"));
+    // #30 deleted the standalone window: its crate is not locked at all.
+    assert!(!graph.contains_key("viewer"), "the window crate is locked");
 }
 
 #[test]

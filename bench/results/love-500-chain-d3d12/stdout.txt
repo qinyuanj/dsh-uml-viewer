@@ -1,3 +1,0 @@
-renderer=OpenGL | D3D12 (NVIDIA GeForce GTX 1080 Ti) gallium=d3d12 fit_zoom=0.1000
-phase=idle frames=109 fps=10.74 mean_ms=93.11 median_ms=87.64 p95_ms=134.05 p99_ms=140.42 max_ms=141.00 cpu_pct=95.29 zoom=-..-
-phase=pan-fit frames=103 fps=10.21 mean_ms=97.90 median_ms=90.35 p95_ms=145.40 p99_ms=155.48 max_ms=159.98 cpu_pct=94.61 zoom=0.10..0.10

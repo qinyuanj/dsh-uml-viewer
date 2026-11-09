@@ -3,9 +3,9 @@
 //! the same view and discussion context. Schema
 //! `dsh-uml-viewer/session-state`, version 1 (`docs/resident-protocol.md`).
 //!
-//! It carries the same restoration dimensions as the window's restart
-//! snapshot (`frame::session::snapshot`) minus the window chrome and the
-//! mail cursor, which belong to the egui window and the companion mail.
+//! It carries the restoration dimensions `frame::session::restore` applies,
+//! without the historical window chrome and mail cursor (the standalone
+//! window and the companion mail are gone).
 //! Ids and hits stay EDN text, as in the scene frame.
 
 use edn::Value;

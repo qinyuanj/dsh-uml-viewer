@@ -3,18 +3,18 @@
 
 This is the only guardrail command on every host, native Windows included
 (ADR 0010; the earlier `check.ps1` stays retired). Python suites run with the
-interpreter that runs this file. The cargo check builds the release binary
-the real-window drivers run, then runs the workspace tests. Stops at the
-first failure so the printed label names the actual cause. The quality
-refresh (`uml-viewer quality crap|mutate|dry`, then `uml-viewer ir`) is
-deliberately absent: it needs serialized, declared-scope runs against a real
-project, so it cannot be a default check. Real-window drivers need the
-explicit `--native` opt-in. The old public entry and its Python suites were
-deleted with the companion (#18).
+interpreter that runs this file. The cargo check builds the release binary,
+then runs the workspace tests. Stops at the first failure so the printed
+label names the actual cause. The quality refresh (`uml-viewer quality
+crap|mutate|dry`, then `uml-viewer ir`) is deliberately absent: it needs
+serialized, declared-scope runs against a real project, so it cannot be a
+default check. The old public entry and its Python suites were deleted with
+the companion (#18); the real-window drivers were deleted with the
+standalone window (dsh-uml-viewer#30), whose scenarios are the panel's
+Playwright suite (`pnpm test:e2e`).
 
 Usage:
-    python3 -I scripts/check.py            # pure checks only
-    python3 -I scripts/check.py --native   # plus every real-window driver
+    python3 -I scripts/check.py
     py -3 -I scripts\\check.py              # native Windows (no python3 there)
 """
 import argparse
@@ -42,8 +42,7 @@ def cargo_suite():
     cargo = interpreter('cargo')
     if not cargo:
         return 'failed', 1, 'cargo is required (the workspace tests)'
-    # The real-window drivers run target/release/uml-viewer; build it here so
-    # `--native` never runs a stale binary.
+    # The release binary is what the panel and the quality refresh run.
     code, output = run([cargo, 'build', '--release', '--locked'])
     if code != 0:
         return 'failed', code, output
@@ -57,34 +56,15 @@ def python_suite(name):
     return ('executed' if code == 0 else 'failed'), code, output
 
 
-def native_driver(name, timeout):
-    code, output = run([sys.executable, '-I', str(REPO / 'scripts/run_viewer_driver.py'), name],
-                       timeout=timeout)
-    if code == 0 and output.strip().startswith('SKIP'):
-        # A driver whose precondition is absent (e.g. a font the installer has
-        # not provisioned) verified nothing; it must not read as a pass.
-        return 'skipped', code, output.strip()
-    return ('executed' if code == 0 else 'failed'), code, output
-
-
 def python_checks(names):
     return [(f'{name} (python -I scripts/{name})', lambda name=name: python_suite(name))
             for name in names]
 
 
-def native_checks(timeout):
-    sys.path.insert(0, str(REPO / 'scripts'))
-    from run_viewer_driver import DRIVERS
-    return [(f'native {name}', lambda name=name: native_driver(name, timeout))
-            for name in sorted(DRIVERS)]
-
-
-def selected_checks(native, native_timeout):
-    """Fast source rules, the cargo build and tests, then (opt-in) the drivers."""
+def selected_checks():
+    """Fast source rules, then the cargo build and tests."""
     checks = python_checks(FAST_SUITES)
     checks += [('cargo build --release --locked + cargo test --workspace --locked', cargo_suite)]
-    if native:
-        checks += native_checks(native_timeout)
     return checks
 
 
@@ -100,11 +80,8 @@ def run_checks(checks):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--native', action='store_true', help='also run the real-window drivers')
-    parser.add_argument('--native-timeout', type=int, default=300)
-    arguments = parser.parse_args()
-    return summarize(run_checks(selected_checks(arguments.native, arguments.native_timeout)))
+    argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args()
+    return summarize(run_checks(selected_checks()))
 
 
 def summarize(results):
