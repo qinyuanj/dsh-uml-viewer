@@ -356,8 +356,8 @@ impl Session {
         outcome
     }
 
-    /// Apply one host command (`{:op :display :path …}`, `{:op :context …}`,
-    /// from the companion's mail or the plugin host).
+    /// Apply one host command (`{:op :display :path …}` or
+    /// `{:op :context …}`) through the shared scene command boundary.
     pub fn apply_command(&mut self, command: &Value) {
         let boundary = display::DisplayBoundary::new(&self.project_root);
         let next = document::apply_mail(&self.state, command, &boundary);
