@@ -59,7 +59,7 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
     get: (_target, key) => {
       if (typeof key !== 'string' || !SERVICE_KEYS.has(key)) return undefined
       const service = ctx.get(key)
-      if (key !== 'subprocess') return service
+      if (key !== 'subprocess' || !service) return service
       return { spawn: (spec: Parameters<HostServices['subprocess']['spawn']>[0]) => {
         const release = pinned.retain()
         try {
