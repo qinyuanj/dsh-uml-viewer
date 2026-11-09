@@ -106,14 +106,15 @@ level.
 
 ## Tech
 
-A Rust app (egui/eframe) that lays out and draws UML from an EDN IR. A
-**policy** plus a language-specific scanner writes the topology; this tool
-displays it, routes the arrows, colors CRAP, and lets you click. One Rust
-binary runs the egui window, the panel's resident session, IR generation, the
-four scanners and the three quality tools. The JVM/Clojure implementation was removed in the JVM cutover
+A Rust binary that lays out UML from an EDN IR, and a DeepSeek Harness panel
+that draws it. A **policy** plus a language-specific scanner writes the
+topology; this tool displays it, routes the arrows, colors CRAP, and lets you
+click. One Rust binary runs the panel's resident session, IR generation, the
+four scanners and the three quality tools; the standalone egui window was
+deleted in dsh-uml-viewer#30, so the panel is the only viewer. The JVM/Clojure implementation was removed in the JVM cutover
 and the Lua/LOVE implementation in the #144 cutover (ADR 0008). The supported platforms are **WSL2 + Ubuntu 24.04 + WSLg**,
-**macOS** (Metal) and **native Windows 11 / Windows 10 22H2 (build 19045) or
-later** on x64 (DX12; ADR 0010).
+**macOS** and **native Windows 11 / Windows 10 22H2 (build 19045) or
+later** on x64 (ADR 0010).
 
 The IR is **topology**: the namespace tree, classes, and edges. **Metrics**
 (CC, coverage, CRAP, killed/survived/uncovered) come from `.metrics/`
@@ -137,15 +138,15 @@ itself has no Python, Herdr, Java, Clojure, Lua, LOVE or PowerShell dependency.
 ```sh
 cargo build --release --locked
 target/release/uml-viewer ir examples/uml-viewer.policy.edn   # policy → IR
-target/release/uml-viewer viewer examples/uml-viewer.edn      # standalone window
 cargo test --workspace --locked          # pure and integration suites
 python -I scripts/check.py               # source rules + the two above
 git config core.hooksPath .githooks      # once per clone: enable the pre-commit hook
 ```
 
-The window runs standalone and hot-reloads the diagram and its `.metrics/`
-snapshots; inside DeepSeek Harness the panel replaces it (see
-[docs/plugin-development.md](docs/plugin-development.md)). The versioned
+The diagram is viewed in the DeepSeek Harness panel, which hot-reloads the
+diagram and its `.metrics/` snapshots (see
+[docs/plugin-development.md](docs/plugin-development.md); its browser checks
+are [docs/e2e-harness.md](docs/e2e-harness.md)). The versioned
 `.githooks/pre-commit` runs `cargo fmt --all -- --check`, the static source
 rules and `cargo clippy --workspace --all-targets --locked -- -D warnings`; a
 failure blocks the commit.
@@ -179,9 +180,7 @@ a successful quality result with `validResult: true`.
 - First view: **namespace components** (layers). Dependencies between them
   collapse to one arrow. Each component lists nested namespaces.
 - Double-click a component to open the next level. Esc or the ← label goes
-  up a level, including after drilling a proposal group. Esc does not quit.
-  The window close box exits the app. Reload and exit handling keep running
-  while the window is hidden; SIGTERM/SIGINT closes it with exit 0.
+  up a level, including after drilling a proposal group.
 - Hover an arrow for a popup of every `from -> to` it bundles, in any
   declutter mode. Violating pairs are red.
 - The element operations **刷新 CRAP**, **刷新 mutation**, **全量 mutation**
@@ -191,16 +190,16 @@ a successful quality result with `validResult: true`.
   CRAP runs on that class or the files under that component. Mutation is
   differential on those src files; All Mutation passes `--mutate-all`. Omit
   adds the id to the current proposal's `:omit`, or to policy `:omit` on the
-  real diagram. The standalone window has no agent and no such menu.
+  real diagram.
 - Component titles paint **on top of** crossing arrows.
 - The viewer UI is Chinese (one string table, `crates/frame/src/strings.rs`);
   metric and tool names stay English. The inspector (检查器) lists the
   **real diagram** (源码图, the namespace tree) above
   **Proposals**. Click the real row to return to the tree; click a proposal
   to show it (marked as not in the code). Either click makes that diagram
-  the discussion context (the panel tells the agent). **New Proposal**
-  (新建提案) adds a timestamp-named proposal. Right-click to rename or delete.
-  **Declutter** cycles Declutter arrows / Remove arrows / Declutter
+  the discussion context (the panel tells the agent). A new proposal is a
+  request to the agent, named with a timestamp by default; the agent edits
+  the policy in place. **Declutter** cycles Declutter arrows / Remove arrows / Declutter
   elements / Declutter classes / Declutter none. **Remove arrows** hides
   the lines and puts a triangle on the top (incoming) and bottom
   (outgoing) of each box, **including nested classes** as well as their
@@ -217,16 +216,16 @@ a successful quality result with `validResult: true`.
   rectangles that are not classes (components/layers, interfaces, enumerations,
   package banners) are italic. Foreign libraries listed in policy are ovals
   outside the components.
-- The main window is resizable.
+- The panel can expand from the sidebar into the main area and back.
 - Scroll to pan vertically; Shift-scroll (or left/right arrows) for
-  horizontal. Pan can follow arrows that bow past the origin.
+  horizontal; Ctrl+scroll zooms at the cursor. Pan can follow arrows that
+  bow past the origin.
 - **Ctrl+** (or **Ctrl+=**) zooms in 10%; **Ctrl-** zooms out 10%;
-  **Ctrl+0** restores 100%. Zoom keeps the view center still.
+  **Ctrl+0** fits the whole view. **Ctrl+F** searches classes.
 - `R` reloads the current EDN. The watcher also reloads on save, and when
   `.metrics/` snapshots change. An open class card updates with the new
   numbers.
-- `Esc` on the class card closes it (it does not quit the viewer). Closing
-  the main window exits the app.
+- The class card's close button closes it.
 
 ## Policy
 
@@ -300,12 +299,12 @@ Right (the ns tree):
  :sources [{:lang :rust :root "crates/edn/src" :prefix "uml.edn"}
            {:lang :rust :root "crates/ir/src" :prefix "uml.ir"}
            {:lang :rust :root "crates/scene/src" :prefix "uml.scene"}
-           {:lang :rust :root "crates/viewer/src" :prefix "uml.viewer"}
+           {:lang :rust :root "crates/frame/src" :prefix "uml.frame"}
            {:lang :rust :root "crates/uml-viewer/src" :prefix "uml.main"}]
  :proposals [{:id :p-1791033119418, :name "test", :layers []}]
- :foreign [libc egui eframe image winit log]
- :order [main viewer scene ir edn]
- :levels [[edn] [ir scene] [viewer] [main]]}
+ :foreign [libc log]
+ :order [main frame scene ir edn]
+ :levels [[edn] [ir scene] [frame] [main]]}
 ```
 
 A project with more than one language lists each tree under `:sources`.
@@ -361,7 +360,7 @@ id. Missing CRAP or mutation data is red. Then regenerate the IR.
   top-level **segment** in `:order` if you care about box order.
 - Nested nses appear as contents of the parent component.
 - “This require is really an association”: one `:edge-kinds` entry.
-- Show a library like egui as an oval: add it to `:foreign`.
+- Show a library like `libc` as an oval: add it to `:foreign`.
 - Do not add `:packages` to fake Clean Architecture components. Use
   `:proposals` to view a grouping that is not in the code.
 - Preserve `:proposals` when rewriting policy. Do not invent them.
@@ -745,9 +744,8 @@ exported declaration, the `fn`, the `def`, or the `function`. The class card pas
 `:lang` and `:file` from the class. The protocol is the seam; do
 not special-case languages in the class card.
 
-egui stays in the front end (`crates/viewer/src/paint.rs`,
-`crates/viewer/src/gui.rs`, `crates/viewer/src/app.rs`). Neither the scene
+Drawing happens only in the panel (`packages/client`). Neither the scene
 core (`crates/scene`) nor the window-free viewer model (`crates/frame`: draw
-commands, theme roles, LOD, class card, inspector, source window, search,
-strings, session file, watch, render cache) depends on egui. The scene frame
+commands, theme roles, LOD, class card, inspector, source window, strings,
+view snapshots, watch) links a window or GUI stack. The scene frame
 the viewer panel draws is `uml-viewer scene --frame` (`docs/scene-frame.md`).

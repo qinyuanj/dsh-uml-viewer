@@ -5,7 +5,7 @@ import { launchViewerLane } from './lane.mjs'
 import { producerFrame, sample, same, screenRect, toScreen, panelCamera } from './canvas.mjs'
 
 // #26: real IR/resident/panel, no injected frame. Replaces quality/highlight
-// assertions in egui commands/driver scenarios; geometry and grades come from
+// assertions of the deleted egui commands/driver scenarios (#30); geometry and grades come from
 // the independent producer oracle. Authored under RESOURCE-POLICY: NOT RUN
 // until a matching EXISTING binary is provided, never build from this lane.
 const palettes = {

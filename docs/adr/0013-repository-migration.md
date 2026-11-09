@@ -231,3 +231,16 @@ ADR 0011 说面板由宿主注入 `dsh-client-ui-primitives`。实际落地时
 - **已知差异**：帧仍不暴露原生的 `child` 行命中记录，因此概览层级下指针在隐藏成员
   行区域时，客户端可能显示类名弹窗（原生只在原始命中种类为 `class` 时显示）；关系仍
   按该类高亮。依赖端口保留 `port` 命中种类，只高亮所属类的关系，不显示类名弹窗。
+
+## 附录（2026-11-09，#30）：删除 egui 窗口与 viewer crate
+
+- 面板功能对齐后，删除 `crates/viewer`（eframe/egui/wgpu/winit/image）、`viewer`
+  子命令及“无子命令即打开窗口”的默认分派；缺少或未知的子命令一律是用法错误（exit 2）。
+  面板的 `resident` 会话是唯一的 viewer。上文“egui 窗口”一条与 #18 附录里的
+  `uml-viewer viewer [diagram.edn]` 由此失效。
+- 同时删除 `scripts/drivers/*.edn`、`scripts/run_viewer_driver.py`、`check.py --native`、
+  `bench/` 及其场景，以及 `frame` 与 `viewer-session` 中只服务窗口的代码（渲染缓存、
+  搜索框模型、窗口外框与会话文件、空闲唤醒、提案写回、窗口画布输入）。规模测试只用可再生的
+  `:levels` 场景。CI 不再安装窗口运行库。
+- 每个 driver 场景对应的 Playwright 用例与不再承接的窗口专属行为列在
+  [docs/e2e-harness.md](../e2e-harness.md#deleted-window-drivers-30)。

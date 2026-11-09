@@ -46,8 +46,8 @@
 - Prerequisites are the Rust toolchain pinned by `rust-toolchain.toml`,
   git, Node 24 and pnpm (the plugin packages), and Python 3.11+ for
   `scripts/check.py` and the pre-commit hook. The single Rust binary runs
-  the egui window (`uml-viewer viewer [diagram.edn]`, standalone, hot
-  reload), the panel's `resident` session, IR generation, the four
+  the panel's `resident` session (the only viewer; the standalone egui
+  window was deleted in #30), IR generation, the four
   scanners and the three quality tools (`crap`, `mutate`, `dry`, or
   `quality` for the declared scope). dryer reports duplicate structure in
   `.metrics/dry.edn`; nothing overlays that snapshot, so read
@@ -73,13 +73,10 @@ Issues 和 specs 使用 qinyuanj/dsh-uml-viewer 的 GitHub Issues；操作前读
 
 ## Cursor Cloud specific instructions
 
-Cloud Agent machines run native Ubuntu 24.04 with an X display on `DISPLAY=:1`. On this host, generate IR and open the diagram in the standalone window with the release binary:
+Cloud Agent machines run native Ubuntu 24.04. On this host, build and generate IR with the release binary:
 
 ```sh
 target/release/uml-viewer ir examples/uml-viewer.policy.edn /tmp/diagram.edn
-GALLIUM_DRIVER=llvmpipe LIBGL_ALWAYS_SOFTWARE=1 WGPU_BACKEND=gl \
-  UML_CJK_FONT="$PWD/fonts/SarasaMonoSC-Regular.ttf" \
-  target/release/uml-viewer viewer /tmp/diagram.edn
 ```
 
-The binary selects the WSLg `d3d12` Gallium driver when `GALLIUM_DRIVER` is unset, so set `llvmpipe` before a launch on this display. Sarasa is packaged at `fonts/SarasaMonoSC-Regular.ttf`. `cargo fmt --all -- --check` and `cargo test --workspace --locked` are the checks that run here. Leave the viewer stopped until a turn is demonstrating the GUI.
+There is no standalone window: the diagram is viewed in the DSH panel (`docs/plugin-development.md`, with a scratch DSH home and `UML_VIEWER_BIN`), and its browser checks are the Playwright suite in `packages/e2e` (`docs/e2e-harness.md`). `cargo fmt --all -- --check` and `cargo test --workspace --locked` are the Rust checks that run here; respect the current user resource policy before building.

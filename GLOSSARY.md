@@ -229,7 +229,7 @@ _Avoid_: app, session state
 ## 运行时
 
 **viewer 运行时**:
-本仓唯一的实现，一个 Rust 二进制；同时承担 egui 窗口、面板的 resident 会话、IR 生成、扫描器与三个质量工具（crapper、mutator、dryer）；Herdr companion 角色已随 #18 删除。
+本仓唯一的实现，一个 Rust 二进制；同时承担面板的 resident 会话、IR 生成、扫描器与三个质量工具（crapper、mutator、dryer）；Herdr companion 角色已随 #18 删除，独立 egui 窗口已随 #30 删除。
 _Avoid_: LOVE, LuaJIT, 双解释器, 主解释器
 
 **分析语言版本**:

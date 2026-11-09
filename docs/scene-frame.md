@@ -3,9 +3,10 @@
 The **scene frame** is one view of the diagram, fully drawable: every box,
 badge, port, relation and chrome line with its text, geometry, LOD tier,
 highlight state and color **role**. The `frame` crate (`crates/frame`)
-builds it from a `scene::ViewState`; the egui window paints the same
-typed draw lists (`frame::Layers`, `frame::frame::chrome`) and the viewer
-panel (dsh-uml-viewer#21–#27) receives the JSON written by:
+builds it from a `scene::ViewState` as typed draw lists (`frame::Layers`,
+`frame::frame::chrome`); the viewer panel (dsh-uml-viewer#21–#27), the only
+renderer since the egui window was deleted (#30), receives the JSON written
+by:
 
 ```text
 uml-viewer scene --frame --ir <file.edn> [--focus <edn>] [--metrics-root <dir>]
@@ -81,7 +82,7 @@ A color is `{"role": <name>}`; the quality roles add `"grade"` (0–10,
 tokens; 质量色, 违规关系色, 无数据 (`no-data`) and 依赖链高亮
 (`dependency-chain`) keep their hue and adapt only to light/dark, so neither a
 host accent token nor a skin repaints them.
-The dark palette below is what the egui window paints (`frame::theme::rgba`).
+The dark palette below is the reference palette (`frame::theme::rgba`), the colors the deleted egui window painted.
 
 | role | meaning | dark palette |
 |---|---|---|
@@ -144,8 +145,8 @@ requests. Rects are `{x, y, w, h}`, points `[x, y]`, all in world units.
 | `port-link` | full | `owner behind tip stroke` | line `behind → tip` at `widths.portLink`, open arrowhead of 10 screen px at ±20° |
 | `port` | full | `id owner rect text marked fill stroke strokeWidth ink` | 依赖端口: rect (`radius.port`), label centred at `fonts.port`, fitted to `rect.w - 6` |
 
-Painting rules shared by the egui window and the panel (`crates/viewer/src/paint.rs`,
-`packages/client/src/paint.ts`): a scaled font size is a whole pixel,
+Painting rules of the panel (`packages/client/src/paint.ts`), carried over
+from the deleted egui window: a scaled font size is a whole pixel,
 `max(1, round(size * zoom))`, and a fitted label shrinks to the largest whole
 pixel that fits; marker, level, package title, no-data and port labels are
 placed by their top edge (a port label's top is `5 * zoom` above the port's

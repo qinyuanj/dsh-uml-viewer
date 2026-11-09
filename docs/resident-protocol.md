@@ -153,7 +153,7 @@ an arbitrary filename to this action.
 | `labels` | `{inspector, proposals, pHint}` | the sidebar's UI copy, from `frame::strings` |
 
 Summary text, member text, class counts, CRAP/mutation figures and the 无数据
-line are the shared model's, exactly as the egui window prints them; a class
+line are the shared model's, exactly as the deleted egui window printed them; a class
 with no quality data keeps its red 无数据 line in the `no-data` role.
 
 ## Class card
@@ -180,7 +180,7 @@ whole module), `lang`, and `rows`: `{number, text, display, marked, tokens}`.
 `text` is the source line (CR trimmed), `display` its tab-expanded painting,
 `marked` is true on the declaration row alone, and `tokens` are the
 `{text, kind}` runs (`keyword`, `string`, `comment`, `ink`) of `display`.
-A trailing newline leaves one empty last row, as the native window shows.
+A trailing newline leaves one empty last row, as the deleted native window showed.
 
 The resident reads the file from the session project. The client never reads
 source from disk; windows, their scrolling and their z-order are panel-local.
@@ -330,6 +330,6 @@ The resident checks the bytes it actually loaded again before restoring, so a
 replacement between the host's comparison and resident open also fails closed.
 This adds no new display grant: the IR-to-display gate remains process-local.
 
-The state carries the restoration dimensions of the egui window's restart
-snapshot (`.uml-viewer/session.edn`) without the window chrome and the mail
-cursor, which belong to the window and the companion mail.
+The state carries the restoration dimensions of the historical window
+restart snapshot (`.uml-viewer/session.edn`, gone with the window in #30)
+without its window chrome and mail cursor.

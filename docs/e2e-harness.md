@@ -46,7 +46,7 @@ it.
 
 ## Resource-limited #26 verification
 
-`quality.spec.mjs` converts the quality/highlight egui driver scenarios
+`quality.spec.mjs` converts the quality/highlight scenarios of the deleted egui drivers
 (`class_boxes.edn`, `lod_shots.edn` and `metrics.edn` for 质量色, C/M 圆点 and
 无数据; `navigation.edn` for 依赖链高亮 and 关系淡化, whose resident selection
 `navigation.spec.mjs` already exercises) to the existing lane:
@@ -184,8 +184,8 @@ failure kind), `data-context` (`real` or `proposal`), and text of the form
 frame and context events that paint the Canvas. It gives later tickets a
 user-readable assertion seam without reaching into client internals.
 
-`primitives.spec.mjs` (#24) is the Playwright form of the egui class-box
-driver scenarios (`scripts/drivers/class_boxes.edn`, `font_parity.edn`,
+`primitives.spec.mjs` (#24) is the Playwright form of the deleted egui
+class-box driver scenarios (`class_boxes.edn`, `font_parity.edn`,
 `lod_shots.edn`). It reads the real panel canvas pixel by pixel and compares
 it with the real producer frame for the same view: `canvas.mjs` runs
 `uml-viewer scene --frame --wide` with the panel's viewport and the camera
@@ -233,8 +233,36 @@ The Ledger proposal case checks the proposal banner, its real `api → orders`
 shaft at the full and frames tiers, and its disappearance in blocks after
 real wheel gestures. The producer supplies geometry for each camera and tier.
 Failure evidence and the Playwright trace stay under the run's scratch root.
-Native fixed-input screenshot scripts remain available for the egui shell;
-these cases cover the corresponding panel behavior.
+These cases cover the panel behavior of the deleted fixed-input screenshot
+scripts.
+
+## Deleted window drivers (#30)
+
+The standalone egui window, its `viewer` crate, the EDN drivers under
+`scripts/drivers/` and `scripts/run_viewer_driver.py` were deleted in
+dsh-uml-viewer#30. Each driver maps to the Playwright case that now owns its
+behavior. "Retired" marks window-only behavior with no panel counterpart.
+
+| deleted driver | Playwright case | not carried over |
+|---|---|---|
+| `class_boxes.edn` | `primitives.spec.mjs` › paints class boxes, component boxes, α/I, levels, CJK names and the foreign ellipse like the producer | egui italic glyph-vertex shear (italic font choice: `packages/client/tests/primitives.test.ts`) |
+| `detail_scroll.edn` | `overlays.spec.mjs` › class card wheel steps clamp at both ends, keep inspector visible, and resize columns; › inspector follows class selection, switches proposal, and P returns to the namespace tree (empty-inspector help) | New Proposal row and right-click Rename/Delete menu: retired, the panel edits no policy; a new proposal is a panel request (#29) |
+| `dpi_shots.edn`, `dpi_window.edn` | `display.spec.mjs` › scale-2 canvas rasterizes at device pixels, hits at CSS points and follows a resized page | window size limits and the 280 → 340 sidebar drag: retired, the host owns the panel size |
+| `font_parity.edn`, `font_parity_baseline.edn`, `fonts.edn` | `primitives.spec.mjs` (names inked inside their producer slots, no label past a box edge, Sarasa CJK/Latin advances) | window font lookup chain and the glyph-coverage probe: retired with the window's font loader |
+| `inspector.edn` | `overlays.spec.mjs` › inspector follows class selection, switches proposal, and P returns to the namespace tree; `session.spec.mjs` › restores the proposal discussion context after a DSH restart | proposal rename, its Chinese text input and policy/IR write-back: retired, the companion edits the policy in place (`docs/companion-rules.md`) |
+| `lod_shots.edn` | `primitives.spec.mjs` (full → frames tier); `edges.spec.mjs` › proposal relation stays solid in full and frames tiers and disappears in blocks | — |
+| `metrics.edn` | `reload.spec.mjs` › a metric-only snapshot edit reloads quality without rewriting the IR | — |
+| `navigation.edn` | `navigation.spec.mjs` › drills in and back, selects a dependency chain, searches and returns with P; › anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and cycles declutter in place | — |
+| `review_fixes.edn` | `overlays.spec.mjs` › module source, exact member line, native copy, same-file reuse and independent source windows | per-window retained selections after copying from another widget: the browser owns one document selection |
+| `route_library.edn`, `route_proposal.edn`, `route_shots.edn` | `edges.spec.mjs` (all four cases) | before/after screenshots only; they asserted nothing |
+| `search.edn` | `navigation.spec.mjs` › drills in and back, selects a dependency chain, searches and returns with P | — |
+| `source_jump.edn`, `source_window.edn` | `overlays.spec.mjs` › module source, exact member line, native copy, same-file reuse and independent source windows | — |
+| `standalone.edn` | `reload.spec.mjs` › an edited diagram.edn hot-reloads into the open panel | — |
+| `terminate.edn`, `window_controls.edn` | none | retired: WM_CLOSE/SIGTERM and undecorated-window close buttons belong to the deleted window; the panel's lifecycle is the host seams' and `package.spec.mjs` |
+
+`display.spec.mjs`, `reload.spec.mjs` and the camera/declutter case of
+`navigation.spec.mjs` were authored in #30 under the resource policy and have
+not been run in a browser.
 
 
 ## Harness API for #23–#29
@@ -245,7 +273,7 @@ host bootstrap.
 `launchViewerLane(browser, options?)` accepts `packageMain` and
 `packagePlatform` (equivalent to the two environment variables), plus an async
 `prepareProjects(projects)` hook called after sample creation and before CLI
-installation. The hook lets lifecycle acceptance seed and snapshot protected
+installation, and `deviceScaleFactor` for a high-DPI browser context. The hook lets lifecycle acceptance seed and snapshot protected
 project data before either install or plugin load. It returns:
 
 | member | meaning |
@@ -253,10 +281,10 @@ project data before either install or plugin load. It returns:
 | `home` | run-scoped `DSH_HOME` with projects, logs, traces |
 | `host` | `{ url, stop, exited, output }` for the isolated DSH |
 | `mock` | `{ url, requests, stop }`; inspect the exact model requests |
-| `projects` | `{ shop, ledger, deep, atlas, nexus }` absolute sample roots |
+| `projects` | `{ shop, ledger, deep, atlas, nexus, inspector }` absolute sample roots |
 | `openPanel(name, options?)` | create/select that session, open the sidebar tab, render IR, and return `{ page, panel, canvas, summary, sessionId, before, problems }`; optional `state` overrides the seeded persisted session state before panel open |
 | `pan(panel)` | real pointer drag on that panel's canvas |
-| `wheel(panel, notches)` | real Ctrl+wheel notches over the canvas centre; positive zooms out (plain wheel now pans, matching egui) |
+| `wheel(panel, notches)` | real Ctrl+wheel notches over the canvas centre; positive zooms out (plain wheel pans) |
 | `point(panel, [x,y], clicks?)` | real canvas-local click or double-click |
 | `reopenPanel(panel)` | reload the Web client and reopen the same session, without IR/display |
 | `restart(panel)` | stop and boot the isolated DSH host on the same home, reopen the same session |

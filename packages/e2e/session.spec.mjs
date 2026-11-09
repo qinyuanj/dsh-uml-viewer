@@ -3,7 +3,8 @@ import { launchViewerLane } from './lane.mjs'
 import { producerFrame, toScreen } from './canvas.mjs'
 
 /**
- * The panel equivalent of scripts/drivers/session.edn + session_restore.edn:
+ * The panel equivalent of the historical session.edn + session_restore.edn
+ * window drivers:
  * the host persists the resident's view state, so both a Web reopen and a real
  * DSH host restart restore focus, camera and selection without another
  * uml_ir/uml_display. Discussion context is covered by the proposal session.

@@ -41,7 +41,9 @@ export async function launchViewerLane(browser, options = {}) {
   }
 
   async function newPage() {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+    // `deviceScaleFactor` emulates a high-DPI display (the deleted dpi drivers, #30).
+    const scale = options.deviceScaleFactor ? { deviceScaleFactor: options.deviceScaleFactor } : {}
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, ...scale })
     const page = await context.newPage()
     pages.push(page)
     const problems = []

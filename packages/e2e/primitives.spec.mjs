@@ -3,9 +3,9 @@ import { launchViewerLane } from './lane.mjs'
 import { differs, inkCount, panelCamera, producerFrame, sample, same, screenRect, toScreen } from './canvas.mjs'
 
 /**
- * Panel graph primitives (dsh-uml-viewer#24), the browser half of the egui
- * class-box driver scenarios (scripts/drivers/class_boxes.edn,
- * font_parity.edn, lod_shots.edn): the real panel canvas is read pixel by
+ * Panel graph primitives (dsh-uml-viewer#24), the browser form of the deleted
+ * egui class-box window drivers (class_boxes.edn, font_parity.edn,
+ * font_parity_baseline.edn, fonts.edn, lod_shots.edn; removed in #30): the real panel canvas is read pixel by
  * pixel and compared with the real producer frame (`uml-viewer scene --frame`)
  * for the same IR, viewport and camera. The atlas sample has no metrics, so
  * every class and component frame is unmeasured (dashed); the foreign-package

@@ -3,8 +3,8 @@ import { launchViewerLane } from './lane.mjs'
 import { producerFrame, screenRect } from './canvas.mjs'
 import { TARGET_LINE, TARGET_TEXT } from './inspector-project.mjs'
 
-// Browser counterparts of source_jump, source_window, detail_scroll and
-// inspector drivers. Every model comes from the real IR/resident lane.
+// Browser counterparts of the deleted source_jump, source_window,
+// detail_scroll, review_fixes and inspector window drivers (#30). Every model comes from the real IR/resident lane.
 let lane
 
 test.beforeAll(async ({ browser }) => { lane = await launchViewerLane(browser) })
