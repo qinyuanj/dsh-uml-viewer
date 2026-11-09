@@ -288,6 +288,31 @@ export class ResidentPool {
   readonly opening = new Map<string, Promise<ResidentConnection>>()
 }
 
+/** Persist one live view; best effort, never an action failure. */
+export async function saveView(states: SessionStates, connection: ResidentConnection): Promise<void> {
+  try {
+    // A stale/missing diagram reopens waiting. Preserve its last displayed
+    // snapshot rather than replacing it with the blank canvas on resize.
+    if (connection.latestFrame?.waiting && await states.read(connection.id)) return
+    const saved = await connection.request({ action: 'save' }, ACTION_TIMEOUT_MS, { quiet: true })
+    if (saved.event === 'state') await states.write(connection.id, saved.state)
+  } catch {
+    // A view-state write must not turn a successful action into an error.
+  }
+}
+
+/** DSH shutting down: save and stop every resident a root pool still owns. */
+export async function disposePool(states: SessionStates, pool: ResidentPool): Promise<void> {
+  await Promise.allSettled([...pool.opening.values()])
+  for (const connection of [...pool.connections.values()]) {
+    pool.connections.delete(connection.id)
+    await saveView(states, connection)
+    connection.end()
+    connection.child.terminate()
+    await Promise.race([connection.exited, new Promise(resolve => setTimeout(resolve, STOP_TIMEOUT_MS))])
+  }
+}
+
 export class ResidentSessions {
   private readonly connections: ResidentPool['connections']
   private readonly opening: ResidentPool['opening']
@@ -468,16 +493,8 @@ export class ResidentSessions {
   }
 
   /** Persist what the resident currently shows; best effort, never an action failure. */
-  private async save(connection: ResidentConnection): Promise<void> {
-    try {
-      // A stale/missing diagram reopens waiting. Preserve its last displayed
-      // snapshot rather than replacing it with the blank canvas on resize.
-      if (connection.latestFrame?.waiting && await this.states.read(connection.id)) return
-      const saved = await connection.request({ action: 'save' }, ACTION_TIMEOUT_MS, { quiet: true })
-      if (saved.event === 'state') await this.states.write(connection.id, saved.state)
-    } catch {
-      // A view-state write must not turn a successful action into an error.
-    }
+  private save(connection: ResidentConnection): Promise<void> {
+    return saveView(this.states, connection)
   }
 
   /** Persisted view state that names a vanished proposal must stop naming it. */
@@ -518,16 +535,6 @@ export class ResidentSessions {
   }
 
   async dispose(): Promise<void> {
-    // A spawn already preparing at shutdown must become owned before teardown.
-    await Promise.allSettled([...this.opening.values()])
-    for (const connection of [...this.connections.values()]) {
-      this.connections.delete(connection.id)
-      // DSH is shutting down: no panel close will follow, so this is the
-      // last chance to keep the view and discussion context.
-      await this.save(connection)
-      connection.end()
-      connection.child.terminate()
-      await Promise.race([connection.exited, new Promise(resolve => setTimeout(resolve, STOP_TIMEOUT_MS))])
-    }
+    await disposePool(this.states, { connections: this.connections, opening: this.opening })
   }
 }

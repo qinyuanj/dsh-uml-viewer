@@ -11,9 +11,8 @@ import { displayResult, runDisplay } from './display.js'
 import type { HostServices, ToolRunContext } from './dsh.js'
 import { registerFontRoute } from './font.js'
 import { IrGate, QualityGate } from './gate.js'
-import { PanelPrompts } from './prompt.js'
 import { qualityResult, runQuality } from './quality.js'
-import { residentLifetime } from './lifetime.js'
+import { panelLifetime } from './lifetime.js'
 import { irResult, runIr } from './runner.js'
 import { SessionStates, pluginHome } from './state.js'
 import { ViewerService } from './viewer.js'
@@ -80,9 +79,7 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
   const gate = new IrGate()
   const quality = new QualityGate()
   const states = new SessionStates(home)
-  const sessions = residentLifetime(ctx, home, services, effectiveConfig, states)
-  const prompts = new PanelPrompts()
-  ctx.root.effect(() => () => prompts.disposeAll(), 'dsh-uml-viewer: prompt root lifetime')
+  const { sessions, prompts } = panelLifetime(ctx, home, services, effectiveConfig, states)
   const viewer = new ViewerService(sessions, prompts)
 
   ctx.effect(() => services.tools.register({

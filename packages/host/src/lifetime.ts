@@ -1,38 +1,57 @@
 import type { Context } from '@deepseek-ai/cordis'
-import type { HostServices } from './dsh.js'
 import type { Config } from './binary.js'
-import { ResidentPool, ResidentSessions } from './resident.js'
+import type { HostServices } from './dsh.js'
+import { PanelPrompts } from './prompt.js'
+import { disposePool, ResidentPool, ResidentSessions } from './resident.js'
 import type { SessionStates } from './state.js'
 
 // The root context outlives a plugin replacement; no process-global registry.
 // Symbol.for also survives loading a new copy of this module after an update.
-const POOLS = Symbol.for('dsh-uml-viewer.resident-pools.v1')
-type Root = Context & { [POOLS]?: Map<string, ResidentPool> }
+const STATE = Symbol.for('dsh-uml-viewer.panel-state.v1')
+
+interface Shared {
+  pool: ResidentPool
+  prompts: PanelPrompts
+}
+type Root = Context & { [STATE]?: Map<string, Shared> }
+
+/** The per-plugin-home panel state this activation joins. */
+export interface PanelLifetime {
+  readonly sessions: ResidentSessions
+  readonly prompts: PanelPrompts
+}
 
 /**
  * Open panels retain their children across a plugin replacement. The new
- * activation joins the root's pool: actions for an existing session reach
+ * activation joins the root's state: actions for an existing session reach
  * its old resident, and a fresh session starts with the new pinned argv.
- * Last-panel close still stops its resident; root shutdown is a second
- * owner that stops every remaining child, even if no panel close arrives.
+ * Last-panel close still stops its resident and drops its prompt section;
+ * root shutdown is a second owner that stops every remaining child, even if
+ * no panel close arrives.
  */
-export function residentLifetime(ctx: Context, home: string | undefined, services: HostServices,
-  config: Config, states: SessionStates): ResidentSessions {
+export function panelLifetime(ctx: Context, home: string | undefined, services: HostServices,
+  config: Config, states: SessionStates): PanelLifetime {
   const root = ctx.root as Root
-  let pools = root[POOLS]
-  if (!pools) {
-    pools = new Map()
-    Object.defineProperty(root, POOLS, { value: pools, configurable: true })
-    root.effect(() => () => { delete root[POOLS] }, 'dsh-uml-viewer: resident pool registry')
+  let shared = root[STATE]
+  if (!shared) {
+    shared = new Map()
+    Object.defineProperty(root, STATE, { value: shared, configurable: true })
+    root.effect(() => () => { delete root[STATE] }, 'dsh-uml-viewer: panel state registry')
   }
   const key = home ?? 'checkout'
-  let pool = pools.get(key)
-  const fresh = !pool
-  if (!pool) {
-    pool = new ResidentPool()
-    pools.set(key, pool)
+  let entry = shared.get(key)
+  if (!entry) {
+    entry = { pool: new ResidentPool(), prompts: new PanelPrompts() }
+    shared.set(key, entry)
+    const owned = entry
+    root.effect(() => async () => {
+      shared.delete(key)
+      owned.prompts.disposeAll()
+      await disposePool(states, owned.pool)
+    }, 'dsh-uml-viewer: panel root lifetime')
   }
-  const sessions = new ResidentSessions(services, config, states, pool)
-  if (fresh) root.effect(() => () => sessions.dispose(), 'dsh-uml-viewer: resident root lifetime')
-  return sessions
+  return {
+    sessions: new ResidentSessions(services, config, states, entry.pool),
+    prompts: entry.prompts,
+  }
 }

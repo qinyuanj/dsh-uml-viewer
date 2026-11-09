@@ -25,10 +25,13 @@ dsh plugin --profile web remove dsh-uml-viewer @dsh-uml-viewer/win32-x64
 ```
 
 Use the matching platform archive. The plugin pins its packaged binary under
-`<DSH_HOME>/dsh-uml-viewer/versions/<version>/`; uninstall removes packages and
-the Loader contribution, preserving project policy, proposals and `.metrics/`.
-It does not migrate old `.uml-viewer/` data. Use a scratch `DSH_HOME` for all
-development installation and testing; never test against a working profile.
+`<DSH_HOME>/dsh-uml-viewer/<version>/` (atomic, hash-verified copy) and records
+the current version in `current.json`; a running panel keeps its version until
+it is closed, and only an unused version directory is removed. Uninstall
+removes packages and the Loader contribution, preserving project policy,
+proposals and `.metrics/`. It does not migrate old `.uml-viewer/` data. Use a
+scratch `DSH_HOME` for all development installation and testing; never test
+against a working profile.
 
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts --store-dir /absolute/scratch/pnpm-store
