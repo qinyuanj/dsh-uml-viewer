@@ -181,8 +181,7 @@ pub fn source_json(session: &Session, id: &Value, member: Option<&str>) -> Resul
             std::fs::read_to_string(path).ok()
         },
         is_file: &|path| {
-            project_source(&project, std::path::Path::new(path))
-                .is_ok_and(|p| p.is_file())
+            project_source(&project, std::path::Path::new(path)).is_ok_and(|p| p.is_file())
         },
     };
     let opened = source::member_source(&ident, &files)
@@ -221,7 +220,10 @@ fn project_source(
     project: &std::path::Path,
     candidate: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
-    if candidate.components().any(|part| part == std::path::Component::ParentDir) {
+    if candidate
+        .components()
+        .any(|part| part == std::path::Component::ParentDir)
+    {
         return Err("source path must stay inside the session project".into());
     }
     let resolved = std::fs::canonicalize(candidate)

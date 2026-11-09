@@ -154,6 +154,57 @@ oracle). A later ticket that needs another project
 should add it to `makeProjects` and the workspace registry rather than editing
 the host bootstrap.
 
+## Overlay acceptance (#27)
+
+`packages/e2e/overlays.spec.mjs` extends the same isolated lane. Its
+`inspector` project is created by `packages/e2e/inspector-project.mjs` and
+registered through `makeProjects`; the workspace registry consumes every key
+of that mapping automatically. The real mock-model `uml_ir` flow scans two
+TypeScript modules, 60 exported operations plus `target`, a dependency, and a
+named proposal. The target is a top-level exported function at **line 82**;
+class methods would not exercise the current TypeScript declaration lookup.
+The file has 84 displayed rows including the trailing empty row.
+
+The cases port the applicable behavior of `source_jump.edn`,
+`source_window.edn`, `detail_scroll.edn` and `inspector.edn`:
+
+- The inspector explains an empty selection, refreshes to the selected class
+  and its no-data summary, selects the named proposal, and accepts **P** on
+  the focused panel to return to the source namespace tree.
+- A real canvas double-click opens the class card at coordinates from
+  `producerFrame`, without injecting a frame or invoking a private controller.
+  Wheel gestures advance by 48 pixels and clamp at both ends while the
+  inspector and diagram camera stay put. Native CSS resize gestures exercise
+  horizontal overflow below the 560-pixel plan minimum and column layout at
+  the available sidebar width.
+- The module row opens the whole file without a marked line. The member row
+  reuses that source window, marks exactly line 82, and puts the full row
+  inside a genuinely scrolled source viewport. A native word selection and
+  copy put `function` on Chromium's clipboard; the line-number gutter remains
+  unselectable. A relationship row locates the second module; its source can
+  coexist with the first and close independently.
+- Switching `body[data-ds-dark-theme]` checks computed inspector, card, source,
+  gutter, keyword and border colors against resolved host tokens in both
+  modes, and requires the actual surface colors to change.
+
+Proposal creation, rename/delete and regeneration remain #28/#29 scope. Source
+window coexistence uses distinct files; repeated opens of the same file reuse
+its existing DOM window. The source window is resized to expose card controls
+while testing reuse. Browser clipboard permissions are scoped to that isolated
+context. No case attaches to the live GUI.
+
+Run only these cases after the plugin and binary have been built and scratch
+Chromium has been installed. For the native Windows t27 scratch lane:
+
+```powershell
+$env:PLAYWRIGHT_BROWSERS_PATH = 'D:/dev/github/spec203-notes/scratch-t27/browsers'
+$env:UML_VIEWER_E2E_SCRATCH = 'D:/dev/github/spec203-notes/scratch-t27'
+$env:UML_VIEWER_BIN = 'D:/dev/github/dsh-uml-viewer-wt/t27/target/debug/uml-viewer.exe'
+pnpm --filter @dsh-uml-viewer/e2e test:e2e overlays.spec.mjs
+```
+
+These are authored acceptance cases; adding them does not claim a browser run.
+
 ## CI
 
 `.github/workflows/ci.yml` has a `panel-e2e` Windows job that installs a

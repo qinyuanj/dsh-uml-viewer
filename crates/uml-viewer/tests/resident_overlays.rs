@@ -219,7 +219,8 @@ fn line_text(line: &Value) -> String {
 fn inspector_lists_the_source_diagram_and_proposals_with_the_empty_help() {
     let dir = shop_project("inspector");
     let mut resident = opened(&dir);
-    let shown = resident.ask(2, json!({"action": "inspector"}), "inspector");    assert_eq!(
+    let shown = resident.ask(2, json!({"action": "inspector"}), "inspector");
+    assert_eq!(
         json!([
             {"id": null, "label": "Shop", "active": true},
             {"id": ":p-shop", "label": "2026-10-24 10:00:00", "active": false}
@@ -483,10 +484,24 @@ fn a_card_request_without_an_open_card_is_an_error_that_changes_nothing() {
 fn assert_source_escape_refused(dir: &Path) {
     let mut resident = opened(dir);
     resident.ask(2, json!({"action": "drill-in", "id": ":core"}), "frame");
-    resident.ask(3, json!({"action": "open-card", "id": ":core.order"}), "frame");
+    resident.ask(
+        3,
+        json!({"action": "open-card", "id": ":core.order"}),
+        "frame",
+    );
     let before = resident.ask(4, json!({"action": "save"}), "state");
-    let error = resident.ask(5, json!({"action": "open-source", "id": ":core.order"}), "error");
-    assert!(error["message"].as_str().unwrap().contains("inside the session project"), "{error}");
+    let error = resident.ask(
+        5,
+        json!({"action": "open-source", "id": ":core.order"}),
+        "error",
+    );
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap()
+            .contains("inside the session project"),
+        "{error}"
+    );
     let after = resident.ask(6, json!({"action": "save"}), "state");
     assert_eq!(before["state"], after["state"]);
     resident.finish();
@@ -497,8 +512,12 @@ fn source_parent_traversal_is_refused_without_changing_the_view() {
     let dir = source_project("source escape");
     let outside = temp_dir("outside");
     std::fs::write(outside.join("secret.rs"), "pub fn secret() {}\n").unwrap();
-    let relative = format!("../{}/secret.rs", outside.file_name().unwrap().to_string_lossy());
-    let ir = std::fs::read_to_string(dir.join("diagram.edn")).unwrap()
+    let relative = format!(
+        "../{}/secret.rs",
+        outside.file_name().unwrap().to_string_lossy()
+    );
+    let ir = std::fs::read_to_string(dir.join("diagram.edn"))
+        .unwrap()
         .replace("src/order.rs", &relative);
     std::fs::write(dir.join("diagram.edn"), ir).unwrap();
     assert_source_escape_refused(&dir);
@@ -514,13 +533,19 @@ fn source_link_outside_the_project_is_refused_without_reading_it() {
     let link = dir.join("linked");
     #[cfg(windows)]
     {
-        let status = Command::new("cmd.exe").args(["/d", "/c", "mklink", "/J"])
-            .arg(&link).arg(&outside).stdout(Stdio::null()).status().unwrap();
+        let status = Command::new("cmd.exe")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&link)
+            .arg(&outside)
+            .stdout(Stdio::null())
+            .status()
+            .unwrap();
         assert!(status.success(), "creating the test junction failed");
     }
     #[cfg(unix)]
     std::os::unix::fs::symlink(&outside, &link).unwrap();
-    let ir = std::fs::read_to_string(dir.join("diagram.edn")).unwrap()
+    let ir = std::fs::read_to_string(dir.join("diagram.edn"))
+        .unwrap()
         .replace("src/order.rs", "linked/secret.rs");
     std::fs::write(dir.join("diagram.edn"), ir).unwrap();
     assert_source_escape_refused(&dir);
