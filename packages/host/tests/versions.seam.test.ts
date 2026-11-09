@@ -7,7 +7,14 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { PanelEvent } from '@dsh-uml-viewer/contracts'
+import type { PanelEvent, PanelOwner } from '@dsh-uml-viewer/contracts'
+// The real client mount, loaded untyped: the host package has no React types.
+const CLIENT_ENTRY: string = new URL('../../client/src/index.ts', import.meta.url).href
+type ClientContext = { get(name: string): unknown }
+import { Element, makeDocument } from '../../client/tests/dom.js'
+import type { ViewerService } from '../src/viewer.js'
+vi.mock('react', () => ({ createElement: vi.fn() }))
+vi.mock('../../client/src/font.js', () => ({ FONT_FAMILY: 'test', loadSarasa: async () => {} }))
 import type { Agent, HostServices, SpawnSpec } from '../src/dsh.js'
 import * as plugin from '../src/index.js'
 import { cleanupVersions } from '../src/versions.js'
@@ -30,6 +37,7 @@ afterEach(async () => {
   for (const controller of controllers.splice(0)) controller.abort()
   for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
   vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
 })
 
@@ -113,21 +121,27 @@ async function host(dshHome: string, packageRoot: string, wrappers = new Map<str
   const fiber = ctx.plugin({ name: 'uml-viewer-version-host',
     apply: (scope: Context) => plugin.applyWithPlatform(scope, {}, { platform: process.platform, arch: process.arch, root: packageRoot }) })
   await fiber
-  const panel = async (session: string) => {
+  const preparePanel = async (session: string) => {
     const project = projects[session] ?? await scratch(`project ${session}`)
     projects[session] = project
     agents[session] = { id: session, session: { id: session } }
     if (!existsSync(path.join(project, 'resident.json'))) {
       await writeFile(path.join(project, 'resident.json'), JSON.stringify({ framePath: goldenFrame }))
     }
+    return { project, agent: agents[session]! }
+  }
+  const panel = async (session: string, owner?: PanelOwner) => {
+    const { project } = await preparePanel(session)
     const controller = new AbortController()
     controllers.push(controller)
     const viewer = ctx.get('umlViewer') as unknown as {
       watch(agent: Agent, signal: AbortSignal): AsyncIterable<PanelEvent>
       action(agent: Agent, action: unknown): Promise<{ accepted: boolean; reason: string | null }>
       close(agent: Agent): Promise<{ closed: boolean }>
+      watchOwned(agent: Agent, owner: PanelOwner, signal: AbortSignal): AsyncIterable<PanelEvent>
+      closeOwned(agent: Agent, owner: PanelOwner): Promise<{ closed: boolean }>
     }
-    const iterator = viewer.watch(agents[session]!, controller.signal)[Symbol.asyncIterator]()
+    const iterator = (owner ? viewer.watchOwned(agents[session]!, owner, controller.signal) : viewer.watch(agents[session]!, controller.signal))[Symbol.asyncIterator]()
     const ready = (await iterator.next()).value as PanelEvent
     expect(ready).toMatchObject({ kind: 'ready' })
     return {
@@ -143,16 +157,94 @@ async function host(dshHome: string, packageRoot: string, wrappers = new Map<str
       },
       /** A user close: the explicit Remote call, then the stream's own teardown. */
       close: async () => {
-        await viewer.close(agents[session]!)
+        if (owner) await viewer.closeOwned(agents[session]!, owner)
+        else await viewer.close(agents[session]!)
         controller.abort()
         await iterator.return?.(undefined)
       },
     }
   }
-  return { ctx, projects, children, fiber, panel, unload: () => fiber.dispose(), dispose: () => ctx.fiber.dispose() }
+  return { ctx, projects, children, fiber, panel, preparePanel, unload: () => fiber.dispose(), dispose: () => ctx.fiber.dispose() }
+}
+
+/** Real mount/controller → typed API bridge → real ViewerService/root pool. */
+async function mountedPanel(h: Awaited<ReturnType<typeof host>>, session: string, doc: ReturnType<typeof makeDocument>) {
+  const { project, agent } = await h.preparePanel(session)
+  // The real overlay controller asks for the inspector; give the fixture a valid model.
+  await writeFile(path.join(project, 'resident.json'), JSON.stringify({ framePath: goldenFrame, inspector: {
+    entries: [{ id: null, label: 'Shop', active: true }], summary: { kind: 'class', lines: [] },
+    declutterLabel: 'none', detail: null, selected: null, labels: { inspector: 'Inspector', proposals: 'Proposals', pHint: 'P' },
+  } }))
+  const viewer = h.ctx.get('umlViewer') as unknown as ViewerService
+  const api = {
+    watchOwned(_sessionId: string, owner: PanelOwner) {
+      const abort = new AbortController()
+      controllers.push(abort)
+      const stream = viewer.watchOwned(agent, owner, abort.signal)
+      return { [Symbol.asyncIterator]: () => stream[Symbol.asyncIterator](), end() { abort.abort() }, dispose() { abort.abort() } }
+    },
+    closeOwned: (_sessionId: string, owner: PanelOwner) => viewer.closeOwned(agent, owner),
+    action: (_sessionId: string, action: any) => viewer.action(agent, action),
+  }
+  const ctx = { get: (name: string) => name === 'remote' ? { $mount: async () => {} } : api } as unknown as ClientContext
+  vi.stubGlobal('document', doc)
+  const element = new Element('host', doc)
+  const { mountPanel } = await import(CLIENT_ENTRY) as { mountPanel(host: unknown, options: Record<string, unknown>): Promise<() => void> }
+  const dispose = await mountPanel(element, { sessionId: session, ctx })
+  await vi.waitFor(() => expect(element.descendants().find(el => el.attributes['aria-label'] === 'UML panel summary')?.dataset.kind).toBe('frame'))
+  return { element, dispose, project, runs: async () => (await readFile(path.join(project, 'resident-versions.log'), 'utf8')).trim().split('\n').map(line => JSON.parse(line) as { version: string; binary: string }) }
 }
 
 const sha256 = async (file: string) => createHash('sha256').update(await readFile(file)).digest('hex')
+
+it('actual mount disposal and a new controller retain the resident and lease, then explicit close/reopen chooses current', async () => {
+  const dshHome = await scratch('actual mount home')
+  const home = path.join(dshHome, 'dsh-uml-viewer')
+  const doc = makeDocument()
+  const old = await host(dshHome, await install('1.0.0'))
+  const first = await mountedPanel(old, 'one-session', doc)
+  const leases = await readdir(path.join(home, 'leases', '1.0.0'))
+  expect(leases).toHaveLength(1)
+  await old.unload()
+  first.dispose()
+  await vi.waitFor(() => expect(old.children.filter(child => child.alive())).toHaveLength(1))
+  const updated = await host(dshHome, await install('1.1.0'), new Map(), old)
+  const second = await mountedPanel(updated, 'one-session', doc)
+  expect(await second.runs()).toEqual([{ version: '1.0.0', binary: path.join(home, '1.0.0', exe) }])
+  expect(await readdir(path.join(home, 'leases', '1.0.0'))).toEqual(leases)
+  const close = second.element.descendants().find(el => el.textContent === 'Close viewer')!
+  close.fire('click')
+  await vi.waitFor(() => expect(close.textContent).toBe('Open viewer'))
+  expect(old.children.map(child => child.alive())).toEqual([false])
+  expect(existsSync(path.join(home, 'leases', '1.0.0'))).toBe(false)
+  close.fire('click')
+  await vi.waitFor(() => expect(updated.children.filter(child => child.alive())).toHaveLength(1))
+  await vi.waitFor(async () => expect(await second.runs()).toHaveLength(2))
+  expect((await second.runs()).at(-1)).toEqual({ version: '1.1.0', binary: path.join(home, '1.1.0', exe) })
+  second.dispose()
+  await updated.dispose()
+  expect(updated.children.map(child => child.alive())).toEqual([false, false])
+})
+
+it('a distinct withdrawn document is fresh, while a second live page still shares the resident', async () => {
+  const dshHome = await scratch('owned document home')
+  const home = path.join(dshHome, 'dsh-uml-viewer')
+  const old = await host(dshHome, await install('1.0.0'))
+  const first = await old.panel('one-session', { pageId: 'page-a', holderId: 'first' })
+  await old.unload()
+  const updated = await host(dshHome, await install('1.1.0'), new Map(), old)
+  const overlapping = await updated.panel('one-session', { pageId: 'page-b', holderId: 'second' })
+  expect(await overlapping.runs()).toHaveLength(1)
+  expect(updated.children.filter(child => child.alive())).toHaveLength(1)
+  await first.withdraw()
+  await overlapping.withdraw()
+  const fresh = await mountedPanel(updated, 'one-session', makeDocument())
+  expect(await fresh.runs()).toEqual([
+    { version: '1.0.0', binary: path.join(home, '1.0.0', exe) },
+    { version: '1.1.0', binary: path.join(home, '1.1.0', exe) },
+  ])
+  fresh.dispose()
+})
 
 it('pins the platform payload under <DSH home>/dsh-uml-viewer/<version>/ and records it as current', async () => {
   const dshHome = await scratch('home')

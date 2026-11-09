@@ -10,7 +10,7 @@
  * never changes the frame itself. The local camera math mirrors `scene::events` (on_wheel,
  * on_scroll, zoom_at, fit) so the panel behaves like the egui window.
  */
-import type { DiscussionContext, PanelAck, PanelAction, PanelEvent, SceneFrame, SearchResult } from '@dsh-uml-viewer/contracts'
+import type { DiscussionContext, PanelAck, PanelAction, PanelEvent, PanelOwner, SceneFrame, SearchResult } from '@dsh-uml-viewer/contracts'
 import { hitTest, paintFrame } from './paint.js'
 import { hoverAt, sameHover, showsPopup, withHover, type HoverHit } from './hover.js'
 import { cssToWorld, screenToWorld, viewTransform } from './fit.js'
@@ -24,6 +24,8 @@ export interface PanelStream extends AsyncIterable<PanelEvent> {
 /** What the panel hands to the host side of the Remote. */
 export interface PanelRemoteApi {
   watch(sessionId: string): PanelStream
+  watchOwned?(sessionId: string, owner: PanelOwner): PanelStream
+  closeOwned?(sessionId: string, owner: PanelOwner): Promise<unknown>
   action(sessionId: string, action: PanelAction): Promise<unknown>
   /**
    * The explicit close (#32, D13). A stream ending is a carrier loss — the host
@@ -59,6 +61,8 @@ export interface PanelDeps {
   /** Injected for tests; defaults to the Canvas 2D painter. */
   paint?: (frame: SceneFrame, canvas: HTMLCanvasElement) => void
   onStatus?: (status: PanelStatus) => void
+  /** A new holder per open; the document identity stays stable on remount. */
+  owner?: () => PanelOwner
 }
 
 export interface KeyModifiers { control?: boolean; shift?: boolean }
@@ -86,6 +90,8 @@ export class PanelController {
   private abort: AbortController | null = null
   private stream: PanelStream | null = null
   private sessionId: string | null = null
+  private owner: PanelOwner | null = null
+  private readonly makeOwner: (() => PanelOwner) | undefined
   private frame: SceneFrame | null = null
   private status: PanelStatus = { kind: 'connecting', reason: null, actions: [], frame: null, context: null, search: EMPTY_SEARCH }
   private observer: MutationObserver | null = null
@@ -105,6 +111,7 @@ export class PanelController {
     this.api = deps.api
     this.paint = deps.paint ?? paintFrame
     this.onStatus = deps.onStatus
+    this.makeOwner = deps.owner
   }
 
   public get current(): PanelStatus {
@@ -119,11 +126,12 @@ export class PanelController {
   /** Open the stream bound to this session; a second open replaces the first. */
   public async open(sessionId: string): Promise<void> {
     const previous = this.sessionId
+    const previousOwner = this.owner
     // Rebinding is not a close: when the same session is replaced (the
     // sidebar/main reparent), saying "closed" would stop the resident the new
     // stream is about to re-attach to. Only a different session is left behind.
     this.teardown()
-    if (previous !== null && previous !== sessionId) this.sayClosed(previous)
+    if (previous !== null && previous !== sessionId) this.sayClosed(previous, previousOwner)
     this.sessionId = sessionId
     const abort = new AbortController()
     this.abort = abort
@@ -131,13 +139,29 @@ export class PanelController {
     this.observeTheme()
     const size = await this.measureViewport()
     this.setViewport(size.width, size.height)
-    const stream = this.api.watch(sessionId)
+    if (abort.signal.aborted) return
+    this.owner = this.makeOwner && this.api.watchOwned && this.api.closeOwned ? this.makeOwner() : null
+    let stream = this.owner ? this.api.watchOwned!(sessionId, this.owner) : this.api.watch(sessionId)
     this.stream = stream
     void (async () => {
       try {
-        for await (const event of stream) {
-          if (abort.signal.aborted) return
-          this.handle(event, abort.signal)
+        let received = false
+        for (;;) {
+          try {
+            for await (const event of stream) {
+              if (abort.signal.aborted) return
+              received = true
+              this.handle(event, abort.signal)
+            }
+            break
+          } catch (error) {
+            // A host from before the owned methods refuses them before any
+            // event; that host only understands the session-wide pair.
+            if (abort.signal.aborted || received || this.owner === null) throw error
+            this.owner = null
+            stream = this.api.watch(sessionId)
+            this.stream = stream
+          }
         }
         if (!abort.signal.aborted) this.publish({ kind: 'closed', reason: null, actions: [], frame: this.frame, context: this.status.context, search: this.status.search })
       } catch (error) {
@@ -147,21 +171,30 @@ export class PanelController {
     })()
   }
 
-  /** Close the panel and tell the host this is a close, not a lost carrier. */
-  public close(): void {
-    const sessionId = this.sessionId
+  /** Presentation teardown is withdrawal; it carries no user close intent. */
+  public detach(): void {
     this.teardown()
-    if (sessionId !== null) this.sayClosed(sessionId)
+    this.listeners.clear()
+  }
+
+  /** Close the panel and tell the host this is a close, not a lost carrier. */
+  public close(): Promise<void> {
+    const sessionId = this.sessionId
+    const owner = this.owner
+    this.teardown()
+    this.publish({ kind: 'closed', reason: null, actions: [], frame: this.frame, context: this.status.context, search: EMPTY_SEARCH })
+    return sessionId !== null ? this.sayClosed(sessionId, owner) : Promise.resolve()
   }
 
   /** Send the explicit-close Remote call; best effort, never blocks teardown. */
-  private sayClosed(sessionId: string): void {
+  private sayClosed(sessionId: string, owner: PanelOwner | null): Promise<void> {
     try {
-      const closing = this.api.close?.(sessionId)
-      void closing?.catch(() => {})
+      const closing = owner ? this.api.closeOwned?.(sessionId, owner) : this.api.close?.(sessionId)
+      return Promise.resolve(closing).then(() => {}, () => {})
     } catch {
       // The host keeps the resident for its withdrawal grace when this call
       // never arrives, so a failed send only delays the stop.
+      return Promise.resolve()
     }
   }
 
@@ -169,6 +202,7 @@ export class PanelController {
     this.abort?.abort()
     this.abort = null
     this.sessionId = null
+    this.owner = null
     const stream = this.stream
     this.stream = null
     // The Remote handle owns the carrier subscription; ending it releases this
@@ -220,7 +254,9 @@ export class PanelController {
   public setViewport(width: number, height: number): void {
     if (width <= 0 || height <= 0) return
     this.viewport = { width, height }
-    void this.send({ action: 'viewport', viewport: { width, height } })
+    // An early action could acquire the old resident before owned watch gets
+    // to apply its fresh-document boundary. `ready` sends the initial size.
+    if (this.status.kind === 'live') void this.send({ action: 'viewport', viewport: { width, height } })
   }
 
   private viewport: { width: number; height: number } | null = null

@@ -1,7 +1,12 @@
+/// <reference path="../../host/src/text-modules.d.ts" />
 import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PanelAction, PanelEvent, SceneFrame } from '@dsh-uml-viewer/contracts'
-import { fakeCanvas } from './fakes.js'
+import { Element, makeDocument } from './dom.js'
+import { ResidentConnection, ResidentPool, ResidentSessions } from '../../host/src/resident.js'
+import { ViewerService } from '../../host/src/viewer.js'
+import type { Agent, HostServices, SubprocessHandle } from '../../host/src/dsh.js'
+import type { SessionStates } from '../../host/src/state.js'
 
 vi.mock('react', () => ({ createElement: vi.fn() }))
 vi.mock('../src/font.js', () => ({ FONT_FAMILY: 'test', loadSarasa: async () => {} }))
@@ -9,61 +14,18 @@ import { mountPanel, type ClientContext } from '../src/index.js'
 
 const golden = JSON.parse(readFileSync(new URL('../../../crates/frame/tests/fixtures/frames/root.frame.json', import.meta.url), 'utf8')) as SceneFrame
 
-/** Minimal DOM with bubbling and native Event cancellation, used by real mountPanel handlers. */
-class Element extends EventTarget {
-  children: Element[] = []
-  parent: Element | null = null
-  dataset: Record<string, string> = {}
-  style: Record<string, string> = {}
-  attributes: Record<string, string> = {}
-  textContent = ''
-  value = ''
-  hidden = false
-  disabled = false
-  className = ''
-  ownerDocument: ReturnType<typeof makeDocument>
-  constructor(readonly tagName: string, doc: ReturnType<typeof makeDocument>) {
-    super()
-    this.ownerDocument = doc
-    if (tagName === 'canvas') {
-      const canvas = fakeCanvas({ width: 800, height: 600 })
-      Object.assign(this, { getContext: canvas.getContext, getBoundingClientRect: canvas.getBoundingClientRect })
-    }
-  }
-  append(...elements: Element[]): void { for (const el of elements) this.appendChild(el) }
-  appendChild(el: Element): Element { el.parent = this; this.children.push(el); return el }
-  replaceChildren(...elements: Element[]): void { this.children = []; this.append(...elements) }
-  remove(): void { if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this); this.parent = null }
-  setAttribute(key: string, value: string): void { this.attributes[key] = value }
-  focus(): void { this.ownerDocument.activeElement = this }
-  blur(): void { this.ownerDocument.activeElement = null }
-  fire(type: string, props: Record<string, unknown> = {}): Event {
-    const event = new Event(type, { cancelable: true, bubbles: true })
-    Object.assign(event, props)
-    // Native EventTarget supplies target; bubble with that same target.
-    this.dispatchEvent(event)
-    const target = event.target
-    Object.defineProperty(event, 'target', { value: target, configurable: true })
-    if (!event.cancelBubble) this.parent?.bubble(event)
-    return event
-  }
-  bubble(event: Event): void { this.dispatchEvent(event); if (!event.cancelBubble) this.parent?.bubble(event) }
-  find(tag: string): Element { const el = this.children.flatMap(child => [child, ...child.descendants()]).find(child => child.tagName === tag); if (!el) throw new Error(`missing ${tag}`); return el }
-  descendants(): Element[] { return this.children.flatMap(child => [child, ...child.descendants()]) }
-}
-
-function makeDocument() {
-  return { activeElement: null as Element | null, defaultView: {}, createElement(tag: string): Element { return new Element(tag, this) } }
-}
-
 const actions: PanelAction[] = []
 let pending: ((event: IteratorResult<PanelEvent>) => void) | undefined
+let bridge: any = null
 const api = {
-  watch: () => ({
+  watch: (...args: unknown[]): any => bridge ? bridge.watch(...args) : ({
     [Symbol.asyncIterator]() { return { next: () => new Promise<IteratorResult<PanelEvent>>(resolve => { pending = resolve }) } },
     end() { pending?.({ done: true, value: undefined }) },
   }),
-  async action(_sessionId: string, action: PanelAction) { actions.push(action); return { accepted: true, reason: null } },
+  async action(_sessionId: string, action: PanelAction) { if (bridge) return bridge.action(_sessionId, action); actions.push(action); return { accepted: true, reason: null } },
+  async close(sessionId: string) { return bridge?.close(sessionId) },
+  watchOwned(sessionId: string, owner: any) { return bridge?.watchOwned ? bridge.watchOwned(sessionId, owner) : api.watch(sessionId) },
+  async closeOwned(sessionId: string, owner: any) { return bridge?.closeOwned ? bridge.closeOwned(sessionId, owner) : api.close(sessionId) },
 }
 const ctx = { get: (name: string) => name === 'remote' ? { $mount: async () => {} } : api } as unknown as ClientContext
 let dispose: (() => void) | undefined
@@ -79,9 +41,83 @@ async function mount() {
   actions.length = 0
   return { host, canvas: host.find('canvas'), input: host.find('input'), results: host.find('ul') }
 }
-afterEach(() => { dispose?.(); dispose = undefined; vi.unstubAllGlobals() })
+afterEach(() => { dispose?.(); dispose = undefined; bridge = null; vi.unstubAllGlobals() })
 
 function camera() { return actions.filter(action => action.action === 'camera').at(-1) }
+
+describe('mounted resident lifetime (#32 D13)', () => {
+  it.each(['close-first', 'release-first', 'overlap'] as const)('actual disposer/new mount retains the resident despite stale legacy close: %s', async order => {
+    const pool = new ResidentPool()
+    const connection = new ResidentConnection('session', 'fixture', {
+      done: Promise.resolve({ exitCode: 0, signal: null }), terminate() {},
+    } as unknown as SubprocessHandle, false)
+    const requests: string[] = []
+    connection.request = async (action: { action: string }) => {
+      requests.push(action.action)
+      return { version: 1, seq: null, event: 'error', message: 'memory fixture' }
+    }
+    pool.connections.set('session', connection)
+    const sessions = new ResidentSessions({ sandboxPolicy: { resolve: () => ({ mode: 'danger-full-access', workspaceRoot: process.cwd() }) } } as unknown as HostServices,
+      {}, { read: async () => null } as unknown as SessionStates, pool)
+    const agent = { session: { id: 'session' } } as Agent
+    const viewer = new ViewerService(sessions, { openPanel() {}, closePanel() {} } as any, {} as any)
+    const owners: { pageId: string; holderId: string }[] = []
+    const aborts: AbortController[] = []
+    const closes: string[] = []
+    bridge = {
+      watchOwned(_sessionId: string, owner: { pageId: string; holderId: string }) {
+        owners.push(owner)
+        const abort = new AbortController()
+        aborts.push(abort)
+        const stream = viewer.watchOwned(agent, owner, abort.signal)[Symbol.asyncIterator]()
+        return { [Symbol.asyncIterator]: () => stream,
+          // Pinned gateway: end() only half-closes the uplink; dispose() aborts
+          // the generation and returns the iterator. close-first defers that.
+          end() {}, dispose() { if (order !== 'close-first') abort.abort() } }
+      },
+      async action() { return { accepted: true, reason: null } },
+      async close() { closes.push('legacy'); return viewer.close(agent) },
+      async closeOwned(_sessionId: string, owner: { pageId: string; holderId: string }) { closes.push(owner.holderId); return viewer.closeOwned(agent, owner) },
+    }
+    const doc = makeDocument()
+    vi.stubGlobal('document', doc)
+    const first = await mountPanel(new Element('host', doc) as unknown as HTMLElement, { sessionId: 'session', ctx })
+    await settled()
+    expect(connection.refs).toBe(1)
+    let second: (() => void) | undefined
+    const mountAgain = () => mountPanel(new Element('host', doc) as unknown as HTMLElement, { sessionId: 'session', ctx, main: true })
+    if (order === 'overlap') { second = await mountAgain(); await settled(); expect(connection.refs).toBe(2) }
+    first()
+    await settled()
+    expect(closes).toEqual([]) // Detach never claims user close intent.
+    // An older additive Remote may still deliver its unscoped close in either
+    // order. It cannot target or poison the new owned stream.
+    expect(await viewer.close(agent)).toEqual({ closed: false })
+    aborts[0]!.abort()
+    await settled()
+    expect(requests).not.toContain('quit')
+    expect(pool.connections.get('session')).toBe(connection)
+    if (order !== 'overlap') expect(pool.graces.size).toBe(1)
+    second ??= await mountAgain()
+    await settled()
+    expect(owners[0]!.pageId).toBe(owners[1]!.pageId)
+    expect(owners[0]!.holderId).not.toBe(owners[1]!.holderId)
+    expect(pool.connections.get('session')).toBe(connection)
+    expect(connection.refs).toBe(1)
+    expect(pool.graces.size).toBe(0)
+    expect(await viewer.closeOwned(agent, owners[0]!)).toEqual({ closed: order === 'overlap' })
+    second()
+    aborts[1]!.abort()
+    await settled()
+    expect(pool.connections.get('session')).toBe(connection)
+    expect(pool.graces.size).toBe(1)
+    expect(requests).not.toContain('quit')
+    await sessions.dispose()
+    expect(connection.refs).toBe(0)
+    expect(connection.holders.size).toBe(0)
+    expect(pool.graces.size).toBe(0)
+  })
+})
 
 describe('mounted panel wheel handlers', () => {
   it.each([

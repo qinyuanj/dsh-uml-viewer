@@ -241,10 +241,16 @@ A panel's watch stream is not the session's lifetime. Ending one — the gateway
 aborting the method signal and returning the iterator on a client unload, a
 carrier reconnect, or the sidebar/main reparent — keeps that session's resident
 for one bounded window (`WITHDRAWAL_GRACE_MS`, 30 s), so the same session
-re-attaches to the same child and the same plugin version. The definite close is
-the additive `umlViewer/close` Remote (`PanelCloseAck {closed}`, validated by
-contracts): its call, a window expiring with nobody attached, plugin uninstall
-and DSH shutdown stop the resident, and each saves the view first.
+re-attaches to the same child and the same plugin version. A mount disposer
+never closes. Panels use the additive `umlViewer/watchOwned` and
+`umlViewer/closeOwned`. Both take the `agent` lookup and a strict JSON `owner`
+`{pageId, holderId}` (1–128 of `[A-Za-z0-9_-]` each); only `watchOwned` has the
+trailing cancellation signal. `closeOwned` releases only its own holder and
+answers `PanelCloseAck {closed}`. The version-1 `watch` and `close` keep their
+wire shape. A legacy `close` is ignored once a resident has an owned holder.
+A distinct `pageId` replaces a resident only when nothing holds it. Owner ids
+authorize nothing. A close call, a window expiring with nobody attached, plugin
+uninstall and DSH shutdown stop the resident, and each saves the view first.
 
 ## Quality target
 
