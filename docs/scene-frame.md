@@ -167,6 +167,15 @@ masks it. Canvas clients must resolve the fill role at alpha 1 and apply
 `dimAlpha` only to the outline, rather than reducing the whole head's
 `globalAlpha`. An `open` head has no fill.
 
+Panel strokes at `frames` follow the native render cache: quantize zoom to a
+quarter octave (`2^(round(log2(zoom)*4)/4)`), keep the two ends, discard interior
+points less than `edgeDecimatePx` screen points from the last kept point, and
+discard points within 0.5 screen points of its chord to the next point. At
+`frames`, and at `full` below zoom 0.6, draw each segment with butt ends, as the
+native shaft mesh does. Closed heads always paint over their shafts, including
+at zoom 0.4–0.6. This deliberately avoids the native window's pre-existing
+low-zoom flush-order defect, which paints its shaft mesh after the heads.
+
 ## Shared inspector summaries
 
 The window-free `frame::inspector` API also supplies `class_summary(&detail::Model)`
