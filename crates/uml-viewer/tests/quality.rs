@@ -13,6 +13,20 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// A missing toolchain must never look like a pass (fixtures/mutate/README.md):
+/// say so on the process's real stderr, which libtest does not capture, and fail
+/// when `UML_VIEWER_REQUIRE_FAKE_TOOL=1` asks for the tool. The Windows fake
+/// tool runs on the host Python, so these tests back real fixtures only where
+/// that interpreter exists.
+fn skip_fake_tool(reason: &str) {
+    assert!(
+        !std::env::var_os("UML_VIEWER_REQUIRE_FAKE_TOOL").is_some_and(|value| value == "1"),
+        "UML_VIEWER_REQUIRE_FAKE_TOOL=1; {reason}"
+    );
+    use std::io::Write;
+    let _ = std::io::stderr().write_all(format!("SKIP: {reason}\n").as_bytes());
+}
+
 /// A scratch project whose name contains a space and `&`, as the public-entry
 /// acceptance requires; removed on drop.
 struct Project {
@@ -218,7 +232,7 @@ impl Fake {
                 .filter(|o| o.status.success())
                 .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             else {
-                eprintln!("SKIP: no python on PATH for the Windows fake tool");
+                skip_fake_tool("no python on PATH for the Windows fake tool");
                 return None;
             };
             let script = project.base.join("fake.py");
@@ -846,7 +860,7 @@ fn the_committed_contract_samples_are_the_binary_output() {
     );
     project.write("crates/a/src/lib.rs", "pub fn a(x: i64) -> i64 { x + 1 }\n");
     let Some(python) = python_executable() else {
-        eprintln!("SKIP: no python on PATH; the samples need a native fake tool");
+        skip_fake_tool("no python on PATH; the samples need a native fake tool");
         return;
     };
     // The file may be checked out with CRLF; the record line itself has no CR.

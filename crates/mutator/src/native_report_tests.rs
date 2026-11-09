@@ -543,12 +543,18 @@ fn custom_opaque_view_directory_hides_the_project_reports_below_it() {
         )
     };
     if set != 0 {
-        eprintln!(
-            "SKIPPED custom_opaque_view_directory_hides_the_project_reports_below_it: \
-             user xattrs unavailable in {}: {}",
+        let reason = format!(
+            "custom_opaque_view_directory_hides_the_project_reports_below_it needs user xattrs; \
+             {} has none: {}",
             directory.display(),
             std::io::Error::last_os_error()
         );
+        assert!(
+            !std::env::var_os("MUTATOR_REQUIRE_TOOLCHAINS").is_some_and(|value| value == "1"),
+            "MUTATOR_REQUIRE_TOOLCHAINS=1; {reason}"
+        );
+        use std::io::Write;
+        let _ = std::io::stderr().write_all(format!("SKIP: {reason}\n").as_bytes());
         return;
     }
     let tree = isolation::report_tree(&base, &root);

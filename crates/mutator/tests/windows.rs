@@ -922,7 +922,11 @@ fn a_file_symlink_is_materialised_as_an_independent_file() {
     fs::write(&keep, b"original").unwrap();
     let alias = fixture.root().join("alias.txt");
     if let Err(error) = std::os::windows::fs::symlink_file(&keep, &alias) {
-        panic!("SKIPPED: this host cannot create file symlinks: {error}");
+        // A loud skip, and a failure with MUTATOR_REQUIRE_TOOLCHAINS=1 (CI):
+        // a panic labelled SKIPPED read like a pass.
+        if !require(false, &format!("this host cannot create file symlinks: {error}")) {
+            return;
+        }
     }
     let helper = helper(&fixture.directory);
     let pids = fixture.directory.join("pids.txt");

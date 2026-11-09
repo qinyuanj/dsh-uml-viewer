@@ -220,15 +220,18 @@ fn wsl_kernel() -> bool {
 }
 
 /// The delivered WSL2 platform: the real candidate binary must print the
-/// original Windows-drive warning before it selects anything. Only a WSL2
-/// kernel with a writable `/mnt/<drive>` runs it; other Linux hosts skip.
+/// original Windows-drive warning before it selects anything. It needs a WSL2
+/// kernel with a writable `/mnt/<drive>`, so it is ignored rather than skipped
+/// silently: on WSL2 run
+/// `cargo test -p uml-viewer --test integration wsl_windows -- --ignored`.
 #[cfg(unix)]
+#[ignore = "needs a WSL2 kernel with a writable /mnt/<drive>; run with --ignored on WSL2"]
 #[test]
 fn wsl_windows_drive_root_warns_on_stderr_before_the_empty_selection() {
-    if !wsl_kernel() {
-        eprintln!("skipping: /proc/version is not a WSL2 kernel");
-        return;
-    }
+    assert!(
+        wsl_kernel(),
+        "/proc/version is not a WSL2 kernel; this test only runs on WSL2"
+    );
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
