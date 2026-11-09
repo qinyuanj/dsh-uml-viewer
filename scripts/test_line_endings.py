@@ -2,7 +2,8 @@
 
 A host with `core.autocrlf=true` checked golden fixtures out CRLF and the
 failure surfaced later as a golden mismatch. This names the files instead.
-Files `.gitattributes` marks `eol=crlf` (the `.cmd` entries) are exempt.
+Files `.gitattributes` marks `eol=crlf` are exempt (none since the `.cmd`
+entries were deleted, #18).
 """
 from pathlib import Path
 import subprocess

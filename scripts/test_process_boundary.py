@@ -1,111 +1,71 @@
-"""Production scripts launch processes only through the launch helpers.
+"""Production Rust code launches processes only through the named adapters.
 
-Four review-found bugs came from launches outside the platform module (a
-`.cmd` wrapper re-expanding %VAR%, a lost timeout, a bypassed Job Object).
-`uml_posix.run` (literal argv) and `uml_posix.spawn` (detached) are
-the only places a production script may name a process-launch API; this
-ast scan makes that a deterministic check. The test_* scripts are the
-outside harness and are not scanned.
+Four review-found bugs came from launches outside an adapter (a `.cmd`
+wrapper re-expanding %VAR%, a lost timeout, a bypassed Job Object).
+clippy.toml forbids `std::process::Command::new`; this scan makes every
+escape from that lint in production sources (`crates/*/src`) a deliberate,
+listed one. A crate root may lift it for its own tests only
+(`#![cfg_attr(test, allow(clippy::disallowed_methods))]`). The Herdr
+companion and its OS adapter were deleted with the Python entry (#18); the
+viewer launches no process at all.
 """
-import ast
 from pathlib import Path
+import re
 import unittest
 
-SCRIPTS = Path(__file__).resolve().parent
-PRODUCTION = ('uml_posix.py', 'uml_launch.py', 'uml_quality.py', 'uml_windows.py')
-# (file, top-level function) allowed to name a launch API.
-HELPERS = {('uml_posix.py', 'run'), ('uml_posix.py', 'spawn')}
-FIX = 'launch through uml_posix.run (literal argv) or uml_posix.spawn (detached)'
-LAUNCHERS = {
-    'subprocess': {'run', 'call', 'check_call', 'check_output', 'Popen',
-                   'getoutput', 'getstatusoutput'},
-    'os': {'system', 'popen', 'startfile', 'fork', 'forkpty', 'posix_spawn', 'posix_spawnp'},
-    'asyncio': {'create_subprocess_exec', 'create_subprocess_shell'},
-    'pty': {'spawn', 'fork'},
+REPO = Path(__file__).resolve().parents[1]
+ALLOW = re.compile(r'allow\(\s*clippy::disallowed_methods\s*\)')
+TEST_ONLY = re.compile(r'cfg_attr\(\s*test\s*,\s*allow\(\s*clippy::disallowed_methods\s*\)\s*\)')
+# file -> why it may launch.
+ADAPTERS = {
+    'crates/quality-core/src/process.rs': 'the quality tools\' one process boundary (ADR 0012)',
+    'crates/mutator/src/isolation.rs': 'the Linux namespace view launcher (PR_SET_PDEATHSIG, process group)',
+    'crates/dryer/src/original/mod.rs': 'the ported pytest cases build real git repositories',
 }
+FIX = ('launch through crates/quality-core/src/process.rs, or add the file to ADAPTERS '
+       'in scripts/test_process_boundary.py with the reason it is a boundary')
 
 
-def launcher(module, name):
-    """Whether `module.name` starts a process (`os.spawn*`/`os.exec*` included)."""
-    if module == 'os' and name.startswith(('spawn', 'exec')):
-        return True
-    return name in LAUNCHERS.get(module, ())
+def violations(files):
+    """`(relative path, text)` pairs -> one line per lint escape outside ADAPTERS."""
+    found = []
+    for path, text in files:
+        if path in ADAPTERS:
+            continue
+        for number, line in enumerate(text.splitlines(), 1):
+            if ALLOW.search(line) and not TEST_ONLY.search(line):
+                found.append(f'{path}:{number}: {line.strip()}; {FIX}')
+    return found
 
 
-class Scan(ast.NodeVisitor):
-    def __init__(self, filename):
-        self.filename = filename
-        self.modules = {}   # local name -> module
-        self.names = {}     # local name -> (module, attribute)
-        self.function = None
-        self.found = []
-
-    def visit_Import(self, node):
-        for alias in node.names:
-            if alias.name in LAUNCHERS:
-                self.modules[alias.asname or alias.name] = alias.name
-
-    def visit_ImportFrom(self, node):
-        for alias in node.names:
-            if node.module in LAUNCHERS:
-                self.names[alias.asname or alias.name] = (node.module, alias.name)
-                if launcher(node.module, alias.name):
-                    self.report(node, node.module, alias.name)
-
-    def visit_FunctionDef(self, node):
-        outer = self.function
-        self.function = outer or node.name
-        self.generic_visit(node)
-        self.function = outer
-
-    visit_AsyncFunctionDef = visit_FunctionDef
-
-    def visit_Attribute(self, node):
-        if isinstance(node.value, ast.Name) and node.value.id in self.modules:
-            module = self.modules[node.value.id]
-            if launcher(module, node.attr):
-                self.report(node, module, node.attr)
-        self.generic_visit(node)
-
-    def visit_Name(self, node):
-        if node.id in self.names and launcher(*self.names[node.id]):
-            self.report(node, *self.names[node.id])
-
-    def report(self, node, module, name):
-        if (self.filename, self.function) not in HELPERS:
-            self.found.append(f'{self.filename}:{node.lineno}: {module}.{name}; {FIX}')
-
-
-def violations(source, filename):
-    """Every launch-API reference in `source` outside the launch helpers."""
-    scan = Scan(filename)
-    scan.visit(ast.parse(source, filename))
-    return scan.found
+def production_sources():
+    for path in sorted((REPO / 'crates').glob('*/src/**/*.rs')):
+        yield path.relative_to(REPO).as_posix(), path.read_text(encoding='utf-8')
 
 
 class ProcessBoundary(unittest.TestCase):
-    def test_production_scripts_launch_only_through_the_helpers(self):
-        found = [line for name in PRODUCTION
-                 for line in violations((SCRIPTS / name).read_text(encoding='utf-8'), name)]
+    def test_production_sources_escape_the_launch_lint_only_in_the_adapters(self):
+        found = violations(production_sources())
         self.assertEqual([], found, '\n' + '\n'.join(found))
 
-    def test_the_scan_follows_aliases_and_spares_only_the_helpers(self):
-        source = ('import subprocess as sp, os\n'
-                  'from subprocess import check_output as co, DEVNULL\n'
-                  'def run(argv):\n'
-                  '    return sp.run(argv)\n'
-                  'def other():\n'
-                  '    sp.Popen([], stdin=DEVNULL, creationflags=sp.CREATE_NO_WINDOW)\n'
-                  '    os.execv("x", [])\n'
-                  '    os.getpid()\n'
-                  '    return co\n')
-        self.assertEqual([f'uml_posix.py:2: subprocess.check_output; {FIX}',
-                          f'uml_posix.py:6: subprocess.Popen; {FIX}',
-                          f'uml_posix.py:7: os.execv; {FIX}',
-                          f'uml_posix.py:9: subprocess.check_output; {FIX}'],
-                         violations(source, 'uml_posix.py'))
-        self.assertEqual(f'uml_launch.py:4: subprocess.run; {FIX}',
-                         violations(source, 'uml_launch.py')[1])
+    def test_every_listed_adapter_still_exists(self):
+        missing = [path for path in ADAPTERS if not (REPO / path).is_file()]
+        self.assertEqual([], missing)
+
+    def test_the_companion_adapter_is_gone(self):
+        self.assertFalse((REPO / 'crates/companion').exists())
+        self.assertEqual([], sorted(p.name for p in (REPO / 'scripts').glob('uml_*.py')))
+
+    def test_the_scan_spares_test_only_lifts_and_names_every_other_escape(self):
+        source = ('#![cfg_attr(test, allow(clippy::disallowed_methods))]\n'
+                  'fn a() {}\n'
+                  '#[allow(clippy::disallowed_methods)]\n'
+                  'fn b() { std::process::Command::new("x"); }\n'
+                  '    #![allow( clippy::disallowed_methods )]\n')
+        self.assertEqual([f'crates/viewer/src/app.rs:3: #[allow(clippy::disallowed_methods)]; {FIX}',
+                          f'crates/viewer/src/app.rs:5: #![allow( clippy::disallowed_methods )]; {FIX}'],
+                         violations([('crates/viewer/src/app.rs', source)]))
+        self.assertEqual([], violations([('crates/quality-core/src/process.rs', source)]))
 
 
 if __name__ == '__main__':

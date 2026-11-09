@@ -9,7 +9,6 @@
   {:lang :rust, :root "crates/platform/src", :prefix "uml.platform"}
   {:lang :rust, :root "crates/ir/src", :prefix "uml.ir"}
   {:lang :rust, :root "crates/scene/src", :prefix "uml.scene"}
-  {:lang :rust, :root "crates/companion/src", :prefix "uml.companion"}
   {:lang :rust, :root "crates/quality-core/src", :prefix "uml.quality_core"}
   {:lang :rust, :root "crates/crapper/src", :prefix "uml.crapper"}
   {:lang :rust, :root "crates/mutator/src", :prefix "uml.mutator"}
@@ -25,12 +24,12 @@
  :proposals [{:id :p-1791033119418, :name "test", :layers []}],
  :levels
  [[edn platform quality_core dryer contracts]
-  [ir scene companion crapper mutator]
+  [ir scene crapper mutator]
   [quality_dispatch]
   [frame]
   [viewer_session]
   [viewer]
   [main host client]],
  :out "examples/uml-viewer.edn",
- :order [main host client viewer viewer_session frame quality_dispatch dryer crapper mutator companion scene ir quality_core edn platform contracts],
+ :order [main host client viewer viewer_session frame quality_dispatch dryer crapper mutator scene ir quality_core edn platform contracts],
  :foreign [libc egui eframe image winit log tree_sitter tree_sitter_rust]}

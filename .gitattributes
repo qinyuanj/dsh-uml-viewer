@@ -1,6 +1,3 @@
-# cmd parses labels and `goto` by byte offset; an LF checkout of a .cmd
-# misreads them. Keep the Windows entries CRLF on every host.
-*.cmd text eol=crlf
 # Goldens, EDN and Rust sources are compared byte for byte (and rustfmt
 # writes LF): check them out LF whatever core.autocrlf says
 # (scripts/test_line_endings.py). fixtures/ir-bytes keeps its own -text.

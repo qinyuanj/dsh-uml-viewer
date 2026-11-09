@@ -4,12 +4,13 @@
 This is the only guardrail command on every host, native Windows included
 (ADR 0010; the earlier `check.ps1` stays retired). Python suites run with the
 interpreter that runs this file. The cargo check builds the release binary
-used by the entry test files (which skip without it), then runs the workspace
-tests. Stops at the first failure so the printed
-label names the actual cause. The quality gate (`./uml crap` / `./uml mutate`) is
+the real-window drivers run, then runs the workspace tests. Stops at the
+first failure so the printed label names the actual cause. The quality
+refresh (`uml-viewer quality crap|mutate|dry`, then `uml-viewer ir`) is
 deliberately absent: it needs serialized, declared-scope runs against a real
-project, so it cannot be a default check. Real-window drivers need the explicit
-`--native` opt-in.
+project, so it cannot be a default check. Real-window drivers need the
+explicit `--native` opt-in. The old public entry and its Python suites were
+deleted with the companion (#18).
 
 Usage:
     python3 -I scripts/check.py            # pure checks only
@@ -17,7 +18,6 @@ Usage:
     py -3 -I scripts\\check.py              # native Windows (no python3 there)
 """
 import argparse
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -42,9 +42,8 @@ def cargo_suite():
     cargo = interpreter('cargo')
     if not cargo:
         return 'failed', 1, 'cargo is required (the workspace tests)'
-    # The entry suites exercise target/release/uml-viewer and skip when it is
-    # absent. Build it first so this guardrail runs them for real instead of
-    # silently passing with skips.
+    # The real-window drivers run target/release/uml-viewer; build it here so
+    # `--native` never runs a stale binary.
     code, output = run([cargo, 'build', '--release', '--locked'])
     if code != 0:
         return 'failed', code, output
@@ -80,43 +79,10 @@ def native_checks(timeout):
             for name in sorted(DRIVERS)]
 
 
-def host_refusal():
-    """Why this host is not a delivered platform (uml_posix.host), else None."""
-    sys.path.insert(0, str(REPO / 'scripts'))
-    import uml_posix
-    try:
-        uml_posix.host()
-    except ValueError as refusal:
-        return str(refusal)
-    return None
-
-
-def skipped(reason):
-    return lambda: ('skipped', 0, reason)
-
-
-def selected_checks(native, native_timeout, refusal=None):
-    """Fast source rules, the cargo build and tests, then the entry suites.
-
-    The entry suites drive the public entry, which refuses an undelivered host
-    (e.g. native Linux on a CI runner, ADR 0007); there they are listed as
-    skipped with that reason instead of failing on the refusal.
-    """
-    suites = ['test_posix_entries.py', 'test_posix_restart_entries.py']
-    if os.name == 'nt':
-        # `uml.cmd`, junction dev installs and `.exe` naming.
-        suites.insert(1, 'test_windows_entries.py')
-    else:
-        # POSIX by construction (/bin/sh fakes, ':' PATH, killpg, AF_UNIX);
-        # the Windows Codex preflight is covered by the entry suites and
-        # test_windows_e2e.py.
-        suites.append('test_posix_codex_companion.py')
+def selected_checks(native, native_timeout):
+    """Fast source rules, the cargo build and tests, then (opt-in) the drivers."""
     checks = python_checks(FAST_SUITES)
     checks += [('cargo build --release --locked + cargo test --workspace --locked', cargo_suite)]
-    if refusal:
-        checks += [(f'{name} (undelivered host)', skipped(refusal)) for name in suites]
-    else:
-        checks += python_checks(suites)
     if native:
         checks += native_checks(native_timeout)
     return checks
@@ -138,8 +104,7 @@ def main():
     parser.add_argument('--native', action='store_true', help='also run the real-window drivers')
     parser.add_argument('--native-timeout', type=int, default=300)
     arguments = parser.parse_args()
-    return summarize(run_checks(selected_checks(arguments.native, arguments.native_timeout,
-                                                host_refusal())))
+    return summarize(run_checks(selected_checks(arguments.native, arguments.native_timeout)))
 
 
 def summarize(results):
@@ -152,8 +117,8 @@ def summarize(results):
             print(f'     {output.strip()}')
         elif status == 'failed' and output:
             print(output.rstrip())
-    print('note: ./uml crap and ./uml mutate are not run here; the quality gate needs '
-          'serialized, declared-scope runs.')
+    print('note: uml-viewer quality crap|mutate|dry are not run here; the quality refresh '
+          'needs serialized, declared-scope runs.')
     print(f"check: {counts['executed']} passed, {counts['skipped']} skipped, {counts['failed']} failed")
     return 1 if counts['failed'] else 0
 
