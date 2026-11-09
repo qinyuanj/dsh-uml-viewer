@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
-import { producerFrame, sample, same, toScreen, panelCamera, inkCount } from './canvas.mjs'
+import { producerFrame, sample, same, screenRect, toScreen, panelCamera } from './canvas.mjs'
 
 // #26: real IR/resident/panel, no injected frame. Replaces quality/highlight
 // assertions in egui commands/driver scenarios; geometry and grades come from
@@ -65,6 +65,24 @@ function shaftProbe(frame, stroke) {
   expect(candidates.length, `${stroke.from}->${stroke.to} has a visible independent probe`).toBeGreaterThan(0)
   return candidates[0]
 }
+/** Every Nth canvas pixel of a CSS-pixel rect, as a comparable signature. */
+async function regionPixels(panel, rect, step = 2) {
+  return panel.canvas.evaluate((canvas, args) => {
+    const ctx = canvas.getContext('2d'), s = canvas.width / canvas.getBoundingClientRect().width
+    const x = Math.floor(args.rect.x * s), y = Math.floor(args.rect.y * s)
+    const w = Math.max(1, Math.floor(args.rect.w * s)), h = Math.max(1, Math.floor(args.rect.h * s))
+    const data = ctx.getImageData(x, y, w, h).data
+    const out = []
+    for (let row = 0; row < h; row += args.step) {
+      for (let column = 0; column < w; column += args.step) {
+        const i = (row * w + column) * 4
+        out.push(data[i], data[i + 1], data[i + 2])
+      }
+    }
+    return out
+  }, { rect, step })
+}
+
 /** True when any canvas pixel inside a CSS-pixel rect matches `color`. */
 async function regionHas(panel, rect, color, tolerance = 45) {
   return panel.canvas.evaluate((canvas, args) => {
@@ -118,9 +136,10 @@ test('quality colors, C/M dots and no-data survive light/dark and changed skin t
       await panel.page.waitForTimeout(100)
       const palette = palettes[mode]
       for (const box of classes) {
-        // In the lower empty part of each box, away from the title and badges.
-        const fill = toScreen(frame, box.rect.x + box.rect.w / 2, box.rect.y + box.rect.h * 0.75)
-        expect(await near(panel, fill, ramp(box.fill.grade, palette.fill)), `${mode}/${skin} ${box.id} fill`).toBe(true)
+        // The interior, inset past the frame: text and the 无数据 strip are
+        // sparse, so at least one pixel is plain 质量色 even on an unmeasured box.
+        const area = screenRect(frame, { x: box.rect.x + 4, y: box.rect.y + 4, w: box.rect.w - 8, h: box.rect.h - 8 })
+        expect(await regionHas(panel, area, ramp(box.fill.grade, palette.fill), 16), `${mode}/${skin} ${box.id} fill`).toBe(true)
       }
       const markerInk = (await hostColors(panel)).hover
       const dots = frame.world.filter(i => i.kind === 'quality' && i.of === 'class')
@@ -172,16 +191,16 @@ test('overview hover names the class at the producer popup position and clears o
     const popup = hovered.chrome.find(i => i.kind === 'popup')
     expect(popup).toBeTruthy()
     expect(popup.rows).toHaveLength(1)
-    const colors = await hostColors(panel)
     const textRect = { x: popup.rect.x + 8, y: popup.rect.y + 8, w: popup.rect.w - 16, h: 18 }
-    const before = await inkCount(panel, textRect, colors.canvas)
+    const before = await regionPixels(panel, textRect)
     await panel.canvas.hover({ position: { x: point[0], y: point[1] } })
-    // The popup's row is visible at its Rust-produced bounds, then leaving the
-    // canvas removes it. The mouse never triggers a resident selection action.
-    const shown = await inkCount(panel, textRect, colors.canvas)
-    expect(shown).toBeGreaterThan(before)
+    // The popup's row is painted at its Rust-produced bounds, then leaving the
+    // canvas restores exactly what was there. The mouse never triggers a
+    // resident selection action.
+    const shown = await regionPixels(panel, textRect)
+    expect(shown).not.toEqual(before)
     await settle(panel)
-    expect(await inkCount(panel, textRect, colors.canvas)).toBe(before)
+    expect(await regionPixels(panel, textRect)).toEqual(before)
     expect(panel.problems).toEqual([])
   } finally { await lane.close() }
 })
