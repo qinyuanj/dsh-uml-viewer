@@ -158,6 +158,27 @@ describe('mounted panel quality menu (#28)', () => {
     expect(menu.hidden).toBe(true)
   })
 
+  it('offers no menu on a foreign package ellipse or a dependency port', async () => {
+    const { host, canvas } = await mount()
+    // A flat frame whose only hit targets are a foreign 椭圆 and a port.
+    const frame: SceneFrame = { ...golden, waiting: false, viewport: { width: 800, height: 600 }, camera: { x: 0, y: 0, zoom: 1 },
+      world: [
+        { kind: 'class', lod: 'blocks', id: ':react', owner: null, rect: { x: 10, y: 10, w: 100, h: 40 }, shape: 'oval',
+          band: 'none', fill: { role: 'foreign-fill' }, stroke: { role: 'foreign-stroke' }, strokeWidth: 1, grade: null,
+          missing: false, selected: false, hovered: false, related: false, bounds: { x: 10, y: 10, w: 100, h: 40 }, dimmed: false },
+        { kind: 'port', lod: 'full', id: ':outside', owner: ':core', rect: { x: 200, y: 10, w: 40, h: 18 }, text: 'x',
+          marked: false, fill: { role: 'port-fill' }, stroke: { role: 'port-outline' }, strokeWidth: 1, ink: { role: 'muted' },
+          bounds: { x: 200, y: 10, w: 40, h: 18 }, dimmed: false },
+      ] as SceneFrame['world'] }
+    await emit({ kind: 'frame', seq: 2, frame })
+    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    canvas.fire('contextmenu', { offsetX: 50, offsetY: 25 })
+    expect(menu.hidden).toBe(true)
+    canvas.fire('contextmenu', { offsetX: 210, offsetY: 15 })
+    expect(menu.hidden).toBe(true)
+    expect(actions.filter(a => a.action === 'quality-request')).toEqual([])
+  })
+
   it('does not open a menu on blank canvas and closes with Escape', async () => {
     const { host, canvas } = await mount()
     canvas.fire('contextmenu', { offsetX: 400, offsetY: 300 })

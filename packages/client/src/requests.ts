@@ -70,7 +70,7 @@ export function mountQualityMenu(host: HTMLElement, canvas: HTMLCanvasElement, o
     if (id === null) return
     // Dependency ports and foreign library ellipses have no element menu.
     const element = frame.world.find(item => (item.kind === 'class' || item.kind === 'package') && item.id === id)
-    if (!element || (element.kind === 'class' && element.shape === 'ellipse')) return
+    if (!element || (element.kind === 'class' && element.shape === 'oval')) return
     target = id
     menu.style.left = `${Math.max(0, Math.min(event.offsetX, bounds.width - 230))}px`
     menu.style.top = `${Math.max(0, Math.min(event.offsetY, bounds.height - 110)) + (canvas.offsetTop ?? 0)}px`

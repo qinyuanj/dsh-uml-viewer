@@ -79,7 +79,9 @@ export class ViewerService {
     try {
       // #28: a quality refresh is a message to this panel's session, not a
       // resident action. Only the element id and op cross from the browser.
-      if ((action as { action?: unknown }).action === 'quality-request') {
+      if (action.action === 'quality-request') {
+        // Re-parse: the carrier validates too, but the delivered message is
+        // built only from fields this validator accepted.
         const request = parsePanelAction(action)
         if (request.action !== 'quality-request') throw new Error('quality-request expected')
         return await this.requests.deliver(agent, request.request, request.id)

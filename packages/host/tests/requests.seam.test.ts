@@ -130,6 +130,15 @@ async function setup(options: { diagram?: boolean; controller?: boolean } = {}) 
 
 const header = 'UML viewer panel request:\n'
 
+/** Wait for a condition instead of sleeping a fixed time. */
+async function until(condition: () => boolean, ms = 5000): Promise<void> {
+  const deadline = Date.now() + ms
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error('timed out waiting for the expected state')
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+}
+
 it('queues one visible user message in the bound session for each refresh, naming the class file', async () => {
   const s = await setup()
   await s.open('session-a')
@@ -181,7 +190,8 @@ it('admits overlapping requests strictly in click order, one at a time', async (
     s.request('session-a', 'refresh-mutate-all', ':api'),
   ]
   // The first admission is still pending: nothing behind it may overtake it.
-  await new Promise(resolve => setTimeout(resolve, 300))
+  await until(() => s.started.length >= 1)
+  await new Promise(resolve => setTimeout(resolve, 200))
   expect(s.started.map(r => r.content[0]!.text.split('\n')[1]!.split(' ')[1])).toEqual([':refresh-crap'])
   release()
   expect(await Promise.all(answers)).toEqual([0, 1, 2].map(() => ({ accepted: true, reason: null })))
@@ -255,6 +265,6 @@ it('carries the companion rules only while that session has an open panel', asyn
   }
   expect(s.sections['session-b']).toEqual([])
   await panel.close()
-  await new Promise(resolve => setTimeout(resolve, 100))
+  await until(() => s.sections['session-a']!.length === 0)
   expect(s.sections['session-a']).toEqual([])
 })
