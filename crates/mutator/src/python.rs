@@ -219,7 +219,9 @@ mod tests {
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
             fs::create_dir_all(&directory).unwrap();
-            Self(directory)
+            // Match test_plan's canonical root, including macOS /var aliases
+            // and Windows path spelling, without resolving interpreter symlinks.
+            Self(quality_core::paths::resolve(&directory))
         }
         fn write(&self, relative: &str, text: &str) {
             let path = self.0.join(relative);

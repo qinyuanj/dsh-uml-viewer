@@ -440,9 +440,19 @@ test('the extracted workflow step runner is bounded in time and output', async t
     assert.equal(hung.result.error?.code, 'ETIMEDOUT')
     assert.notEqual(hung.result.status, 0)
     assert.match(stepFailure(hung.result, short), /did not complete \(ETIMEDOUT\)/)
-    const flooded = await runStep(directory, 'printf %20000s x', { ...short, timeout: 10_000, maxBuffer: 128 })
+    const withinLimit = await runStep(directory, 'printf %20000s x', short)
+    assert.equal(withinLimit.result.error, undefined)
+    assert.equal(withinLimit.result.status, 0)
+    assert.equal(withinLimit.result.stdout.length, 20_000)
+    // A finite write can exit 0 before the parent observes ENOBUFS when it fits
+    // in the OS pipe. Keep writing so the output bound must stop a live child.
+    const flooded = await runStep(directory, 'while :; do printf %20000s x; done', { ...short, timeout: 10_000 })
     assert.equal(flooded.result.error?.code, 'ENOBUFS')
     assert.notEqual(flooded.result.status, 0)
+    // spawnSync may retain the read chunk that crosses maxBuffer; it must still
+    // stop far below the default 1 MiB bound instead of draining the producer.
+    assert.ok(flooded.result.stdout.length >= short.maxBuffer)
+    assert.ok(flooded.result.stdout.length < stepLimits.maxBuffer)
     assert.match(stepFailure(flooded.result, short), /did not complete \(ENOBUFS\)/)
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
