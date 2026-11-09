@@ -131,6 +131,46 @@ describe('mounted panel #23 + #27 union', () => {
   })
 })
 
+describe('mounted panel quality menu (#28)', () => {
+  it('offers all three refreshes on a component; each click sends its bound element only', async () => {
+    const { host, canvas } = await mount()
+    const draft = new Element('textarea', canvas.ownerDocument)
+    draft.value = 'my unfinished draft'
+    draft.focus()
+    const event = canvas.fire('contextmenu', { offsetX: 400, offsetY: 300 })
+    expect(event.defaultPrevented).toBe(true)
+    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    expect(menu).toBeDefined()
+    expect(menu.children.map(el => el.textContent)).toEqual(['Refresh CRAP', 'Differential mutation', 'Full mutation (--mutate-all)'])
+    const id = golden.world[0]!.kind === 'package' ? golden.world[0]!.id : ':core'
+    for (let i = 0; i < 3; i += 1) {
+      canvas.fire('contextmenu', { offsetX: 400, offsetY: 300 })
+      menu.children[i]!.fire('click')
+    }
+    await settled()
+    expect(actions.filter(a => a.action === 'quality-request')).toEqual([
+      { action: 'quality-request', request: 'refresh-crap', id },
+      { action: 'quality-request', request: 'refresh-mutate', id },
+      { action: 'quality-request', request: 'refresh-mutate-all', id },
+    ])
+    expect(draft.value).toBe('my unfinished draft')
+    expect(draft.ownerDocument.activeElement).toBe(draft)
+    expect(menu.hidden).toBe(true)
+  })
+
+  it('does not open a menu on blank canvas and closes with Escape', async () => {
+    const { host, canvas } = await mount()
+    canvas.fire('contextmenu', { offsetX: 400, offsetY: 300 })
+    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    expect(menu.hidden).toBe(false)
+    host.fire('keydown', { key: 'Escape' })
+    expect(menu.hidden).toBe(true)
+    canvas.fire('contextmenu', { offsetX: 6000, offsetY: 6000 })
+    expect(menu.hidden).toBe(true)
+    expect(actions.filter(a => a.action === 'quality-request')).toEqual([])
+  })
+})
+
 describe('mounted panel IME handlers', () => {
   it.each([{ isComposing: true }, { isComposing: false, keyCode: 229 }])('leaves composing search keys native (%j), then Enter locates', async (guard) => {
     const { host, canvas, input, results } = await mount()

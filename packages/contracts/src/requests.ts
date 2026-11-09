@@ -28,7 +28,7 @@ export interface PanelRequest {
 export const PANEL_REQUEST_HEADER = 'UML viewer panel request:'
 
 /** A scene/IR id: one EDN keyword without whitespace or EDN delimiters. */
-const KEYWORD = /^:[A-Za-z_*+!?<>=.\-$&%|][^\s,()[\]{}"';@^`~\\]*$/
+const KEYWORD = /^:[^\s,()[\]{}"';@^`~\\:][^\s,()[\]{}"';@^`~\\]*$/
 
 /**
  * Validate an element id the panel sends or the request carries.

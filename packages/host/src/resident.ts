@@ -458,6 +458,24 @@ export class ResidentSessions {
     }
   }
 
+  /**
+   * The diagram this session's resident shows, from its own `save` state (the
+   * answer goes to no panel and is not persisted). `diagram` is null while the
+   * panel waits for a first display.
+   */
+  async shownDiagram(agent: Agent, signal: AbortSignal): Promise<{ cwd: string; diagram: string | null; proposalId: string | null }> {
+    const connection = await this.open(agent, signal)
+    try {
+      if (connection.latestFrame?.waiting) return { cwd: connection.cwd, diagram: null, proposalId: null }
+      const saved = await connection.request({ action: 'save' }, ACTION_TIMEOUT_MS, { quiet: true })
+      if (saved.event === 'error') throw new Error(`uml-viewer resident could not report its diagram: ${saved.message}`)
+      if (saved.event !== 'state') throw new Error(`uml-viewer resident answered save with ${saved.event}`)
+      return { cwd: connection.cwd, diagram: saved.state.diagram, proposalId: saved.state.proposalId }
+    } finally {
+      await this.release(connection)
+    }
+  }
+
   /** Persist what the resident currently shows; best effort, never an action failure. */
   private async save(connection: ResidentConnection): Promise<void> {
     try {

@@ -1,6 +1,8 @@
 import type { PanelAck, PanelAction, PanelEvent, ResidentEvent } from '@dsh-uml-viewer/contracts'
+import { parsePanelAction } from '@dsh-uml-viewer/contracts'
 import type { Agent } from './dsh.js'
 import type { PanelPrompts } from './prompt.js'
+import type { PanelRequests } from './requests.js'
 import { Refusal, ResidentSessions } from './resident.js'
 
 function reasonOf(error: unknown): string {
@@ -40,7 +42,11 @@ export class ViewerService {
   /** The gateway discovers this public binding when the Remote is mounted. */
   readonly typertRemote = { service: this, serviceKey: 'umlViewer', namespace: 'umlViewer' }
 
-  constructor(private readonly sessions: ResidentSessions, private readonly prompts: PanelPrompts) {}
+  constructor(
+    private readonly sessions: ResidentSessions,
+    private readonly prompts: PanelPrompts,
+    private readonly requests: PanelRequests,
+  ) {}
 
   async *watch(agent: Agent, signal: AbortSignal): AsyncIterable<PanelEvent> {
     let connection
@@ -71,6 +77,13 @@ export class ViewerService {
 
   async action(agent: Agent, action: PanelAction): Promise<PanelAck> {
     try {
+      // #28: a quality refresh is a message to this panel's session, not a
+      // resident action. Only the element id and op cross from the browser.
+      if ((action as { action?: unknown }).action === 'quality-request') {
+        const request = parsePanelAction(action)
+        if (request.action !== 'quality-request') throw new Error('quality-request expected')
+        return await this.requests.deliver(agent, request.request, request.id)
+      }
       const { event } = await this.sessions.refresh(agent, new AbortController().signal, action as unknown as { action: string })
       if (event.event === 'error') return { accepted: false, reason: event.message }
       const ack: PanelAck = { accepted: true, reason: null }

@@ -134,6 +134,44 @@ quality call clears the refusal. The `uml_display`
 gate is independent: it still requires the latest `uml_ir` in the session to
 have succeeded, and any later refused, malformed or failed `uml_ir` revokes it.
 
+## Quality panel requests (#28)
+
+Right-click a class or namespace component and choose **Refresh CRAP**,
+**Differential mutation**, or **Full mutation (--mutate-all)**. The menu sends
+`{action: 'quality-request', request: 'refresh-crap' | 'refresh-mutate' |
+'refresh-mutate-all', id}` through the panel's existing typed Remote. Its
+`agentId` is the panel's bound session, including when expanded to `main`.
+The host resolves the element's source files from the diagram the resident
+currently shows; the browser supplies no filenames.
+
+The host admits one visible user message through DSH's `sessionController.prompt`
+(the Host service backing `remote.session.prompt`), with a fresh `requestId`,
+the bound `sessionId`, `mode: 'queue'` and one text content part:
+
+```edn
+UML viewer panel request:
+{:op :refresh-mutate :target {:id :core :kind :component} :files ["src/core/a.ts" "src/core/b.ts"]}
+```
+
+Overlapping requests are resolved and admitted FIFO per session; DSH's queue
+retains that order behind any active turn. A failed admission is reported in
+the panel and later requests continue. No composer store or DOM is accessed,
+so an unfinished draft remains intact. The companion handles the message using
+[the companion rules](companion-rules.md): serialized quality call, then
+successful `uml_ir`, then `uml_display`. These rules are embedded from that
+single document and registered in the agent's own prompt scope only while its
+panel stream is open (multiple panels share a ref-counted registration).
+
+`packages/contracts/src/requests.ts` validates the structured payload and owns
+its EDN rendering. `packages/host/src/requests.ts` resolves source files and
+owns delivery/FIFO; `packages/client/src/requests.ts` mounts the element menu.
+The Cordis request seam covers exact messages, session isolation, overlapping
+FIFO, admission failures, and rule-section lifetime. Mounted client tests
+cover the three menu actions and the unchanged draft. The Playwright cases
+in `packages/e2e/requests.spec.mjs` use the existing isolated lane and a
+scripted model with scratch-project Node quality overrides (no Cargo); they
+require a separately available existing native binary.
+
 ## Contracts and follow-on seams
 
 `packages/contracts/src/tools.ts` owns JSON-only request/result contracts and
