@@ -124,7 +124,7 @@ export function withHover(frame: SceneFrame, hit: HoverHit | null, pointer: Poin
     const hot = hit.kind === 'edge' && edge.from === hit.from && edge.to === hit.to
     const warm = !hot && hoveredClass !== null
       && (edge.from === hoveredClass || edge.to === hoveredClass
-        || via.get(`${edge.from} ${edge.to}`)?.includes(hoveredClass) === true)
+        || via.get(relationKey(edge.from, edge.to))?.includes(hoveredClass) === true)
     if (!hot && !warm) return edge
     const violating = VIOLATING.has(edge.stroke.role)
     return {
@@ -153,11 +153,16 @@ function withPopup(chrome: readonly ChromeItem[], popup: ChromeItem): ChromeItem
   return [...chrome.slice(0, index), popup, ...chrome.slice(index)]
 }
 
-/** Bundled-edge `via-ids` by `from to`, when the resident sent the capability. */
+/** A relation's key: EDN ids may hold spaces, so the separator is NUL. */
+function relationKey(from: string, to: string): string {
+  return `${from}\u0000${to}`
+}
+
+/** Bundled-edge `via-ids` by relation, when the resident sent the capability. */
 function viaIds(frame: SceneFrame): Map<string, readonly string[]> {
   const map = new Map<string, readonly string[]>()
   if (frame.hover?.complete !== true) return map
-  for (const edge of frame.hover.edges) map.set(`${edge.from} ${edge.to}`, edge.viaIds)
+  for (const edge of frame.hover.edges) map.set(relationKey(edge.from, edge.to), edge.viaIds)
   return map
 }
 
