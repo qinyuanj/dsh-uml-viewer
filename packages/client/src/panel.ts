@@ -55,6 +55,9 @@ export class PanelController {
   private status: PanelStatus = { kind: 'connecting', reason: null, actions: [], frame: null, context: null }
   private observer: MutationObserver | null = null
   private readonly listeners = new Set<Listener>()
+  /** Last mode reported by the resident's existing `state` event. */
+  private mode = 'full'
+  public get declutterMode(): string { return this.mode }
   // Pending pointer gesture, in screen pixels.
   private drag: { x: number; y: number; moved: boolean } | null = null
 
@@ -206,10 +209,17 @@ export class PanelController {
         // The panel names its viewport before the first frame can be laid out.
         if (this.viewport) void this.send({ action: 'viewport', viewport: this.viewport })
         return
+      case 'state':
+        this.mode = event.state.declutter?.replace(/^:/, '') ?? 'full'
+        this.publish(this.status)
+        return
       case 'frame':
         this.frame = event.frame
         this.publish({ kind: 'live', reason: null, actions: this.status.actions, frame: event.frame, context: this.status.context ?? { kind: 'real', edn: '{:context :real}' } })
         this.paint(event.frame, this.canvas)
+        // Rebuilds and display can change the mode. Read actual resident state,
+        // including a restored mode, instead of advancing a local click count.
+        void this.send({ action: 'save' })
         return
       case 'context':
         this.publish({ ...this.status, context: event.context })
