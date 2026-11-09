@@ -2,7 +2,7 @@
  * Relation edges (dsh-uml-viewer#25): the six relation kinds' head shapes,
  * the routed curves, the 移除箭头 compact dependency indicators and the
  * 违规关系色, painted from the producer goldens. Expected numbers come from
- * the native painter itself (crates/viewer/src/paint.rs paint_head,
+ * the deleted native painter itself (#30: crates/viewer/src/paint.rs paint_head,
  * crates/frame/src/render_cache.rs decimated + lod::simplify), never from
  * this module's own arithmetic. Head vertices below are the native f32
  * computation printed by a throwaway frame-crate test; decimated point

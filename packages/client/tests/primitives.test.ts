@@ -2,7 +2,7 @@
  * Panel graph primitives (dsh-uml-viewer#24): class boxes, component
  * (package) boxes, stereotypes, α / I, level numbers, dependency ports and
  * foreign-package ellipses, painted from the producer goldens and compared
- * with the native egui painter's rules (crates/viewer/src/paint.rs). Expected
+ * with the native egui painter's rules (the deleted crates/viewer/src/paint.rs, #30). Expected
  * numbers are worked by hand from the golden item and docs/scene-frame.md:
  * `screen = (world - camera) * zoom`, font px `round(size * zoom)`, inside
  * strokes for rects, middle strokes for ellipses and lines.

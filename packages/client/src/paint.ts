@@ -5,7 +5,7 @@
  * one, so the panel follows light/dark; the quality and violation roles keep
  * their hue and only change lightness with the mode.
  *
- * World primitives follow the native egui painter (crates/viewer/src/paint.rs)
+ * World primitives follow the native egui painter (the deleted crates/viewer/src/paint.rs, #30)
  * rule for rule: font sizes on whole pixels, corner radii dropped under 2 px,
  * rect outlines stroked inside the rect, unmeasured outlines dashed square,
  * foreign-package ellipses never dashed, and at the overview tiers class names

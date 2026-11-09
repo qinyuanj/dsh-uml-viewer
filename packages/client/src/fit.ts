@@ -53,7 +53,7 @@ export function estimateW(text: string, size: number): number {
 }
 
 /**
- * The native painter's `fit_px` (crates/viewer/src/paint.rs): the largest
+ * The native painter's `fit_px` (the deleted crates/viewer/src/paint.rs, #30): the largest
  * whole-pixel size not above `size` whose measured text, bold offset
  * (0.05·px) and italic shear (0.2·px) fit `maxW`. Sizes and budget are in the
  * same unit (screen pixels when painting). The result never grows past
