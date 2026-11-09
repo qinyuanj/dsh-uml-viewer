@@ -5,7 +5,7 @@
 #![cfg(windows)]
 #![allow(clippy::disallowed_methods)]
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
     process::ExitCode,
@@ -14,9 +14,8 @@ use std::{
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-/// These tests share one process: scratch roots are named by pid and console
-/// handlers are global, so "nothing is left behind" is only meaningful when
-/// one scenario runs at a time.
+/// Serialize calls so a scratch root newly created by this process belongs to
+/// the active fixture. Console handlers are also process-global.
 fn serial() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -67,9 +66,25 @@ fn snapshot_bytes(root: &Path) -> BTreeMap<String, Vec<u8>> {
 struct Fixture {
     directory: PathBuf,
     project: PathBuf,
+    scratch_directory: PathBuf,
+    scratch_before: BTreeSet<PathBuf>,
+}
+
+fn process_scratch(temporary: &Path) -> BTreeSet<PathBuf> {
+    let mine = format!("mutator-{}-", std::process::id());
+    fs::read_dir(temporary)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(&mine))
+        })
+        .collect()
 }
 impl Fixture {
     fn new() -> Self {
+        let scratch_directory = std::env::temp_dir();
+        let scratch_before = process_scratch(&scratch_directory);
         let directory = std::env::temp_dir().join(format!(
             "mutator-windows-{}-{}",
             std::process::id(),
@@ -120,7 +135,22 @@ impl Fixture {
             ),
         )
         .unwrap();
-        Self { directory, project }
+        Self {
+            directory,
+            project,
+            scratch_directory,
+            scratch_before,
+        }
+    }
+    fn leaked_scratch(&self) -> Vec<PathBuf> {
+        process_scratch(&self.scratch_directory)
+            .difference(&self.scratch_before)
+            .cloned()
+            .collect()
+    }
+    fn assert_no_scratch(&self) {
+        let left = self.leaked_scratch();
+        assert!(left.is_empty(), "fixture copies left behind: {left:?}");
     }
     fn root(&self) -> PathBuf {
         self.project.clone()
@@ -136,7 +166,11 @@ impl Fixture {
             workers.to_string().into(),
         ];
         args.extend(extra.iter().map(std::ffi::OsString::from));
-        mutator::run_with_clock(&args, || "2026-11-07T12:00:00+00:00".to_string())
+        let code = mutator::run_with_clock(&args, || "2026-11-07T12:00:00+00:00".to_string());
+        // Every command must remove the copies it created, not only the last
+        // one of a scenario. Another process's roots are not this fixture's.
+        self.assert_no_scratch();
+        code
     }
 }
 impl Drop for Fixture {
@@ -264,14 +298,26 @@ fn main() {
         std::process::exit(1);
     }
     if mode == "sleep" {
+        use std::os::windows::fs::OpenOptionsExt;
+        // Keep a real deny-delete handle in the copy until process termination.
+        let held = fs::OpenOptions::new().write(true).create_new(true).share_mode(0)
+            .open(format!("held-{}", std::process::id())).unwrap();
+        fs::write(arg(2), "ready").unwrap();
         std::thread::sleep(Duration::from_secs(120));
+        drop(held);
         return;
     }
     if mode == "daemon" || mode == "hang" {
-        // A descendant that outlives its leader, plus (for hang) a leader that
-        // never ends: only the Job Object can stop either.
-        let child = Command::new(env::current_exe().unwrap()).arg("sleep")
+        // The leader cannot exit before its descendant owns the file handle.
+        // This covers handle release, not just eventual process disappearance.
+        let ready = format!("{}.ready-{}", arg(2), std::process::id());
+        let child = Command::new(env::current_exe().unwrap()).arg("sleep").arg(&ready)
             .stdin(std::process::Stdio::null()).spawn().unwrap();
+        let start = Instant::now();
+        while !Path::new(&ready).is_file() {
+            assert!(start.elapsed() < Duration::from_secs(30), "descendant did not open its file");
+            std::thread::sleep(Duration::from_millis(10));
+        }
         append(&arg(2), format!("{} {}\n", std::process::id(), child.id()));
         if mode == "hang" && mutated() {
             std::thread::sleep(Duration::from_secs(120));
@@ -301,6 +347,64 @@ fn helper(directory: &Path) -> PathBuf {
 
 fn quoted(path: &Path) -> String {
     format!("\"{}\"", path.display())
+}
+
+/// Exercise ownership selection under a private synthetic temp directory: the
+/// live unrelated owner and earlier roots must survive, while a new own root
+/// must be reported. No real mutator root of another task is touched.
+#[test]
+fn scratch_assertion_ignores_other_owners_but_detects_new_fixture_roots() {
+    let _serial = serial();
+    let mut fixture = Fixture::new();
+    let helper = helper(&fixture.directory);
+    fixture.scratch_directory = fixture.directory.join("synthetic-temp");
+    fs::create_dir(&fixture.scratch_directory).unwrap();
+    let earlier = fixture
+        .scratch_directory
+        .join(format!("mutator-{}-earlier", std::process::id()));
+    fs::create_dir(&earlier).unwrap();
+    fixture.scratch_before = process_scratch(&fixture.scratch_directory);
+
+    // A live process actually holds a deny-delete file under the unrelated
+    // root. This cannot accidentally name or remove another task's temp data.
+    let unrelated = fixture.scratch_directory.join("mutator-other-owner");
+    fs::create_dir(&unrelated).unwrap();
+    let ready = fixture.directory.join("unrelated-ready");
+    let mut child = std::process::Command::new(helper)
+        .arg("sleep")
+        .arg(&ready)
+        .current_dir(&unrelated)
+        .spawn()
+        .unwrap();
+    let _cleanup = Watched::open(child.id());
+    let started = std::time::Instant::now();
+    while !ready.is_file() {
+        assert!(started.elapsed() < Duration::from_secs(30));
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "owner exited before readiness"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    fixture.assert_no_scratch();
+    assert!(unrelated.is_dir());
+    assert!(earlier.is_dir());
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "unrelated owner is alive"
+    );
+
+    let own = fixture
+        .scratch_directory
+        .join(format!("mutator-{}-new", std::process::id()));
+    fs::create_dir(&own).unwrap();
+    assert_eq!(fixture.leaked_scratch(), vec![own]);
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert!(
+        unrelated.is_dir(),
+        "the assertion must not delete other roots"
+    );
 }
 
 /// Real `cargo test` in per-command copies, with the coverage report a
@@ -469,14 +573,9 @@ fn mutant_writes_reach_neither_the_project_nor_the_user_nor_a_later_mutant() {
             "{name} ({real:?}) received a mutant's write"
         );
     }
-    // No copy, no redirected home and no scratch root survives the call.
-    let scratch: Vec<String> = fs::read_dir(std::env::temp_dir())
-        .unwrap()
-        .flatten()
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|name| name.starts_with("mutator-") && !name.starts_with("mutator-windows-"))
-        .collect();
-    assert_eq!(scratch, Vec::<String>::new(), "abandoned copies");
+    // New roots of this serialized fixture must disappear. Other processes'
+    // roots and leaks already reported by earlier fixtures are not ours.
+    fixture.assert_no_scratch();
 }
 
 /// One coverage run and one baseline per (command, cwd), shared by every
@@ -744,7 +843,7 @@ fn a_normal_exit_leaves_no_descendant_and_no_copy() {
     );
     assert_eq!(code, ExitCode::from(3), "the command exits 0: survived");
     assert_all_ended(&watched);
-    assert_no_scratch();
+    fixture.assert_no_scratch();
 }
 
 /// A mutant that hangs is killed at its timeout together with the descendant
@@ -772,19 +871,7 @@ fn a_timed_out_mutant_leaves_no_process_and_no_copy() {
     let snapshot = fs::read_to_string(fixture.root().join(".metrics/mutate/app/more.edn")).unwrap();
     assert!(snapshot.contains(":killed 1"), "{snapshot}");
     assert!(snapshot.contains(":survived 0"), "{snapshot}");
-    assert_no_scratch();
-}
-
-/// No scratch root of this test process may survive a call.
-fn assert_no_scratch() {
-    let mine = format!("mutator-{}-", std::process::id());
-    let left: Vec<String> = fs::read_dir(std::env::temp_dir())
-        .unwrap()
-        .flatten()
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|name| name.starts_with(&mine))
-        .collect();
-    assert_eq!(left, Vec::<String>::new(), "copies left behind");
+    fixture.assert_no_scratch();
 }
 
 /// Ported from `test_copy_refuses_directory_junctions...`: a linked directory
