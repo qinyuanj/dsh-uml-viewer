@@ -150,6 +150,11 @@ fn ensure_vitest_coverage(package: &Path) -> io::Result<bool> {
 /// Absolute paths (including Windows drives on Unix) remain byte-for-byte intact.
 pub(crate) fn anchor(report: &Path, module: &Path) -> io::Result<()> {
     let text = fs::read_to_string(report)?;
+    fs::write(report, anchor_text(&text, module))
+}
+
+/// `anchor` on report text: mutation reads a view's report without writing it.
+pub fn anchor_text(text: &str, module: &Path) -> String {
     let mut output = String::new();
     // Python str.splitlines() includes these Unicode line boundaries too.
     let normalized = text.replace("\r\n", "\n");
@@ -185,7 +190,7 @@ pub(crate) fn anchor(report: &Path, module: &Path) -> io::Result<()> {
     if output.is_empty() {
         output.push('\n');
     }
-    fs::write(report, output)
+    output
 }
 
 fn cover_package(root: &Path, package: &Path, files: &[PathBuf]) -> bool {

@@ -786,3 +786,166 @@ fn a_killed_run_leaves_nothing_running_and_the_next_run_sweeps_its_scratch() {
     }
     remove_fixture(&root);
 }
+
+/// The real binary runs Python and TypeScript projects end to end: coverage is
+/// measured, an untested file is reported uncovered, and the snapshots are the
+/// pinned original's bytes apart from the real clock. Byte-exact equality with
+/// an injected clock lives in mutator's `python_ts` tests.
+#[cfg(target_os = "linux")]
+#[test]
+fn python_and_typescript_projects_mutate_through_the_real_binary() {
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    fn copy(from: &Path, to: &Path) {
+        fs::create_dir_all(to).unwrap();
+        for entry in fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() {
+                copy(&entry.path(), &to.join(entry.file_name()));
+            } else {
+                fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
+            }
+        }
+    }
+    fn snapshots(root: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+        fn walk(
+            base: &Path,
+            directory: &Path,
+            found: &mut std::collections::BTreeMap<String, Vec<u8>>,
+        ) {
+            let Ok(entries) = fs::read_dir(directory) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(base, &path, found);
+                } else {
+                    found.insert(
+                        path.strip_prefix(base)
+                            .unwrap()
+                            .to_string_lossy()
+                            .into_owned(),
+                        fs::read(&path).unwrap(),
+                    );
+                }
+            }
+        }
+        let base = root.join(".metrics/mutate");
+        let mut found = std::collections::BTreeMap::new();
+        walk(&base, &base, &mut found);
+        found
+    }
+    let venv = std::env::var_os("MUTATOR_TEST_PYTHON_VENV").map(PathBuf::from);
+    let node = Command::new("node")
+        .args(["--experimental-strip-types", "-e", ""])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    for language in ["python", "typescript"] {
+        let available = match language {
+            "python" => venv.as_ref().is_some_and(|venv| {
+                Command::new(venv.join("bin/python"))
+                    .args(["-c", "import coverage, pytest"])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .is_ok_and(|status| status.success())
+            }),
+            _ => node,
+        };
+        if !available {
+            assert!(
+                std::env::var_os("MUTATOR_REQUIRE_TOOLCHAINS").as_deref()
+                    != Some(std::ffi::OsStr::new("1")),
+                "required mutation toolchain unavailable for {language}"
+            );
+            eprintln!("SKIP: {language} toolchain unavailable (venv/node)");
+            continue;
+        }
+        let directory = std::env::temp_dir().join(format!(
+            "mutate-cli-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let root = directory.join("project");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/mutate")
+            .join(language);
+        copy(&fixture.join("project"), &root);
+        if language == "python"
+            && let Some(venv) = &venv
+        {
+            std::os::unix::fs::symlink(venv, root.join(".venv")).unwrap();
+            std::os::unix::fs::symlink(venv, root.join("legacy/.venv")).unwrap();
+        }
+        let targets: &[&str] = match language {
+            "python" => &["src/shapes/geometry.py", "legacy/tally/core.py"],
+            _ => &["src/calc.ts", "src/view.tsx"],
+        };
+        let output = Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
+            .arg("mutate")
+            .arg("--root")
+            .arg(&root)
+            .args([
+                "--max-workers",
+                "1",
+                "--timeout-factor",
+                "20",
+                "--mutate-all",
+            ])
+            .args(targets)
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(3), "{language}: {output:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !stderr.contains("Linux mutation currently supports Rust only"),
+            "{language}: {stderr}"
+        );
+        if language == "typescript" {
+            assert!(
+                stderr.contains(
+                    "No coverage data for src/view.tsx; its sites are uncovered. Pass --no-coverage to run them anyway."
+                ),
+                "{stderr}"
+            );
+        }
+        let published = snapshots(&root.join(".metrics/mutate"));
+        let golden = snapshots(&fixture.join("goldens"));
+        assert_eq!(published.len(), golden.len(), "{language}");
+        for (name, bytes) in &published {
+            let expected = &golden[name];
+            // Only the real clock differs; every other byte is the original's.
+            let clock = |bytes: &[u8]| {
+                let text = String::from_utf8(bytes.to_vec()).unwrap();
+                text.split(":tested-at \"")
+                    .enumerate()
+                    .map(|(index, part)| {
+                        if index == 0 {
+                            part.to_string()
+                        } else {
+                            format!("CLOCK{}", part.split_once('"').unwrap().1)
+                        }
+                    })
+                    .collect::<String>()
+            };
+            assert_eq!(clock(bytes), clock(expected), "{language} {name}");
+            assert!(bytes.starts_with(b"{:version 1 :tested-at \""), "{name}");
+        }
+        assert!(!root.join("target").exists(), "{language} wrote target/");
+        assert!(
+            !root.join("coverage").exists(),
+            "{language} wrote coverage/"
+        );
+        assert!(
+            !root.join("node_modules").exists(),
+            "{language} wrote node_modules"
+        );
+        assert!(!root.join("src/shapes/__pycache__").exists());
+        remove_fixture(&root);
+    }
+}

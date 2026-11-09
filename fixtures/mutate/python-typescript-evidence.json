@@ -1,0 +1,119 @@
+{
+  "references": {
+    "mutator": "f772a8329fba3f2f81bfca0a81abfa3210af9f4a",
+    "crapper": "4068857bc44e6383cf4a5e4d0b5c1111b49ce0b4"
+  },
+  "clock": "2026-11-07T12:00:00+00:00",
+  "isolation": "namespace-view",
+  "toolchain": {
+    "python": "3.12.3",
+    "coverage": "7.10.7",
+    "pytest": "9.2.0",
+    "node": "v24.19.0",
+    "npm": "11.17.0"
+  },
+  "original_tests": {
+    "files": [
+      "test_snapshot_bytes.py",
+      "test_sites.py",
+      "test_runner.py"
+    ],
+    "summary": "57 passed, 1 skipped in 11.90s"
+  },
+  "projects": {
+    "python": {
+      "targets": [
+        "src/shapes/geometry.py",
+        "legacy/tally/core.py"
+      ],
+      "venv_links": [
+        ".",
+        "legacy"
+      ],
+      "arguments": [
+        "--root",
+        "<native-/tmp-copy>/project",
+        "--max-workers",
+        "1",
+        "--timeout-factor",
+        "20",
+        "src/shapes/geometry.py",
+        "legacy/tally/core.py"
+      ],
+      "first_run": {
+        "prepend": [
+          "--mutate-all"
+        ],
+        "exit": 3,
+        "no_coverage_warnings": []
+      },
+      "unchanged_rerun": {
+        "exit": 3,
+        "identical_snapshot_bytes": true
+      },
+      "original_source_bytes_unchanged": true,
+      "snapshots": {
+        "legacy.tally.core.edn": {
+          "bytes": 744,
+          "sha256": "5ae9926f33c8eda604407f1a5f3588bcc6e48eb1566b49ad61ac641dc2a3072d"
+        },
+        "shapes.geometry.Board.edn": {
+          "bytes": 1811,
+          "sha256": "6cf928366db3f1d4414fb53caf6d14c2ba08a5de14b4ffa808c8f02451d41648"
+        },
+        "shapes.geometry.edn": {
+          "bytes": 2346,
+          "sha256": "22795c5177539cec8fc23b921fbfe14ccb383a0c8753cbbc6f2fec5eacf22b26"
+        }
+      }
+    },
+    "typescript": {
+      "targets": [
+        "src/calc.ts",
+        "src/view.tsx"
+      ],
+      "venv_links": [],
+      "arguments": [
+        "--root",
+        "<native-/tmp-copy>/project",
+        "--max-workers",
+        "1",
+        "--timeout-factor",
+        "20",
+        "src/calc.ts",
+        "src/view.tsx"
+      ],
+      "first_run": {
+        "prepend": [
+          "--mutate-all"
+        ],
+        "exit": 3,
+        "no_coverage_warnings": [
+          "No coverage data for src/view.tsx; its sites are uncovered. Pass --no-coverage to run them anyway."
+        ]
+      },
+      "unchanged_rerun": {
+        "exit": 3,
+        "identical_snapshot_bytes": true
+      },
+      "original_source_bytes_unchanged": true,
+      "snapshots": {
+        "calc.Counter.edn": {
+          "bytes": 1519,
+          "sha256": "4a9d177c24518f45ca4f5a8f2decd740ce10d029b3858503b2297fb9a1ae648c"
+        },
+        "calc.edn": {
+          "bytes": 1975,
+          "sha256": "e43e794bb7520ea04cf8de460e1ffe6c5d1bd2a48e5e00e47ba6c53490d18bf0"
+        },
+        "view.edn": {
+          "bytes": 332,
+          "sha256": "c3506374dc9589e061442b5c0341a3f7ee3de7c0a64d18849ba5cb8bb1cd6c10"
+        }
+      }
+    }
+  },
+  "sites_files": 30,
+  "sites_total": 176,
+  "reference_worktrees_clean": true
+}

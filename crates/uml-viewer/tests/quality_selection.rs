@@ -19,8 +19,8 @@ struct Tool {
     flags: &'static [&'static str],
     /// Mutate's namespace isolation is Linux-only today.
     linux_only: bool,
-    /// Mutate's scope here is Rust; dry and crap cover every language.
-    rust_only: bool,
+    /// The languages each tool handles when not all of them: an empty list means "all".
+    languages: &'static [&'static str],
     /// The selected files as the tool's own published report names them.
     report: fn(&Path, &str) -> BTreeSet<String>,
     /// An empty selection: the tool's own message on its own stream.
@@ -120,7 +120,28 @@ fn mutate_snapshots(root: &Path) -> bool {
 }
 
 fn mutate_verify(root: &Path) {
-    // Not a hollow selection: each snapshot's sites were executed and killed.
+    // Not a hollow selection: every form with sites ran them all, all were
+    // killed by the fail-every-mutant command, and none survived.
+    fn forms(text: &str) -> Vec<(usize, usize, usize, usize)> {
+        let mut found = Vec::new();
+        for entry in text.split(":id \"").skip(1) {
+            let count = |key: &str| -> usize {
+                entry
+                    .split(&format!(":{key} "))
+                    .nth(1)
+                    .and_then(|rest| rest.split(|ch: char| !ch.is_ascii_digit()).next())
+                    .and_then(|digits| digits.parse().ok())
+                    .unwrap_or(0)
+            };
+            found.push((
+                count("killed"),
+                count("survived"),
+                count("uncovered"),
+                count("sites"),
+            ));
+        }
+        found
+    }
     fn check(directory: &Path) {
         let Ok(entries) = fs::read_dir(directory) else {
             return;
@@ -131,8 +152,15 @@ fn mutate_verify(root: &Path) {
                 check(&path);
             } else if path.extension().is_some_and(|ext| ext == "edn") {
                 let text = fs::read_to_string(&path).unwrap_or_default();
-                assert!(text.contains(":killed 1"), "{}: {text}", path.display());
-                assert!(text.contains(":survived 0"), "{}: {text}", path.display());
+                let found = forms(&text);
+                assert!(!found.is_empty(), "{}: {text}", path.display());
+                let mut ran = 0;
+                for (killed, survived, uncovered, sites) in found {
+                    assert_eq!(survived, 0, "{}: {text}", path.display());
+                    assert_eq!(killed + uncovered, sites, "{}: {text}", path.display());
+                    ran += killed;
+                }
+                assert!(ran > 0, "{}: no site was killed: {text}", path.display());
             }
         }
     }
@@ -146,7 +174,7 @@ const TOOLS: &[Tool] = &[
         role: "crap",
         flags: &["--no-coverage"],
         linux_only: false,
-        rust_only: false,
+        languages: &[],
         report: crap_report,
         empty: empty_quality,
         published: |root| root.join(".metrics/crap.edn").exists(),
@@ -156,7 +184,7 @@ const TOOLS: &[Tool] = &[
         role: "dry",
         flags: &["--edn", "--min-lines", "1", "--min-nodes", "1"],
         linux_only: false,
-        rust_only: false,
+        languages: &[],
         report: dry_report,
         empty: empty_quality,
         published: |root| root.join(".metrics/dry.edn").exists(),
@@ -175,7 +203,8 @@ const TOOLS: &[Tool] = &[
             "if [ -f \"$MUTATOR_VIEW/mutation\" ]; then exit 1; fi; true",
         ],
         linux_only: true,
-        rust_only: true,
+        // Every language this build mutates: Rust (native), Lua (#11), Python, TypeScript.
+        languages: &["rust", "python", "typescript", "lua"],
         report: mutate_report,
         empty: empty_mutate,
         published: mutate_snapshots,
@@ -197,9 +226,7 @@ const FIXTURES: &[Fixture] = &[
         language: "python",
         extension: "py",
         source: |id| {
-            format!(
-                "def {id}_left(xs):\n    return filter(xs, odd)\n\ndef {id}_right(xs):\n    return filter(xs, odd)\n"
-            )
+            format!("def {id}_left(x):\n    return x + 1\n\ndef {id}_right(x):\n    return x + 1\n")
         },
     },
     Fixture {
@@ -207,7 +234,7 @@ const FIXTURES: &[Fixture] = &[
         extension: "ts",
         source: |id| {
             format!(
-                "export function {id}_left(xs: number[]): number[] {{\n  return filter(xs, odd);\n}}\n\nexport function {id}_right(xs: number[]): number[] {{\n  return filter(xs, odd);\n}}\n"
+                "export function {id}_left(x: number) {{\n  return x + 1;\n}}\n\nexport function {id}_right(x: number) {{\n  return x + 1;\n}}\n"
             )
         },
     },
@@ -216,7 +243,7 @@ const FIXTURES: &[Fixture] = &[
         extension: "lua",
         source: |id| {
             format!(
-                "local function {id}_left(xs)\n  return filter(xs, odd)\nend\n\nlocal function {id}_right(xs)\n  return filter(xs, odd)\nend\n"
+                "local function {id}_left(x)\n  return x + 1\nend\n\nlocal function {id}_right(x)\n  return x + 1\nend\n"
             )
         },
     },
@@ -315,7 +342,7 @@ fn quality_commands_publish_the_same_selected_source_files() {
         for (args, expected) in scenarios {
             for tool in TOOLS {
                 if (tool.linux_only && !cfg!(target_os = "linux"))
-                    || (tool.rust_only && fixture.language != "rust")
+                    || (!tool.languages.is_empty() && !tool.languages.contains(&fixture.language))
                 {
                     continue;
                 }

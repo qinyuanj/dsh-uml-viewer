@@ -95,7 +95,8 @@ pub fn digest(source: &str, start: usize, end: usize) -> String {
         .collect();
     hash(&selected.join("\n"))
 }
-fn private(language: Language, source: &str, start: usize, end: usize) -> bool {
+/// `_header`: the declaration's first seven lines, outer attributes skipped.
+fn header(source: &str, start: usize, end: usize) -> String {
     let selected = lines(source)
         .into_iter()
         .skip(start.saturating_sub(1))
@@ -109,12 +110,20 @@ fn private(language: Language, source: &str, start: usize, end: usize) -> bool {
         };
         header = rest.trim_start();
     }
-    // Python checks pub\s: pub(crate) deliberately remains private.
+    header.to_string()
+}
+/// `is_private` per language: Python and TypeScript keep their own rules in
+/// their modules; Rust and Lua read the declaration's header.
+fn private(language: Language, name: &str, source: &str, start: usize, end: usize) -> bool {
+    let header = header(source, start, end);
     match language {
+        Language::Python => crate::python::private(name),
+        Language::TypeScript => crate::typescript::private(name, &header),
         // A Lua function is private only when its declaration is `local`.
         Language::Lua => header
             .strip_prefix("local")
             .is_some_and(|rest| rest.starts_with(char::is_whitespace)),
+        // Python checks pub\s: pub(crate) deliberately remains private.
         _ => !header
             .strip_prefix("pub")
             .is_some_and(|rest| rest.starts_with(char::is_whitespace)),
@@ -213,6 +222,28 @@ fn replacement(
     }
     None
 }
+/// One leaf's site: Python and TypeScript keep their rules in their own
+/// modules; Rust and Lua share the table above plus the literal swaps.
+fn leaf_site(
+    language: Language,
+    node: quality_core::grammar::Node,
+    token: &str,
+    parent: &str,
+) -> Option<(String, &'static str)> {
+    match language {
+        Language::Python => crate::python::site(node, token),
+        Language::TypeScript => crate::typescript::site(node, token),
+        _ => replacement(language, token, parent)
+            .or_else(|| match (node.kind(), token) {
+                ("true", "true") => Some(("false", "boolean")),
+                ("false", "false") => Some(("true", "boolean")),
+                ("integer_literal" | "number", "0") => Some(("1", "constant")),
+                ("integer_literal" | "number", "1") => Some(("0", "constant")),
+                _ => None,
+            })
+            .map(|(mutant, category)| (mutant.to_string(), category)),
+    }
+}
 type FormParts = (usize, Vec<(usize, usize, String)>);
 
 /// Mutation sites in source order and forms in first-line order. Test code is
@@ -229,6 +260,8 @@ pub fn discover(
     let grammar = match language {
         Language::Rust => Grammar::Rust,
         Language::Lua => Grammar::Lua,
+        Language::Python => Grammar::Python,
+        Language::TypeScript => crate::typescript::grammar(path),
         _ => return Ok((Vec::new(), Vec::new())),
     };
     let located = if path.is_absolute() {
@@ -243,7 +276,13 @@ pub fn discover(
     let mut grouped: BTreeMap<(String, String), FormParts> = BTreeMap::new();
     let mut owners = Vec::new();
     for function in &functions {
-        let private = private(language, source, function.start_line, function.end_line);
+        let private = private(
+            language,
+            &function.name,
+            source,
+            function.start_line,
+            function.end_line,
+        );
         let id = format!(
             "{}/{}",
             if private { "defn-" } else { "defn" },
@@ -304,16 +343,11 @@ pub fn discover(
         }
         let token = text(source, node);
         let parent = node.parent().map_or("", |node| node.kind());
-        let changed = replacement(language, token, parent).or_else(|| match (node.kind(), token) {
-            ("true", "true") => Some(("false", "boolean")),
-            ("false", "false") => Some(("true", "boolean")),
-            ("integer_literal" | "number", "0") => Some(("1", "constant")),
-            ("integer_literal" | "number", "1") => Some(("0", "constant")),
-            _ => None,
-        });
+        let changed = leaf_site(language, node, token, parent);
         let Some((mutant, category)) = changed else {
             continue;
         };
+        let mutant = mutant.as_str();
         let line = node.start_position().row + 1;
         let Some((function, position)) = owners
             .iter()

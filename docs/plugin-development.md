@@ -1,9 +1,10 @@
 # Plugin host development
 
 Ticket dsh-uml-viewer#19 added the host skeleton and `uml_ir`; #21 adds the Web
-panel, the typed Remote stream and `uml_display`. The quality tools and their
-gates follow in #20. This checkout is a development package, marked private until
-the release packaging tickets assemble the main and platform packages.
+panel, the typed Remote stream and `uml_display`; #20 adds `uml_crap`,
+`uml_mutate`, `uml_dry`, their per-session FIFO and the quality gate. This
+checkout is a development package, marked private until the release packaging
+tickets assemble the main and platform packages.
 
 Use Node 24 (or Node 22.19+) and the pnpm version pinned in `package.json`:
 
@@ -81,6 +82,29 @@ signal always fails closed and its name appears in `reason`. No result files are
 stdout is bounded to 256 KiB, stderr to 64 KiB, with `truncated` reporting loss.
 Confinement runner failures and access denials have separate reasons.
 
+`uml_crap({targets?})`, `uml_mutate({targets, mutateAll?})` and `uml_dry({})`
+run `uml-viewer quality <operation>` in the same session cwd and under the same
+sandbox rules. The binary prints exactly one version-1 record on stdout, and
+that record is the tool return value: the host validates it with
+`parseQualityResult`, requires its operation, canonical project root and exit
+to match the invocation, and never reads a result file. A refusal, malformed
+record, signal termination or unavailable output reader returns the same
+fields with `validResult: false` and an explanatory reason; a host refusal has
+`exitCode: null`. Mutation takes every target in one array and forwards them in
+one argv, because mutator shares one coverage run and baseline across them.
+
+Quality calls in one session are queued FIFO, and `uml_ir` joins the same
+queue, so it sees the outcome of a quality call already in progress. A
+terminated quality child is reported as terminated, never as valid, whatever
+it printed first. Each completed quality result
+(including a refusal or malformed argument) becomes that session's latest
+quality outcome; while it has `validResult: false`, `uml_ir` refuses before
+spawning and names the failing operation. With no quality call in the session,
+IR remains available for requests that need no refresh. Only a later successful
+quality call clears the refusal. The `uml_display`
+gate is independent: it still requires the latest `uml_ir` in the session to
+have succeeded, and any later refused, malformed or failed `uml_ir` revokes it.
+
 ## Contracts and follow-on seams
 
 `packages/contracts/src/tools.ts` owns JSON-only request/result contracts and
@@ -103,14 +127,15 @@ exports the public contracts. Later additions belong in separate modules:
 
 The host's `dsh.ts` is a narrow structural boundary to the inspected DSH
 0.2.2-rc.1 services; `process.ts` owns confinement and bounded subprocess
-execution; `runner.ts` composes IR arguments and the tool result;
-`binary.ts` owns executable location; `policy.ts` owns default policy selection;
-`index.ts` owns the tool definitions and effect lifetime. #20 can extend the
-runner with operation-specific args/result parsing and per-session
-serialization, then wrap the IR handler with quality gating.
+execution; `runner.ts` composes IR arguments and the tool result; `quality.ts`
+runs a quality operation and validates its stdout record; `binary.ts` owns
+executable location; `policy.ts` owns default policy selection; `index.ts` owns
+the tool definitions, the IR handler's quality check and effect lifetime.
+`gate.ts` holds both per-session gates: the latest quality outcome with its FIFO,
+and the IR success `uml_display` requires.
 
-`gate.ts` holds the `uml_display` gate: a per-session record of this plugin's
-own `uml_ir` outcomes, written by the `uml_ir` tool and read by `uml_display`.
+The `uml_display` gate is a per-session record of this plugin's own `uml_ir`
+outcomes, written by the `uml_ir` tool and read by `uml_display`.
 It is deliberately conservative — it is **process-local**, so after a host
 restart or a session fork the first `uml_display` is refused until `uml_ir` runs
 again in that session; it never reports someone else's success. The session log
@@ -127,8 +152,8 @@ view state under the plugin home.
 DSH reads `package.json`'s `dsh.bundle.patch`, runtime export and `engines.dsh`.
 `dsh-plugin.json` is the informational community manifest, not an authorization
 mechanism. The patch inserts exactly one row named like the package. The
-manifest lists `uml_ir` and `uml_display` as implemented and records the three
-quality tools as planned. The browser half is declared where DSH reads it:
+manifest lists all five tools: `uml_ir`, `uml_crap`, `uml_mutate`, `uml_dry`
+and `uml_display`. The browser half is declared where DSH reads it:
 `package.json` `dsh.client` (`platform: "web"`, `immediately: true`, the right
 sidebar as its only activation-order dependency, no `external` requests) plus the
 `"./client"` export. `dsh-std` 0.15 has no `facets.client` key, so the
@@ -138,10 +163,13 @@ are included. No live profile was installed or changed for this ticket.
 The seam tests load the host into a real Cordis 4.1 Context, provide controlled
 DSH services, and spawn a real fake binary through the subprocess seam. They
 check actual argv/cwd, results for exits 0/1/3, refusal, confinement, authority
-changes and unload cleanup. `.uml-viewer/` fixtures exist **before plugin
-load**; nested bytes and nanosecond mtimes are compared after calls and unload
-on success, failure and refusal. These are plugin seam tests, not a claim that
-the fake confinement provider enforces an OS sandbox.
+changes and unload cleanup. The quality seam adds a fake quality binary that
+emits the version-1 stdout line, so exits 0/1/3, signal termination, failed
+output readers, malformed records, FIFO ordering and the quality→IR→display
+gate are observed at the tool boundary. `.uml-viewer/` fixtures exist **before
+plugin load**; nested bytes and nanosecond mtimes are compared after calls and
+unload on success, failure and refusal. These are plugin seam tests, not a
+claim that the fake confinement provider enforces an OS sandbox.
 
 ## Browser acceptance lane
 
