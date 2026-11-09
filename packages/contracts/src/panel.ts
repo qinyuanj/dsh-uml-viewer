@@ -11,6 +11,8 @@ import type { SceneFrame } from './scene-frame.js'
 import { validateSceneFrame } from './scene-frame.js'
 import { validateSessionState } from './resident.js'
 import { normalizeRelativePath } from './tools.js'
+import type { CardModel, InspectorModel, SourceModel } from './overlays.js'
+import { validateCardModel, validateInspectorModel, validateSourceModel } from './overlays.js'
 
 /** The Remote namespace the panel mounts. */
 export const REMOTE_SERVICE = 'umlViewer'
@@ -37,9 +39,26 @@ export type PanelAction =
   | { action: 'search'; query: string }
   | { action: 'locate'; id: string }
   | { action: 'context'; proposalId: string | null }
+  // #27 overlays: the answers come back on the ack, so one panel's card or
+  // source window never appears in another panel of the same session.
+  | { action: 'inspector' }
+  | { action: 'card'; width?: number; viewHeight?: number }
+  | { action: 'open-card'; id?: string; at?: [number, number] }
+  | { action: 'close-card' }
+  | { action: 'scroll-card'; delta: number; viewHeight: number }
+  | { action: 'open-source'; id: string; member?: string }
 
 /** One action's outcome; the events it caused arrive on the watch stream. */
-export interface PanelAck { accepted: boolean; reason: string | null }
+export interface PanelAck {
+  accepted: boolean
+  reason: string | null
+  /** The inspector model, when the action was `inspector`. */
+  inspector?: InspectorModel
+  /** The class card paint plan, when the action was `card`. */
+  card?: CardModel
+  /** The opened source, when the action was `open-source`. */
+  source?: SourceModel
+}
 
 export interface RemoteSchema { parse(value: unknown): unknown }
 export interface RemoteCodec {
@@ -189,6 +208,26 @@ export function parsePanelAction(value: unknown, label = 'panel action'): PanelA
           ? null : str(source.proposalId, `${label}.proposalId`)
         return { action, proposalId }
       }
+      case 'inspector': case 'close-card':
+        return { action }
+      case 'card': {
+        const width = source.width === undefined || source.width === null ? undefined : num(source.width, `${label}.width`)
+        const viewHeight = source.viewHeight === undefined || source.viewHeight === null
+          ? undefined : num(source.viewHeight, `${label}.viewHeight`)
+        return { action, ...(width === undefined ? {} : { width }), ...(viewHeight === undefined ? {} : { viewHeight }) }
+      }
+      case 'open-card': {
+        const id = source.id === undefined || source.id === null ? undefined : str(source.id, `${label}.id`)
+        const point = source.at === undefined || source.at === null ? undefined : pointOrNull(source.at, `${label}.at`)
+        if (id === undefined && point === undefined) at(label, 'open-card needs an id or a point')
+        return { action, ...(id === undefined ? {} : { id }), ...(point === undefined ? {} : { at: point! }) }
+      }
+      case 'scroll-card':
+        return { action, delta: num(source.delta, `${label}.delta`), viewHeight: num(source.viewHeight, `${label}.viewHeight`) }
+      case 'open-source': {
+        const member = source.member === undefined || source.member === null ? undefined : str(source.member, `${label}.member`)
+        return { action, id: str(source.id, `${label}.id`), ...(member === undefined ? {} : { member }) }
+      }
       default:
         return at(`${label}.action`, `unknown panel action ${JSON.stringify(source.action)}`)
     }
@@ -203,7 +242,13 @@ function parseAck(value: unknown, label = 'panel ack'): PanelAck {
   const accepted = source.accepted
   if (typeof accepted !== 'boolean') at(`${label}.accepted`, 'must be a boolean')
   const reason = source.reason === null || source.reason === undefined ? null : str(source.reason, `${label}.reason`)
-  return { accepted, reason }
+  const ack: PanelAck = { accepted, reason }
+  if (source.inspector !== undefined && source.inspector !== null) {
+    ack.inspector = validateInspectorModel(source.inspector, `${label}.inspector`)
+  }
+  if (source.card !== undefined && source.card !== null) ack.card = validateCardModel(source.card, `${label}.card`)
+  if (source.source !== undefined && source.source !== null) ack.source = validateSourceModel(source.source, `${label}.source`)
+  return ack
 }
 
 const codec = (name: string, parse: (value: unknown) => unknown): RemoteCodec => ({
