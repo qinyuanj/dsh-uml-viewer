@@ -11,8 +11,8 @@
  * on_scroll, zoom_at, fit) so the panel behaves like the egui window.
  */
 import type { DiscussionContext, PanelAck, PanelAction, PanelEvent, SceneFrame, SearchResult } from '@dsh-uml-viewer/contracts'
-import { hitTest, paintFrame, tierOf } from './paint.js'
-import { hoverAt, sameHover, withHover, type HoverHit } from './hover.js'
+import { hitTest, paintFrame } from './paint.js'
+import { hoverAt, sameHover, showsPopup, withHover, type HoverHit } from './hover.js'
 import { cssToWorld, screenToWorld, viewTransform } from './fit.js'
 
 /** A Remote stream handle: async-iterable, with the carrier's own teardown. */
@@ -254,7 +254,7 @@ export class PanelController {
     if (!this.frame) return
     const world = cssToWorld(this.frame, this.canvas.getBoundingClientRect(), x, y)
     const hit = world ? hoverAt(this.frame, world) : null
-    const followsPointer = hit?.kind === 'class' && tierOf(this.frame) !== 'full'
+    const followsPointer = showsPopup(this.frame, hit)
     if (sameHover(hit, this.hoverHit) && !followsPointer) return
     this.hoverHit = hit
     this.draw(this.frame)

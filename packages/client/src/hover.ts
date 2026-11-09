@@ -176,6 +176,17 @@ function hoverRows(frame: SceneFrame, hit: HoverHit): readonly FrameHoverRow[] {
   return []
 }
 
+/**
+ * Whether this hover shows a popup whose position follows the pointer, so the
+ * controller repaints on a move even when the hovered item is unchanged.
+ */
+export function showsPopup(frame: SceneFrame, hit: HoverHit | null): boolean {
+  if (hit === null) return false
+  if (hoverRows(frame, hit).length > 0) return true
+  return hit.kind === 'class' && tierOf(frame) !== 'full'
+    && frame.world.some(item => item.kind === 'text' && item.line === 'name' && item.owner === hit.id && item.text)
+}
+
 /** The chrome popup for a hover, or `null` where the window shows none. */
 function hoverPopup(frame: SceneFrame, hit: HoverHit, pointer: Point): ChromeItem | null {
   const rows = hoverRows(frame, hit)

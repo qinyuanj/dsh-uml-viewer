@@ -317,6 +317,31 @@ describe('local hover (关系悬停高亮, ADR 0013)', () => {
     h.controller.close()
   })
 
+  it('moves the dependency tooltip with the pointer while staying on the same relation', async () => {
+    const value: SceneFrame = { ...frame, hover: { complete: true, indicators: [], edges: [{
+      from: ':api', to: ':serde', viaIds: [],
+      rows: [{ text: 'api -> serde', violating: false, ink: { role: 'ink' } }],
+    }] } }
+    const h = harness([{ kind: 'frame', seq: 1, frame: value }])
+    await h.controller.open('session-a')
+    await settle(() => h.painted.length === 1, 'the frame')
+    const edge = frame.edges.find(e => e.kind === 'stroke' && e.from === ':api' && e.to === ':serde')
+    if (!edge || edge.kind !== 'stroke') throw new Error('edge')
+    const [a, b] = [edge.points[0]!, edge.points[1]!]
+    const [sx, sy] = worldToScreen(viewTransform(frame, 800, 600), (a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+    const x = sx * 800 / frame.viewport.width, y = sy * 600 / frame.viewport.height
+    h.controller.hover(x, y)
+    const first = h.painted.at(-1)!.chrome.at(-1)
+    expect(first?.kind).toBe('popup')
+    const before = h.painted.length
+    h.controller.hover(x + 0.25, y)
+    expect(h.painted.length).toBe(before + 1)
+    const second = h.painted.at(-1)!.chrome.at(-1)
+    if (first?.kind !== 'popup' || second?.kind !== 'popup') throw new Error('popup')
+    expect(second.rect.x).toBeGreaterThan(first.rect.x)
+    h.controller.close()
+  })
+
   it('keeps the hover across a local pan and over the next resident frame', async () => {
     const h = harness([{ kind: 'ready', actions: [] }, { kind: 'frame', seq: 1, frame }])
     await h.controller.open('session-a')
