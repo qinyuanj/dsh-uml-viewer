@@ -1,8 +1,10 @@
 import { EventEmitter } from 'node:events'
+import { readFileSync } from 'node:fs'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Agent, HostServices, SubprocessHandle } from '../src/dsh.js'
 import { RESIDENT_LINE_MAX_BYTES } from '@dsh-uml-viewer/contracts'
-import { ResidentConnection, ResidentSessions } from '../src/resident.js'
+import { PANEL_QUEUE_MAX_BYTES, PANEL_QUEUE_MAX_ITEMS, ResidentConnection, ResidentSessions } from '../src/resident.js'
+import type { QueueSize } from '../src/resident.js'
 import type { SessionStates } from '../src/state.js'
 
 afterEach(() => vi.useRealTimers())
@@ -71,7 +73,7 @@ it('terminates and awaits a resident whose readiness times out', async () => {
   expect(h.terminations()).toBe(1)
 })
 
-function connection(maxLineBytes?: number) {
+function connection(maxLineBytes?: number, queueMax?: QueueSize) {
   const writes: string[] = []
   let terminations = 0
   const child: SubprocessHandle = {
@@ -81,7 +83,7 @@ function connection(maxLineBytes?: number) {
     done: new Promise(() => undefined),
     terminate() { terminations += 1 },
   } as unknown as SubprocessHandle
-  const resident = new ResidentConnection('s', process.cwd(), child, false, maxLineBytes)
+  const resident = new ResidentConnection('s', process.cwd(), child, false, maxLineBytes, queueMax)
   return { resident, writes, terminations: () => terminations }
 }
 
@@ -163,4 +165,60 @@ it('rejects requests still pending when the resident fails or ends', async () =>
   const ended = h.resident.request({ action: 'inspector' })
   h.resident.end()
   await expect(ended).rejects.toThrow(/session ended/)
+})
+
+// #review H2: one stalled panel subscriber must not grow host memory without
+// bound. Each panel stream gets its own queue, and a queue that falls more than
+// a few frames behind keeps the newest frames only.
+const goldenFrame = readFileSync(
+  new URL('../../../crates/frame/tests/fixtures/frames/root.frame.json', import.meta.url), 'utf8',
+)
+const frameLine = (seq: number) => `${JSON.stringify({ version: 1, seq, event: 'frame', frame: JSON.parse(goldenFrame) })}\n`
+
+it('caps every panel queue at 64 unread events or 8 MiB by default', () => {
+  expect(connection().resident.queueMax).toEqual({ items: PANEL_QUEUE_MAX_ITEMS, bytes: PANEL_QUEUE_MAX_BYTES })
+  expect(PANEL_QUEUE_MAX_ITEMS).toBe(64)
+  expect(PANEL_QUEUE_MAX_BYTES).toBe(8 * 1024 * 1024)
+})
+
+it('drops the oldest unread frames of a stalled panel, keeping the newest', async () => {
+  const h = connection(undefined, { items: 3, bytes: 1 << 24 })
+  const queue = h.resident.attach()
+  for (let seq = 1; seq <= 5; seq += 1) h.resident.ingest(frameLine(seq))
+  const seen: number[] = []
+  for (let read = 0; read < 3; read += 1) {
+    seen.push(((await queue.next()).value as unknown as { seq: number }).seq)
+  }
+  expect(seen).toEqual([3, 4, 5])
+  // Nothing else was buffered: the three oldest frames are gone.
+  h.resident.detach(queue)
+  expect((await queue.next()).done).toBe(true)
+  expect(h.terminations()).toBe(0)
+})
+
+it('drops unread frames by bytes as well, oldest first', async () => {
+  const line = frameLine(1)
+  const h = connection(undefined, { items: 1024, bytes: Buffer.byteLength(line, 'utf8') * 2 })
+  const queue = h.resident.attach()
+  for (let seq = 1; seq <= 3; seq += 1) h.resident.ingest(frameLine(seq))
+  expect((await queue.next()).value).toMatchObject({ event: 'frame', seq: 2 })
+  expect((await queue.next()).value).toMatchObject({ event: 'frame', seq: 3 })
+  h.resident.detach(queue)
+  expect((await queue.next()).done).toBe(true)
+})
+
+it('never truncates ready, refusal or error events: an over-full panel stream ends with a reason', async () => {
+  const h = connection(undefined, { items: 2, bytes: 1 << 24 })
+  const queue = h.resident.attach()
+  for (const message of ['one', 'two', 'three', 'four']) h.resident.ingest(errorLine(message))
+  expect((await queue.next()).value).toMatchObject({ event: 'error', message: 'one' })
+  expect((await queue.next()).value).toMatchObject({ event: 'error', message: 'two' })
+  expect((await queue.next()).value).toMatchObject({ event: 'error', message: 'three' })
+  const last = await queue.next()
+  expect(last.done).toBe(false)
+  expect(last.value).toMatchObject({ event: 'error', seq: null })
+  expect((last.value as unknown as { message: string }).message).toMatch(/fell behind: 3 unread events/)
+  expect((await queue.next()).done).toBe(true)
+  // That panel stream ended; the resident itself is untouched.
+  expect(h.terminations()).toBe(0)
 })

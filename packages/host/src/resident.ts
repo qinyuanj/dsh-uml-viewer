@@ -25,6 +25,19 @@ const STOP_TIMEOUT_MS = 3_000
  */
 export const WITHDRAWAL_GRACE_MS = 30_000
 
+/**
+ * What one stalled panel stream may hold unread before its queue is trimmed
+ * (#review H2): 64 events or 8 MiB, whichever comes first. Without a cap a
+ * single panel that stops reading accumulates every frame of the session, each
+ * up to `RESIDENT_LINE_MAX_BYTES`, inside the host process.
+ */
+export const PANEL_QUEUE_MAX_ITEMS = 64
+export const PANEL_QUEUE_MAX_BYTES = 8 * 1024 * 1024
+/** The two per-panel queue caps; a test may shrink them. */
+export interface QueueSize { items: number; bytes: number }
+/** The size counted for an event the host synthesized rather than parsed. */
+const SYNTHETIC_EVENT_BYTES = 256
+
 const SOURCE_CONTEXT: DiscussionContext = { kind: 'real', edn: '{:context :real}' }
 /** Actions whose answer can change the view or the discussion context. */
 const SAVED_ACTIONS = new Set(['open', 'viewport', 'camera', 'display', 'reload', 'drill-in', 'back',
@@ -40,22 +53,76 @@ export interface RefreshOutcome {
 /** A panel cannot be served; the reason is shown in the panel. */
 export class Refusal extends Error {}
 
+/**
+ * How a queue bounds its unread items (#review H2). `stale` names the items a
+ * newer one supersedes, so dropping those loses no information; nothing else is
+ * ever dropped silently.
+ */
+export interface QueueLimits<T> {
+  /** Most items held while the reader is not consuming. */
+  items: number
+  /** Most bytes held while it is not consuming, as reported by `size`. */
+  bytes: number
+  /** The size of one item in bytes. */
+  size(item: T): number
+  /** True when a newer item makes this one obsolete. */
+  stale(item: T): boolean
+  /** The final item: why this stream ended instead of holding more. */
+  overflow(held: { items: number; bytes: number }): T
+}
+
 /** A live stream of resident events with a blocking iterator. */
 export class Queue<T> {
   private readonly items: T[] = []
   private readonly waiters: ((result: IteratorResult<T>) => void)[] = []
+  private bytes = 0
   private ended = false
+
+  /**
+   * @param limits the size bound; without one the queue is unbounded, which is
+   *   only right for a reader that always consumes (the readiness handshake).
+   */
+  constructor(private readonly limits?: QueueLimits<T>) {}
 
   push(item: T): void {
     if (this.ended) return
     const waiter = this.waiters.shift()
-    if (waiter) waiter({ value: item, done: false })
-    else this.items.push(item)
+    if (waiter) {
+      waiter({ value: item, done: false })
+      return
+    }
+    this.items.push(item)
+    this.bytes += this.limits?.size(item) ?? 0
+    this.trim()
   }
 
   end(): void {
     this.ended = true
     for (const waiter of this.waiters.splice(0)) waiter({ value: undefined as never, done: true })
+  }
+
+  /**
+   * Bring the buffer back under both caps. The oldest superseded item goes
+   * first, so a stalled panel keeps the newest frames. When nothing left is
+   * superseded — a `ready`, a refusal, an `error`, a context switch — the
+   * stream ends instead: the backlog stays, one last event says why, and
+   * dropping one of those would have hidden a state change or a failure.
+   */
+  private trim(): void {
+    const limits = this.limits
+    if (!limits) return
+    while (this.items.length > limits.items || this.bytes > limits.bytes) {
+      const index = this.items.findIndex(item => limits.stale(item))
+      if (index < 0) {
+        const last = limits.overflow({ items: this.items.length, bytes: this.bytes })
+        this.items.push(last)
+        this.bytes += limits.size(last)
+        this.end()
+        return
+      }
+      const dropped = this.items.splice(index, 1)[0]!
+      this.bytes -= limits.size(dropped)
+    }
   }
 
   /** Resolve with the next item, or `done` when the queue ended or the signal aborted. */
@@ -104,6 +171,8 @@ export class ResidentConnection {
     quietError: boolean
     quiet: boolean
   }>()
+  /** The resident line each parsed event came from, for queue byte accounting. */
+  private readonly lineBytes = new WeakMap<ResidentEvent, number>()
   /** Decodes stdout bytes so a UTF-8 character split across chunks survives. */
   private readonly decoder = new StringDecoder('utf8')
   /** The unterminated tail of stdout and its UTF-8 size. */
@@ -115,20 +184,40 @@ export class ResidentConnection {
   readonly exited: Promise<void>
   /** One JSONL record's limit in UTF-8 bytes, newline (and CR) excluded. */
   readonly maxLineBytes: number
+  /** This connection's per-panel queue caps (#review H2). */
+  readonly queueMax: QueueSize
 
   constructor(id: string, cwd: string, child: SubprocessHandle, confined: boolean,
-    maxLineBytes = RESIDENT_LINE_MAX_BYTES) {
+    maxLineBytes = RESIDENT_LINE_MAX_BYTES,
+    queueMax: QueueSize = { items: PANEL_QUEUE_MAX_ITEMS, bytes: PANEL_QUEUE_MAX_BYTES }) {
     this.id = id
     this.cwd = cwd
     this.child = child
     this.confined = confined
     this.maxLineBytes = maxLineBytes
+    this.queueMax = queueMax
     this.exited = child.done.then(() => undefined, () => undefined)
   }
 
-  /** A fresh event queue for one panel stream. */
+  /**
+   * A fresh, bounded event queue for one panel stream. A panel that stops
+   * reading loses only frames older than the newest it will draw; anything
+   * else ends that stream with a reason instead of being dropped.
+   */
   attach(): Queue<ResidentEvent> {
-    const queue = new Queue<ResidentEvent>()
+    const queue = new Queue<ResidentEvent>({
+      items: this.queueMax.items,
+      bytes: this.queueMax.bytes,
+      size: event => this.lineBytes.get(event) ?? SYNTHETIC_EVENT_BYTES,
+      stale: event => event.event === 'frame',
+      overflow: held => ({
+        version: 1,
+        seq: null,
+        event: 'error',
+        message: `the panel fell behind: ${held.items} unread events use ${held.bytes} bytes, past this stream's `
+          + `${this.queueMax.items} events / ${this.queueMax.bytes} bytes; the host ended this panel stream instead of buffering more`,
+      }),
+    })
     this.subscribers.add(queue)
     return queue
   }
@@ -178,7 +267,7 @@ export class ResidentConnection {
         return
       }
       start = end + 1
-      if (line.trim()) this.dispatch(line)
+      if (line.trim()) this.dispatch(line, bytes)
       if (this.broken !== null) return
     }
   }
@@ -208,7 +297,7 @@ export class ResidentConnection {
     for (const pending of waiting) pending.reject(new Error(reason))
   }
 
-  private dispatch(line: string): void {
+  private dispatch(line: string, bytes: number): void {
     let event: ResidentEvent
     try {
       event = parseResidentLine(line)
@@ -216,6 +305,8 @@ export class ResidentConnection {
       this.fail(error instanceof Error ? error.message : String(error))
       return
     }
+    // The queue caps count bytes; a parsed event carries the size of its line.
+    this.lineBytes.set(event, bytes)
     if (event.event === 'ready') this.actions = event.actions
     else if (event.event === 'frame') this.latestFrame = event.frame
     else if (event.event === 'state') this.latestState = event.state
