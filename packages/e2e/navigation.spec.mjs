@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
+import { panDeltaBounds } from './canvas-probes.mjs'
 import { inkCount, panelCamera, producerFrame, sample, screenRect, toScreen } from './canvas.mjs'
 
 /**
@@ -133,8 +134,11 @@ test('anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and cycl
     await expect.poll(async () => (await panelCamera(deep)).x).not.toBe(zoomed.x)
     const panned = await panelCamera(deep)
     expect(panned.zoom).toBe(zoomed.zoom)
-    expect(panned.x - zoomed.x).toBeCloseTo(100 / zoomed.zoom, 1)
-    expect(panned.y - zoomed.y).toBeCloseTo(50 / zoomed.zoom, 1)
+    for (const [axis, pixels] of [['x', 100], ['y', 50]]) {
+      const [min, max] = panDeltaBounds(pixels, zoomed.zoom)
+      expect(panned[axis] - zoomed[axis], `drag ${axis}: rounded camera lower bound`).toBeGreaterThanOrEqual(min)
+      expect(panned[axis] - zoomed[axis], `drag ${axis}: rounded camera upper bound`).toBeLessThanOrEqual(max)
+    }
     await expect(deep.summary).toHaveAttribute('data-depth', 'root')
 
     // A plain wheel notch down pans down, never zooms.

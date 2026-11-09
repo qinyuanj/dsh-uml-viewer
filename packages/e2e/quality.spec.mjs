@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
+import { letterInkCount, edgeHoverHit, dotPanX } from './canvas-probes.mjs'
 import { producerFrame, sample, same, screenRect, toScreen, panelCamera } from './canvas.mjs'
 
 // #26: real IR/resident/panel, no injected frame. Replaces quality/highlight
@@ -43,6 +44,28 @@ async function visibleFull(lane, panel) {
   for (let i = 0; i < 12 && (await panelCamera(panel)).zoom < 0.9; i++) await lane.wheel(panel, -1)
   await settle(panel)
 }
+/** Reveal clipped right-column probes with a reversible, exposed-canvas drag. */
+async function probeFrameAt(panel, frame, point, radius, options) {
+  const dx = dotPanX(frame.viewport.width, toScreen(frame, ...point)[0], radius * frame.camera.zoom)
+  if (dx === 0) return { frame, restore: async () => {} }
+  const box = await panel.canvas.boundingBox()
+  const inspector = await panel.panel.getByRole('complementary', { name: '检查器' }).boundingBox()
+  const exposed = inspector.x - box.x
+  async function pan(delta) {
+    const start = delta < 0 ? exposed - 16 : 16
+    expect(start + delta, 'probe pan stays on exposed canvas').toBeGreaterThan(0)
+    expect(start + delta, 'probe pan stays before the inspector').toBeLessThan(exposed)
+    const y = box.y + box.height - 30
+    await panel.page.mouse.move(box.x + start, y)
+    await panel.page.mouse.down()
+    await panel.page.mouse.move(box.x + start + delta, y, { steps: 6 })
+    await panel.page.mouse.up()
+    await settle(panel)
+  }
+  await pan(dx)
+  return { frame: await producerFrame(panel, options), restore: () => pan(-dx) }
+}
+
 async function near(panel, point, color, tolerance = 20, radius = 2) {
   const probes = []
   for (let y = -radius; y <= radius; y++) for (let x = -radius; x <= radius; x++) probes.push([point[0] + x, point[1] + y])
@@ -109,7 +132,8 @@ test('quality colors, C/M dots and no-data survive light/dark and changed skin t
   try {
     const panel = await lane.openPanel('nexus')
     await visibleFull(lane, panel)
-    const frame = await producerFrame(panel, { root: lane.projects.nexus, home: lane.home })
+    const options = { root: lane.projects.nexus, home: lane.home }
+    const frame = await producerFrame(panel, options)
     expect(frame.lod).toBe('full')
     const classes = frame.world.filter(i => i.kind === 'class')
     expect(classes).toHaveLength(8)
@@ -150,30 +174,42 @@ test('quality colors, C/M dots and no-data survive light/dark and changed skin t
       const markerInk = (await hostColors(panel)).hover
       const dots = frame.world.filter(i => i.kind === 'quality' && i.of === 'class')
       expect(dots).toHaveLength(16)
+      const examined = new Set()
       for (const dot of dots) {
-        // Avoid the letter at the centre, sample inside left of it and at ring left.
-        const c = toScreen(frame, ...dot.center), r = dot.radius * frame.camera.zoom
-        expect(await near(panel, [c[0] - r * 0.55, c[1]], ramp(dot.fill.grade, palette.fill), 20, 1), `${dot.id} ${dot.text} fill`).toBe(true)
-        expect(await near(panel, [c[0] - r, c[1]], ramp(dot.stroke.grade, palette.stroke), 35, 1), `${dot.id} ${dot.text} ring`).toBe(true)
-        const letter = await panel.canvas.evaluate((canvas, { c, r, markerInk }) => {
-          const ctx = canvas.getContext('2d'), s = canvas.width / canvas.getBoundingClientRect().width
-          // Include the glyph's top and bottom: its thin antialiased centre
-          // can have no fully covered ink pixel at a reading zoom below 1.
-          const d = ctx.getImageData(Math.floor((c[0] - r) * s), Math.floor((c[1] - r) * s), Math.max(1, Math.ceil(2 * r * s)), Math.max(1, Math.ceil(2 * r * s))).data
-          // Compare actual marker ink inside the disc, not brightness: the
-          // light-mode disc is itself bright and must not satisfy this test.
-          let count = 0
-          for (let i = 0; i < d.length; i += 4) if ([0, 1, 2].every(k => Math.abs(d[i + k] - markerInk[k]) <= 25)) count++
-          return count
-        }, { c, r, markerInk })
-        expect(letter, `${dot.id} ${dot.text} letter`).toBeGreaterThan(0)
+        const probe = await probeFrameAt(panel, frame, dot.center, dot.radius, options)
+        try {
+          // Avoid the letter at the centre, sample inside left of it and at ring left.
+          const c = toScreen(probe.frame, ...dot.center), r = dot.radius * probe.frame.camera.zoom
+          expect(await near(panel, [c[0] - r * 0.55, c[1]], ramp(dot.fill.grade, palette.fill), 20, 1), `${dot.id} ${dot.text} fill`).toBe(true)
+          expect(await near(panel, [c[0] - r, c[1]], ramp(dot.stroke.grade, palette.stroke), 35, 1), `${dot.id} ${dot.text} ring`).toBe(true)
+          const pixels = await panel.canvas.evaluate((canvas, { c, r }) => {
+            const ctx = canvas.getContext('2d'), s = canvas.width / canvas.getBoundingClientRect().width
+            const x = Math.floor((c[0] - r) * s), y = Math.floor((c[1] - r) * s)
+            const w = Math.max(1, Math.ceil(2 * r * s)), h = w
+            const d = ctx.getImageData(x, y, w, h).data, interior = []
+            // Keep the glyph interior and exclude the ring geometrically. At
+            // 8px Sarasa, M has antialiased ink without any solid-ink pixel.
+            for (let row = 0; row < h; row++) for (let col = 0; col < w; col++) {
+              if (Math.hypot((x + col + 0.5) / s - c[0], (y + row + 0.5) / s - c[1]) > r * 0.7) continue
+              const i = (row * w + col) * 4
+              interior.push(...d.slice(i, i + 4))
+            }
+            return interior
+          }, { c, r })
+          expect(letterInkCount(pixels, markerInk, ramp(dot.fill.grade, palette.fill)), `${dot.id} ${dot.text} letter`).toBeGreaterThan(0)
+          examined.add(`${dot.id} ${dot.text}`)
+        } finally { await probe.restore() }
       }
+      expect(examined.size, `${mode}/${skin} every class C/M dot was examined`).toBe(16)
       // No-data is red ink at the producer's right-aligned text location.
       for (const mark of frame.world.filter(i => i.kind === 'no-data')) {
-        const right = toScreen(frame, mark.right, mark.y)
-        const points = []
-        for (let y = 0; y < mark.size * frame.camera.zoom; y++) for (let x = 0; x < 3 * mark.size * frame.camera.zoom; x++) points.push([right[0] - x, right[1] + y])
-        expect((await sample(panel, points)).some(p => same(p, rgb(palette.noData), 40)), `${mode}/${skin} ${mark.owner} no-data ink`).toBe(true)
+        const probe = await probeFrameAt(panel, frame, [mark.right, mark.y], mark.size, options)
+        try {
+          const right = toScreen(probe.frame, mark.right, mark.y)
+          const points = []
+          for (let y = 0; y < mark.size * probe.frame.camera.zoom; y++) for (let x = 0; x < 3 * mark.size * probe.frame.camera.zoom; x++) points.push([right[0] - x, right[1] + y])
+          expect((await sample(panel, points)).some(p => same(p, rgb(palette.noData), 40)), `${mode}/${skin} ${mark.owner} no-data ink`).toBe(true)
+        } finally { await probe.restore() }
       }
       const violation = frame.edges.find(e => e.kind === 'stroke' && e.stroke.role === 'violation')
       expect(violation).toBeTruthy()
@@ -267,11 +303,17 @@ test('resident dependency chain, relation dimming and temporary client class/edg
     // placement. The rows come from --hover-metadata, never from the client.
     const tooltipEdge = frame.edges.find(e => e.kind === 'stroke' && e.to === ':association')
     const probePoint = shaftProbe(frame, tooltipEdge).s
-    const tooltip = await producerFrame(panel, { ...options, hover: '{:kind :edge :from :hub :to :association}', pointer: probePoint, hoverMetadata: true })
+    // scene --frame accepts the complete hit produced by scene::hit::at;
+    // endpoints alone do not populate hover_rows. This fixture relation has
+    // one non-violating dependency, also independently present in metadata.
+    const hover = edgeHoverHit(':hub', ':association', [{ from: ':hub', to: ':association', violating: false }])
+    const tooltip = await producerFrame(panel, { ...options, select: '{:kind :class :id :dependency}', hover, pointer: probePoint, hoverMetadata: true })
     expect(tooltip.hover.complete).toBe(true)
     const entry = tooltip.hover.edges.find(e => e.from === ':hub' && e.to === ':association')
-    expect(entry.rows.length).toBeGreaterThan(0)
+    expect(entry, 'producer metadata includes the fixture relation').toBeTruthy()
+    expect(entry.rows).toEqual([{ text: 'hub -> association', violating: false, ink: { role: 'ink' } }])
     const popup = tooltip.chrome.find(c => c.kind === 'popup')
+    expect(popup, 'a complete producer hover hit has a popup').toBeTruthy()
     expect(popup.rows).toEqual(entry.rows)
     const rowInk = entry.rows[0].ink.role === 'violation' ? rgb(palettes.dark.violation) : colors.hover
     await panel.canvas.hover({ position: { x: probePoint[0], y: probePoint[1] } })
