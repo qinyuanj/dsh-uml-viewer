@@ -77,8 +77,20 @@ jobs:
         run: npm install --prefix .scratch/dsh-cli --no-save @deepseek-ai/dsh@0.2.2-rc.1
       - name: Scratch Chromium
         run: pnpm e2e:install
+      - name: Assemble packages for install and removal acceptance
+        id: panel-packages
+        run: node scripts/package.mjs --binary "$env:UML_VIEWER_BIN" --out "${{ github.workspace }}/.scratch/panel-packages"
+      - name: Read packaged acceptance version
+        id: panel-version
+        run: node --input-type=module -e "import fs from 'node:fs'; const report = JSON.parse(fs.readFileSync('.scratch/panel-packages/package-report.json', 'utf8')); fs.appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + report.version + '\n')"
       - name: Real panel acceptance
         run: pnpm test:e2e
+      - name: Packaged install display and removal acceptance
+        if: ${{ !cancelled() && steps.panel-packages.outcome == 'success' && steps.panel-version.outcome == 'success' }}
+        env:
+          UML_VIEWER_PACKAGE_MAIN: ${{ github.workspace }}/.scratch/panel-packages/dsh-uml-viewer-${{ steps.panel-version.outputs.version }}.tgz
+          UML_VIEWER_PACKAGE_PLATFORM: ${{ github.workspace }}/.scratch/panel-packages/dsh-uml-viewer-win32-x64-${{ steps.panel-version.outputs.version }}.tgz
+        run: pnpm --filter @dsh-uml-viewer/e2e exec playwright test package.spec.mjs --output ../../.scratch/e2e/package-results
       - name: Preserve panel diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -88,6 +100,8 @@ jobs:
           include-hidden-files: true
           path: |
             .scratch/e2e/results/**
+            .scratch/e2e/package-results/**
+            .scratch/e2e/run-*/package-preservation.json
             .scratch/e2e/evidence/**
             .scratch/e2e/diagnostics/**
             .scratch/e2e/run-*/mock-requests/*.json
