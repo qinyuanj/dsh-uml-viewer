@@ -636,9 +636,25 @@ fn hanging_project() -> std::path::PathBuf {
     root
 }
 
+/// A temporary directory of the fixture's own, outside its project. Every
+/// mutate call sweeps abandoned scratch from its temporary directory, so a
+/// case that inspects abandoned scratch must not share `/tmp` with the other
+/// mutate calls this test binary runs in parallel.
 #[cfg(target_os = "linux")]
-fn spawn_hanging(root: &std::path::Path, command: &str) -> std::process::Child {
+fn private_temporary(scratch: &std::path::Path) -> std::path::PathBuf {
+    let temporary = scratch.join("tmp");
+    fs::create_dir_all(&temporary).unwrap();
+    temporary
+}
+
+#[cfg(target_os = "linux")]
+fn spawn_hanging(
+    root: &std::path::Path,
+    command: &str,
+    temporary: &std::path::Path,
+) -> std::process::Child {
     std::process::Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
+        .env("TMPDIR", temporary)
         .args([
             "mutate",
             "--root",
@@ -678,7 +694,7 @@ fn an_interrupted_run_kills_its_tests_and_removes_its_scratch() {
         let source = fs::read(root.join("app/src/extra.rs")).unwrap();
         let scratch = root.parent().unwrap();
         let (command, roots, pids) = hanging_command(scratch);
-        let mut child = spawn_hanging(&root, &command);
+        let mut child = spawn_hanging(&root, &command, &private_temporary(scratch));
         let started = wait_until(|| lines(&roots).len() >= 2 && lines(&pids).len() >= 2);
         if !started {
             child.kill().ok();
@@ -728,7 +744,8 @@ fn a_killed_run_leaves_nothing_running_and_the_next_run_sweeps_its_scratch() {
     let source = fs::read(root.join("app/src/extra.rs")).unwrap();
     let scratch = root.parent().unwrap().to_path_buf();
     let (command, roots, pids) = hanging_command(&scratch);
-    let mut child = spawn_hanging(&root, &command);
+    let temporary = private_temporary(&scratch);
+    let mut child = spawn_hanging(&root, &command, &temporary);
     let started = wait_until(|| lines(&roots).len() >= 2 && lines(&pids).len() >= 2);
     if !started {
         child.kill().ok();
@@ -747,6 +764,24 @@ fn a_killed_run_leaves_nothing_running_and_the_next_run_sweeps_its_scratch() {
     }
     let abandoned = lines(&roots);
     assert!(!abandoned.is_empty());
+    // A mutate call on the shared temporary directory, as any test running in
+    // parallel makes, sweeps only its own directory: CI round 14 lost this
+    // root to such a call before the check below.
+    let other = fixture_project();
+    let bystander = binary([
+        "mutate",
+        "--root",
+        other.to_str().unwrap(),
+        "--scan",
+        "app/src/lib.rs",
+    ]);
+    assert_eq!(
+        bystander.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&bystander.stderr)
+    );
+    remove_fixture(&other);
     for root in &abandoned {
         assert!(
             !mounted(root),
@@ -760,18 +795,21 @@ fn a_killed_run_leaves_nothing_running_and_the_next_run_sweeps_its_scratch() {
     assert_eq!(fs::read(root.join("app/src/extra.rs")).unwrap(), source);
     assert!(!root.join(".metrics").exists());
     // The next call reclaims the abandoned root, then mutates normally.
-    let output = binary([
-        "mutate",
-        "--root",
-        root.to_str().unwrap(),
-        "--no-coverage",
-        "--mutate-all",
-        "--max-workers",
-        "1",
-        "--test-command",
-        "true",
-        "app/src/lib.rs",
-    ]);
+    let output = binary_env(
+        [
+            "mutate",
+            "--root",
+            root.to_str().unwrap(),
+            "--no-coverage",
+            "--mutate-all",
+            "--max-workers",
+            "1",
+            "--test-command",
+            "true",
+            "app/src/lib.rs",
+        ],
+        &[("TMPDIR", temporary.to_str().unwrap())],
+    );
     assert_eq!(
         output.status.code(),
         Some(3),
