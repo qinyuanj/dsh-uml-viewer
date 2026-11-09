@@ -85,7 +85,7 @@ fn comspec() -> OsString {
 struct Prepared {
     exe: OsString,
     line: Vec<u16>,
-    environment: Option<Vec<u16>>,
+    environment: Option<Vec<(OsString, OsString)>>,
 }
 
 fn prepare(program: &Program, cwd: &Path) -> io::Result<Prepared> {
@@ -212,16 +212,18 @@ fn batch(launcher: &Path, args: &[String]) -> io::Result<Prepared> {
     Ok(Prepared {
         exe,
         line,
-        environment: Some(environment(variables)),
+        environment: Some(variables),
     })
 }
 
-fn environment(added: Vec<(OsString, OsString)>) -> Vec<u16> {
+fn environment(added: Vec<(OsString, OsString)>, removed: &[OsString]) -> Vec<u16> {
     // Overrides replace, never duplicate: with two HOME entries the child
     // resolves the first one and the redirection would silently not happen.
     let mut vars: Vec<(OsString, OsString)> = std::env::vars_os()
         .filter(|(key, _)| {
-            !added.iter().any(|(other, _)| {
+            !removed.iter().any(|other| {
+                key.to_string_lossy().to_lowercase() == other.to_string_lossy().to_lowercase()
+            }) && !added.iter().any(|(other, _)| {
                 key.to_string_lossy().to_lowercase() == other.to_string_lossy().to_lowercase()
             })
         })
@@ -369,7 +371,120 @@ impl Drop for Attributes {
     }
 }
 
-fn job() -> io::Result<OwnedHandle> {
+/// The job this command's tree belongs to. Killing a job (also via
+/// kill-on-close) only starts termination; it does not wait for descendants to
+/// release their files and working directories.
+struct Job {
+    handle: OwnedHandle,
+    drained: bool,
+}
+impl Job {
+    fn as_raw_handle(&self) -> HANDLE {
+        self.handle.as_raw_handle()
+    }
+
+    /// Terminate every member and wait, bounded, until each process object has
+    /// signalled. The call is the same whether the leader was killed or exited
+    /// by itself: its descendants are never allowed to outlive the command.
+    fn finish(&mut self) -> io::Result<()> {
+        if self.drained {
+            return Ok(());
+        }
+        unsafe {
+            checked(TerminateJobObject(self.as_raw_handle(), 124))?;
+        }
+        let started = std::time::Instant::now();
+        let limit = Duration::from_secs(10);
+        // Termination stops member threads before returning, but their I/O
+        // teardown can continue. Pin and wait on each remaining member. The pid
+        // list can include exited processes whose handles observers still own.
+        for pid in self.process_ids()? {
+            // PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
+            let process = match owned(unsafe { OpenProcess(0x0010_0000 | 0x1000, 0, pid) }) {
+                Ok(process) => process,
+                Err(error) if error.raw_os_error() == Some(ERROR_INVALID_PARAMETER as i32) => {
+                    continue; // Exited and no longer openable.
+                }
+                Err(error) => return Err(error),
+            };
+            let mut member = 0;
+            unsafe {
+                checked(IsProcessInJob(
+                    process.as_raw_handle(),
+                    self.as_raw_handle(),
+                    &mut member,
+                ))?;
+            }
+            if member == 0 {
+                continue; // PID reuse: never wait on another job's process.
+            }
+            let remaining = limit.saturating_sub(started.elapsed());
+            match unsafe {
+                WaitForSingleObject(process.as_raw_handle(), remaining.as_millis() as u32)
+            } {
+                WAIT_OBJECT_0 => {}
+                WAIT_TIMEOUT => return Err(drain_timeout()),
+                _ => return Err(io::Error::last_os_error()),
+            }
+        }
+        self.drained = true;
+        Ok(())
+    }
+
+    /// Query after termination, growing the aligned variable-length buffer if
+    /// this tree has more members than the initial allocation.
+    fn process_ids(&self) -> io::Result<Vec<u32>> {
+        let offset = std::mem::offset_of!(JOBOBJECT_BASIC_PROCESS_ID_LIST, ProcessIdList)
+            / size_of::<usize>();
+        let mut storage = vec![0usize; offset + 64];
+        loop {
+            let ok = unsafe {
+                QueryInformationJobObject(
+                    self.as_raw_handle(),
+                    JobObjectBasicProcessIdList,
+                    storage.as_mut_ptr().cast(),
+                    std::mem::size_of_val(storage.as_slice()) as u32,
+                    null_mut(),
+                )
+            };
+            if ok != 0 {
+                let info = unsafe { &*storage.as_ptr().cast::<JOBOBJECT_BASIC_PROCESS_ID_LIST>() };
+                let count = info.NumberOfProcessIdsInList as usize;
+                return Ok(storage[offset..offset + count]
+                    .iter()
+                    .map(|pid| *pid as u32)
+                    .collect());
+            }
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() != Some(ERROR_MORE_DATA as i32) {
+                return Err(error);
+            }
+            storage.resize(storage.len() * 2, 0);
+        }
+    }
+}
+impl Drop for Job {
+    fn drop(&mut self) {
+        // Error/drop paths keep kill-on-close as a fallback, without retrying a
+        // failed drain or masking the original error with another long wait.
+        if !self.drained {
+            unsafe {
+                TerminateJobObject(self.as_raw_handle(), 124);
+            }
+        }
+    }
+}
+
+/// A bounded drain that did not finish is a failed cleanup, reported to the
+/// caller rather than covered by a longer wait.
+fn drain_timeout() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::TimedOut,
+        "the process job did not terminate within 10 seconds",
+    )
+}
+
+fn job() -> io::Result<Job> {
     let job = owned(unsafe { CreateJobObjectW(null(), null()) })?;
     let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
     info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -381,7 +496,10 @@ fn job() -> io::Result<OwnedHandle> {
             size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
         ))?;
     }
-    Ok(job)
+    Ok(Job {
+        handle: job,
+        drained: false,
+    })
 }
 
 // Also covers failure before assignment/resume: no suspended child is stranded.
@@ -422,8 +540,10 @@ fn finish(reader: Option<std::thread::JoinHandle<io::Result<Vec<u8>>>>) -> io::R
 /// thing that can reach descendants, so a timeout, a stop, a returned error or
 /// an abruptly killed caller all end the whole tree.
 pub(super) struct Running {
+    // Struct fields drop in declaration order: terminate the tree before the
+    // leader's guard waits when a caller drops an unconsumed supervisor.
+    job: Job,
     process: Process,
-    job: OwnedHandle,
     // The inherited ends stay alive until the command has been reaped.
     handles: [OwnedHandle; 3],
     attributes: Attributes,
@@ -442,6 +562,7 @@ pub(super) fn start(
     program: &Program,
     cwd: &Path,
     environment: &[(OsString, OsString)],
+    removed: &[OsString],
     output: &File,
 ) -> io::Result<Running> {
     let prepared = prepare(program, cwd)?;
@@ -449,6 +570,7 @@ pub(super) fn start(
         prepared,
         cwd,
         environment,
+        removed,
         Streams::File(output.try_clone()?),
     )
 }
@@ -460,7 +582,7 @@ pub(super) fn supervise(
 ) -> io::Result<Ended> {
     let Running {
         process,
-        job,
+        mut job,
         handles,
         attributes,
         out: _,
@@ -486,17 +608,13 @@ pub(super) fn supervise(
             None
         };
         if let Some(reason) = reason {
-            unsafe {
-                checked(TerminateJobObject(job.as_raw_handle(), 124))?;
-            }
-            unsafe {
-                WaitForSingleObject(process.0.as_raw_handle(), INFINITE);
-            }
+            job.finish()?;
             break Ended::Killed(reason);
         }
     };
-    // A normally exiting leader can leave daemon descendants; the job owns
-    // them. Closing it before the output readers finish also ends the writers.
+    // The leader's exit does not prove its descendants ended: the job still
+    // owns them. Terminate and drain before the caller removes its copy.
+    job.finish()?;
     drop(job);
     drop(handles);
     drop(attributes);
@@ -609,6 +727,7 @@ fn spawn_prepared(
     prepared: Prepared,
     cwd: &Path,
     added: &[(OsString, OsString)],
+    removed: &[OsString],
     streams: Streams,
 ) -> io::Result<Running> {
     let Prepared {
@@ -617,10 +736,13 @@ fn spawn_prepared(
         environment,
     } = prepared;
     // Batch's literal-argument variables and the caller's own overrides.
-    let mut environment = environment;
-    if !added.is_empty() {
-        environment = Some(self::environment(added.to_vec()));
-    }
+    let mut overrides = environment.unwrap_or_default();
+    overrides.extend_from_slice(added);
+    let environment = if overrides.is_empty() && removed.is_empty() {
+        None
+    } else {
+        Some(self::environment(overrides, removed))
+    };
     spawn(exe, line, cwd, environment, streams)
 }
 enum Streams {
@@ -635,6 +757,7 @@ pub(super) fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Resul
         prepared,
         cwd,
         &[],
+        &[],
         if capture {
             Streams::Capture
         } else {
@@ -643,16 +766,13 @@ pub(super) fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Resul
     )?;
     let Running {
         process,
-        job,
+        mut job,
         handles,
         attributes,
         out,
         err,
     } = running;
     let waited = unsafe { WaitForSingleObject(process.0.as_raw_handle(), INFINITE) };
-    // Closing the only job handle ends descendants even if the leader exited
-    // normally. Do this before reading EOF: descendants can inherit the pipes.
-    drop(job);
     if waited != WAIT_OBJECT_0 {
         return Err(io::Error::last_os_error());
     }
@@ -660,6 +780,10 @@ pub(super) fn execute(program: &Program, cwd: &Path, capture: bool) -> io::Resul
     unsafe {
         checked(GetExitCodeProcess(process.0.as_raw_handle(), &mut code))?;
     }
+    // Descendants may still own files and captured-pipe writers after the
+    // leader exits. Wait for their termination before returning or reading EOF.
+    job.finish()?;
+    drop(job);
     drop(handles);
     drop(attributes);
     let out = finish(reader(out));

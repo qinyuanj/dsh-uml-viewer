@@ -1,5 +1,7 @@
 # Windows Herdr #17 implementation checkpoint
 
+> **历史记录**：本文描述的 Herdr companion、邮件与 `./uml` / `get-uml-viewer` 入口已在 qinyuanj/dsh-uml-viewer#18 删除，只在冻结的 qinyuanj/uml-viewer 中保留；本文不再是本仓库的现行契约或验收清单。
+
 2026-10-11; Windows 11, Herdr 0.9.3 / protocol 22. Implementation branch: `work/windows-herdr`. Windows fresh/display/close has automated evidence below and user confirmation of normal visible operation. Full platform acceptance remains tracked separately in #21 and #22.
 
 ## Verified

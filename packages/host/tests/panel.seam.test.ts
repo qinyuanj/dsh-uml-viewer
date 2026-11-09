@@ -439,6 +439,9 @@ it('registers the companion prompt section only while that session’s panel str
   expect(prompts['session-a']!.sections).toHaveLength(1)
   expect(prompts['session-a']!.sections[0]).toMatchObject({ name: 'dsh-uml-viewer:companion-rules', interpolate: false })
   const text = prompts['session-a']!.sections[0]!.text as string
+  // One source: the section is the standalone rules document, verbatim.
+  const rules = await readFile(new URL('../../../docs/companion-rules.md', import.meta.url), 'utf8')
+  expect(text).toBe(rules.trimEnd())
   expect(text).toMatch(/uml_ir/)
   expect(text).toMatch(/uml_display/)
   expect(text).toMatch(/serial/i)

@@ -1,5 +1,7 @@
 # Windows Herdr native acceptance — ticket #21
 
+> **历史记录**：本文描述的 Herdr companion、邮件与 `./uml` / `get-uml-viewer` 入口已在 qinyuanj/dsh-uml-viewer#18 删除，只在冻结的 qinyuanj/uml-viewer 中保留；本文不再是本仓库的现行契约或验收清单。
+
 Status: **partial acceptance**. Wrap-up was ordered before the full matrix
 completed. Every criterion below is marked PASS, FAIL, or NOT VERIFIED;
 unverified items are gaps, not passes. Do not read this document as "#21

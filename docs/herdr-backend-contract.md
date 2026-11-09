@@ -1,5 +1,7 @@
 # Herdr SessionBackend 契约 — spec #13 / issue #14 产出
 
+> **历史记录**：本文描述的 Herdr companion、邮件与 `./uml` / `get-uml-viewer` 入口已在 qinyuanj/dsh-uml-viewer#18 删除，只在冻结的 qinyuanj/uml-viewer 中保留；本文不再是本仓库的现行契约或验收清单。
+
 本文档记录 Herdr 的能力证据和生命周期契约。**平台以 ADR 0007 / ADR 0010 为准：交付目标为
 WSL2 + Ubuntu 24.04 + WSLg、macOS 与原生 Windows 10 22H2（build 19045）及以上。**
 文中 Java/JVM 与旧 Windows/macOS 验收记录是历史证据，不代表当前实现。当前实现是

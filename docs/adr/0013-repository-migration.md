@@ -158,6 +158,19 @@ ADR 0011 说面板由宿主注入 `dsh-client-ui-primitives`。实际落地时
 `role="status"` 摘要（`.dsh-uml-viewer-summary`），它只镜像帧与上下文，不是新的
 状态来源；验收断言读它，而不是 Canvas 内部。
 
+## 附录（2026-11-09，#18 落地）：旧入口删除，刷新改用二进制子命令
+
+- 删除 `crates/companion`（Herdr 后端、Claude Code/Codex 提供方、恢复控制器、归属记录、
+  邮件与提示词）、`companion-*` 子命令、`./uml` / `uml.cmd`、`get-uml-viewer(.cmd)` 与
+  `scripts/uml_*.py` 及其测试套件。egui 窗口只剩 `uml-viewer viewer [diagram.edn]`：
+  单独运行、热重载，没有邮件、Regen、元素菜单、进程身份或 `--restart`。
+- companion 规则（串行质量调用、IR 与展示门控、隐藏、提案、就地编辑 policy、讨论上下文）
+  移入 [docs/companion-rules.md](../companion-rules.md)；插件提示词段落构建时原样嵌入
+  该文档，二者只有一个来源。
+- 维护者的质量刷新从此在 Linux 与原生 Windows 上都用二进制：`uml-viewer quality crap`、
+  对改动文件的差分 `uml-viewer quality mutate`、（可选）`uml-viewer quality dry`，然后
+  `uml-viewer ir examples/uml-viewer.policy.edn`。`.uml-viewer/` 中的冻结工具不再使用。
+
 ## 附录（2026-11-09，#23）：导航、会话恢复与展示门控
 
 - **交互边界保持不变**：双击下钻、返回、P、选中依赖链、搜索与定位都经

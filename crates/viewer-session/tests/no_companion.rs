@@ -63,6 +63,19 @@ fn the_viewer_session_links_no_companion_and_no_window_stack() {
         .collect();
     assert!(banned.is_empty(), "viewer-session depends on {banned:?}");
     assert!(seen.contains("scene") && seen.contains("frame"));
-    // Sanity: the lock graph does see the companion where it still is.
-    assert!(graph["viewer"].iter().any(|d| d == "companion"));
+    // Sanity: the lock graph does see the window stack where it is.
+    assert!(graph["viewer"].iter().any(|d| d == "eframe"));
+}
+
+#[test]
+fn no_workspace_package_is_the_companion_any_more() {
+    // #18 deleted the Herdr companion crate with its roles.
+    let graph = lock_graph();
+    assert!(!graph.contains_key("companion"), "the companion is locked");
+    let users: Vec<&String> = graph
+        .iter()
+        .filter(|(_, deps)| deps.iter().any(|d| d == "companion"))
+        .map(|(name, _)| name)
+        .collect();
+    assert!(users.is_empty(), "{users:?} still depend on the companion");
 }

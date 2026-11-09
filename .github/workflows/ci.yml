@@ -1,9 +1,9 @@
 # The guardrails on every push and pull request: formatting, clippy with
-# warnings denied, and scripts/check.py (cargo build --release, cargo test
-# --workspace and the static source rules). The runner is native Linux, which
-# the public entry refuses (ADR 0007), so check.py lists the entry suites as
-# skipped here; they run on WSL2, macOS and native Windows. The quality gate
-# (./uml crap / mutate) and real-window drivers stay manual.
+# warnings denied, and scripts/check.py (the static source rules, cargo build
+# --release and cargo test --workspace). The old public entry and its Python
+# suites were deleted with the companion (#18), so nothing here is skipped by
+# platform. The quality refresh (uml-viewer quality crap|mutate|dry, then
+# uml-viewer ir) and real-window drivers stay manual.
 name: ci
 
 on:
@@ -223,5 +223,5 @@ jobs:
           cargo test -p mutator --locked --test python_ts --test python_ts_sites -- --test-threads=1
           cargo test -p uml-viewer --test integration mutate:: quality_selection:: --locked -- --test-threads=1
 
-      - name: scripts/check.py (cargo test --workspace --locked + Python suites)
+      - name: scripts/check.py (source rules + cargo test --workspace --locked)
         run: python3 -I scripts/check.py

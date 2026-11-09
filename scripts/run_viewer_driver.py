@@ -12,7 +12,6 @@ POSIX 替代，因此断言本身不丢失。
     python3 -I scripts/run_viewer_driver.py metrics
     python3 -I scripts/run_viewer_driver.py navigation
     python3 -I scripts/run_viewer_driver.py metrics --evidence DIR --seconds 60
-    python3 -I scripts/run_viewer_driver.py session_legacy   # 单独一个 session 阶段
 """
 import argparse
 import json
@@ -28,8 +27,6 @@ import time
 
 REPO = Path(__file__).resolve().parents[1]
 WINDOWS = sys.platform == 'win32'
-sys.path.insert(0, str(REPO / 'scripts'))
-from uml_windows import close_window, viewer_windows  # noqa: E402
 
 
 def edn_string(text):
@@ -96,48 +93,6 @@ def prepare_review_fixes(project):
     write_text(project / 'diagram.edn', '{:packages [{:id :p :classes [{:id :a}]}]}')
     write_text(project / 'first.lua', 'local FIRST = 1\nreturn FIRST\n')
     write_text(project / 'second.lua', 'local SECOND = 2\nreturn SECOND\n')
-
-
-SESSION_FIXTURE = (
-    '{:title "Session" :packages [{:id :p :label "P" :classes [{:id :a :name "A"'
-    ' :ns "demo.a" :ops [{:name "work" :text "work()"}]}]}]}')
-
-
-def prepare_session(project):
-    write_text(project / 'diagram.edn', SESSION_FIXTURE)
-
-
-def prepare_legacy_session(project, evidence):
-    # An older session.edn predating the window fields: the view is restored
-    # and the chrome falls back to its defaults.
-    write_text(project / '.uml-viewer/session.edn',
-               '{{:path {} :mail-seen 4 :focus [] :cam-x 7 :cam-y 0 :zoom 1.25}}'
-               .format(edn_string(project / 'diagram.edn')))
-
-
-def prepare_love_session(project, evidence):
-    # The exact bytes a real LOVE 11.5 viewer wrote on :quit-for-restart
-    # (acceptance-evidence/142-mail-session-restart/love-session/), with only
-    # the absolute :path substituted for this isolated project.
-    source = REPO / 'acceptance-evidence/142-mail-session-restart/love-session'
-    session = (source / 'session.edn').read_text(encoding='utf-8')
-    diagram = project / 'diagram.edn'
-    session = session.replace('"/tmp/uml142 love 项目/diagram.edn"', edn_string(diagram))
-    write_text(project / '.uml-viewer/session.edn', session)
-    shutil.copy2(source / 'diagram.edn', diagram)
-    shutil.copy2(source / 'session.edn', evidence / 'love-session-input.edn')
-
-
-def prepare_companion_worker(project):
-    # A real isolated Herdr companion whose agent process is a harmless
-    # placeholder (the same fixture the POSIX e2e tests use).
-    if WINDOWS:
-        # The placeholder is a sh script; the Windows companion and its
-        # fixtures belong to UV-5 (qinyuanj/uml-viewer#201).
-        raise DriverSkipped('the companion worker driver has no Windows fixture yet')
-    placeholder = project / 'companion-placeholder'
-    write_text(placeholder, '#!/bin/sh\nsleep 300\n')
-    placeholder.chmod(0o755)
 
 
 def prepare_source_jump(project):
@@ -208,21 +163,11 @@ def prepare_dpi_window(project):
 
 
 def prepare_standalone(project):
-    # No `.uml-viewer/` mail, ownership or Herdr state: the window alone.
+    # No `.uml-viewer/` state at all: the window alone.
     write_text(
         project / 'diagram.edn',
         '{:title "Standalone" :packages [{:label "P" :classes'
         ' [{:id :target :ns "app.target"}]}]}')
-
-
-def prepare_mail(project):
-    write_text(project / '.uml-viewer/to-viewer.edn', '{:next-id 1 :queue []}')
-    (project / '.metrics').mkdir(parents=True, exist_ok=True)
-    for name, title in (('first.edn', 'First diagram'), ('second.edn', 'Second diagram')):
-        write_text(
-            project / name,
-            f'{{:title "{title}" :packages [{{:label "P" :classes'
-            ' [{:id :target :ns "app.target"}]}]}')
 
 
 FIXTURES = {
@@ -237,23 +182,21 @@ FIXTURES = {
     'fonts': prepare_fonts,
     'font_parity': prepare_font_parity,
     'dpi_window': prepare_dpi_window,
-    'mail': prepare_mail,
     'standalone': prepare_standalone,
-    'companion_worker': prepare_companion_worker,
-    'session': prepare_session,
 }
 
 
 def sarasa_font():
-    """The provisioned Sarasa font, when the installer has put it in place."""
-    path = REPO / '.uml-viewer/fonts/SarasaMonoSC-Regular.ttf'
+    """The Sarasa face the plugin package ships in `fonts/`."""
+    path = REPO / 'fonts/SarasaMonoSC-Regular.ttf'
     return path if path.is_file() else None
 
 
 def provision_sarasa(project):
     font = sarasa_font()
     if not font:
-        raise AssertionError('Sarasa is required by this driver: run get-uml-viewer')
+        raise AssertionError('Sarasa is required by this driver: fonts/SarasaMonoSC-Regular.ttf '
+                             'is missing from this checkout')
     target = project / '.uml-viewer/fonts'
     target.mkdir(parents=True, exist_ok=True)
     shutil.copy2(font, target / 'SarasaMonoSC-Regular.ttf')
@@ -303,12 +246,6 @@ def env_review_fixes(project, evidence):
     return {'UML78_EVIDENCE': str(evidence), 'UML78_THROW': '0'}
 
 
-def env_companion_worker(project, evidence):
-    # The companion runs a placeholder agent, never a real Claude session.
-    return {'CLAUDE_BIN': str(project / 'companion-placeholder'),
-            'UML_COMPANION_NO_ATTACH': '1'}
-
-
 def env_dpi(project, evidence, phase='first', tag='run', scale='1'):
     provision_sarasa(project)
     return {'UML_CJK_FONT': '', 'UML_VIEWER_TEST_DPI_SCALE': scale,
@@ -344,46 +281,6 @@ def scenarios_review_fixes(project, evidence):
     return [{'tag': 'clipboard', 'env': env_review_fixes, 'markers': ['clipboard-pass.txt']}]
 
 
-def scenarios_session(project, evidence):
-    # One project, four launches: the Rust viewer saves its session, restores
-    # it, then restores a legacy one and the one a real LOVE viewer wrote.
-    return [
-        {'tag': 'save', 'script': 'session',
-         'markers': ['saved-session.edn', 'session-save-pass.edn']},
-        {'tag': 'restart', 'script': 'session_restore', 'args': ['--restart'],
-         'markers': ['restored-session.edn', 'session-restart-pass.edn']},
-        {'tag': 'legacy', 'script': 'session_legacy', 'args': ['--restart'],
-         'setup': prepare_legacy_session, 'markers': ['session-legacy-pass.edn']},
-        {'tag': 'love', 'script': 'session_love', 'args': ['--restart'],
-         'setup': prepare_love_session,
-         'markers': ['session-love-pass.edn', 'love-session-restored.png']},
-    ]
-
-
-# Each session phase also runs standalone by its script name. A phase gets the
-# same fixture, setup, `--restart` and markers as in the composite run; the
-# restore phase restores what the save phase wrote, so it runs save first.
-SESSION_PHASES = {
-    'session_restore': ('save', 'restart'),
-    'session_legacy': ('legacy',),
-    'session_love': ('love',),
-}
-
-
-def session_phase(name):
-    def scenarios(project, evidence):
-        tags = SESSION_PHASES[name]
-        return [s for s in scenarios_session(project, evidence) if s['tag'] in tags]
-    return scenarios
-
-
-def scenarios_companion_worker(project, evidence):
-    # `--backend herdr`: the viewer starts the isolated companion itself.
-    return [{'tag': 'worker', 'env': env_companion_worker,
-             'args': ['--backend', 'herdr'],
-             'markers': ['worker-ui-pass.txt', 'waiting.png']}]
-
-
 def scenarios_dpi_window(project, evidence):
     # Scale 1 is the deterministic case; other scales need a real display.
     # On Windows the live process must also be per-monitor DPI aware.
@@ -411,16 +308,12 @@ DRIVER_ENV = {
 
 
 SCENARIOS = {
-    'companion_worker': scenarios_companion_worker,
-    'session': scenarios_session,
     'fonts': scenarios_fonts,
     'font_parity': scenarios_font_parity,
     'review_fixes': scenarios_review_fixes,
     'dpi_window': scenarios_dpi_window,
     'terminate': scenarios_terminate,
-    **{name: session_phase(name) for name in SESSION_PHASES},
 }
-FIXTURES.update({name: prepare_session for name in SESSION_PHASES})
 
 
 DRIVERS = {
@@ -437,7 +330,6 @@ DRIVERS = {
                                                 'member.txt', 'member.png']},
     'source_window': {'seconds': 20, 'evidence': ['source-window.txt', 'source-window.png']},
     'review_fixes': {'seconds': 30, 'evidence': []},
-    'mail': {'seconds': 20, 'evidence': []},
     'standalone': {'seconds': 20, 'evidence': ['standalone-pass.txt']},
     'metrics': {'seconds': 20, 'evidence': ['metrics-pass.txt', 'scene-1.edn', 'scene-2.edn']},
     'lod_shots': {'seconds': 30, 'evidence': ['lod-blocks.png', 'lod-frames.png',
@@ -445,13 +337,9 @@ DRIVERS = {
     'fonts': {'seconds': 30, 'evidence': []},
     'font_parity': {'seconds': 30, 'evidence': []},
     'dpi_window': {'seconds': 30, 'evidence': []},
-    'companion_worker': {'seconds': 120, 'evidence': ['worker-ui-pass.txt', 'waiting.png']},
     'terminate': {'seconds': 60, 'evidence': ['terminate-ready.txt', 'terminate-pass.txt']},
     'window_controls': {'seconds': 30, 'evidence': ['window-controls-display.edn',
                                                     'window-controls.png']},
-    'session': {'seconds': 60, 'evidence': ['saved-session.edn', 'session-save-pass.edn',
-                                            'restored-session.edn', 'session-restart-pass.edn',
-                                            'session-legacy-pass.edn', 'session-love-pass.edn']},
 }
 
 
@@ -477,22 +365,62 @@ def rust_executable():
                      '(or set UML_VIEWER_RUST_EXECUTABLE)')
 
 
+WM_CLOSE = 0x0010
+
 if WINDOWS:
     import ctypes
     from ctypes import wintypes
 
     _kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
     _shcore = ctypes.WinDLL('shcore', use_last_error=True)
+    _user32 = ctypes.WinDLL('user32', use_last_error=True)
     _kernel32.OpenProcess.restype = wintypes.HANDLE
     _kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     _shcore.GetProcessDpiAwareness.argtypes = [wintypes.HANDLE, ctypes.POINTER(ctypes.c_int)]
+    _ENUM = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    _user32.EnumWindows.argtypes = [_ENUM, wintypes.LPARAM]
+    _user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    _user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    _user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    _user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+
+
+def viewer_windows(pid):
+    """Visible, titled UML viewer roots owned by exactly `pid` (Windows).
+
+    Winit's empty-title Thread Event Target can also appear visible. Closing
+    it breaks event delivery, so visibility and PID alone are insufficient.
+    """
+    found = []
+
+    def visit(hwnd, _):
+        owner = wintypes.DWORD()
+        _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid and _user32.IsWindowVisible(hwnd):
+            title = ctypes.create_unicode_buffer(512)
+            _user32.GetWindowTextW(hwnd, title, len(title))
+            if title.value.startswith('UML viewer'):
+                found.append(hwnd)
+        return True
+
+    _user32.EnumWindows(_ENUM(visit), 0)
+    return found
+
+
+def close_window(pid):
+    """Post one native WM_CLOSE to each viewer root; return whether found."""
+    windows = viewer_windows(pid)
+    for hwnd in windows:
+        if not _user32.PostMessageW(hwnd, WM_CLOSE, 0, 0):
+            raise ctypes.WinError(ctypes.get_last_error())
+    return bool(windows)
 
 
 def terminate_politely(process):
-    """The platform's polite termination (UV-3 close path): `WM_CLOSE` to the
-    viewer's window on Windows (the launcher starts it detached, so it has no
-    console for CTRL_BREAK), SIGTERM elsewhere. Both are a normal close."""
+    """The platform's polite termination: `WM_CLOSE` to the viewer's window
+    on Windows (the runner gives it no console for CTRL_BREAK), SIGTERM
+    elsewhere. Both close it with exit 0."""
     if not WINDOWS:
         process.send_signal(signal.SIGTERM)
         return
@@ -553,8 +481,7 @@ def run_viewer(project, evidence, seconds, driver, diagram, extra_env, tag='run'
                XDG_CACHE_HOME=str(xdg / 'cache'), XDG_STATE_HOME=str(xdg / 'state'),
                UML_VIEWER_PROJECT_ROOT=str(project), UML_VIEWER_EVIDENCE=str(evidence),
                UML_VIEWER_TEST_SECONDS=str(seconds),
-               UML_VIEWER_TEST_DRIVER=str(driver),
-               UML_MAIL_TEST_ROOT=str(project), UML_COMPANION_NO_ATTACH='1')
+               UML_VIEWER_TEST_DRIVER=str(driver))
     argv = [rust_executable(), 'viewer', *viewer_args, *diagram]
     # WSLg: without these the viewer falls back to llvmpipe (ADR 0008).
     # Native Windows keeps wgpu's own D3D12 backend.
@@ -593,18 +520,6 @@ def run_viewer(project, evidence, seconds, driver, diagram, extra_env, tag='run'
     return subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
 
 
-def release_companion(project, timeout=90):
-    """Wait until the viewer released the companion ownership it created."""
-    record = project / '.uml-viewer/companion.edn'
-    if not record.exists():
-        return
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if record.read_text(encoding='utf-8').strip() in ('', '{}'):
-            return
-        time.sleep(0.1)
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('driver', help='driver name, e.g. navigation for scripts/drivers/navigation.edn')
@@ -621,11 +536,7 @@ def main():
         print(f'unknown driver {arguments.driver!r}: no scripts/drivers/{arguments.driver}.edn; '
               f'known drivers: {", ".join(known_drivers())}', file=sys.stderr)
         return 2
-    # Session phases are not in DRIVERS (check.py --native already covers them
-    # through `session`); standalone they keep that driver's time budget.
-    spec = DRIVERS.get(arguments.driver) or \
-        (DRIVERS['session'] if arguments.driver in SESSION_PHASES else None) or \
-        {'seconds': 90, 'evidence': []}
+    spec = DRIVERS.get(arguments.driver) or {'seconds': 90, 'evidence': []}
     seconds = arguments.seconds or spec['seconds']
     markers = list(arguments.pass_marker) or list(spec['evidence'])
     driver = script
@@ -685,9 +596,6 @@ def main():
         result['ok'] = False
         result['failure'] = str(error)
     finally:
-        # A companion stops with the viewer; removing the isolated XDG root
-        # before its session is gone would strand a Herdr server.
-        release_companion(project)
         if (result.get('ok') or result.get('skipped')) and temporary_project:
             shutil.rmtree(project, ignore_errors=True)
         elif not result.get('ok'):

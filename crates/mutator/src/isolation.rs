@@ -171,7 +171,6 @@ home="$root/target/mutator-home"
 mkdir -p "$home/tmp" "$home/.cache"
 export HOME="$home" XDG_CACHE_HOME="$home/.cache" TMPDIR="$home/tmp"
 export CARGO_TARGET_DIR="$root/target/mutator-build"
-unset CARGO_BUILD_TARGET_DIR CARGO_ENCODED_RUSTFLAGS LLVM_PROFILE_FILE
 exec "$@"
 "#;
         let output_path = self.directory.join("output");
@@ -201,6 +200,9 @@ exec "$@"
         .stdout(output.try_clone().map_err(message)?)
         .stderr(output)
         .process_group(0);
+        for name in crate::child_env::inherited_removals() {
+            view.env_remove(name);
+        }
         // A killed uml-viewer takes its unshare parent, the namespace's first
         // process and every remaining descendant with it.
         unsafe {

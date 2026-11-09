@@ -1,5 +1,5 @@
-//! The single delivered-platform decision (ADR 0007, ADR 0010), shared by
-//! `ir` and `companion`. [`decide`] is a pure function of a declared
+//! The single delivered-platform decision (ADR 0007, ADR 0010), asked by
+//! `ir`. [`decide`] is a pure function of a declared
 //! [`Platform`], so every platform's answer is testable on any host;
 //! [`host`] is the only place that reads the running machine.
 //!

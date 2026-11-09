@@ -1,11 +1,10 @@
-# One process boundary: every launch goes through the companion OS adapter
-# (`crates/companion/src/posix.rs` on Linux/macOS, `windows.rs` on Windows).
-# Four review-found bugs came from launches outside it (a lost timeout, a
-# bypassed Job Object). The adapter allows the lint where it launches; test
-# code is the outside harness and allows it at its crate or module root.
-# The quality tools (crapper, mutator, dryer) may depend on quality-core
-# only (ADR 0012), so their launches go through its own adapter,
-# `crates/quality-core/src/process.rs`.
+# One process boundary. Four review-found bugs came from launches outside an
+# adapter (a lost timeout, a bypassed Job Object). The quality tools
+# (crapper, mutator, dryer) may depend on quality-core only (ADR 0012), so
+# their launches go through its adapter, `crates/quality-core/src/process.rs`;
+# the viewer, IR and scene crates launch nothing. Every production escape
+# from this lint is listed in scripts/test_process_boundary.py; test code is
+# the outside harness and allows it at its crate or module root.
 disallowed-methods = [
-    { path = "std::process::Command::new", reason = "launch through the companion OS adapter (crates/companion/src/posix.rs, windows.rs) or, for the quality tools, crates/quality-core/src/process.rs" },
+    { path = "std::process::Command::new", reason = "launch through crates/quality-core/src/process.rs (the adapters are listed in scripts/test_process_boundary.py)" },
 ]

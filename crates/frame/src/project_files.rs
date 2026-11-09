@@ -1,6 +1,5 @@
 //! Project files the inspector writes (#141): proposal write-back through
-//! the scene [`Boundary`]. The mail queues are written through
-//! [`companion::mailbox::Mailbox`], the one owner of the queue contract.
+//! the scene [`Boundary`].
 
 use std::path::{Path, PathBuf};
 
@@ -8,8 +7,8 @@ use scene::document::Boundary;
 
 /// `std::fs::canonicalize`, or `path` itself when it does not resolve. On
 /// Windows the verbatim prefix is stripped (`\\?\C:\x` → `C:\x`,
-/// `\\?\UNC\s\sh` → `\\s\sh`), the form the companion records too: a
-/// verbatim path takes no `/` joins, and mail paths are joined with `/`.
+/// `\\?\UNC\s\sh` → `\\s\sh`): a verbatim path takes no `/` joins, and
+/// displayed paths are joined with `/`.
 pub fn canonical(path: &Path) -> PathBuf {
     let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     if cfg!(windows) {

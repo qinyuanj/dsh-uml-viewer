@@ -136,7 +136,7 @@ bench/run_rust.sh bench/scenes/synthetic-500.edn <out-dir>
 bench/run_rust.sh bench/scenes/synthetic-2000.edn <out-dir>
 ```
 
-`run_rust.sh` 用 `uml-viewer bench` 跑同一协议，写 `protocol.edn` 与 `summary.txt`；
+`run_rust.sh` 用 `target/release/uml-viewer viewer` 和 `UML_VIEWER_BENCH` 环境变量跑同一协议，写 `protocol.edn` 与 `summary.txt`；
 #143 的实测结果见 `acceptance-evidence/143-rust-install/`。
 
 ## 历史 LOVE 对照
