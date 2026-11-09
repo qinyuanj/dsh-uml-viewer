@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { expect } from '@playwright/test'
-import { SCRATCH, bootDshWeb, dismissOverlays, startDshWeb } from './dsh-web.mjs'
+import { SCRATCH, bootDshWeb, dismissOverlays, packageInputs, startDshWeb } from './dsh-web.mjs'
 import { startMockLlm } from './mock-llm.mjs'
 import { makeProjects } from './projects.mjs'
 
@@ -11,19 +11,33 @@ import { makeProjects } from './projects.mjs'
  * `reopen` reloads the Web client; `restart` stops and boots the DSH host on
  * the same scratch home, so saved session state is exercised for real.
  */
-export async function launchViewerLane(browser) {
+export async function launchViewerLane(browser, options = {}) {
+  const packages = packageInputs(options)
   await fs.mkdir(SCRATCH, { recursive: true })
   const home = await fs.mkdtemp(path.join(SCRATCH, 'run-'))
   const projects = await makeProjects(home)
+  await options.prepareProjects?.(projects)
   const mock = await startMockLlm({ log: path.join(home, 'mock-requests') })
-  const installed = await startDshWeb({ home, projects })
-  let host = await bootDshWeb({ ...installed, home, mockUrl: mock.url })
+  let installed
+  let host
+  try {
+    installed = await startDshWeb({ home, projects, packages })
+    host = await bootDshWeb({ ...installed, home, mockUrl: mock.url })
+  } catch (error) {
+    await mock.stop()
+    throw error
+  }
   const pages = []
-  const close = async () => {
+  let closing
+  const close = () => closing ??= (async () => {
     for (const page of pages.splice(0).reverse()) await page.context().close().catch(() => {})
     host.stop()
     await host.exited.catch(() => {})
     await mock.stop()
+  })()
+  const uninstall = async () => {
+    await close()
+    installed.uninstall()
   }
 
   async function newPage() {
@@ -65,13 +79,18 @@ export async function launchViewerLane(browser) {
     return { page, ...opened, sessionId, before: await opened.summary.innerText(), problems }
   }
 
-  async function openPanel(project) {
+  async function openPanel(project, options = {}) {
     const { page, problems } = await newPage()
     try {
       await page.goto(host.url, { waitUntil: 'domcontentloaded', timeout: 60_000 })
       await dismissOverlays(page)
       {
-        await page.getByRole('button', { name: 'New session', exact: true }).first().click()
+        const newSession = page.getByRole('button', { name: 'New session', exact: true }).first()
+        // A late Preview Notice can arrive after the initial quiet period.
+        await newSession.click({ timeout: 2000 }).catch(async () => {
+          await dismissOverlays(page)
+          await newSession.click({ timeout: 30_000 })
+        })
         await page.getByRole('button', { name: 'Choose workspace' }).click()
         await page.locator('[role="menu"], [role="dialog"]').getByText(project, { exact: true }).last().click()
         await expect(page.getByRole('button', { name: 'Choose workspace' })).toContainText(project)
@@ -91,7 +110,7 @@ export async function launchViewerLane(browser) {
       const sessionNode = page.locator('[data-conversation-session]:visible').first()
       await expect(sessionNode).toBeVisible({ timeout: 30_000 })
       await expect(page.getByText('Generated the sample project IR.', { exact: true }).last()).toBeVisible()
-      if (project === 'ledger') {
+      if (project === 'ledger' || options.state) {
         const sessionId = await sessionNode.getAttribute('data-conversation-session')
         if (!sessionId) throw new Error('the DSH conversation exposes no session id')
         const stateDirectory = path.join(home, 'plugin-state', 'sessions')
@@ -99,20 +118,21 @@ export async function launchViewerLane(browser) {
         await fs.writeFile(path.join(stateDirectory, `${sessionId}.json`), JSON.stringify({
           schema: 'dsh-uml-viewer/session-state',
           version: 1,
-          diagram: path.join(projects.ledger, 'diagram.edn'),
-          context: {
+          diagram: path.join(projects[project], 'diagram.edn'),
+          context: project === 'ledger' ? {
             kind: 'proposal',
             proposalId: ':p-ledger',
             name: 'Ledger proposal',
             edn: '{:context :proposal :name "Ledger proposal" :proposal-id :p-ledger}',
-          },
+          } : { kind: 'real', edn: '{:context :real}' },
           focus: [],
-          proposalId: ':p-ledger',
+          proposalId: project === 'ledger' ? ':p-ledger' : null,
           openLayer: null,
           declutter: null,
           camera: { x: 0, y: 0, zoom: 1 },
           selected: null,
           detail: null,
+          ...options.state,
         }))
       }
       const opened = await openSidebar(page)
@@ -210,7 +230,7 @@ export async function launchViewerLane(browser) {
   }
 
   return {
-    home, get host() { return host }, mock, projects,
-    openPanel, reopenPanel, restart, pan, wheel, point, sendPrompt, screenshot, close,
+    home, get host() { return host }, mock, projects, packages,
+    openPanel, reopenPanel, restart, pan, wheel, point, sendPrompt, screenshot, close, uninstall,
   }
 }

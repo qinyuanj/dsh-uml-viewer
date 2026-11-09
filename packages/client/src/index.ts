@@ -17,6 +17,7 @@ import { UML_VIEWER_REMOTE } from '@dsh-uml-viewer/contracts'
 import { FONT_FAMILY, loadSarasa } from './font.js'
 import { PanelController, type PanelRemoteApi, type PanelStatus } from './panel.js'
 import { paintFrame } from './paint.js'
+import { DECLUTTER_STYLE, mountDeclutterControl } from './declutter.js'
 
 export const TAB_ID = 'dsh-uml-viewer'
 export const TAB_KIND = 'dsh-uml-viewer'
@@ -24,7 +25,7 @@ export const PANEL_PATH = 'dsh-uml-viewer'
 export const GUIDE_ORDER = 30
 const REMOTE_NAMESPACE = 'umlViewer'
 
-const STYLE = `
+const STYLE = `${DECLUTTER_STYLE}
 .dsh-uml-viewer-panel { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; width: 100%; }
 .dsh-uml-viewer-toolbar {
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: 0 0 auto; min-height: 36px; padding: 4px 8px;
@@ -32,6 +33,7 @@ const STYLE = `
   background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary);
   font: 12px/1.4 var(--dsw-font-family, system-ui);
 }
+.dsh-uml-viewer-toolbar .dsh-uml-viewer-declutter { position: static; }
 .dsh-uml-viewer-toolbar button {
   appearance: none; border: 1px solid transparent; border-radius: 4px; padding: 3px 8px;
   background: transparent; color: var(--dsw-alias-label-secondary);
@@ -286,7 +288,9 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
       if (options.main) options.onCollapse?.()
       else options.onExpand?.(options.sessionId)
     })
-  toolbar.append(back, tree, search, spacer, expand)
+  toolbar.append(back, tree, search)
+  const disposeDeclutter = mountDeclutterControl(toolbar, controller)
+  toolbar.append(spacer, expand)
   const unsubscribe = controller.subscribe(() => { /* React panels poll `current`; nothing to do here. */ })
   const onResize = (): void => {
     void controller.measureViewport().then(size => controller.setViewport(size.width, size.height))
@@ -341,6 +345,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   await controller.open(options.sessionId)
   return () => {
     observer?.disconnect()
+    disposeDeclutter()
     unsubscribe()
     canvas.removeEventListener('pointerdown', onPointerDown)
     canvas.removeEventListener('pointermove', onPointerMove)

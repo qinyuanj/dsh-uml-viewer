@@ -360,7 +360,7 @@ dependencies = [
 
 [[package]]
 name = "companion"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "edn",
  "platform",
@@ -426,7 +426,7 @@ dependencies = [
 
 [[package]]
 name = "crapper"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "quality-core",
 ]
@@ -526,7 +526,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
 name = "dryer"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "quality-core",
 ]
@@ -543,7 +543,7 @@ dependencies = [
 
 [[package]]
 name = "edn"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "eframe"
@@ -867,7 +867,7 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "frame"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "edn",
  "scene",
@@ -1179,7 +1179,7 @@ dependencies = [
 
 [[package]]
 name = "ir"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "edn",
  "platform",
@@ -1428,7 +1428,7 @@ dependencies = [
 
 [[package]]
 name = "mutator"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "quality-core",
 ]
@@ -2012,7 +2012,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "platform"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "png"
@@ -2119,7 +2119,7 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "quality-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "edn",
@@ -2140,7 +2140,7 @@ dependencies = [
 
 [[package]]
 name = "quality-dispatch"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "crapper",
  "dryer",
@@ -2356,7 +2356,7 @@ dependencies = [
 
 [[package]]
 name = "scene"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "edn",
 ]
@@ -2867,7 +2867,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "uml-viewer"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "companion",
  "crapper",
@@ -2962,7 +2962,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "viewer"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "companion",
  "edn",
@@ -2979,7 +2979,7 @@ dependencies = [
 
 [[package]]
 name = "viewer-session"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "edn",
  "frame",

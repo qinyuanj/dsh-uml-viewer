@@ -86,8 +86,16 @@ fn usage() -> String {
     text
 }
 
+fn version_requested(args: &[OsString]) -> bool {
+    args.len() == 1 && args[0] == "--version"
+}
+
 fn main() -> ExitCode {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if version_requested(&args) {
+        println!("uml-viewer {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
     let first = args.first().and_then(|a| a.to_str());
     if matches!(first, Some("--help" | "-h")) {
         print!("{}", usage());
@@ -102,4 +110,25 @@ fn main() -> ExitCode {
     }
     let (name, _, entry) = ROLES[0];
     entry(name, &args)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::version_requested;
+    use std::ffi::OsString;
+
+    #[test]
+    fn version_requires_exact_standalone_argument() {
+        assert!(version_requested(&[OsString::from("--version")]));
+        assert!(!version_requested(&[]));
+        assert!(!version_requested(&[OsString::from("-V")]));
+        assert!(!version_requested(&[
+            OsString::from("--version"),
+            OsString::from("extra"),
+        ]));
+        assert!(!version_requested(&[
+            OsString::from("ir"),
+            OsString::from("--version"),
+        ]));
+    }
 }

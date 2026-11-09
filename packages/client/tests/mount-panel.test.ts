@@ -33,6 +33,7 @@ class Element extends EventTarget {
   append(...elements: Element[]): void { for (const el of elements) this.appendChild(el) }
   appendChild(el: Element): Element { el.parent = this; this.children.push(el); return el }
   replaceChildren(...elements: Element[]): void { this.children = []; this.append(...elements) }
+  remove(): void { if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this); this.parent = null }
   setAttribute(key: string, value: string): void { this.attributes[key] = value }
   focus(): void { this.ownerDocument.activeElement = this }
   blur(): void { this.ownerDocument.activeElement = null }

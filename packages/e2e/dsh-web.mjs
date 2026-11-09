@@ -67,8 +67,21 @@ export function viewerBinary() {
   throw new Error('Build the real binary with `cargo build --locked -p uml-viewer`, or set UML_VIEWER_BIN to its absolute path.')
 }
 
-/** Install the checkout and boot a token-authenticated host on an OS-assigned port. */
-export async function startDshWeb({ home, projects }) {
+/** Both tarballs are explicit inputs; a partial pair never falls back to the checkout. */
+export function packageInputs(options = {}) {
+  const main = options.packageMain ?? process.env.UML_VIEWER_PACKAGE_MAIN
+  const platform = options.packagePlatform ?? process.env.UML_VIEWER_PACKAGE_PLATFORM
+  if (!main && !platform) return null
+  for (const [name, file] of Object.entries({ main, platform })) {
+    if (!file || !path.isAbsolute(file) || !file.endsWith('.tgz') || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+      throw new Error(`Packaged lane requires ${name} to be an absolute, existing .tgz tarball (UML_VIEWER_PACKAGE_MAIN and UML_VIEWER_PACKAGE_PLATFORM).`)
+    }
+  }
+  return { main, platform }
+}
+
+/** Install through CLI management in a new home, never through the live profile. */
+export async function startDshWeb({ home, projects, packages = null }) {
   fs.mkdirSync(home, { recursive: true })
   provisionHome(home)
   writeWorkspaces(home, projects)
@@ -78,21 +91,35 @@ export async function startDshWeb({ home, projects }) {
     DSH_E2E_MOCK_KEY: 'isolated-mock-key',
     ELECTRON_RUN_AS_NODE: '1',
     PLAYWRIGHT_BROWSERS_PATH: BROWSERS,
-    npm_config_store_dir: path.join(SCRATCH, 'pnpm-store'),
-    npm_config_cache: path.join(SCRATCH, 'npm-cache'),
-    npm_config_state_dir: path.join(SCRATCH, 'pnpm-state'),
+    npm_config_cache: path.join(home, 'cache', 'npm'),
+    npm_config_store_dir: path.join(home, 'cache', 'pnpm-store'),
+    npm_config_state_dir: path.join(home, 'cache', 'pnpm-state'),
+    PNPM_CACHE_DIR: path.join(home, 'cache', 'pnpm'),
+    COREPACK_HOME: path.join(home, 'cache', 'corepack'),
+    XDG_CACHE_HOME: path.join(home, 'cache', 'xdg'),
   }
+  delete env.DSH_PROFILE
+  delete env.DSH_PROFILE_DIR
+  // Packaged acceptance must exercise the shipped optional-dependency locator.
+  if (packages) delete env.UML_VIEWER_BIN
   const command = cli()
-  run(command, ['plugin', '--profile', 'web', 'add', ROOT], env)
-  return { command, env }
+  const targets = packages ? [packages.main, packages.platform] : [ROOT]
+  // The Desktop CLI scrubs npm_config_* on its internal pnpm process. Pass the
+  // store explicitly; environment-only configuration silently uses a global store.
+  const store = ['--store-dir', path.join(home, 'cache', 'pnpm-store')]
+  run(command, ['plugin', '--profile', 'web', 'add', '--ignore-scripts', ...store, ...targets], env)
+  // pnpm 11 remove does not accept --ignore-scripts; these archives have no scripts.
+  const uninstall = () => run(command, ['plugin', '--profile', 'web', 'remove', ...store,
+    'dsh-uml-viewer', ...(packages ? [`@dsh-uml-viewer/${process.platform}-${process.arch}`] : [])], env)
+  return { command, env, packages, uninstall }
 }
 
-export async function bootDshWeb({ command, env, home, mockUrl }) {
+export async function bootDshWeb({ command, env, home, mockUrl, packages = null }) {
   const patch = path.join(home, 'lane.patch.yml')
   fs.writeFileSync(patch, [
     '- id: dsh-uml-viewer',
     '  config:',
-    `    binary: ${JSON.stringify(viewerBinary())}`,
+    ...(packages ? [] : [`    binary: ${JSON.stringify(viewerBinary())}`]),
     `    home: ${JSON.stringify(path.join(home, 'plugin-state'))}`,
     '- id: llm-deepseek',
     '  config:',
