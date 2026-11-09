@@ -166,6 +166,16 @@ execution. Full access uses raw argv. After asynchronous preparation, the host
 re-resolves and compares the entire policy before spawning. Policy changes
 require a fresh invocation. The plugin never requests elevation.
 
+A read-only session is refused **more** than the spec's four writing tools:
+`uml_display` and the panel itself (`watch`) are refused too, because both need
+the `uml-viewer resident` subprocess and a read-only policy withholds that
+capability (D3). SPEC-203 only names the four tools that write files. The
+resident writes nothing into the workspace — view state lives under the plugin
+home — so a read-only viewer would be technically possible; it stays refused
+deliberately, and the plugin never escalates to obtain it. This is a recorded
+decision (ADR 0014), not a bug: do not relax the refusal without changing the
+decision first.
+
 The result contains ADR 0001's `version: 1`, `operation`, `projectRoot`,
 `exitCode`, `validResult`, `crapScope`, `configured` and `tool`. For IR,
 `operation` is `ir`, `crapScope` is null, `configured` is false and `tool` is
