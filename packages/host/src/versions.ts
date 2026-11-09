@@ -395,7 +395,9 @@ function cleanupUnlocked(home: string, keep?: string): void {
   for (const name of names) {
     const entry = path.join(home, name)
     if (name.startsWith('.trash-')) {
-      removeQuietly(entry)
+      // A version kept aside while its exe was still mapped is removed by a
+      // later cleanup once nothing holds it.
+      if (!heldOnWindows(entry, process.platform)) removeQuietly(entry)
       continue
     }
     if (name.startsWith('.staging-')) {
@@ -414,20 +416,25 @@ function cleanupUnlocked(home: string, keep?: string): void {
       continue
     }
     if (liveLeases(home, name, undefined, now) > 0 || heldOnWindows(entry, process.platform)) continue
-    retire(home, entry, () => liveLeases(home, name) > 0 || heldOnWindows(entry, process.platform))
+    retire(home, name, entry)
   }
 }
 
-/** Move `entry` aside, give it back if it became used meanwhile, else delete it. */
-function retire(home: string, entry: string, inUse: () => boolean): void {
+/**
+ * Move a version directory aside, give it back if it became used meanwhile,
+ * else delete it. Re-checking after the move matters on Windows, where a
+ * running exe's directory can still be renamed: the probe, not the rename
+ * result, decides whether the image may be removed.
+ */
+function retire(home: string, version: string, entry: string): void {
   const trash = path.join(home, `.trash-${randomUUID()}`)
   try {
     renameSync(entry, trash)
   } catch {
-    // Windows: an exe running from it (or an open handle) blocks the move. Deferred.
+    // An open handle blocks the move. Deferred to the next cleanup.
     return
   }
-  if (inUse()) {
+  if (liveLeases(home, version) > 0 || heldOnWindows(trash, process.platform)) {
     try {
       renameSync(trash, entry)
       return

@@ -10,6 +10,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { PanelEvent } from '@dsh-uml-viewer/contracts'
 import type { Agent, HostServices, SpawnSpec } from '../src/dsh.js'
 import * as plugin from '../src/index.js'
+import { cleanupVersions } from '../src/versions.js'
 
 // #32: the packaged binary lifecycle across plugin versions sharing one DSH
 // home. Each "installed version" is a scratch main package plus its exact
@@ -324,4 +325,30 @@ it.runIf(process.platform === 'win32')('updates while an exe in the old version 
   await updated.dispose()
   expect(existsSync(path.join(home, '1.0.0'))).toBe(false)
   expect(existsSync(path.join(home, '1.1.0', exe))).toBe(true)
+}, 60_000)
+
+it.runIf(process.platform === 'win32')('retries removal of a version whose exe was still mapped inside trash', async () => {
+  const dshHome = await scratch('home')
+  const home = path.join(dshHome, 'dsh-uml-viewer')
+  const nativeExe = path.join(home, '1.0.0', exe)
+  const native = await install('1.0.0', { native: true })
+  const source = path.join(native, 'node_modules', '@dsh-uml-viewer', target, 'bin', exe)
+  await mkdir(path.dirname(nativeExe), { recursive: true })
+  await copyFile(source, nativeExe)
+  // A process maps this image but nothing leases the version.
+  const running = spawn(nativeExe, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' })
+  try {
+    await new Promise(resolve => setTimeout(resolve, 300))
+    cleanupVersions(home)
+    // Neither the live directory nor a deferred trash copy may lose the image.
+    const remaining = await readdir(home)
+    const holds = remaining.filter(name => name.startsWith('.trash-') || name === '1.0.0')
+    expect(holds).toHaveLength(1)
+    expect(await readdir(holds[0] === '1.0.0' ? path.join(home, '1.0.0') : path.join(home, holds[0]!))).toEqual([exe])
+  } finally {
+    running.kill()
+    await new Promise(resolve => running.once('exit', resolve))
+  }
+  cleanupVersions(home)
+  expect((await readdir(home)).filter(name => name === '1.0.0' || name.startsWith('.trash-'))).toEqual([])
 }, 60_000)
