@@ -139,10 +139,20 @@ fn error(seq: &Json, message: impl Into<String>) -> Json {
     event("error", seq, json!({"message": message.into()}))
 }
 
+/// A saved view whose diagram was not there when the session opened
+/// waiting: the first display of that diagram restores it, and until then
+/// `save` answers it unchanged, so closing the panel early loses nothing.
+struct Pending {
+    diagram: PathBuf,
+    snapshot: Value,
+    state: Json,
+}
+
 /// The protocol state: the session once opened, and the client viewport.
 pub struct Resident {
     project: PathBuf,
     session: Option<Session>,
+    pending: Option<Pending>,
     width: f64,
     height: f64,
     quit: bool,
@@ -153,6 +163,7 @@ impl Resident {
         Resident {
             project,
             session: None,
+            pending: None,
             width: frame::cli::DEFAULT_WIDTH,
             height: frame::cli::DEFAULT_HEIGHT,
             quit: false,
@@ -273,7 +284,14 @@ impl Resident {
                 let mut command = Value::Map(vec![]);
                 command.assoc(Value::keyword("op"), Value::keyword("display"));
                 command.assoc(Value::keyword("path"), Value::String(path.to_owned()));
-                self.session()?.apply_command(&command);
+                let pending = self.pending.take();
+                let session = self.session()?;
+                session.apply_command(&command);
+                if let Some(pending) = pending
+                    && frame::project_files::canonical(session.diagram()) == pending.diagram
+                {
+                    session.restore(&pending.snapshot);
+                }
             }
             "reload" => {
                 let session = self.session()?;
@@ -363,7 +381,10 @@ impl Resident {
                 self.session()?.act(Action::Declutter, &dims);
             }
             "save" => {
-                let saved = state::to_json(self.session()?.state());
+                let saved = match &self.pending {
+                    Some(pending) => pending.state.clone(),
+                    None => state::to_json(self.session()?.state()),
+                };
                 return Ok(vec![event("state", seq, json!({"state": saved}))]);
             }
             "quit" => {
@@ -391,7 +412,10 @@ impl Resident {
 
     /// Open the session: the named diagram, else the saved state's, else
     /// the project default; a saved state restores the view, `waiting`
-    /// shows the empty canvas until `display`.
+    /// shows the empty canvas until `display`. A saved state that names a
+    /// displayed diagram wins over `waiting`: it is the view the user had
+    /// (the window's restart), not a fresh launch. When that diagram is not
+    /// there yet the canvas waits and its first display restores the view.
     fn open(&mut self, action: &Json) -> Result<(), String> {
         let saved = action.get("state").filter(|s| !s.is_null());
         let snapshot = saved.map(state::snapshot).transpose()?;
@@ -405,14 +429,24 @@ impl Resident {
             .map(|p| resolve(&self.project, &p))
             .unwrap_or_else(|| crate::default_diagram(&self.project));
         let diagram = frame::project_files::canonical(&diagram);
-        let start = if action.get("waiting").and_then(Json::as_bool) == Some(true) {
-            Start::Waiting
-        } else if snapshot.is_some() {
-            Start::Restore(snapshot)
-        } else {
-            Start::Fresh
+        let waiting = action.get("waiting").and_then(Json::as_bool) == Some(true);
+        let displayed = saved.and_then(state::diagram).is_some();
+        let mut pending = None;
+        let start = match snapshot {
+            Some(snapshot) if waiting && displayed && !diagram.is_file() => {
+                pending = Some(Pending {
+                    diagram: diagram.clone(),
+                    snapshot,
+                    state: saved.cloned().unwrap_or(Json::Null),
+                });
+                Start::Waiting
+            }
+            Some(snapshot) if !waiting || displayed => Start::Restore(Some(snapshot)),
+            _ if waiting => Start::Waiting,
+            _ => Start::Fresh,
         };
         self.session = Some(Session::open(self.project.clone(), diagram, start)?);
+        self.pending = pending;
         Ok(())
     }
 }

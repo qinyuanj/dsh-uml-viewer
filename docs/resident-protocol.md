@@ -72,7 +72,7 @@ An `error` changes nothing; the session keeps running.
 
 | action | fields | answer | effect |
 |---|---|---|---|
-| `open` | `viewport?` `{width, height}`, `diagram?`, `state?`, `waiting?` | `frame` | open the session. The diagram is `diagram` (relative to the project), else the state's `diagram`, else the project default (`diagram.edn`, `examples/<project>.edn`, any example). With `state` the saved view and discussion context are restored; otherwise the diagram is fitted to the viewport. `waiting: true` shows the empty waiting canvas until `display`. A missing diagram opens with the canvas hint; an unreadable IR is an `error`. Another `open` replaces the session. |
+| `open` | `viewport?` `{width, height}`, `diagram?`, `state?`, `waiting?` | `frame` | open the session. The diagram is `diagram` (relative to the project), else the state's `diagram`, else the project default (`diagram.edn`, `examples/<project>.edn`, any example). With `state` the saved view and discussion context are restored; otherwise the diagram is fitted to the viewport. `waiting: true` shows the empty waiting canvas until `display`, except that a `state` naming a displayed `diagram` restores that view (a reopened session, a restarted DSH). When that diagram does not exist yet the canvas waits, `save` answers the saved state unchanged, and the first `display` of the same diagram restores the view instead of fitting it. A missing diagram opens with the canvas hint; an unreadable IR is an `error`. Another `open` replaces the session. |
 | `viewport` | `viewport` `{width, height}` (points) | `frame` | the client's canvas size; a pending fit uses it |
 | `camera` | `x`, `y`, `zoom` | `ack` | the client panned or zoomed locally: the frame's `camera` (top-left world point and zoom) the client now shows. Saved with the state; no frame is sent back. |
 | `display` | `path` | `frame` | show this diagram (what `uml_display` asks for): relative to the project or absolute. The same diagram keeps the view; another one is fitted. Ends the waiting canvas. |
@@ -113,7 +113,7 @@ stores it as it is and does not interpret it beyond `schema` and `version`.
 |---|---|---|
 | `schema` | string | `"dsh-uml-viewer/session-state"` |
 | `version` | integer | `1` |
-| `diagram` | string \| null | the diagram shown (absolute path) |
+| `diagram` | string \| null | the diagram shown (absolute path); `null` while the canvas is still waiting for its first display |
 | `context` | object \| null | the [discussion context](#discussion-context) |
 | `focus` | string[] | the namespace path drilled into (EDN keywords) |
 | `proposalId` | string \| null | the proposal shown (EDN) |

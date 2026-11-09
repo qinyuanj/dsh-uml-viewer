@@ -50,7 +50,9 @@ pub fn to_json(state: &ViewState) -> Json {
     json!({
         "schema": SCHEMA,
         "version": VERSION,
-        "diagram": state.path,
+        // A waiting canvas has displayed nothing yet: its path is only the
+        // project default, which a restore must not show unasked.
+        "diagram": if state.waiting { None } else { state.path.as_deref() },
         "context": state.discussion_context.as_ref().map_or(Json::Null, context_json),
         "focus": state.focus.iter().map(edn_text).collect::<Vec<_>>(),
         "proposalId": optional(get(&state.extra, "proposal-id")),

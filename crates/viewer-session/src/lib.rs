@@ -371,6 +371,16 @@ impl Session {
         }
     }
 
+    /// Reapply a saved view (a `frame::session::snapshot` map) to the
+    /// loaded diagram, as a restart does; a waiting canvas has nothing to
+    /// restore onto and stays as it is.
+    pub fn restore(&mut self, snapshot: &Value) {
+        if self.state.document.is_none() {
+            return;
+        }
+        self.state = frame::session::restore(&self.state, snapshot);
+    }
+
     pub fn state(&self) -> &ViewState {
         &self.state
     }
