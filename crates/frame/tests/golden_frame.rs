@@ -108,6 +108,22 @@ fn decluttered_triangles_at_block_zoom() {
     );
 }
 
+/// 移除箭头 at reading zoom (dsh-uml-viewer#25): compact dependency
+/// indicators instead of edges, violating ones in 违规关系色; selecting
+/// `:api` dims the unrelated violating and plain indicators alike.
+#[test]
+fn removed_arrows_show_violating_and_dimmed_dependency_indicators() {
+    golden(
+        "root-triangles-selected",
+        &[
+            "--extra",
+            "{:declutter :triangles}",
+            "--select",
+            "{:kind :class :id :api}",
+        ],
+    );
+}
+
 /// The panel primitives at a reading zoom under 1 (dsh-uml-viewer#24): a
 /// selected (marked) dependency port, its sibling ports and arrows, α/I,
 /// level numbers and stereotypes, all scaled and rounded like the window.
