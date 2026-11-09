@@ -97,6 +97,9 @@ test('three visible bound-session requests leave the draft intact and run qualit
       await expect(a.page.getByText(`Finished ${op} for :core: quality, IR, display.`, { exact: true }).last()).toBeVisible()
       const message = a.page.getByText(`UML viewer panel request:\n{:op :${op} :target {:id :core :kind :component} :files ["src/core/order.ts" "src/core/price.ts"]}`, { exact: true })
       await expect(message.last()).toBeVisible()
+      // The display refreshed this panel's own stream, not another surface.
+      await expect(a.summary).toHaveAttribute('data-kind', 'frame')
+      await expect(a.panel).toHaveAttribute('data-session-id', a.sessionId)
     }
     expect(await calls(lane.projects.deep)).toEqual([
       { operation: 'crap', args: [] },
