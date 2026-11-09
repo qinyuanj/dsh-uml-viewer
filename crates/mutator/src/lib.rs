@@ -1,4 +1,4 @@
-//! Differential mutation testing with isolated Linux test runs.
+//! Differential mutation testing in isolated test runs (Linux, Windows).
 use quality_core::language::{Language, language_of};
 use std::{ffi::OsString, path::Path, process::ExitCode};
 mod cli;

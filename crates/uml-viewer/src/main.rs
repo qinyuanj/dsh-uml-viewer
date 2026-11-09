@@ -39,7 +39,7 @@ const ROLES: &[(&str, &str, Entry)] = &[
     ),
     (
         "mutate",
-        "differential mutation testing, isolated Linux test runs",
+        "differential mutation testing in isolated test runs (Linux, Windows)",
         |_, args| mutator::run(args),
     ),
     (
