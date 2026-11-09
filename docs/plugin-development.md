@@ -32,7 +32,7 @@ build on Windows, Linux and macOS alongside the existing Rust checks.
 
 ## Binary convention
 
-The host chooses the executable at call time, in this order:
+The host chooses and pins the executable at activation, in this order:
 
 1. The trusted Loader row's `binary` config, when set.
 2. `UML_VIEWER_BIN`, an **absolute executable path**, with `.exe` on Windows.
@@ -47,7 +47,7 @@ fail before tools register, with an actionable reason. Config/environment
 overrides remain available for trusted development.
 
 There is no PATH or legacy `.uml-viewer/` fallback and no automatic build. A
-missing binary produces an actionable tool result. To use a separate Cargo
+missing binary fails activation with an actionable reason. To use a separate Cargo
 output directory, set `UML_VIEWER_BIN` explicitly. For example:
 
 ```powershell
@@ -62,6 +62,25 @@ The source checkout uses the development search above; only assembled packages
 resolve optional dependencies. The assembler derives versions from Cargo's
 workspace version, while `pnpm version:check` checks all source manifests.
 `pnpm version:sync` updates npm mirrors after changing the Cargo authority.
+Before creating either archive or the output directory, the assembler runs the
+supplied native binary with `--version` (five-second deadline, 4 KiB output bound).
+It requires exactly `uml-viewer <workspace version>` with at most one line ending,
+empty stderr and successful unsignalled exit. Missing, malformed, failed,
+timed-out or mismatching identities fail packaging. Older binaries without this
+CLI argument must be rebuilt separately; packaging never builds implicitly.
+
+The Node-only payload gate suite uses an explicit disposable scratch parent:
+
+```powershell
+$env:UML_VIEWER_PACKAGE_TEST_SCRATCH = 'D:\scratch\uml-package-tests'
+New-Item -ItemType Directory -Force $env:UML_VIEWER_PACKAGE_TEST_SCRATCH
+node --test scripts/package-version.test.mjs
+```
+
+Its positive archives contain controlled interpreter fixtures through the
+imported assembly runner seam; this proves gate/assembly behavior only. The
+production CLI offers no runner override. Real current-source native packing
+and runtime acceptance require a separately built executable.
 
 ## Tool behavior
 
