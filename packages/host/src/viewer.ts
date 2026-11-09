@@ -91,7 +91,13 @@ export class ViewerService {
     return { closed: await this.sessions.close(agent) }
   }
 
-  async action(agent: Agent, action: PanelAction): Promise<PanelAck> {
+  /**
+   * One panel action. The Remote descriptor declares no cancellation parameter
+   * for this invocation (only `watch` has one), so `signal` is optional: a
+   * gateway that supplies one has it reach the resident, and the action's own
+   * timeouts bound it otherwise.
+   */
+  async action(agent: Agent, action: PanelAction, signal?: AbortSignal): Promise<PanelAck> {
     try {
       // #28: a quality refresh is a message to this panel's session, not a
       // resident action. Only the element id and op cross from the browser.
@@ -112,7 +118,7 @@ export class ViewerService {
         if (request.action === 'context') return await this.requests.context(agent, request.proposalId)
         throw new Error('view request expected')
       }
-      const { event } = await this.sessions.refresh(agent, new AbortController().signal, action as unknown as { action: string })
+      const { event } = await this.sessions.refresh(agent, signal ?? new AbortController().signal, action as unknown as { action: string })
       if (event.event === 'error') return { accepted: false, reason: event.message }
       const ack: PanelAck = { accepted: true, reason: null }
       // The overlay models ride on the ack of the action that asked for them.

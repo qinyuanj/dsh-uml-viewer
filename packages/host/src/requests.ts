@@ -12,6 +12,15 @@ function reasonOf(error: unknown): string {
 }
 
 /**
+ * How long one panel request may spend being resolved and admitted before it
+ * fails with a reason (#review H3). One resident action is bounded by
+ * `ACTION_TIMEOUT_MS`; admission also waits for DSH, so it needs its own bound:
+ * a membership lookup or a prompt that never settles must not hold this
+ * session's request FIFO, and with it every later click, forever.
+ */
+export const ADMISSION_TIMEOUT_MS = 20_000
+
+/**
  * Panel requests: each one becomes one visible user message queued in the
  * panel's own session through DSH's `sessionController.prompt`
  * (`mode: 'queue'`), never the composer, so the user's draft is untouched.
@@ -26,7 +35,9 @@ function reasonOf(error: unknown): string {
  *
  * Every request of a session is resolved and admitted one at a time, in the
  * order the panel sent it, so DSH's queue holds them in click order and a
- * hide after a context switch names the new context.
+ * hide after a context switch names the new context. Each admission is bounded
+ * by `ADMISSION_TIMEOUT_MS`: one that never resolves fails with a reason and
+ * the next request still runs.
  */
 export class PanelRequests {
   private readonly tails = new Map<string, Promise<void>>()
@@ -35,12 +46,13 @@ export class PanelRequests {
     private readonly services: HostServices,
     private readonly sessions: ResidentSessions,
     private readonly grants: RequestGrants,
+    private readonly admissionTimeoutMs = ADMISSION_TIMEOUT_MS,
   ) {}
 
   /** A right-click quality refresh of one element. */
   deliver(agent: Agent, op: QualityRequestOp, id: string): Promise<PanelAck> {
-    return this.enqueue(agent, async () => {
-      const target = await this.sessions.qualityTarget(agent, new AbortController().signal, id)
+    return this.enqueue(agent, async signal => {
+      const target = await this.sessions.qualityTarget(agent, signal, id)
       const request: PanelRequest = { op, target: { id: target.id, kind: target.kind }, files: target.files }
       return { text: renderPanelRequest(request) }
     })
@@ -48,8 +60,8 @@ export class PanelRequests {
 
   /** Hide one element of the shown diagram, in the current discussion context. */
   omit(agent: Agent, id: string): Promise<PanelAck> {
-    return this.enqueue(agent, async () => {
-      const { frame, context } = await this.sessions.shownView(agent, new AbortController().signal)
+    return this.enqueue(agent, async signal => {
+      const { frame, context } = await this.sessions.shownView(agent, signal)
       if (!frame || frame.waiting) throw new Error('no diagram: the panel shows nothing yet; run uml_ir and uml_display first')
       const element = frame.world.find(item => (item.kind === 'class' || item.kind === 'package') && item.id === id)
       if (!element) throw new Error(`no class or namespace component ${id} in the shown diagram`)
@@ -65,10 +77,10 @@ export class PanelRequests {
    * diagram is under discussion. A refused switch sends nothing.
    */
   context(agent: Agent, proposalId: string | null): Promise<PanelAck> {
-    return this.enqueue(agent, async () => {
-      const { event } = await this.sessions.refresh(agent, new AbortController().signal, { action: 'context', proposalId })
+    return this.enqueue(agent, async signal => {
+      const { event } = await this.sessions.refresh(agent, signal, { action: 'context', proposalId })
       if (event.event === 'error') throw new Error(event.message)
-      const { context } = await this.sessions.shownView(agent, new AbortController().signal)
+      const { context } = await this.sessions.shownView(agent, signal)
       return { text: renderContextRequest(context) }
     })
   }
@@ -81,7 +93,7 @@ export class PanelRequests {
     })
   }
 
-  private enqueue(agent: Agent, resolve: () => Promise<Message>): Promise<PanelAck> {
+  private enqueue(agent: Agent, resolve: (signal: AbortSignal) => Promise<Message>): Promise<PanelAck> {
     const sessionId = agent.session.id
     const previous = this.tails.get(sessionId) ?? Promise.resolve()
     const result = previous.then(() => this.admit(agent, resolve))
@@ -93,7 +105,7 @@ export class PanelRequests {
     return result
   }
 
-  private async admit(agent: Agent, resolve: () => Promise<Message>): Promise<PanelAck> {
+  private async admit(agent: Agent, resolve: (signal: AbortSignal) => Promise<Message>): Promise<PanelAck> {
     const sessionId = agent.session.id
     let grant: string | null = null
     try {
@@ -101,26 +113,49 @@ export class PanelRequests {
       if (!controller) {
         return { accepted: false, reason: 'this DSH has no sessionController service, so the panel cannot queue a request message' }
       }
-      const message = await resolve()
-      let text: string
-      if (typeof message.text === 'string') {
-        text = message.text
-      } else {
-        grant = this.grants.issue(sessionId, message.kind!)
-        text = message.text(grant)
-      }
-      await controller.prompt({
-        requestId: randomUUID(),
-        sessionId,
-        mode: 'queue',
-        content: [{ type: 'text', text }],
-      }, new AbortController().signal)
-      return { accepted: true, reason: null }
+      return await this.withDeadline(async signal => {
+        const message = await resolve(signal)
+        let text: string
+        if (typeof message.text === 'string') {
+          text = message.text
+        } else {
+          grant = this.grants.issue(sessionId, message.kind!)
+          text = message.text(grant)
+        }
+        await controller.prompt({
+          requestId: randomUUID(),
+          sessionId,
+          mode: 'queue',
+          content: [{ type: 'text', text }],
+        }, signal)
+        return { accepted: true, reason: null }
+      })
     } catch (error) {
       // A message that never reached the session leaves no usable grant.
       if (grant !== null) this.grants.revoke(sessionId, grant)
       return { accepted: false, reason: reasonOf(error) }
     }
+  }
+
+  /**
+   * One request, one signal, one deadline. The signal reaches both waits this
+   * request owns — the resident's answer and DSH's prompt — and the deadline
+   * fails the request even if the step it cancelled never returns.
+   */
+  private withDeadline<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const controller = new AbortController()
+    const reason = `the panel request was not admitted within ${Math.round(this.admissionTimeoutMs / 1000)}s; `
+      + 'it was abandoned so later requests of this session can run'
+    let timer: NodeJS.Timeout | undefined
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort(new Error(reason))
+        reject(new Error(reason))
+      }, this.admissionTimeoutMs)
+    })
+    const work = task(controller.signal)
+    // Both promises keep their handlers, so a late rejection is never unhandled.
+    return Promise.race([work, deadline]).finally(() => clearTimeout(timer))
   }
 }
 
