@@ -3,7 +3,10 @@
 A host with `core.autocrlf=true` checked golden fixtures out CRLF and the
 failure surfaced later as a golden mismatch. This names the files instead.
 Files `.gitattributes` marks `eol=crlf` are exempt (none since the `.cmd`
-entries were deleted, #18).
+entries were deleted, #18), and so are files it marks `-text`: git never
+rewrites their bytes, so a CR in one is deliberate.
+`fixtures/mutate/sites/gjc/src/demo/crlf.clj` is such a file: the mutation
+oracle has to read a CRLF source, so its CRLF is the fixture.
 """
 from pathlib import Path
 import subprocess
@@ -37,6 +40,13 @@ def crlf_by_attribute(paths):
     return {fields[i] for i in range(0, len(fields) - 2, 3) if fields[i + 2] == 'crlf'}
 
 
+def unnormalized(paths):
+    """The paths whose `text` attribute is `unset` (`-text`): git keeps their bytes."""
+    fields = git('check-attr', '-z', '--stdin', 'text',
+                 data='\0'.join(paths).encode('utf-8')).decode('utf-8').split('\0')
+    return {fields[i] for i in range(0, len(fields) - 2, 3) if fields[i + 2] == 'unset'}
+
+
 def carriage_returns(paths):
     return [path for path in paths
             if (REPO / path).is_file() and b'\r' in (REPO / path).read_bytes()]
@@ -61,7 +71,7 @@ def work_tree():
 class LineEndings(unittest.TestCase):
     def test_guarded_files_have_no_carriage_return(self):
         paths = tracked()
-        exempt = crlf_by_attribute(paths)
+        exempt = crlf_by_attribute(paths) | unnormalized(paths)
         found = [path for path in carriage_returns(paths) if path not in exempt]
         if found:
             self.fail('\n' + report(found))
