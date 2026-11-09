@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { QUALITY_REQUESTS, parsePanelAction, renderPanelRequest, validatePanelRequest } from '../src/index.js'
+import {
+  QUALITY_REQUESTS, QUALITY_TARGET_LIMITS, parsePanelAction, renderPanelRequest, validatePanelRequest,
+  validateQualityTarget,
+} from '../src/index.js'
 
 describe('quality panel requests', () => {
   it('offers exactly the three quality refreshes, in menu order', () => {
@@ -40,5 +43,42 @@ describe('quality panel requests', () => {
     expect(renderPanelRequest({ op: 'refresh-mutate-all', target: { id: ':ir', kind: 'component' },
       files: ['crates/ir/src/a b.rs', 'crates/ir/src/q"uote.rs'] }))
       .toBe('UML viewer panel request:\n{:op :refresh-mutate-all :target {:id :ir :kind :component} :files ["crates/ir/src/a b.rs" "crates/ir/src/q\\"uote.rs"]}')
+  })
+})
+describe('resident quality targets', () => {
+  const target = { id: ':core', kind: 'component' as const, files: ['src/core/a.ts', 'src/core/b.ts'] }
+
+  it('accepts the producer answer and checks it is about the element asked for', () => {
+    expect(validateQualityTarget(target)).toEqual(target)
+    expect(validateQualityTarget(target, 'resident event.target', ':core')).toEqual(target)
+    expect(() => validateQualityTarget(target, 'quality target', ':api')).toThrow(/does not match the requested :api/)
+  })
+
+  it('keeps the producer bounds and order as one contract', () => {
+    // viewer_session::targets QUALITY_TARGET_* — the numbers must stay equal.
+    expect(QUALITY_TARGET_LIMITS).toEqual({ files: 4096, pathBytes: 4096, eventBytes: 1024 * 1024 })
+    for (const [value, message] of [
+      [{ ...target, id: 'core' }, /keyword/],
+      [{ ...target, kind: 'layer' }, /kind/],
+      [{ ...target, files: [] }, /files/],
+      [{ ...target, files: Array.from({ length: QUALITY_TARGET_LIMITS.files + 1 }, (_, index) => `src/f${index}.ts`) }, /limit is 4096/],
+      [{ ...target, files: ['../outside.ts'] }, /relative/],
+      [{ ...target, files: ['/etc/passwd'] }, /relative/],
+      [{ ...target, files: ['D:/abs.ts'] }, /relative/],
+      [{ ...target, files: ['src\\core\\a.ts'] }, /forward slashes/],
+      [{ ...target, files: ['-rf'] }, /command option/],
+      [{ ...target, files: ['src/core/a.ts', 'src/core/a.ts'] }, /duplicate/],
+      [{ ...target, files: ['src/core/b.ts', 'src/core/a.ts'] }, /ascending path order/],
+      [{ ...target, files: ['a'.repeat(QUALITY_TARGET_LIMITS.pathBytes + 1)] }, /limit is 4096/],
+      [null, /must be an object/],
+    ] as const) {
+      expect(() => validateQualityTarget(value), JSON.stringify(value).slice(0, 40)).toThrow(message)
+    }
+  })
+
+  it('orders non-ASCII paths by their UTF-8 bytes, as the resident sorts them', () => {
+    const files = ['src/a.ts', 'src/é.ts']
+    expect(validateQualityTarget({ ...target, files })).toEqual({ ...target, files })
+    expect(() => validateQualityTarget({ ...target, files: ['src/é.ts', 'src/a.ts'] })).toThrow(/ascending/)
   })
 })
