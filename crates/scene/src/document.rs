@@ -159,7 +159,6 @@ pub struct ViewState {
     pub detail_id: Option<Value>,
     pub detail_scroll: f64,
     pub discussion_context: Option<Value>,
-    pub quit_for_restart: bool,
     pub drag: Option<Drag>,
 }
 
@@ -198,7 +197,6 @@ impl Default for ViewState {
             detail_id: None,
             detail_scroll: 0.0,
             discussion_context: None,
-            quit_for_restart: false,
             drag: None,
         }
     }
@@ -436,15 +434,15 @@ fn has_named(doc: &Value, pid: &Value) -> bool {
         .any(|p| get(p, "id") == Some(pid))
 }
 
-/// IO capabilities for `:display` mail handling (resolve/canonical/load).
+/// IO capabilities for display commands (resolve/canonical/load).
 pub trait MailBoundary {
     fn resolve(&self, path: &str, root: Option<&str>) -> String;
     fn canonical(&self, path: &str) -> String;
     fn load(&self, path: &str) -> Option<ViewState>;
 }
 
-/// Apply one `to-viewer.edn` command. Unknown operations (including inbound
-/// omit) only advance the cursor: omit is an outbound companion request.
+/// Apply one scene command for the viewer session. Unknown operations only
+/// advance the cursor; panel requests are handled by the host.
 pub fn apply_mail(state: &ViewState, cmd: &Value, boundary: &dyn MailBoundary) -> ViewState {
     let mut s = state.clone();
     s.mail_seen = get(cmd, "id").and_then(edn::record::num).unwrap_or(0.0) as i64;
@@ -506,8 +504,6 @@ pub fn apply_mail(state: &ViewState, cmd: &Value, boundary: &dyn MailBoundary) -
             }
         }
         s.discussion_context = Some(ctx);
-    } else if op == "quit-for-restart" {
-        s.quit_for_restart = true;
     }
     s
 }

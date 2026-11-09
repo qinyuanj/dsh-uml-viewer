@@ -474,7 +474,7 @@ fn displays_a_new_diagram_with_a_fit_and_keeps_the_view_on_the_same_one() {
 }
 
 #[test]
-fn context_and_quit_mail_update_state_without_recompiling() {
+fn context_commands_update_discussion_without_recompiling() {
     let state = load(r#"{:hierarchical true :classes [{:id :a}] :edges []}"#);
     let ctx = document::apply_mail(
         &state,
@@ -486,12 +486,8 @@ fn context_and_quit_mail_update_state_without_recompiling() {
         ctx.discussion_context.as_ref()
     );
     assert_eq!(3, ctx.mail_seen);
-    let quit = document::apply_mail(
-        &state,
-        &parse("{:id 4 :op :quit-for-restart}").unwrap(),
-        &NoIo,
-    );
-    assert!(quit.quit_for_restart);
+    assert_eq!(state.scene, ctx.scene);
+    assert_eq!(state.revision, ctx.revision);
     // An unknown op only advances the cursor.
     let other = document::apply_mail(&state, &parse("{:id 5 :op :omit}").unwrap(), &NoIo);
     assert_eq!(5, other.mail_seen);

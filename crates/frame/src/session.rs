@@ -1,8 +1,6 @@
-//! Restart session snapshots (port of `love/uml/application/session.lua` and
-//! `adapters/session.lua`): the snapshot schema the LOVE viewer writes on
-//! `:quit-for-restart` and this viewer reads on `--restart`. The file itself
-//! is EDN under `.uml-viewer/session.edn`; reads and writes go through the
-//! app's atomic write boundary.
+//! View snapshots shared by frame consumers and resident session restore.
+//! The schema retains compatibility with historical LOVE snapshots; the
+//! resident returns these values to the host for session persistence.
 
 use std::path::{Path, PathBuf};
 
