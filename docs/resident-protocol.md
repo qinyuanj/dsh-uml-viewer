@@ -218,6 +218,15 @@ opening source in one panel must not create a window in another panel of the
 same session. View mutations still return and broadcast the existing `frame`
 event. Panels request a fresh inspector/card model after a new frame.
 
+A panel's watch stream is not the session's lifetime. Ending one — the gateway
+aborting the method signal and returning the iterator on a client unload, a
+carrier reconnect, or the sidebar/main reparent — keeps that session's resident
+for one bounded window (`WITHDRAWAL_GRACE_MS`, 30 s), so the same session
+re-attaches to the same child and the same plugin version. The definite close is
+the additive `umlViewer/close` Remote (`PanelCloseAck {closed}`, validated by
+contracts): its call, a window expiring with nobody attached, plugin uninstall
+and DSH shutdown stop the resident, and each saves the view first.
+
 ## Discussion context
 
 ```json

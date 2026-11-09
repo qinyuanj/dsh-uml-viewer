@@ -63,8 +63,18 @@ and leases that version for as long as it may start a process: the lease file
 mtime is a heartbeat, and both residents and tool calls hold it until the
 child actually exits. Open panels keep their resident across a plugin
 replacement — a root-owned pool hands their actions to the old child while a
-new activation starts new sessions with the new version — so a running panel
-stays on vN until it is closed, and only the next fresh open runs vN+1.
+new activation starts new sessions with the new version.
+
+A panel stream ending is **not** a panel close (D13). The gateway aborts the
+method signal and returns the stream whenever the browser half is unloaded, a
+carrier reconnects, or the panel moves between the sidebar and the main page,
+so the resident is kept for one bounded window (`WITHDRAWAL_GRACE_MS`, 30 s)
+waiting for the same session to re-attach. A remount inside that window joins
+the waiting child: same resident, same version, still one child and one lease.
+The panel's own `close` call, the window expiring with nobody attached, plugin
+uninstall and DSH shutdown stop it (each saves the view first), and only then
+does a later open start vN+1. So an in-session remount keeps vN; a **full page
+reload or app restart is a fresh open and legitimately runs vN+1**.
 
 Cleanup removes only version directories that are neither current nor leased
 by a live owner. A lease whose heartbeat is old but whose PID is still alive
@@ -203,6 +213,13 @@ the tool definitions, the IR handler's quality check and effect lifetime.
 `gate.ts` holds both per-session gates: the latest quality outcome with its FIFO,
 and the IR success `uml_display` requires. `lifetime.ts` keeps panel state on
 the root context so a replaced activation's open panels keep their resident.
+That root state is the plugin's one dependence on a not-yet-stable Cordis API:
+`ctx.root` is `@experimental` in Cordis 4.1.0 (`context.ts`), the peer range is
+`~4.1.0`, and any Cordis upgrade must re-verify it or move the pool to a
+documented root-scoped service. The version seam fails loudly if it disappears;
+nothing falls back silently. The state itself is keyed by
+`Symbol.for('dsh-uml-viewer.panel-state.v1')`, so any change to the pooled
+`ResidentPool`/`ResidentConnection` shape must bump that version.
 
 The `uml_display` gate is a per-session record of this plugin's own `uml_ir`
 outcomes, written by the `uml_ir` tool and read by `uml_display`.
@@ -238,7 +255,10 @@ DSH services, and spawn a real fake binary through the subprocess seam. They
 check actual argv/cwd, results for exits 0/1/3, refusal, confinement, authority
 changes and unload cleanup. The version seam runs fake resident payloads from
 scratch DSH homes under two plugin versions: a live vN panel and a fresh vN+1
-panel in the same root, six simultaneous real loaders for one version, cleanup
+panel in the same root, a withdrawn stream (abort plus iterator return, as the
+gateway leaves it) with the same session remounting on the same vN child, an
+explicit close stopping it, root shutdown clearing a pending withdrawal window,
+six simultaneous real loaders for one version, cleanup
 of unleased directories only, and — on Windows — a resident running from a real
 copied `node.exe` while the plugin is updated. The quality seam adds a fake
 quality binary that
