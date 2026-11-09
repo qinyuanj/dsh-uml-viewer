@@ -241,15 +241,16 @@ export class PanelController {
   }
 
   /** Wheel: plain pans (shift/horizontal pans sideways), Ctrl zooms at the cursor. */
-  public wheel(x: number, y: number, delta: number, modifiers: KeyModifiers = {}): void {
+  public wheel(x: number, y: number, delta: number, modifiers: KeyModifiers = {}, horizontalDelta = 0): void {
     this.pointer = { x, y }
     if (!this.frame || !this.viewport || this.status.search.active) return
     if (modifiers.control) {
       this.zoomAt(ZOOM_STEP ** delta, x, y)
-    } else if (modifiers.shift) {
-      this.scroll(-delta, true)
     } else {
-      this.scroll(-delta, false)
+      // Match scene::events::on_wheel: a native horizontal axis takes
+      // precedence; Shift maps a vertical-only wheel onto that same axis.
+      const amount = horizontalDelta !== 0 ? horizontalDelta : delta
+      if (amount !== 0) this.scroll(-amount, horizontalDelta !== 0 || modifiers.shift === true)
     }
   }
 

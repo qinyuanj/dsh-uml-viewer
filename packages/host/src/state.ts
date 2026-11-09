@@ -40,10 +40,11 @@ export class SessionStates {
     try {
       const record = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>
       const state = validateSessionState(record)
-      if (state.diagram && (typeof record.diagramDigest !== 'string'
-        || await diagramDigest(state.diagram) !== record.diagramDigest)) {
-        // Restoration replays the previously displayed IR only. Changed or
-        // missing IR must pass the normal uml_ir → uml_display gate again.
+      if (state.diagram && (!state.loadedDiagram
+        || await diagramDigest(state.diagram) !== state.loadedDiagram.sha256)) {
+        // Restoration replays the previously displayed IR only. Changed,
+        // missing or pre-fingerprint IR must pass the normal
+        // uml_ir → uml_display gate again.
         return { ...state, diagram: null }
       }
       return state
@@ -68,8 +69,9 @@ export class SessionStates {
     if (!file || !this.directory) return
     await mkdir(this.directory, { recursive: true })
     const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`
-    const digest = state.diagram ? await diagramDigest(state.diagram) : null
-    await writeFile(temporary, `${JSON.stringify({ ...state, diagramDigest: digest })}\n`)
+    // The resident bound this state to the buffer its parser read; hashing the
+    // path here would label A's view with bytes that replaced it after the load.
+    await writeFile(temporary, `${JSON.stringify(state)}\n`)
     await rename(temporary, file)
   }
 }

@@ -3,7 +3,10 @@
 //! with the metrics root derived from the diagram (`metrics::root`), not
 //! from the project, so a diagram elsewhere still joins its own snapshots.
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
+
+use sha2::{Digest, Sha256};
 
 use edn::Value;
 use scene::document::{self, MailBoundary, ViewState};
@@ -12,6 +15,7 @@ use crate::metrics;
 
 pub struct DisplayBoundary {
     root: PathBuf,
+    loaded_digest: RefCell<Option<String>>,
 }
 
 impl DisplayBoundary {
@@ -19,7 +23,19 @@ impl DisplayBoundary {
     pub fn new(root: &Path) -> DisplayBoundary {
         DisplayBoundary {
             root: root.to_path_buf(),
+            loaded_digest: RefCell::new(None),
         }
+    }
+}
+
+/// Hash the same string buffer the IR parser consumed (without re-reading its path).
+pub(crate) fn digest(text: &str) -> String {
+    format!("{:x}", Sha256::digest(text.as_bytes()))
+}
+
+impl DisplayBoundary {
+    pub(crate) fn loaded_digest(&self) -> Option<String> {
+        self.loaded_digest.borrow().clone()
     }
 }
 
@@ -56,6 +72,7 @@ impl MailBoundary for DisplayBoundary {
         );
         state.path = Some(path.to_owned());
         state.project_root = Some(self.root.to_string_lossy().into_owned());
+        *self.loaded_digest.borrow_mut() = Some(digest(&text));
         Some(state)
     }
 }

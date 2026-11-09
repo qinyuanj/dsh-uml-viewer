@@ -309,10 +309,10 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     controller.wheel(event.offsetX, event.offsetY, -event.deltaY / 100, {
       control: event.ctrlKey || event.metaKey,
       shift: event.shiftKey,
-    })
+    }, -event.deltaX / 100)
   }
   const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.target === input) return
+    if (event.isComposing || event.keyCode === 229 || event.target === input) return
     const handled = controller.key(event.key, { control: event.ctrlKey || event.metaKey, shift: event.shiftKey })
     if (!handled) return
     event.preventDefault()
@@ -320,6 +320,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     if (controller.current.search.active) input.focus({ preventScroll: true })
   }
   const onSearchKey = (event: KeyboardEvent): void => {
+    if (event.isComposing || event.keyCode === 229) return
     if (!['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(event.key)
       && !((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f')) return
     event.preventDefault()

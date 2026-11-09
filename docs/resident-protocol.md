@@ -107,13 +107,15 @@ request quotes and the one a restore reads.
 
 What the host persists with its session (视图状态和讨论上下文由宿主的会话存储持久化),
 and passes back as `open`'s `state` to restore it. It is data: the host
-stores it as it is and does not interpret it beyond `schema` and `version`.
+stores the resident snapshot and validates its schema. For automatic reopening,
+the host also compares `loadedDiagram` with the current file bytes.
 
 | key | type | meaning |
 |---|---|---|
 | `schema` | string | `"dsh-uml-viewer/session-state"` |
 | `version` | integer | `1` |
 | `diagram` | string \| null | the diagram shown (absolute path); `null` while the canvas is still waiting for its first display |
+| `loadedDiagram` | `{version: 1, sha256: string}` \| null \| absent | additive fingerprint metadata: lowercase SHA-256 of the exact UTF-8 buffer accepted by the resident parser; `null` before any display, absent from older residents |
 | `context` | object \| null | the [discussion context](#discussion-context) |
 | `focus` | string[] | the namespace path drilled into (EDN keywords) |
 | `proposalId` | string \| null | the proposal shown (EDN) |
@@ -127,6 +129,15 @@ A restore applies only what is still valid: a focus without boxes
 shortens, a deleted proposal or layer falls back to the source diagram, a
 vanished selection or card is dropped. A state with another `schema` or
 `version` is refused with an `error`; unknown keys are ignored.
+
+The fingerprint is captured at initial load, successful display and accepted
+hot reload, using the same buffer as parsing. Saving only carries it forward;
+the host must never hash a later path read to label that snapshot. An automatic
+restore requires matching metadata and matching bytes. Missing/legacy metadata,
+changed bytes or a missing file reopens waiting until an authorized display.
+The resident checks the bytes it actually loaded again before restoring, so a
+replacement between the host's comparison and resident open also fails closed.
+This adds no new display grant: the IR-to-display gate remains process-local.
 
 The state carries the restoration dimensions of the egui window's restart
 snapshot (`.uml-viewer/session.edn`) without the window chrome and the mail
