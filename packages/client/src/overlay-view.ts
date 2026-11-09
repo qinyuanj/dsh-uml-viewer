@@ -105,11 +105,13 @@ function CardRow({ item, id, controller }: { item: CardItem; id: string; control
 export function ClassCard({ state, controller }: { state: OverlaySnapshot; controller: OverlayController }): unknown {
   const model = state.card
   const scrollRef = useRef<HTMLElement | null>(null)
+  const nativeScrolling = useRef(false)
+  const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [width, setWidth] = useState(624)
   useEffect(() => {
     const element = scrollRef.current
     if (!element || !model) return
-    element.scrollTop = model.scroll
+    if (!nativeScrolling.current) element.scrollTop = model.scroll
   }, [model])
   useEffect(() => {
     const element = scrollRef.current
@@ -124,19 +126,41 @@ export function ClassCard({ state, controller }: { state: OverlaySnapshot; contr
       if (event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return
       event.preventDefault()
       event.stopPropagation()
-      void controller.scrollCard(Math.sign(event.deltaY))
+      if (scrollTimer.current !== null) clearTimeout(scrollTimer.current)
+      nativeScrolling.current = false
+      void controller.syncNativeScroll(element.scrollTop)
+        .then(() => controller.scrollCard(Math.sign(event.deltaY)))
     }
     element.addEventListener('wheel', wheel, { passive: false })
     const observer = new ResizeObserver(measure)
     observer.observe(element)
     measure()
-    return () => { observer.disconnect(); element.removeEventListener('wheel', wheel) }
+    return () => {
+      observer.disconnect()
+      element.removeEventListener('wheel', wheel)
+      if (scrollTimer.current !== null) clearTimeout(scrollTimer.current)
+    }
   }, [controller, model?.id])
   if (!model) return null
   return h('section', { className: 'dsh-uml-window dsh-uml-card', role: 'dialog', 'aria-label': `类卡片 ${model.title}` },
     h('header', { className: 'dsh-uml-window-header' }, h('strong', null, model.title),
       h('button', { type: 'button', 'aria-label': '关闭类卡片', onClick: () => { void controller.closeCard() } }, '×')),
-    h('div', { className: 'dsh-uml-card-scroll', ref: scrollRef }, h('div', { className: 'dsh-uml-card-plan', style: { width, height: model.contentHeight } },
+    h('div', { className: 'dsh-uml-card-scroll', ref: scrollRef, tabIndex: 0,
+      onScroll: (event: { currentTarget: HTMLElement }) => {
+        const offset = event.currentTarget.scrollTop
+        if (Math.abs(offset - model.scroll) > 0.5) {
+          nativeScrolling.current = true
+          if (scrollTimer.current !== null) clearTimeout(scrollTimer.current)
+          // Let native keyboard/scrollbar movement settle before publishing its
+          // final offset, so producer replies cannot interrupt browser scrolling.
+          scrollTimer.current = setTimeout(() => {
+            nativeScrolling.current = false
+            scrollTimer.current = null
+            void controller.syncNativeScroll(offset)
+          }, 100)
+        }
+      },
+    }, h('div', { className: 'dsh-uml-card-plan', style: { width, height: model.contentHeight } },
       ...model.items.map((item, index) => h(CardRow, { key: index, item, id: model.id, controller })))))
 }
 

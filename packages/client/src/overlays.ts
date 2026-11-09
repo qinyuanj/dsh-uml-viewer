@@ -36,6 +36,8 @@ export class OverlayController {
   private closed = false
   private readonly listeners = new Set<() => void>()
   private geometry: CardGeometry = { width: 624, viewHeight: 700 }
+  private nativeOffset: number | null = null
+  private nativeScrollTask: Promise<void> | null = null
 
   public constructor(private readonly send: Send) {}
 
@@ -65,8 +67,14 @@ export class OverlayController {
   }
 
   private async request(action: PanelAction): Promise<PanelAck | null> {
-    const ack = await this.send(action)
-    if (ack && !ack.accepted) {
+    if (this.closed) return null
+    let ack: PanelAck | null
+    try {
+      ack = await this.send(action)
+    } catch (error) {
+      ack = { accepted: false, reason: error instanceof Error ? error.message : String(error) }
+    }
+    if (!this.closed && ack && !ack.accepted) {
       this.failure = ack.reason ?? 'panel action refused'
       this.publish()
     }
@@ -114,6 +122,25 @@ export class OverlayController {
       this.card = ack.card
       this.failure = null
       this.publish()
+    }
+  }
+
+  /** Translate a native scrollbar/keyboard pixel position into the protocol's
+   * 48-point notch units. Rust still owns the step, plan and clamping. Coalesce
+   * drag events so each relative input starts from the last acknowledged plan. */
+  public syncNativeScroll(offset: number): Promise<void> {
+    this.nativeOffset = offset
+    this.nativeScrollTask ??= this.drainNativeScroll().finally(() => { this.nativeScrollTask = null })
+    return this.nativeScrollTask
+  }
+
+  private async drainNativeScroll(): Promise<void> {
+    while (this.nativeOffset !== null && !this.closed) {
+      const target = this.nativeOffset
+      this.nativeOffset = null
+      if (this.card && Math.abs(target - this.card.scroll) > 0.5) {
+        await this.scrollCard((target - this.card.scroll) / 48)
+      }
     }
   }
 

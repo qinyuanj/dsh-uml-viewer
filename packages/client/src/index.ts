@@ -170,7 +170,8 @@ export async function mountPanel(host: HTMLElement, options: {
     event.preventDefault()
     void overlays?.namespaceTree()
   }
-  host.addEventListener('keydown', onKey)
+  const keyHost = host.closest<HTMLElement>('.dsh-uml-viewer-panel') ?? host
+  keyHost.addEventListener('keydown', onKey)
   const unsubscribe = controller.subscribe(() => { /* state is published to React through overlays */ })
   const onResize = (): void => {
     void controller.measureViewport().then(size => controller.setViewport(size.width, size.height))
@@ -197,7 +198,7 @@ export async function mountPanel(host: HTMLElement, options: {
     observer?.disconnect()
     overlays?.dispose()
     canvas.removeEventListener('dblclick', onDoubleClick)
-    host.removeEventListener('keydown', onKey)
+    keyHost.removeEventListener('keydown', onKey)
     unsubscribe()
     canvas.removeEventListener('pointerdown', onPointerDown)
     canvas.removeEventListener('pointermove', onPointerMove)

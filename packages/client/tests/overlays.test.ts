@@ -46,6 +46,15 @@ describe('panel overlays', () => {
     expect(controller.current.card?.scroll).toBe(0) // producer response, no local 192px guess
   })
 
+  it('synchronizes native scrolling before subsequent wheel input', async () => {
+    const { controller, actions } = harness()
+    await controller.refresh()
+    await controller.syncNativeScroll(192)
+    expect(actions).toContainEqual({ action: 'scroll-card', delta: 4, viewHeight: 700 })
+    await controller.scrollCard(-1)
+    expect(actions).toContainEqual({ action: 'scroll-card', delta: -1, viewHeight: 700 })
+  })
+
   it('double clicks, closes, chooses proposals and returns via P through the resident', async () => {
     const { controller, actions } = harness()
     await controller.openCardAt([12, 34])

@@ -84,8 +84,8 @@ test('inspector follows class selection, switches proposal, and P returns to the
   await expect(panel.summary).toHaveAttribute('data-view', 'proposal')
   await expect(proposal).toHaveAttribute('aria-pressed', 'true')
   await expect(panel.summary).toContainText('Inspector proposal')
-  // Keyboard goes through the focused panel, rather than a composer shortcut.
-  await panel.panel.locator('.dsh-uml-viewer-canvas-host').focus()
+  // Focus stays on the proposal button after choosing it. P must work from
+  // the inspector as naturally as from the canvas, without touching chat.
   await panel.page.keyboard.press('p')
   await expect(panel.summary).toHaveAttribute('data-view', 'source')
   await expect(proposal).toHaveAttribute('aria-pressed', 'false')
@@ -115,6 +115,17 @@ test('class card wheel steps clamp at both ends, keep inspector visible, and res
   expect((await metrics(scroll)).top).toBe(maximum)
   for (let n = 0; n < Math.ceil(maximum / 48) + 2; n += 1) await cardNotch(panel, scroll, -1)
   expect((await metrics(scroll)).top).toBe(0)
+  // Native keyboard scrolling must update the resident too, so the next wheel
+  // starts at the native offset instead of jumping back to one notch.
+  await scroll.focus()
+  await panel.page.keyboard.press('End')
+  await expect.poll(async () => (await metrics(scroll)).top).toBe(maximum)
+  await cardNotch(panel, scroll, -1)
+  expect((await metrics(scroll)).top).toBe(maximum - 48)
+  await panel.page.keyboard.press('Home')
+  await expect.poll(async () => (await metrics(scroll)).top).toBe(0)
+  await cardNotch(panel, scroll, 1)
+  expect((await metrics(scroll)).top).toBe(48)
   await expect(proposal).toBeInViewport()
   expect(await proposal.boundingBox()).toEqual(proposalBefore)
   expect(await panel.summary.innerText(), 'card wheel does not zoom the diagram').toBe(cameraBefore)
@@ -126,6 +137,7 @@ test('class card wheel steps clamp at both ends, keep inspector visible, and res
     return Math.abs(plan.width - Math.max(560, size.width - 16))
   }).toBeLessThanOrEqual(1)
   const wide = await metrics(scroll)
+  await lane.screenshot(panel, 't27-card')
   expect(wide.width).toBeGreaterThan(narrowWidth)
   if (wide.width >= 560) expect(wide.horizontal).toBe(0)
   await dialog.getByRole('button', { name: '关闭类卡片' }).click()
@@ -180,6 +192,7 @@ test('module source, exact member line, native copy, same-file reuse and indepen
   await expect(otherCard).toBeVisible()
   await clickRow(otherCard.locator('[data-card-module]'))
   await expect(sources(panel)).toHaveCount(2)
+  await lane.screenshot(panel, 't27-source-windows')
   const second = sources(panel).filter({ has: panel.page.locator('[data-source-line="1"] code', { hasText: 'second file' }) })
   await expect(second).toHaveAttribute('aria-label', /companion\.ts$/)
   await second.getByRole('button', { name: '关闭源码窗口' }).click()

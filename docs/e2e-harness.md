@@ -169,12 +169,14 @@ The cases port the applicable behavior of `source_jump.edn`,
 `source_window.edn`, `detail_scroll.edn` and `inspector.edn`:
 
 - The inspector explains an empty selection, refreshes to the selected class
-  and its no-data summary, selects the named proposal, and accepts **P** on
-  the focused panel to return to the source namespace tree.
+  and its no-data summary, selects the named proposal, and accepts **P** with
+  focus still on that proposal button to return to the source namespace tree.
 - A real canvas double-click opens the class card at coordinates from
   `producerFrame`, without injecting a frame or invoking a private controller.
   Wheel gestures advance by 48 pixels and clamp at both ends while the
-  inspector and diagram camera stay put. Native CSS resize gestures exercise
+  inspector and diagram camera stay put. End/Home native scrolling followed by
+  another wheel notch verifies the DOM and resident offsets stay synchronized.
+  Native CSS resize gestures exercise
   horizontal overflow below the 560-pixel plan minimum and column layout at
   the available sidebar width.
 - The module row opens the whole file without a marked line. The member row
