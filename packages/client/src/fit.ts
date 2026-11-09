@@ -145,6 +145,25 @@ export function screenToWorld(v: ViewTransform, sx: number, sy: number): [number
   return [sx / v.zoom + v.x, sy / v.zoom + v.y]
 }
 
+/**
+ * A CSS pointer offset → world point for the canvas as it is actually shown.
+ * `paintFrame` sizes the backing bitmap from `frame.viewport`, while CSS
+ * stretches the canvas to its box, so X and Y scale independently: convert
+ * each axis CSS → frame viewport first, then apply the shared camera
+ * transform. A zero-sized box has no mapping.
+ */
+export function cssToWorld(
+  frame: SceneFrame,
+  bounds: { width: number; height: number },
+  cssX: number,
+  cssY: number,
+): [number, number] | null {
+  if (!(bounds.width > 0) || !(bounds.height > 0)) return null
+  const fx = cssX * frame.viewport.width / bounds.width
+  const fy = cssY * frame.viewport.height / bounds.height
+  return screenToWorld(viewTransform(frame, frame.viewport.width, frame.viewport.height), fx, fy)
+}
+
 /** A box is drawn only when it spans at least one screen point each way, as natively. */
 export function rectVisible(v: ViewTransform, w: number, h: number): boolean {
   return w * v.zoom >= 1 && h * v.zoom >= 1

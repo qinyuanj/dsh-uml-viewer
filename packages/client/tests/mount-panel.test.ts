@@ -107,6 +107,30 @@ describe('mounted panel wheel handlers', () => {
   })
 })
 
+async function settled(): Promise<void> {
+  for (let i = 0; i < 10; i += 1) await Promise.resolve()
+}
+
+describe('mounted panel #23 + #27 union', () => {
+  it('double-click sends one per-axis open-card and never a second drill-in', async () => {
+    const { canvas } = await mount()
+    canvas.fire('dblclick', { offsetX: 400, offsetY: 300 })
+    await settled()
+    expect(actions.filter(action => action.action === 'drill-in')).toEqual([])
+    expect(actions.filter(action => action.action === 'open-card')).toEqual([{ action: 'open-card', at: [600, 500] }])
+  })
+
+  it('P sends exactly one namespace-tree, and none while composing', async () => {
+    const { canvas } = await mount()
+    canvas.fire('keydown', { key: 'p', isComposing: true })
+    await settled()
+    expect(actions.filter(action => action.action === 'namespace-tree')).toEqual([])
+    expect(canvas.fire('keydown', { key: 'p' }).defaultPrevented).toBe(true)
+    await settled()
+    expect(actions.filter(action => action.action === 'namespace-tree')).toEqual([{ action: 'namespace-tree' }])
+  })
+})
+
 describe('mounted panel IME handlers', () => {
   it.each([{ isComposing: true }, { isComposing: false, keyCode: 229 }])('leaves composing search keys native (%j), then Enter locates', async (guard) => {
     const { host, canvas, input, results } = await mount()

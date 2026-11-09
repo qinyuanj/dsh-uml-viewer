@@ -119,7 +119,11 @@ describe('built client bundle', () => {
     const factory = registered()
     const module = factory.factory(name => {
       expect(name).toBe('react')
-      return { createElement: (type: unknown, props: Record<string, unknown> | null) => ({ type, props }) }
+      return {
+        createElement: (type: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => ({ type, props, children }),
+        useRef: () => ({ current: null }), useState: (value: unknown) => [value, () => {}],
+        useCallback: (callback: unknown) => callback,
+      }
     })
     expect(module.inject).toEqual(['slots'])
     expect(module.name).toBe('dsh-uml-viewer')
@@ -142,6 +146,7 @@ describe('built client bundle', () => {
     const element = pane as { type: string; props: Record<string, unknown> }
     expect(element.type).toBe('div')
     expect(element.props.className).toBe('dsh-uml-viewer-panel')
-    expect(typeof element.props.ref).toBe('function')
+    const canvasHost = (pane as { children: { props: Record<string, unknown> }[] }).children[0]!
+    expect(typeof canvasHost.props.ref).toBe('function')
   })
 })

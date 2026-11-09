@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { makeInspector } from './inspector-project.mjs'
 
 /**
  * Small, distinct TypeScript projects. The scripted agent runs the real
@@ -26,6 +27,7 @@ export async function makeProjects(home) {
     projects[name] = root
   }
   projects.atlas = await makeAtlas(home)
+  projects.inspector = await makeInspector(home)
   projects.deep = await makeDeep(home)
   projects.nexus = await makeNexus(home)
   return projects

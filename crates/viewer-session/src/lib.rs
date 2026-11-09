@@ -24,6 +24,7 @@ use frame::{inspector, project_files, strings, watch};
 
 pub mod display;
 pub mod metrics;
+pub mod overlays;
 pub mod resident;
 pub mod state;
 
@@ -121,6 +122,8 @@ pub enum Action {
     NamespaceTree,
     /// Select a hit (`None` clears): the dependency chain follows it.
     Select(Option<Value>),
+    /// Double-click a class: select it and open its card (#27).
+    OpenCard(Option<Value>),
 }
 
 /// What an action changed besides the view.
@@ -358,8 +361,15 @@ impl Session {
             Action::Back => events::back(state),
             Action::NamespaceTree => events::show_proposal(state, None),
             Action::Select(hit) => events::select(state, hit.as_ref()),
+            Action::OpenCard(hit) => events::open_detail(state, hit.as_ref()),
         };
         outcome
+    }
+
+    /// A wheel over the panel's class card (#27): the shared scroll model
+    /// owns the 48-point step and both clamps.
+    pub fn scroll_card(&mut self, delta: f64, view_h: f64) {
+        self.state = inspector::scroll(&self.state, delta, view_h);
     }
 
     /// Apply one host command (`{:op :display :path …}` or

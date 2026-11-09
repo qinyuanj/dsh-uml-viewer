@@ -21,6 +21,7 @@ mod mutate_windows;
 mod quality;
 mod quality_selection;
 mod resident;
+mod resident_overlays;
 mod scene_cli;
 
 use std::ffi::OsStr;

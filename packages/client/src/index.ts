@@ -12,11 +12,14 @@
  * records the sidebar's session id first and only then selects the main panel,
  * so the full-width page keeps watching the same session's resident.
  */
-import { createElement } from 'react'
-import { UML_VIEWER_REMOTE } from '@dsh-uml-viewer/contracts'
+import { createElement, useCallback, useRef, useState } from 'react'
+import { OverlayController } from './overlays.js'
+import { Overlays, OVERLAY_STYLE } from './overlay-view.js'
+import { UML_VIEWER_REMOTE, type SceneFrame } from '@dsh-uml-viewer/contracts'
 import { FONT_FAMILY, loadSarasa } from './font.js'
 import { PanelController, type PanelRemoteApi, type PanelStatus } from './panel.js'
 import { paintFrame } from './paint.js'
+import { cssToWorld } from './fit.js'
 import { DECLUTTER_STYLE, mountDeclutterControl } from './declutter.js'
 
 export const TAB_ID = 'dsh-uml-viewer'
@@ -27,6 +30,8 @@ const REMOTE_NAMESPACE = 'umlViewer'
 
 const STYLE = `${DECLUTTER_STYLE}
 .dsh-uml-viewer-panel { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; width: 100%; }
+.dsh-uml-viewer-canvas-host { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
+.dsh-uml-viewer-panel > .dsh-uml-overlay-root { top: var(--dsh-uml-toolbar-height, 0px); }
 .dsh-uml-viewer-toolbar {
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: 0 0 auto; min-height: 36px; padding: 4px 8px;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
@@ -174,6 +179,8 @@ export interface MountOptions {
   main?: boolean
   onExpand?: (sessionId: string) => void
   onCollapse?: () => void
+  /** Receives this mount's overlay controller (inspector, card, sources). */
+  onOverlays?: (controller: OverlayController) => void
 }
 
 /**
@@ -181,8 +188,11 @@ export interface MountOptions {
  * fills the element; the panel is bound to `sessionId` for its whole life.
  */
 export async function mountPanel(host: HTMLElement, options: MountOptions): Promise<() => void> {
-  host.dataset.sessionId = options.sessionId
-  host.dataset.surface = options.main ? 'main' : 'sidebar'
+  // The React panel mounts the canvas into an inner host beside its overlays;
+  // the panel element itself names the session and surface.
+  const panelElement = host.closest?.<HTMLElement>('.dsh-uml-viewer-panel') ?? host
+  panelElement.dataset.sessionId = options.sessionId
+  panelElement.dataset.surface = options.main ? 'main' : 'sidebar'
   const canvas = document.createElement('canvas')
   canvas.style.touchAction = 'none'
   canvas.tabIndex = 0
@@ -213,13 +223,22 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     status.style.display = ''
     return () => { host.replaceChildren() }
   }
+  let overlays: OverlayController | null = null
   let lastResults = ''
+  /** The frame the overlays last refreshed for; search/status updates reuse it. */
+  let overlayFrame: SceneFrame | null = null
   const controller = new PanelController({
     canvas,
     api,
     paint: (frame, target) => paintFrame(frame, target),
     onStatus: (state: PanelStatus) => {
       const frame = state.frame
+      // A new view frame refreshes the inspector/card; a search or status
+      // publish that keeps the same frame does not re-request them.
+      if (state.kind === 'live' && frame && overlays && frame !== overlayFrame) {
+        overlayFrame = frame
+        void overlays.refresh()
+      }
       summary.dataset.kind = frame ? 'frame' : state.kind
       summary.dataset.context = state.context?.kind ?? 'real'
       summary.dataset.search = state.search.active ? 'active' : 'closed'
@@ -274,13 +293,21 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
       }
     },
   })
+  overlays = new OverlayController(action => controller.send(action))
+  options.onOverlays?.(overlays)
+  /** **P** and the toolbar's tree button: one dispatch, through the overlays so
+   * a card reply in flight cannot repopulate the card after the tree resets. */
+  const namespaceTree = (): void => {
+    if (overlays) void overlays.namespaceTree()
+    else void controller.namespaceTree()
+  }
   const back = button('‹ Back', 'Back (Esc)', () => {
     void controller.back()
     canvas.focus({ preventScroll: true })
   })
   back.disabled = true
   const tree = button('Namespace tree', 'Namespace tree (P)', () => {
-    void controller.namespaceTree()
+    namespaceTree()
     canvas.focus({ preventScroll: true })
   })
   const expand = button(options.main ? 'Conversation' : 'Expand',
@@ -291,8 +318,27 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   toolbar.append(back, tree, search)
   const disposeDeclutter = mountDeclutterControl(toolbar, controller)
   toolbar.append(spacer, expand)
-  const unsubscribe = controller.subscribe(() => { /* React panels poll `current`; nothing to do here. */ })
+  // The overlays sit below the (wrapping) toolbar instead of covering it.
+  const placeOverlays = (): void => {
+    panelElement.style.setProperty?.('--dsh-uml-toolbar-height', `${toolbar.offsetHeight ?? 0}px`)
+  }
+  placeOverlays()
+  const unsubscribe = controller.subscribe(() => { /* state is published to React through overlays */ })
+  // Keyboard input belongs to this panel; never capture the chat composer.
+  // **P** from the overlay windows (outside the canvas host) also returns to
+  // the tree; keys inside the host are handled once by `onKeyDown` below.
+  const onPanelKey = (event: KeyboardEvent): void => {
+    if (event.isComposing || event.keyCode === 229 || host.contains?.(event.target as Node)) return
+    if (event.key.toLowerCase() !== 'p' || event.ctrlKey || event.metaKey || event.altKey) return
+    const target = event.target as HTMLElement
+    if (target.matches?.('input,textarea,select,[contenteditable=""],[contenteditable=true]')) return
+    if (controller.current.search.active) return
+    event.preventDefault()
+    namespaceTree()
+  }
+  if (panelElement !== host) panelElement.addEventListener('keydown', onPanelKey)
   const onResize = (): void => {
+    placeOverlays()
     void controller.measureViewport().then(size => controller.setViewport(size.width, size.height))
   }
   const resize = host.ownerDocument.defaultView?.ResizeObserver
@@ -307,7 +353,24 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     if (event.buttons !== 0) controller.pointerMove(event.offsetX, event.offsetY)
   }
   const onPointerUp = (event: PointerEvent): void => controller.pointerUp(event.offsetX, event.offsetY)
-  const onDoubleClick = (event: MouseEvent): void => controller.doubleClick(event.offsetX, event.offsetY)
+  // One double-click dispatch: the back hotspot goes back (native parity);
+  // anything else is one `open-card`, where Rust decides class detail vs.
+  // layer drill-in. There is no second `drill-in` handler. CSS stretches the
+  // frame-sized bitmap per axis, so each axis is mapped separately.
+  const onDoubleClick = (event: MouseEvent): void => {
+    const frame = controller.current.frame
+    if (!frame || controller.current.search.active) return
+    const bounds = canvas.getBoundingClientRect()
+    if (!(bounds.width > 0) || !(bounds.height > 0)) return
+    const fx = event.offsetX * frame.viewport.width / bounds.width
+    const fy = event.offsetY * frame.viewport.height / bounds.height
+    if (frame.chrome.some(item => item.kind === 'back') && fx < 320 && fy < 44) {
+      void controller.back()
+      return
+    }
+    const world = cssToWorld(frame, bounds, event.offsetX, event.offsetY)
+    if (world) void overlays?.openCardAt(world)
+  }
   const onWheel = (event: WheelEvent): void => {
     event.preventDefault()
     controller.wheel(event.offsetX, event.offsetY, -event.deltaY / 100, {
@@ -317,6 +380,14 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   }
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.isComposing || event.keyCode === 229 || event.target === input) return
+    // `controller.key` would also map P; route it once, through the overlays.
+    if (!controller.current.search.active && event.key.toLowerCase() === 'p'
+      && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault()
+      event.stopPropagation()
+      namespaceTree()
+      return
+    }
     const handled = controller.key(event.key, { control: event.ctrlKey || event.metaKey, shift: event.shiftKey })
     if (!handled) return
     event.preventDefault()
@@ -345,6 +416,9 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   await controller.open(options.sessionId)
   return () => {
     observer?.disconnect()
+    overlays?.dispose()
+    overlays = null
+    if (panelElement !== host) panelElement.removeEventListener('keydown', onPanelKey)
     disposeDeclutter()
     unsubscribe()
     canvas.removeEventListener('pointerdown', onPointerDown)
@@ -371,23 +445,36 @@ export interface PanelComponentOptions {
 /** One panel component, used by both the sidebar tab and the `main` page. */
 export function makePanelComponent(ctx: ClientContext, options: PanelComponentOptions = {}): (props: ClientPanelProps) => unknown {
   return function UmlViewerPanel(props: ClientPanelProps): unknown {
-    const disposeRef: { current: (() => void) | null } = { current: null }
-    const attach = (element: HTMLElement | null): void => {
+    // One live mount per attach. A detach or rebind while `mountPanel` is
+    // still awaiting invalidates that mount: its late disposer runs at once
+    // and its overlay controller is never published.
+    const mountRef = useRef<{ dispose: (() => void) | null } | null>(null)
+    const [overlays, setOverlays] = useState<OverlayController | null>(null)
+    const attach = useCallback((element: HTMLElement | null): void => {
       if (!element) {
-        disposeRef.current?.()
-        disposeRef.current = null
+        const mount = mountRef.current
+        mountRef.current = null
+        mount?.dispose?.()
+        setOverlays(null)
         return
       }
-      if (disposeRef.current) return
+      if (mountRef.current) return
       const sessionId = options.main ? options.mainSessionId?.() : props.sessionId
       if (typeof sessionId !== 'string') return
-      void mountPanel(element, { sessionId, ctx, ...options }).then(dispose => { disposeRef.current = dispose })
-    }
-    return createElement('div', {
-      className: 'dsh-uml-viewer-panel',
-      'data-font': FONT_FAMILY,
-      ref: attach,
-    })
+      const mount: { dispose: (() => void) | null } = { dispose: null }
+      mountRef.current = mount
+      void mountPanel(element, {
+        ...options,
+        sessionId, ctx,
+        onOverlays: controller => { if (mountRef.current === mount) setOverlays(controller) },
+      }).then(dispose => {
+        if (mountRef.current === mount) mount.dispose = dispose
+        else dispose()
+      })
+    }, [ctx, props.sessionId])
+    return createElement('div', { className: 'dsh-uml-viewer-panel', 'data-font': FONT_FAMILY },
+      createElement('div', { className: 'dsh-uml-viewer-canvas-host', ref: attach }),
+      overlays ? createElement(Overlays, { controller: overlays }) : null)
   }
 }
 
@@ -397,7 +484,7 @@ function installStyles(): () => void {
   if (document.querySelector(`style[data-plugin-css="${id}"]`) === null) {
     const tag = document.createElement('style')
     tag.dataset.pluginCss = id
-    tag.textContent = STYLE
+    tag.textContent = STYLE + OVERLAY_STYLE
     document.head.appendChild(tag)
   }
   return () => {

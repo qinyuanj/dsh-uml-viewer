@@ -531,14 +531,24 @@ pub struct Run {
 const KEYWORDS: &str = "and break do else elseif end false for function if in local nil not or repeat return then true until while class def elif except finally from import lambda None pass raise try with yield async await as const export extends interface let new public private static this throw var void fn impl match mod mut pub self struct trait use enum where loop move ref unsafe";
 
 pub fn tokens(text: &str, lang: &str) -> Vec<Run> {
+    tokens_bounded(text, lang, usize::MAX).unwrap_or_default()
+}
+
+/// The resident refuses a line before allocating more than `max_runs` runs.
+/// The native caller keeps the same unlimited presentation through `tokens`.
+pub fn tokens_bounded(text: &str, lang: &str, max_runs: usize) -> Option<Vec<Run>> {
     let bytes = text.as_bytes();
     let mut out = Vec::new();
     let mut i = 0;
     let mut emit = |from: usize, to: usize, kind: &'static str| {
+        if out.len() >= max_runs {
+            return None;
+        }
         out.push(Run {
             text: String::from_utf8_lossy(&bytes[from..to]).into_owned(),
             kind,
-        })
+        });
+        Some(())
     };
     while i < bytes.len() {
         let rest = &bytes[i..];
@@ -547,7 +557,7 @@ pub fn tokens(text: &str, lang: &str) -> Vec<Run> {
             || (lang == "python" && ch == b'#')
             || ((lang == "rust" || lang == "typescript") && rest.starts_with(b"//"));
         if comment {
-            emit(i, bytes.len(), "comment");
+            emit(i, bytes.len(), "comment")?;
             i = bytes.len();
         } else if matches!(ch, b'"' | b'\'' | b'`') {
             let mut j = i + 1;
@@ -562,7 +572,7 @@ pub fn tokens(text: &str, lang: &str) -> Vec<Run> {
                 }
             }
             let end = j.min(bytes.len());
-            emit(i, end, "string");
+            emit(i, end, "string")?;
             i = end;
         } else if ch.is_ascii_alphabetic() || ch == b'_' || ch >= 128 {
             let mut j = i;
@@ -580,14 +590,39 @@ pub fn tokens(text: &str, lang: &str) -> Vec<Run> {
             } else {
                 "ink"
             };
-            emit(i, j, kind);
+            emit(i, j, kind)?;
             i = j;
         } else {
-            emit(i, i + 1, "ink");
+            emit(i, i + 1, "ink")?;
             i += 1;
         }
     }
-    out
+    Some(out)
+}
+
+#[cfg(test)]
+mod bounded_token_tests {
+    use super::*;
+
+    #[test]
+    fn refuses_punctuation_amplification_without_truncating() {
+        assert!(tokens_bounded(&";".repeat(513), "rust", 512).is_none());
+        assert_eq!(
+            tokens_bounded(&";".repeat(512), "rust", 512).unwrap().len(),
+            512
+        );
+    }
+
+    #[test]
+    fn bounded_runs_preserve_unicode_and_native_tokens() {
+        let text = "pub fn 中文() { // 注释";
+        assert_eq!(
+            tokens_bounded(text, "rust", 512).unwrap(),
+            tokens(text, "rust")
+        );
+        assert!(tokens_bounded("x", "rust", 0).is_none());
+        assert_eq!(tokens_bounded("", "rust", 0), Some(vec![]));
+    }
 }
 
 /// A caret: 0-based row and source byte column.

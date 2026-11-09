@@ -524,7 +524,8 @@ pub fn select(s: &ViewState, hit_value: Option<&Value>) -> ViewState {
     n
 }
 
-pub(crate) fn open_detail(s: &ViewState, hit_value: Option<&Value>) -> ViewState {
+/// Open a class card for a hit (double-click): select it and show its detail.
+pub fn open_detail(s: &ViewState, hit_value: Option<&Value>) -> ViewState {
     let mut n = select(s, hit_value);
     if let Some(id) = detail_id_for(hit_value) {
         n.detail_id = Some(id);

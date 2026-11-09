@@ -63,6 +63,9 @@ An event:
 | `search` | answers `search` | `query`, `results`: `[{id, name, ns, label}]`, sorted by namespace then id |
 | `context` | answers `context`, before its `frame` | `context`: a [discussion context](#discussion-context) |
 | `state` | answers `save` | `state`: a [session state](#session-state) |
+| `inspector` | answers `inspector` | `inspector`: the [inspector model](#inspector) (#27) |
+| `card` | answers `card` | `card`: the open [class card](#class-card) (#27) |
+| `source` | answers `open-source` | `source`: the [opened source](#source-window) (#27) |
 | `ack` | answers `camera` and `quit` | — |
 | `error` | a line that is not an object, has another `version`, names no or an unknown action, or has invalid fields | `message`; `seq` when the line had one, else null |
 
@@ -87,10 +90,133 @@ An `error` changes nothing; the session keeps running.
 | `declutter` | — | `frame` | cycle the arrow mode |
 | `save` | — | `state` | the session state to persist |
 | `quit` | — | `ack` | end the session (exit 0), like closing stdin |
+| `inspector` | — | `inspector` | the diagram/proposal list and the selected element's summary (#27) |
+| `card` | `width?`, `viewHeight?` (points) | `card` | the open class card's paint plan; `width` is the card content width (native default 624, floor 560), `viewHeight` the card viewport its scroll clamps against (default 700). No open card is an `error`. |
+| `open-card` | `id` (EDN) or `at` (world point) | `frame` | **double-click**: a namespace or proposal layer is entered, a class is selected and its card opens (`scene::events::on_double_press`). With `id` the class's card opens without moving the view. |
+| `close-card` | — | `frame` | close the class card; the selection stays |
+| `scroll-card` | `delta` (wheel notches), `viewHeight` | `frame` | a wheel over the card: `frame::inspector::scroll` owns the 48-point step and both clamps |
+| `open-source` | `id` (EDN), `member?` | `source` | open the class's source: the whole module, or one member's declaration line. The resident reads the file from the session project; an unknown class, file, language or member, or a source over the [source window limits](#source-window-limits), is an `error`. |
 
 The child polls the diagram and the `.metrics/` quality snapshots every
 250 ms while no action is pending; a change produces a `frame` with
 `"seq": null` (热重载).
+
+## Overlay message examples (#27, additive version 1)
+
+Each example is one complete JSONL line; `seq` is echoed as usual. The checked-in
+real-binary lines in `packages/contracts/tests/protocol-samples/` are validated
+by the contracts suite. The compact event examples below show empty item arrays
+for space; real card/source events carry all rows.
+
+```jsonl
+{"version":1,"seq":1,"action":"inspector"}
+{"version":1,"seq":2,"action":"open-card","at":[120,200]}
+{"version":1,"seq":3,"action":"card","width":624,"viewHeight":700}
+{"version":1,"seq":4,"action":"scroll-card","delta":4,"viewHeight":700}
+{"version":1,"seq":5,"action":"close-card"}
+{"version":1,"seq":6,"action":"open-source","id":":catalog","member":"target"}
+{"version":1,"seq":1,"event":"inspector","inspector":{"entries":[{"id":null,"label":"Shop","active":true}],"summary":{"kind":"empty","lines":[{"type":"label","text":"单击类或命名空间查看摘要。","color":{"role":"muted"}}]},"declutterLabel":"精简：无","detail":null,"selected":null,"labels":{"inspector":"检查器","proposals":"提案","pHint":"P：返回命名空间树"}}}
+{"version":1,"seq":3,"event":"card","card":{"id":":catalog","title":"Catalog","contentHeight":32,"viewHeight":700,"scroll":0,"maxScroll":0,"items":[]}}
+{"version":1,"seq":6,"event":"source","source":{"file":"D:/project/src/catalog.ts","title":"src/catalog.ts:82","line":82,"lang":"typescript","rows":[]}}
+```
+
+`open-source` resolves the requested class file under the session project root.
+Parent traversal and resolved symlinks/junctions outside that root are refused
+with an `error`; no source text is read and view/discussion/card state stays
+unchanged. The class id/member are the only client inputs; clients cannot supply
+an arbitrary filename to this action.
+
+## Inspector
+
+`{"event": "inspector", "inspector": {...}}` is `frame::inspector` serialized
+(#27). The panel renders it; it does not compute any of it.
+
+| key | type | meaning |
+|---|---|---|
+| `entries` | `[{id, label, active}]` | the source diagram (`id` null) then each proposal, in display order; `active` is the current discussion context. Choosing one is the `context` action; **P** is `namespace-tree`. |
+| `summary` | `{kind, lines}` | `kind` is `class`, `package` or `empty`. `lines` are `class_summary` / `package_summary` output: `{type: "label", text, color}` or `{type: "segments", parts, color}`; segments wrap only between whole statistics. `empty` carries the no-selection help (or the select-a-class hint) as one muted label. |
+| `declutterLabel` | string | the arrow-mode control's label |
+| `detail` | string \| null | the class whose card is open (EDN) |
+| `selected` | string \| null | the selected hit (EDN) |
+| `labels` | `{inspector, proposals, pHint}` | the sidebar's UI copy, from `frame::strings` |
+
+Summary text, member text, class counts, CRAP/mutation figures and the 无数据
+line are the shared model's, exactly as the egui window prints them; a class
+with no quality data keeps its red 无数据 line in the `no-data` role.
+
+## Class card
+
+`{"event": "card", "card": {...}}` is `frame::detail`'s paint plan for the open
+card: `id`, `title`, `contentHeight` (`content_h`), `viewHeight`, `scroll`
+(clamped) and `maxScroll` (`max_scroll`), plus `items`, the `detail::view`
+rows in content points. Each item carries `kind`, `y`, `h`, `text`, `color`,
+`titleFont`, `x`, `clipRight`, `cells` (`{id, text, left, right, center,
+color, tip}`: the fixed right-aligned metric columns and their tooltips),
+`bars` (`{id, left, right, fraction, color}`: Cov and kill-rate bars),
+`stripe`, `swatch`, `clickable`, `module`, `opName` and `rel` (the related
+class id, EDN). Colors are scene-frame roles (`{"role": …, "grade"|"ratio"}`).
+
+A `module` or `opName` row opens the source window (`open-source` with the
+card's `id` and the row's `opName`); a `rel` row locates that class (`locate`).
+
+## Source window
+
+`{"event": "source", "source": {...}}` is `frame::source::member_source` plus
+its presentation model: `file` (the resolved path), `title` (project-relative,
+with `:line` for a member), `line` (1-based declaration line, `null` for a
+whole module), `lang`, and `rows`: `{number, text, display, marked, tokens}`.
+`text` is the source line (CR trimmed), `display` its tab-expanded painting,
+`marked` is true on the declaration row alone, and `tokens` are the
+`{text, kind}` runs (`keyword`, `string`, `comment`, `ink`) of `display`.
+A trailing newline leaves one empty last row, as the native window shows.
+
+The resident reads the file from the session project. The client never reads
+source from disk; windows, their scrolling and their z-order are panel-local.
+
+### Source window limits
+
+`open-source` is bounded so one large or minified file cannot become an
+unbounded event, host buffer or DOM. The resident
+(`crates/viewer-session/src/overlays.rs`, `SOURCE_*`) and the contracts
+validator (`packages/contracts/src/overlays.ts`, `SOURCE_LIMITS`) use the same
+numbers; byte counts are UTF-8:
+
+| bound | limit | checked |
+|---|---|---|
+| file size | 262144 bytes (256 KiB) | from file metadata before reading; the read stops one byte past the limit |
+| rows | 4000 (a trailing newline counts its empty last row) | on the body before declaration lookup |
+| one row (`text`, CR trimmed) | 4096 bytes | on the body before declaration lookup |
+| one painted row (`display`, a tab paints two spaces) | 8192 bytes | on the body before declaration lookup |
+| token runs in one row | 512 | while tokenizing, before allocating run 513 |
+| token runs in the source | 20000 | while tokenizing, before allocating run 20001 |
+| `source` event line | 2097152 bytes (2 MiB), newline excluded | measured against a stopping writer before the event is written (256 bytes reserved for the envelope) |
+| `file`, `title` | 4096 bytes each | before rows are built |
+| `lang` | 64 bytes | before rows are built |
+
+A source over any bound is an `error` (`source too large to open: …`) and the
+view, discussion context and card stay unchanged, as for any failed
+`open-source`. The window is never silently truncated; a non-UTF-8 file stays
+"could not open". The contracts validator also refuses the same bounds, row
+numbers that are not exactly `1..n`, a `line` that is not `null` or an
+existing row, a marked row other than `line`, an unknown token kind, and
+token runs that do not join to the row's `display`.
+
+The host additionally caps every resident stdout JSONL record at 16777216
+bytes (16 MiB, `RESIDENT_LINE_MAX_BYTES`, newline and CR excluded). It is a
+transport safety cap far above normal frames, not a source limit: the
+unterminated tail is counted as chunks arrive, so memory stops at the cap. A
+record over it stops that resident: every pending request rejects with the
+reason, every watching panel receives one `error` and its stream ends, the
+child is terminated, and the next panel open starts a fresh resident. Stdout
+bytes are decoded incrementally, so a UTF-8 character split between chunks is
+not corrupted.
+
+The host's Remote action returns `inspector`, `card` or `source` as an optional
+field on that action's `PanelAck` (`{accepted, reason, ...payload}`), validated by
+contracts. It does not broadcast these payloads to the panel watch streams:
+opening source in one panel must not create a window in another panel of the
+same session. View mutations still return and broadcast the existing `frame`
+event. Panels request a fresh inspector/card model after a new frame.
 
 ## Discussion context
 

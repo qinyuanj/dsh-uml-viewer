@@ -21,7 +21,7 @@ use edn::Value;
 use scene::events::Dims;
 use serde_json::{Value as Json, json};
 
-use crate::{Action, Canvas, POLL_INTERVAL, Session, Start, state};
+use crate::{Action, Canvas, POLL_INTERVAL, Session, Start, overlays, state};
 
 pub const SCHEMA: &str = "dsh-uml-viewer/resident";
 pub const VERSION: i64 = 1;
@@ -43,6 +43,13 @@ pub const ACTIONS: &[&str] = &[
     "declutter",
     "save",
     "quit",
+    // #27 overlays (additive; see docs/resident-protocol.md).
+    "inspector",
+    "card",
+    "open-card",
+    "close-card",
+    "scroll-card",
+    "open-source",
 ];
 
 const USAGE: &str = "usage: uml-viewer resident [--project <dir>]";
@@ -392,6 +399,67 @@ impl Resident {
                 self.quit = true;
                 return Ok(vec![event("ack", seq, json!({}))]);
             }
+            // #27: the panel's inspector, class card and source window.
+            "inspector" => {
+                let inspector = overlays::inspector_json(self.session()?);
+                return Ok(vec![event(
+                    "inspector",
+                    seq,
+                    json!({"inspector": inspector}),
+                )]);
+            }
+            "card" => {
+                let width = optional_number(action, "width")?;
+                let view_height = optional_number(action, "viewHeight")?;
+                let card = overlays::card_json(self.session()?, width, view_height)?;
+                return Ok(vec![event("card", seq, json!({"card": card}))]);
+            }
+            "open-card" => {
+                let session = self.session()?;
+                // A double-click: a namespace or proposal layer is entered,
+                // a class opens its card (scene::events::on_double_press).
+                let hit = match action.get("at") {
+                    Some(at) if !at.is_null() => hit_at(session, at)?,
+                    _ => {
+                        let mut hit = Value::Map(vec![]);
+                        hit.assoc(Value::keyword("kind"), Value::keyword("class"));
+                        hit.assoc(Value::keyword("id"), edn_field(action, "id")?);
+                        Some(hit)
+                    }
+                };
+                match hit {
+                    Some(hit) => match scene::events::layer_id(Some(&hit)) {
+                        Some(layer) => {
+                            session.act(Action::Drill(layer), &dims);
+                        }
+                        None => {
+                            session.act(Action::OpenCard(Some(hit)), &dims);
+                        }
+                    },
+                    None => {
+                        session.act(Action::OpenCard(None), &dims);
+                    }
+                }
+            }
+            "close-card" => {
+                self.session()?.act(Action::CloseCard, &dims);
+            }
+            "scroll-card" => {
+                let delta = required_number(action, "delta")?;
+                let view_h = required_number(action, "viewHeight")?;
+                self.session()?.scroll_card(delta, view_h);
+            }
+            "open-source" => {
+                let id = edn_field(action, "id")?;
+                let member = match action.get("member") {
+                    None | Some(Json::Null) => None,
+                    Some(Json::String(name)) if name.is_empty() => None,
+                    Some(Json::String(name)) => Some(name.as_str()),
+                    Some(other) => return Err(format!("member must be a string, not {other}")),
+                };
+                let source = overlays::source_json(self.session()?, &id, member)?;
+                return Ok(vec![event("source", seq, json!({"source": source}))]);
+            }
             other => return Err(format!("unknown action {other}")),
         }
         Ok(vec![self.frame(seq)])
@@ -477,6 +545,22 @@ fn resolve(project: &Path, path: &str) -> PathBuf {
     } else {
         project.join(path)
     }
+}
+
+/// An optional finite numeric field (`None` when absent or null).
+fn optional_number(action: &Json, key: &str) -> Result<Option<f64>, String> {
+    match action.get(key) {
+        None | Some(Json::Null) => Ok(None),
+        Some(value) => value
+            .as_f64()
+            .filter(|n| n.is_finite())
+            .map(Some)
+            .ok_or_else(|| format!("{key} must be a number")),
+    }
+}
+
+fn required_number(action: &Json, key: &str) -> Result<f64, String> {
+    optional_number(action, key)?.ok_or_else(|| format!("{key} must be a number"))
 }
 
 fn text<'a>(action: &'a Json, key: &str) -> Result<&'a str, String> {

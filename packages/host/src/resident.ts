@@ -1,6 +1,7 @@
 import { realpath } from 'node:fs/promises'
+import { StringDecoder } from 'node:string_decoder'
 import type { DiscussionContext, ResidentEvent, SceneFrame, SessionState } from '@dsh-uml-viewer/contracts'
-import { parseResidentLine, residentAction } from '@dsh-uml-viewer/contracts'
+import { parseResidentLine, RESIDENT_LINE_MAX_BYTES, residentAction } from '@dsh-uml-viewer/contracts'
 import { binaryArgv } from './binary.js'
 import type { Config } from './binary.js'
 import type { Agent, HostServices, Policy, SubprocessHandle } from './dsh.js'
@@ -81,16 +82,31 @@ export class ResidentConnection {
   refs = 0
   seq = 0
   private readonly subscribers = new Set<Queue<ResidentEvent>>()
-  private readonly pending = new Map<number, { resolve: (event: ResidentEvent) => void; quietError: boolean; quiet: boolean }>()
+  private readonly pending = new Map<number, {
+    resolve: (event: ResidentEvent) => void
+    reject: (error: Error) => void
+    quietError: boolean
+    quiet: boolean
+  }>()
+  /** Decodes stdout bytes so a UTF-8 character split across chunks survives. */
+  private readonly decoder = new StringDecoder('utf8')
+  /** The unterminated tail of stdout and its UTF-8 size. */
   private buffer = ''
+  private bufferBytes = 0
+  /** Set once the stream is unusable; later bytes and requests are refused. */
+  private broken: string | null = null
   private settled = false
   readonly exited: Promise<void>
+  /** One JSONL record's limit in UTF-8 bytes, newline (and CR) excluded. */
+  readonly maxLineBytes: number
 
-  constructor(id: string, cwd: string, child: SubprocessHandle, confined: boolean) {
+  constructor(id: string, cwd: string, child: SubprocessHandle, confined: boolean,
+    maxLineBytes = RESIDENT_LINE_MAX_BYTES) {
     this.id = id
     this.cwd = cwd
     this.child = child
     this.confined = confined
+    this.maxLineBytes = maxLineBytes
     this.exited = child.done.then(() => undefined, () => undefined)
   }
 
@@ -106,16 +122,74 @@ export class ResidentConnection {
     queue.end()
   }
 
-  /** Ingest one stdout chunk, one JSON line at a time. */
-  ingest(chunk: string): void {
-    this.buffer += chunk
+  /**
+   * Ingest one stdout chunk, one JSON line at a time. Byte chunks are decoded
+   * incrementally, so a character split between chunks is not corrupted. A
+   * record over `maxLineBytes` is never buffered whole: the unterminated tail
+   * is counted as it arrives, and crossing the limit breaks the connection
+   * (pending requests reject, panels get an error, the child is terminated).
+   */
+  ingest(chunk: string | Uint8Array): void {
+    if (this.broken !== null) return
+    const text = typeof chunk === 'string' ? chunk : this.decoder.write(Buffer.from(chunk))
+    let start = 0
     for (;;) {
-      const end = this.buffer.indexOf('\n')
-      if (end < 0) return
-      const line = this.buffer.slice(0, end).replace(/\r$/, '')
-      this.buffer = this.buffer.slice(end + 1)
+      const end = text.indexOf('\n', start)
+      const piece = text.slice(start, end < 0 ? text.length : end)
+      const pieceBytes = Buffer.byteLength(piece, 'utf8')
+      if (end < 0) {
+        // Count before keeping: an endless line stops at the limit, not at OOM.
+        // One trailing CR may still belong to a CRLF terminator.
+        const tail = this.bufferBytes + pieceBytes
+        if (tail > this.maxLineBytes + (piece.endsWith('\r') ? 1 : 0)) {
+          this.overflow(tail)
+          return
+        }
+        this.buffer += piece
+        this.bufferBytes = tail
+        return
+      }
+      let line = this.buffer + piece
+      let bytes = this.bufferBytes + pieceBytes
+      this.buffer = ''
+      this.bufferBytes = 0
+      if (line.endsWith('\r')) {
+        line = line.slice(0, -1)
+        bytes -= 1
+      }
+      if (bytes > this.maxLineBytes) {
+        this.overflow(bytes)
+        return
+      }
+      start = end + 1
       if (line.trim()) this.dispatch(line)
+      if (this.broken !== null) return
     }
+  }
+
+  /** A record over the transport cap: the stream cannot be resynchronized safely. */
+  private overflow(bytes: number): void {
+    this.breakStream(`uml-viewer resident wrote a JSONL record over ${this.maxLineBytes} bytes `
+      + `(at least ${bytes}); the resident was stopped`)
+    this.child.terminate()
+  }
+
+  /** Mark the stream unusable, drop buffered bytes and fail every waiter. */
+  private breakStream(reason: string): void {
+    if (this.broken !== null) return
+    this.broken = reason
+    this.buffer = ''
+    this.bufferBytes = 0
+    this.fail(reason)
+    // A broken stream is settled: no panel may join it while the child exits.
+    this.end()
+  }
+
+  /** Reject every request still waiting for an answer. */
+  private rejectPending(reason: string): void {
+    const waiting = [...this.pending.values()]
+    this.pending.clear()
+    for (const pending of waiting) pending.reject(new Error(reason))
   }
 
   private dispatch(line: string): void {
@@ -148,6 +222,7 @@ export class ResidentConnection {
   /** Send one action and resolve with the first event that answers its `seq`. */
   request(action: { action: string } & Record<string, unknown>, timeoutMs = ACTION_TIMEOUT_MS,
     options: { quietError?: boolean; quiet?: boolean } = {}): Promise<ResidentEvent> {
+    if (this.broken !== null) return Promise.reject(new Error(this.broken))
     const stdin = this.child.stdin
     if (!stdin) return Promise.reject(new Error('the resident session has no stdin channel'))
     const seq = ++this.seq
@@ -156,10 +231,18 @@ export class ResidentConnection {
         this.pending.delete(seq)
         reject(new Error(`uml-viewer resident did not answer ${action.action} within ${Math.round(timeoutMs / 1000)}s`))
       }, timeoutMs)
-      this.pending.set(seq, { quietError: options.quietError === true, quiet: options.quiet === true, resolve: event => {
-        clearTimeout(timer)
-        resolve(event)
-      } })
+      this.pending.set(seq, {
+        quietError: options.quietError === true,
+        quiet: options.quiet === true,
+        resolve: event => {
+          clearTimeout(timer)
+          resolve(event)
+        },
+        reject: error => {
+          clearTimeout(timer)
+          reject(error)
+        },
+      })
       try {
         stdin.write(`${residentAction(action, seq)}\n`)
       } catch (error) {
@@ -170,8 +253,13 @@ export class ResidentConnection {
     })
   }
 
-  /** Report a protocol or process failure to every panel watching this session. */
+  /**
+   * Report a protocol or process failure to every panel watching this session.
+   * Their streams end, and any request still waiting rejects with the reason
+   * instead of waiting for its timeout.
+   */
   fail(reason: string): void {
+    this.rejectPending(reason)
     for (const queue of this.subscribers) {
       queue.push({ version: 1, seq: null, event: 'error', message: reason })
       queue.end()
@@ -181,6 +269,7 @@ export class ResidentConnection {
 
   end(): void {
     this.settled = true
+    this.rejectPending('the resident session ended')
     for (const queue of this.subscribers) queue.end()
     this.subscribers.clear()
   }
@@ -280,15 +369,17 @@ export class ResidentSessions {
       // Attach before the first byte can arrive: the ready line is pushed to this
       // queue and the panel queues that follow get the recorded state instead.
       const ready = connection.attach()
-      child.stdout.on('data', chunk => connection.ingest(typeof chunk === 'string' ? chunk
-        : Buffer.from(chunk as Uint8Array).toString('utf8')))
+      // Raw bytes go to the connection's incremental decoder: decoding each
+      // chunk alone would corrupt a UTF-8 character split between chunks.
+      child.stdout.on('data', chunk => connection.ingest(typeof chunk === 'string' ? chunk : chunk as Uint8Array))
       child.stdout.on('error', error => connection.fail(`resident stdout failed: ${String(error)}`))
       void child.done.then(outcome => {
         if (!connection.isSettled) {
           connection.fail(`uml-viewer resident exited (${outcome.exitCode === null ? `signal ${outcome.signal}` : `exit ${outcome.exitCode}`})`)
         }
         connection.end()
-        this.connections.delete(connection.id)
+        // A replacement may already serve this session; remove only this one.
+        if (this.connections.get(connection.id) === connection) this.connections.delete(connection.id)
       }, error => connection.fail(`uml-viewer resident failed: ${String(error)}`))
       try {
         await this.waitForReady(connection, ready)
