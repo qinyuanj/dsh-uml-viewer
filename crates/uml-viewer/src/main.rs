@@ -11,8 +11,8 @@ use std::process::ExitCode;
 
 type Entry = fn(&'static str, &[OsString]) -> ExitCode;
 
-/// Role table. A later ticket that ports a role replaces `unported` with
-/// a wrapper around its crate's `run`, e.g. `|_, args| ir::run(args)`.
+/// Role table: each role wraps its crate's `run`, e.g. `|_, args| ir::run(args)`.
+/// The Herdr companion roles left with the companion (#18).
 const ROLES: &[(&str, &str, Entry)] = &[
     ("viewer", "egui viewer (default)", |_, args| {
         viewer::run(args)
@@ -51,27 +51,6 @@ const ROLES: &[(&str, &str, Entry)] = &[
         "quality",
         "run crap|mutate|dry per uml-quality.json, print the version-1 result record",
         |_, args| quality_dispatch::run(args),
-    ),
-    ("companion-worker", "Herdr companion worker", |_, args| {
-        companion::run_worker(args)
-    }),
-    ("companion-runner", "Herdr companion runner", |_, args| {
-        companion::run_runner(args)
-    }),
-    (
-        "companion-controller",
-        "companion recovery controller",
-        |_, args| companion::run_controller(args),
-    ),
-    (
-        "companion-preflight",
-        "read-only Herdr backend preflight",
-        |_, args| companion::run_preflight(args),
-    ),
-    (
-        "companion-smoke",
-        "isolated Herdr acceptance harness",
-        |_, args| companion::run_smoke(args),
     ),
 ];
 

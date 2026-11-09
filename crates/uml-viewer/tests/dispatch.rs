@@ -1,6 +1,5 @@
-//! Seam A (#134): the binary's process boundary. Each role named in #134
-//! is a subcommand; roles not yet ported exit 69 (EX_UNAVAILABLE) naming the
-//! role, unknown `--` options are refused with usage (exit 2).
+//! Seam A (#134): the binary's process boundary. Each role is a
+//! subcommand; unknown `--` options are refused with usage (exit 2).
 
 use std::process::Output;
 
@@ -12,46 +11,39 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
-#[test]
-fn every_role_from_the_spec_is_a_subcommand() {
-    for role in [
-        "companion-worker",
-        "companion-runner",
-        "companion-controller",
-        "companion-preflight",
-        "companion-smoke",
-    ] {
-        let output = run(&[role, "some arg"]);
-        assert_ne!(
-            Some(2),
-            output.status.code(),
-            "{role} is an unknown subcommand: {}",
-            stderr(&output)
-        );
-    }
+/// The subcommands `--help` lists, in table order.
+fn listed_subcommands() -> Vec<String> {
+    let output = run(&["--help"]);
+    assert_eq!(Some(0), output.status.code());
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .skip_while(|line| *line != "subcommands:")
+        .skip(1)
+        .filter_map(|line| line.split_whitespace().next().map(str::to_owned))
+        .collect()
 }
 
 #[test]
-fn companion_roles_are_ported_and_report_real_failures() {
-    // #138: the five companion roles dispatch to the companion crate, so a
-    // bogus argument is a named failure (never the unported placeholder).
-    for role in [
-        "companion-worker",
-        "companion-runner",
-        "companion-controller",
-        "companion-preflight",
-        "companion-smoke",
-    ] {
-        let output = run(&[role, "some arg"]);
-        assert_ne!(
-            Some(69),
-            output.status.code(),
-            "{role} is ported but still reported as unported"
-        );
+fn the_subcommands_are_the_viewer_the_headless_roles_and_the_quality_tools() {
+    // #18 removed the Herdr companion roles with the companion itself.
+    assert_eq!(
+        vec![
+            "viewer", "ir", "scene", "resident", "crap", "mutate", "dry", "quality"
+        ],
+        listed_subcommands()
+    );
+}
+
+#[test]
+fn the_window_names_the_removed_companion_options_as_unknown() {
+    for option in ["--restart", "--backend", "--coding-agent"] {
+        let output = run(&["viewer", option]);
+        assert_eq!(Some(2), output.status.code(), "{option}");
+        let err = stderr(&output);
+        assert!(err.contains(&format!("unknown option: {option}")), "{err}");
         assert!(
-            !stderr(&output).contains("尚未移植到 Rust 运行时"),
-            "{role}: {}",
-            stderr(&output)
+            err.contains("usage: uml-viewer viewer [diagram.edn]"),
+            "{err}"
         );
     }
 }
@@ -118,23 +110,6 @@ fn viewer_is_ported_and_reports_usage_errors_without_opening_a_window() {
         "{}",
         stderr(&output)
     );
-    let output = run(&["viewer", "--backend", "tmux"]);
-    assert_eq!(Some(2), output.status.code());
-    assert!(
-        stderr(&output).contains("Unknown or duplicate companion backend"),
-        "{}",
-        stderr(&output)
-    );
-}
-
-#[test]
-fn help_lists_the_subcommands_and_succeeds() {
-    let output = run(&["--help"]);
-    assert_eq!(Some(0), output.status.code());
-    let text = String::from_utf8_lossy(&output.stdout);
-    for role in ["viewer", "ir", "scene", "companion-preflight"] {
-        assert!(text.contains(role), "{text}");
-    }
 }
 
 #[test]

@@ -16,7 +16,6 @@ name = "integration"
 path = "tests/main.rs"
 
 [dependencies]
-companion = { path = "../companion" }
 crapper = { path = "../crapper" }
 dryer = { path = "../dryer" }
 frame = { path = "../frame" }

@@ -5,6 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
-# Dependency-free on purpose: `ir` and `companion` both ask it the one
-# delivered-platform question (ADR 0007, ADR 0010).
+# Dependency-free on purpose: `ir` asks it the one delivered-platform
+# question (ADR 0007, ADR 0010).
 [dependencies]
