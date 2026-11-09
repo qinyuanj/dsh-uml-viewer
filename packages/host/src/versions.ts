@@ -186,6 +186,14 @@ function withStoreLock<T>(home: string, run: () => T): T {
       }
     }
     const age = lockAge(lock)
+    // A mutex section is one copy or one directory move. Nothing legitimate
+    // holds it for the lease grace period, so an ancient lock is reclaimed even
+    // when its PID now belongs to an unrelated process (reuse after a crash).
+    // Publication stays correct without exclusivity: rename plus verification.
+    if (age !== null && age > LEASE_TTL_MS) {
+      removeQuietly(lock)
+      continue
+    }
     let holder: number | null = null
     try {
       // Only inspect the lock's named owner. A reused PID is conservative.

@@ -106,6 +106,19 @@ it('reclaims a store lock whose recorded owner is gone', async () => {
   expect(existsSync(pinned.binary)).toBe(true)
 })
 
+it('reclaims an ancient lock even when its PID was reused by another process', async () => {
+  const { home, source } = await fixture()
+  const lock = path.join(home, '.store-lock')
+  await mkdir(lock, { recursive: true })
+  await writeFile(path.join(lock, 'owner.json'), JSON.stringify({ pid: process.pid }))
+  const hourAgo = new Date(Date.now() - 60 * 60_000)
+  await utimes(lock, hourAgo, hourAgo)
+  await utimes(path.join(lock, 'owner.json'), hourAgo, hourAgo)
+  const pinned = pinVersion(home, '1.0.0', source, 'resident.cjs')
+  releases.push(pinned.release)
+  expect(existsSync(pinned.binary)).toBe(true)
+})
+
 it('names the held lock when a live owner keeps it past the deadline', async () => {
   const { home, source } = await fixture()
   const lock = path.join(home, '.store-lock')
