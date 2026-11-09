@@ -24,7 +24,7 @@ pub fn grammar(path: &Path) -> Grammar {
 }
 
 /// Python `re.search(r"\bprivate\b", header)` with Unicode word characters.
-fn mentions_private(header: &str) -> bool {
+pub(crate) fn mentions_private(header: &str) -> bool {
     let word = |ch: char| ch.is_alphanumeric() || ch == '_';
     header.match_indices("private").any(|(at, _)| {
         let before = header[..at].chars().next_back();

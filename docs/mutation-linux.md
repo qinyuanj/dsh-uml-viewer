@@ -1,6 +1,7 @@
 # Linux mutation isolation
 
-This Rust port handles **Rust, Lua, Python and TypeScript projects on Linux**.
+This Rust port handles **all seven languages on Linux: Rust, Lua, Python,
+TypeScript, Go, Java and Clojure**.
 Native Windows uses per-command project copies and Job Objects, and macOS
 refuses mutation before any command: see [mutation-windows.md](mutation-windows.md).
 `--max-workers N` runs up to
@@ -156,6 +157,90 @@ them (see `fixtures/mutate/README.md`). The acceptance tests inject the fixed
 clock and compare bytes, rerun unchanged to prove the snapshots are kept, and
 compare one worker against two.
 
+## Go, Java and Clojure
+
+Go and Java use the shared language tables and function discovery from
+quality-core. Their mutation sites use the original's Java operator table;
+Go's `*` → `/` is one way, and neither language adds the bitwise, shift or
+remainder swaps used by Rust, Python and TypeScript. Java's `private` header
+and a lowercase first character of a Go name give the form a `defn-/` id.
+
+Clojure function ownership, namespaces and spans still use #5's custom
+function reader. Its mutation sites use a separate custom reader for the
+syntax observed by mutator f772a83: the first symbol directly inside a list,
+booleans and exactly `0`/`1`, metadata spans, quotes, reader conditionals,
+discarded forms and error recovery. It does not link a Clojure grammar. The
+reader was compared with the pinned original on 132 Clojure library sources
+(7,033 raw sites), and the committed 21-file corpus compares every field of
+288 sites and their forms against the pinned original.
+
+The per-file test plans are argument vectors, passed to the existing worker
+pool. Go runs `go test -count=1 <package>` at the nearest `go.mod` (`.` for
+that module, otherwise a single `./relative/path` argument). Java runs
+`mvn -q test -DexcludeTags=no-mutate` at the nearest `pom.xml`. Clojure prefers
+the nearest `deps.edn` over a nearer `bb.edn`: Speclj uses
+`clj -M:spec --tag ~no-mutate`, a plain `:spec` uses `clj -M:spec`, and the
+fallback is `clj -M:test`. A babashka-only project uses
+`bb spec --tag ~no-mutate` when its task file mentions `spec`, otherwise
+`bb test`. A `--test-command` retains the common shell override.
+
+Coverage also runs inside disposable views: Go writes its built-in statement
+profile, Java uses #5's pinned JaCoCo Maven command, and Clojure runs
+`clj -M:cov --lcov` with a fallback without `--lcov`. Reports are read before
+their view is dropped. Go selects every line of a hit segment; Java uses the
+sourcefile's covered instructions **or** branches; Clojure prefers Cloverage
+HTML form counts before LCOV. A source absent from its native report stays
+uncovered; LCOV cannot cover a Go or Java source. Reused reports use the same
+formats. A malformed Go report stops before publication, while Java's line
+reader skips malformed XML, as mutator's original reader does.
+
+Generated Go and Java runs consume only the exact report written for that
+module, scoped to that module's sources. Stale sibling reports in a Windows
+project copy cannot override a fresh sibling result, and a fresh zero-hit
+record stays uncovered. A custom `--coverage-command` reads native reports
+from its live disposable view alongside its required LCOV report, as the
+original reads them from the project after running the command in place.
+Reports the command left unchanged count as well: on Linux the overlay upper
+layer is read through to the project below it, and a report the command
+deleted (an overlay whiteout, or an opaque directory) stays deleted; a Windows
+copy holds the whole project. Absolute copy-local Go source paths map back to
+the project. A Go or Java module whose own report is visible scopes its
+sources to that report, so module-relative keys keep their module; a module
+without one reads the root-level reports (`target/...`, `*/target/...`,
+`*/*/target/...`) the original globs. A selected native source that no report
+names is not a failure: `No coverage data for …; its sites are uncovered.` is
+printed, those sites stay uncovered, and the run continues.
+
+JVM commands get an independent copy of the caller's cached Maven repository
+inside their redirected home, and `JAVA_TOOL_OPTIONS` adds `-Duser.home` for
+that home. The copy is preflighted recursively before any byte moves: a link at
+the `.m2` root or at any entry below it, dangling or not, and any special file
+refuse the command before it is launched. Copying then opens every entry with
+`O_NOFOLLOW` through held directory descriptors, so a link renamed in after the
+preflight cannot redirect it. Only bytes reach a new `0600` file in the `0700`
+seed: no symlink, hard link or caller inode permission is carried over, and a
+failed seed is removed whole. The seed is bind-mounted over the view's
+`$HOME/.m2` and discarded with the view's layers before the next command, so
+dependency downloads and lockfiles remain inside the view. The option itself is
+the JVM's own quoting, not shell quoting, so a project path with spaces, `'` or
+`"` stays one property and is never spliced into shell source. Ordinary-file
+writes by another process during the copy can still produce an inconsistent
+seed, and the preflight guards the seed rather than the caller's home: an
+absolute path outside the project, including the real `~/.m2`, stays reachable,
+as noted above for every view command.
+The same pool, process containment, interrupt handling and snapshot publication
+serve these languages; no language adds another scheduler.
+
+`fixtures/mutate/{go,java,clojure}` contain seven raw fixed-clock snapshot
+oracles generated by the unmodified pins. Regeneration and versions are
+recorded by `scripts/mutate_goldens_go_java_clojure.py` and
+`fixtures/mutate/go-java-clojure-evidence.json`. The Rust golden suites and
+report-selection tests are present. Their final execution is pending: the
+user restricted Rust validation to scoped `cargo check` during #14, before
+the final adapters could be run. See the ticket's progress log for the exact
+completed evidence and pending commands; these fixtures alone do not prove
+the final runtime acceptance.
+
 ## Interrupt, kill and abandoned scratch
 
 `SIGINT` and `SIGTERM` stop a run instead of killing the process mid-cleanup.
@@ -229,9 +314,10 @@ normal `uml-viewer mutate` uses the real local clock, not timestamp replay.
 - The console report is this port's own compact text (per-file
   `executed=/reused=` counts, scan lines and verbose decision lines), not the
   original results table, site log and decision summary.
-- Fresh crapper coverage is not reused from `target/coverage/crapper-stamp.json`;
-  default coverage runs again in the overlay instead, for every language. No
-  coverage or build output reaches the original project either way.
+- Go, Java and Clojure consult the shared crapper freshness stamp before
+  collecting native reports. The earlier Rust, Python, TypeScript and Lua
+  paths retain their existing behavior and collect again in the overlay.
+  Mutation itself writes no coverage stamp or report to the project.
 - Python's runner installs pytest when it is missing; mutator never installs
   tools, so a detected but unavailable pytest falls back to
   `unittest discover` with the original's message. Vitest's coverage provider

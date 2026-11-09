@@ -203,8 +203,17 @@ const TOOLS: &[Tool] = &[
             "if [ -f \"$MUTATOR_VIEW/mutation\" ]; then exit 1; fi; true",
         ],
         linux_only: true,
-        // Every language this build mutates: Rust (native), Lua (#11), Python, TypeScript.
-        languages: &["rust", "python", "typescript", "lua"],
+        // Every language this build mutates: Rust (native), Lua (#11), Python,
+        // TypeScript, Go, Java and Clojure (#14).
+        languages: &[
+            "rust",
+            "python",
+            "typescript",
+            "lua",
+            "go",
+            "java",
+            "clojure",
+        ],
         report: mutate_report,
         empty: empty_mutate,
         published: mutate_snapshots,
@@ -252,7 +261,7 @@ const FIXTURES: &[Fixture] = &[
         extension: "go",
         source: |id| {
             format!(
-                "package demo\n\nfunc {id}_left(xs []int) []int {{\n\treturn filter(xs, odd)\n}}\n\nfunc {id}_right(xs []int) []int {{\n\treturn filter(xs, odd)\n}}\n"
+                "package demo\n\nfunc {id}_left(xs []int) int {{\n\treturn len(xs) + 1\n}}\n\nfunc {id}_right(xs []int) int {{\n\treturn len(xs) + 1\n}}\n"
             )
         },
     },
@@ -261,7 +270,7 @@ const FIXTURES: &[Fixture] = &[
         extension: "java",
         source: |id| {
             format!(
-                "class Fixture {{\n  int[] {id}_left(int[] xs) {{\n    return filter(xs, odd);\n  }}\n\n  int[] {id}_right(int[] xs) {{\n    return filter(xs, odd);\n  }}\n}}\n"
+                "class Fixture {{\n  int {id}_left(int[] xs) {{\n    return xs.length + 1;\n  }}\n\n  int {id}_right(int[] xs) {{\n    return xs.length + 1;\n  }}\n}}\n"
             )
         },
     },

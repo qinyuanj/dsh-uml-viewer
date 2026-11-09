@@ -27,11 +27,20 @@ fn missing_toolchains_are_fatal() -> bool {
     std::env::var_os("MUTATOR_REQUIRE_TOOLCHAINS").is_some_and(|value| value == "1")
 }
 
+/// Print a skip reason so it is visible even when libtest captures the test's
+/// own stderr: write to the process's real stderr, not the captured buffer.
+fn loud(message: &str) {
+    use std::io::Write;
+    let _ = std::io::stderr().write_all(message.as_bytes());
+}
+
 fn skip(reason: &str) {
     if missing_toolchains_are_fatal() {
         panic!("required mutation toolchain unavailable: {reason}");
     }
-    eprintln!("SKIP: {reason}; set MUTATOR_REQUIRE_TOOLCHAINS=1 to make this a failure");
+    loud(&format!(
+        "SKIP: {reason}; set MUTATOR_REQUIRE_TOOLCHAINS=1 to make this a failure\n"
+    ));
 }
 
 /// The isolated project virtualenv that supplies coverage.py and pytest.

@@ -54,10 +54,14 @@ pub struct Completed {
     pub output: String,
 }
 
+/// Commands that need the JVM's private home and a seeded dependency cache.
+#[cfg(target_os = "linux")]
+const JVM_COMMANDS: [&str; 3] = ["mvn", "clj", "clojure"];
+
 /// A command's own overlay layers: a fresh view of the project every time.
 #[cfg(target_os = "linux")]
 fn reset_layers(directory: &Path) -> io::Result<()> {
-    for name in ["upper", "work", "mutation", "output"] {
+    for name in ["upper", "work", "mutation", "output", "m2"] {
         scratch::force_remove(&directory.join(name))?;
     }
     for name in ["upper", "work"] {
@@ -148,6 +152,24 @@ impl View {
         } else {
             PathBuf::new()
         };
+        let jvm = argv
+            .iter()
+            .any(|arg| JVM_COMMANDS.iter().any(|name| arg.contains(name)));
+        let java_home_option = if jvm {
+            let mut option = std::ffi::OsString::from("-Duser.home=");
+            option.push(root.join("target/mutator-home"));
+            java_tool_option(&option)
+        } else {
+            std::ffi::OsString::new()
+        };
+        let cache_seeded = if jvm {
+            let home = std::env::var_os("HOME")
+                .ok_or_else(|| Failure::Message("HOME is required to seed the JVM cache".into()))?;
+            seed_cache(&PathBuf::from(home).join(".m2"), &self.directory.join("m2"))
+                .map_err(message)?
+        } else {
+            false
+        };
         // All substitutions are positional arguments, never shell source.
         const SCRIPT: &str = r#"set -eu
 root=$1
@@ -155,7 +177,9 @@ layers=$2
 cwd=$3
 mutation=$4
 destination=$5
-shift 5
+java_home_option=$6
+cache_seeded=$7
+shift 7
 mount --make-rprivate /
 mount -t overlay overlay -o "userxattr,lowerdir=$root,upperdir=$layers/upper,workdir=$layers/work" "$root"
 if [ -n "$destination" ]; then cp -- "$mutation" "$destination"; fi
@@ -170,6 +194,17 @@ export CARGO_HOME RUSTUP_HOME
 home="$root/target/mutator-home"
 mkdir -p "$home/tmp" "$home/.cache"
 export HOME="$home" XDG_CACHE_HOME="$home/.cache" TMPDIR="$home/tmp"
+# JVM tools locate their repositories through java.user.home, not just HOME.
+# Rust has already rejected links and copied regular cache files into private
+# scratch storage. Mount that independent seed; never preserve cache symlinks
+# with cp, or traverse the caller's cache again after the preflight.
+if [ -n "$java_home_option" ]; then
+    if [ "$cache_seeded" = 1 ]; then
+        mkdir -p "$home/.m2"
+        mount --bind "$layers/m2" "$home/.m2"
+    fi
+    export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} $java_home_option"
+fi
 export CARGO_TARGET_DIR="$root/target/mutator-build"
 exec "$@"
 "#;
@@ -195,6 +230,8 @@ exec "$@"
         .arg(cwd)
         .arg(mutation_path)
         .arg(destination)
+        .arg(java_home_option)
+        .arg(if cache_seeded { "1" } else { "0" })
         .args(argv)
         .stdin(Stdio::null())
         .stdout(output.try_clone().map_err(message)?)
@@ -326,6 +363,114 @@ pub fn report_path(view: &View, relative: &Path) -> PathBuf {
     base.join(relative)
 }
 
+/// Every report a finished command's view showed, not only those it wrote:
+/// the original reads them all from the project after an in-place command.
+/// A Windows copy (`base`, from `report_path(view, "")`) holds the whole
+/// project. A Linux view's upper layer (`base`) is read through to the project
+/// it was mounted over (`lower`, the canonical root); a whiteout or an opaque
+/// directory there stays deleted.
+pub fn report_tree<'a>(base: &'a Path, lower: &'a Path) -> quality_core::ReportTree<'a> {
+    #[cfg(windows)]
+    {
+        let _ = lower;
+        quality_core::ReportTree::plain(base)
+    }
+    #[cfg(not(windows))]
+    {
+        quality_core::ReportTree::overlay(base, lower)
+    }
+}
+
+/// JAVA_TOOL_OPTIONS uses the JVM's quote parser, not shell escaping. Adjacent
+/// quoted fragments form one option; a literal double quote is put in a
+/// single-quoted fragment, while every other character (including ') is inside
+/// double quotes. Backslashes are literal here (and excluded by the root policy).
+#[cfg(target_os = "linux")]
+fn java_tool_option(value: &std::ffi::OsStr) -> std::ffi::OsString {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    let mut encoded = vec![b'"'];
+    for byte in value.as_bytes() {
+        if *byte == b'"' {
+            encoded.extend_from_slice(b"\"'\"'\"");
+        } else {
+            encoded.push(*byte);
+        }
+    }
+    encoded.push(b'"');
+    std::ffi::OsString::from_vec(encoded)
+}
+
+/// Preflight the entire cache before copying any bytes. Missing caches are fine;
+/// links (including a .m2 root link), special files and unreadable entries fail
+/// closed before the command is launched.
+#[cfg(target_os = "linux")]
+fn seed_cache(source: &Path, destination: &Path) -> io::Result<bool> {
+    match fs::symlink_metadata(source) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+        Ok(_) => {}
+    }
+    let directory = open_cache_entry(source)?;
+    if !directory.metadata()?.is_dir() {
+        return Err(io::Error::other("JVM cache root must be a directory"));
+    }
+    walk_cache(&directory, None)?;
+    scratch::private_directory(destination)?;
+    if let Err(error) = walk_cache(&directory, Some(destination)) {
+        // A partially seeded cache must never be mistaken for the caller's.
+        let _ = scratch::force_remove(destination);
+        return Err(error);
+    }
+    Ok(true)
+}
+
+/// O_NOFOLLOW rejects a link swapped in after symlink_metadata. O_NONBLOCK
+/// prevents a raced-in FIFO from blocking open; metadata below rejects it.
+#[cfg(target_os = "linux")]
+fn open_cache_entry(path: &Path) -> io::Result<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    if fs::symlink_metadata(path)?.file_type().is_symlink() {
+        return Err(io::Error::other(format!(
+            "refusing symlink in JVM cache: {}",
+            path.display()
+        )));
+    }
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(quality_core::libc::O_NOFOLLOW | quality_core::libc::O_NONBLOCK)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_dir() && !metadata.is_file() {
+        return Err(io::Error::other("JVM cache contains a non-regular entry"));
+    }
+    Ok(file)
+}
+
+/// Read each directory through its held descriptor, so replacing an ancestor
+/// with a symlink cannot redirect traversal. Every child is opened no-follow,
+/// in both passes. Only bytes are copied into newly created private files: no
+/// symlinks, hard links or caller-owned inode permissions reach the writable
+/// seed. Concurrent ordinary-file writes can still yield an inconsistent cache.
+#[cfg(target_os = "linux")]
+fn walk_cache(directory: &fs::File, destination: Option<&Path>) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    let anchored = PathBuf::from(format!("/proc/self/fd/{}", directory.as_raw_fd()));
+    for entry in fs::read_dir(anchored)? {
+        let entry = entry?;
+        let mut source = open_cache_entry(&entry.path())?;
+        let target = destination.map(|path| path.join(entry.file_name()));
+        if source.metadata()?.is_dir() {
+            if let Some(target) = &target {
+                scratch::private_directory(target)?;
+            }
+            walk_cache(&source, target.as_deref())?;
+        } else if let Some(target) = &target {
+            io::copy(&mut source, &mut scratch::private_file(target)?)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "linux")]
 fn message(error: io::Error) -> Failure {
     Failure::Message(error.to_string())
@@ -335,5 +480,197 @@ fn message(error: io::Error) -> Failure {
 fn kill_group(child: &std::process::Child) {
     unsafe {
         quality_core::libc::kill(-(child.id() as i32), quality_core::libc::SIGKILL);
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+    use std::os::unix::{
+        ffi::OsStrExt,
+        fs::{MetadataExt, symlink},
+    };
+
+    fn temporary() -> Root {
+        Root::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap()
+    }
+
+    #[test]
+    fn jvm_home_option_quotes_spaces_and_both_quote_characters() {
+        for (input, expected) in [
+            (
+                "-Duser.home=/project/target/mutator-home",
+                "\"-Duser.home=/project/target/mutator-home\"",
+            ),
+            (
+                "-Duser.home=/space dir/target/mutator-home",
+                "\"-Duser.home=/space dir/target/mutator-home\"",
+            ),
+            (
+                "-Duser.home=/single'quote/target/mutator-home",
+                "\"-Duser.home=/single'quote/target/mutator-home\"",
+            ),
+            (
+                "-Duser.home=/double\"quote/target/mutator-home",
+                "\"-Duser.home=/double\"'\"'\"quote/target/mutator-home\"",
+            ),
+            (
+                "-Duser.home=/both'\" quotes/target/mutator-home",
+                "\"-Duser.home=/both'\"'\"'\" quotes/target/mutator-home\"",
+            ),
+            (
+                "-Duser.home=/\" -Dother=value '/target/mutator-home",
+                "\"-Duser.home=/\"'\"'\" -Dother=value '/target/mutator-home\"",
+            ),
+            (
+                "-Duser.home=/$(touch marker)`id`/target/mutator-home",
+                "\"-Duser.home=/$(touch marker)`id`/target/mutator-home\"",
+            ),
+        ] {
+            assert_eq!(java_tool_option(input.as_ref()), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn jvm_home_option_preserves_path_bytes_and_quoted_whitespace() {
+        let input = std::ffi::OsStr::from_bytes(b"-Duser.home=/nonutf8-\xff/space\tline\n");
+        assert_eq!(
+            java_tool_option(input).as_bytes(),
+            b"\"-Duser.home=/nonutf8-\xff/space\tline\n\""
+        );
+    }
+
+    #[test]
+    fn missing_cache_needs_no_seed() {
+        let temporary = temporary();
+        let destination = temporary.path().join("seed");
+        assert!(!seed_cache(&temporary.path().join("missing"), &destination).unwrap());
+        assert!(!destination.exists());
+    }
+
+    #[test]
+    fn regular_cache_is_an_independent_copy_even_for_hardlinks() {
+        let temporary = temporary();
+        let source = temporary.path().join("cache");
+        let destination = temporary.path().join("seed");
+        fs::create_dir_all(source.join("repository/group")).unwrap();
+        let original = source.join("repository/group/artifact.jar");
+        fs::write(&original, b"cached bytes").unwrap();
+        fs::hard_link(&original, source.join("alias.jar")).unwrap();
+        assert!(seed_cache(&source, &destination).unwrap());
+        let copied = destination.join("repository/group/artifact.jar");
+        assert_eq!(fs::read(&copied).unwrap(), b"cached bytes");
+        assert_ne!(
+            fs::metadata(&original).unwrap().ino(),
+            fs::metadata(&copied).unwrap().ino()
+        );
+        fs::write(&copied, b"view writes").unwrap();
+        fs::write(destination.join("alias.jar"), b"alias writes").unwrap();
+        assert_eq!(fs::read(&original).unwrap(), b"cached bytes");
+    }
+
+    #[test]
+    fn root_cache_symlinks_are_refused_including_dangling_links() {
+        let temporary = temporary();
+        let outside = temporary.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        for (name, target) in [
+            ("linked", outside),
+            ("dangling", temporary.path().join("missing")),
+        ] {
+            let source = temporary.path().join(name);
+            let destination = temporary.path().join(format!("seed-{name}"));
+            symlink(target, &source).unwrap();
+            assert!(seed_cache(&source, &destination).is_err());
+            assert!(!destination.exists());
+        }
+    }
+
+    #[test]
+    fn nested_cache_symlinks_fail_preflight_before_any_copy() {
+        let temporary = temporary();
+        let outside = temporary.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("file"), b"caller bytes").unwrap();
+        for (name, target) in [
+            ("file", outside.join("file")),
+            ("directory", outside.clone()),
+            ("dangling", outside.join("missing")),
+        ] {
+            let source = temporary.path().join(name);
+            let destination = temporary.path().join(format!("seed-{name}"));
+            fs::create_dir_all(source.join("repository/group")).unwrap();
+            fs::write(source.join("regular"), b"normal entry").unwrap();
+            symlink(target, source.join("repository/group/link")).unwrap();
+            assert!(seed_cache(&source, &destination).is_err());
+            assert!(!destination.exists());
+        }
+        assert_eq!(fs::read(outside.join("file")).unwrap(), b"caller bytes");
+    }
+
+    #[test]
+    fn internal_cache_symlinks_are_also_refused() {
+        let temporary = temporary();
+        let source = temporary.path().join("cache");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("file"), b"cached bytes").unwrap();
+        symlink("file", source.join("link")).unwrap();
+        assert!(seed_cache(&source, &temporary.path().join("seed")).is_err());
+    }
+
+    #[test]
+    fn link_introduced_after_preflight_is_refused_by_copy() {
+        let temporary = temporary();
+        let source = temporary.path().join("cache");
+        let destination = temporary.path().join("seed");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("file"), b"cached bytes").unwrap();
+        let directory = open_cache_entry(&source).unwrap();
+        walk_cache(&directory, None).unwrap();
+        fs::remove_file(source.join("file")).unwrap();
+        symlink(temporary.path().join("outside"), source.join("file")).unwrap();
+        fs::create_dir(&destination).unwrap();
+        assert!(walk_cache(&directory, Some(destination.as_path())).is_err());
+        assert!(!destination.join("file").exists());
+    }
+
+    #[test]
+    fn opened_cache_directory_cannot_be_redirected_by_ancestor_replacement() {
+        let temporary = temporary();
+        let source = temporary.path().join("cache");
+        let destination = temporary.path().join("seed");
+        let outside = temporary.path().join("outside");
+        fs::create_dir(&source).unwrap();
+        fs::create_dir(&outside).unwrap();
+        fs::write(source.join("file"), b"cached bytes").unwrap();
+        fs::write(outside.join("file"), b"outside bytes").unwrap();
+        let directory = open_cache_entry(&source).unwrap();
+        walk_cache(&directory, None).unwrap();
+        fs::rename(&source, temporary.path().join("moved")).unwrap();
+        symlink(&outside, &source).unwrap();
+        fs::create_dir(&destination).unwrap();
+        walk_cache(&directory, Some(destination.as_path())).unwrap();
+        assert_eq!(fs::read(destination.join("file")).unwrap(), b"cached bytes");
+        assert_eq!(fs::read(outside.join("file")).unwrap(), b"outside bytes");
+    }
+
+    #[test]
+    fn resetting_a_worker_discards_its_writable_cache_seed() {
+        let temporary = temporary();
+        let seed = temporary.path().join("m2");
+        fs::create_dir(&seed).unwrap();
+        fs::write(seed.join("downloaded.jar"), b"previous command").unwrap();
+        reset_layers(temporary.path()).unwrap();
+        assert!(!seed.exists());
+        assert!(temporary.path().join("upper").is_dir());
+        assert!(temporary.path().join("work").is_dir());
+    }
+
+    #[test]
+    fn regular_file_is_not_a_cache_root() {
+        let temporary = temporary();
+        let source = temporary.path().join("cache");
+        fs::write(&source, b"file").unwrap();
+        assert!(seed_cache(&source, &temporary.path().join("seed")).is_err());
     }
 }

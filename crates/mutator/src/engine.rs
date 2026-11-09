@@ -1,7 +1,8 @@
 use crate::{
     cli::Options,
-    interrupts,
+    clojure, golang, interrupts,
     isolation::{self, Failure, View},
+    java,
     lua::{self, Index},
     metrics::{self, Decision},
     python,
@@ -142,6 +143,9 @@ fn plan(root: &Path, options: &Options, source: &Path) -> (Command, PathBuf) {
     let planned = match language_of(source) {
         Some(Language::Python) => Some(python::test_plan(root, source)),
         Some(Language::TypeScript) => Some(typescript::test_plan(root, source)),
+        Some(Language::Go) => Some(golang::test_plan(root, source)),
+        Some(Language::Java) => Some(java::test_plan(root, source)),
+        Some(Language::Clojure) => Some(clojure::test_plan(root, source)),
         _ => None,
     };
     if let Some((argv, directory)) = planned {
@@ -234,6 +238,20 @@ fn collect_reports(directory: &Path, records: &mut Records) {
 struct Coverage {
     records: Records,
     indexes: BTreeMap<PathBuf, Index>,
+    /// Go, Clojure and the LCOV of every language, as `load_bundle` reads the
+    /// reports the views produced.
+    native: Option<quality_core::native_coverage::NativeReports>,
+    /// JaCoCo's covered source lines per report key (`package/File.java`).
+    java: Option<Vec<(String, BTreeSet<usize>)>>,
+    /// Fresh module reports have authority only over that module's sources.
+    modules: Vec<ModuleCoverage>,
+}
+
+struct ModuleCoverage {
+    root: PathBuf,
+    language: Language,
+    native: quality_core::native_coverage::NativeReports,
+    java: Vec<(String, BTreeSet<usize>)>,
 }
 
 fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverage, i32> {
@@ -278,6 +296,7 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
     if reuse {
         collect_reports(&root.join("coverage"), &mut coverage.records);
         collect_reports(&root.join("target/coverage"), &mut coverage.records);
+        collect_native(root, files, &mut coverage, false)?;
         return Ok(coverage);
     }
     if !standard {
@@ -287,6 +306,7 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
             // languages crapper measures, so Python and TypeScript do.
             python_coverage(root, files, &mut coverage.records)?;
             typescript_coverage(root, files, &mut coverage.records)?;
+            collect_native(root, files, &mut coverage, true)?;
             return Ok(coverage);
         };
         // Stale reports are removed before the command, in the host shell's
@@ -322,11 +342,15 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
             2
         })?;
         coverage.records.update(fresh);
+        collect_custom_native(root, files, &mut coverage, &view)?;
         return Ok(coverage);
     }
+    // The original's runner order: TypeScript, Python, Rust, Go, Java,
+    // Clojure, then Lua (already collected above).
     rust_coverage(root, files, &mut coverage.records)?;
     python_coverage(root, files, &mut coverage.records)?;
     typescript_coverage(root, files, &mut coverage.records)?;
+    collect_native(root, files, &mut coverage, true)?;
     Ok(coverage)
 }
 
@@ -497,20 +521,455 @@ fn hits(lines: &quality_core::coverage::Lines) -> BTreeSet<usize> {
         .collect()
 }
 
+/// mutator `coverage._candidates`: a report path and its resolved absolute
+/// form, normalized the way crapper normalizes report keys.
+fn candidates(root: &Path, key: &str) -> Vec<String> {
+    let absolute = quality_core::paths::posix(&quality_core::paths::resolve(&root.join(key)));
+    let mut found = vec![quality_core::coverage::normalize_path(key)];
+    let absolute = quality_core::coverage::normalize_path(&absolute);
+    if !found.contains(&absolute) {
+        found.push(absolute);
+    }
+    found
+}
+
+/// `coverage._suffix_hit` on report segments.
+fn suffix_hit(key: &str, candidates: &[String]) -> bool {
+    candidates.iter().any(|candidate| {
+        quality_core::coverage::report_suffix_match(key, candidate)
+            || quality_core::coverage::report_suffix_match(candidate, key)
+    })
+}
+
+/// `coverage._lookup`: an exact candidate first, then the first record whose
+/// path is a suffix of a candidate or ends with one.
+fn lookup<'r>(
+    records: &'r Records,
+    candidates: &[String],
+) -> Option<&'r quality_core::coverage::Lines> {
+    if records.is_empty() {
+        return None;
+    }
+    for candidate in candidates {
+        for (source, lines) in records.iter() {
+            if quality_core::coverage::normalize_path(source) == *candidate {
+                return Some(lines);
+            }
+        }
+    }
+    records
+        .iter()
+        .find(|(source, _)| suffix_hit(source, candidates))
+        .map(|(_, lines)| lines)
+}
+
+/// Native reports after a custom command, read as its disposable view showed
+/// them before the view guard drops. The original runs the command in place
+/// and reads every report globally from the project root, so reports the
+/// command left unchanged count too. A module whose own report is visible
+/// scopes its sources to that report; any other module falls back to the
+/// root-level globs. A selected source no report names returns None, and the
+/// caller warns that its sites are uncovered, as the original does.
+fn collect_custom_native(
+    root: &Path,
+    files: &[PathBuf],
+    coverage: &mut Coverage,
+    view: &View,
+) -> Result<(), i32> {
+    if !files.iter().any(|file| {
+        matches!(
+            language_of(file),
+            Some(Language::Go | Language::Java | Language::Clojure)
+        )
+    }) {
+        return Ok(());
+    }
+    let base = isolation::report_path(view, Path::new(""));
+    let lower = quality_core::paths::resolve(root);
+    let tree = isolation::report_tree(&base, &lower);
+    coverage.java = Some(quality_core::native_coverage::jacoco_lines_tree(tree));
+    let mut native = if files
+        .iter()
+        .any(|file| matches!(language_of(file), Some(Language::Go | Language::Clojure)))
+    {
+        quality_core::native_coverage::NativeReports::load_tree(tree).map_err(|error| {
+            eprintln!("{error}");
+            2
+        })?
+    } else {
+        // Java's own reader skips malformed XML; it never calls load_bundle.
+        Default::default()
+    };
+    native.rebase(&base, root);
+    coverage.native = Some(native);
+    for (language, marker) in [(Language::Go, "go.mod"), (Language::Java, "pom.xml")] {
+        for module in modules_with(files, language, marker, root) {
+            let local = relative(root, &module);
+            let (native, java) = if language == Language::Go {
+                let Some(profile) = [
+                    "target/coverage/go/coverage.out",
+                    "target/coverage/coverage.out",
+                    "coverage.out",
+                ]
+                .into_iter()
+                .find_map(|path| tree.file(&local.join(path))) else {
+                    continue;
+                };
+                let mut native = quality_core::native_coverage::NativeReports::go_report(&profile)
+                    .map_err(|error| {
+                        eprintln!("{error}");
+                        2
+                    })?;
+                native.rebase(&base, root);
+                (native, Vec::new())
+            } else {
+                let Some(report) = tree.file(&local.join("target/site/jacoco/jacoco.xml")) else {
+                    continue;
+                };
+                (
+                    Default::default(),
+                    quality_core::native_coverage::jacoco_report(&report),
+                )
+            };
+            coverage.modules.push(ModuleCoverage {
+                root: module,
+                language,
+                native,
+                java,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Read the language-native reports before their view is dropped.
+fn merge_root_native(coverage: &mut Coverage, view: &View) -> Result<(), i32> {
+    let base = isolation::report_path(view, Path::new(""));
+    let mut reports =
+        quality_core::native_coverage::NativeReports::load(&base).map_err(|error| {
+            eprintln!("{error}");
+            2
+        })?;
+    // This root command generated Clojure reports only. A copied Go/Java
+    // sibling report has no provenance from this command.
+    reports.invalidate(Language::Go);
+    coverage
+        .native
+        .get_or_insert_with(Default::default)
+        .extend(reports);
+    Ok(())
+}
+
+/// crapper's native reports already on disk, then stale languages regenerated
+/// in disposable views. Reports and build output never reach the project.
+fn collect_native(
+    root: &Path,
+    files: &[PathBuf],
+    coverage: &mut Coverage,
+    collect: bool,
+) -> Result<(), i32> {
+    if !files.iter().any(|file| {
+        matches!(
+            language_of(file),
+            Some(Language::Go | Language::Java | Language::Clojure)
+        )
+    }) {
+        return Ok(());
+    }
+    coverage.java = Some(quality_core::native_coverage::jacoco_lines(root));
+    coverage.native = Some(
+        if files
+            .iter()
+            .any(|file| matches!(language_of(file), Some(Language::Go | Language::Clojure)))
+        {
+            quality_core::native_coverage::NativeReports::load(root).map_err(|error| {
+                eprintln!("{error}");
+                2
+            })?
+        } else {
+            // Java's own reader skips malformed XML; it never calls load_bundle.
+            quality_core::native_coverage::NativeReports::default()
+        },
+    );
+    if !collect {
+        return Ok(());
+    }
+    let stale = quality_core::runner::stale_files(root, files, None);
+    // A language is measured for all selected files or none.
+    let languages: BTreeSet<Language> = stale.iter().filter_map(|file| language_of(file)).collect();
+    for language in &languages {
+        if let Some(reports) = &mut coverage.native {
+            reports.invalidate(*language);
+        }
+        if *language == Language::Java {
+            coverage.java = Some(Vec::new());
+        }
+    }
+    let native_files: Vec<PathBuf> = files
+        .iter()
+        .filter(|file| language_of(file).is_some_and(|language| languages.contains(&language)))
+        .cloned()
+        .collect();
+    go_coverage(root, &native_files, coverage)?;
+    java_coverage(root, &native_files, coverage)?;
+    if languages.contains(&Language::Clojure) {
+        clojure_coverage(root, coverage)?;
+    }
+    Ok(())
+}
+
+/// Bind one module's freshly generated report to that module. A sibling's
+/// report in the same copied view is not this command's provenance.
+fn merge_module_native(
+    coverage: &mut Coverage,
+    view: &View,
+    root: &Path,
+    module: &Path,
+    language: Language,
+) -> Result<(), i32> {
+    let base = isolation::report_path(view, Path::new(""));
+    let mut native = Default::default();
+    let mut java = Vec::new();
+    match language {
+        Language::Go => {
+            let report = isolation::report_path(
+                view,
+                &relative(root, &module.join("target/coverage/go/coverage.out")),
+            );
+            if !report.is_file() {
+                return Ok(());
+            }
+            native = quality_core::native_coverage::NativeReports::go_report(&report).map_err(
+                |error| {
+                    eprintln!("{error}");
+                    2
+                },
+            )?;
+            native.rebase(&base, root);
+        }
+        Language::Java => {
+            java = quality_core::native_coverage::jacoco_report(&isolation::report_path(
+                view,
+                &relative(root, &module.join("target/site/jacoco/jacoco.xml")),
+            ));
+        }
+        _ => {}
+    }
+    coverage.modules.push(ModuleCoverage {
+        root: module.to_path_buf(),
+        language,
+        native,
+        java,
+    });
+    Ok(())
+}
+
+/// crapper's Go runner per stale module, in its own view.
+fn go_coverage(root: &Path, files: &[PathBuf], coverage: &mut Coverage) -> Result<(), i32> {
+    if !files
+        .iter()
+        .any(|file| language_of(file) == Some(Language::Go))
+    {
+        return Ok(());
+    }
+    let modules = quality_core::runner::modules_with(files, Language::Go, "go.mod", root);
+    if modules.is_empty() {
+        eprintln!("No go.mod; skipping Go coverage.");
+        return Ok(());
+    }
+    for module in modules {
+        let view = View::new(root).map_err(|error| {
+            eprintln!("Cannot create a mutation view: {error}");
+            1
+        })?;
+        let result = view_step(&view, root, &module, &golang::coverage_script())?;
+        let report = module.join("target/coverage/go/coverage.out");
+        if result.0 != 0 {
+            eprintln!(
+                "Go coverage exited {} in {}. Go coverage will be N/A.",
+                result.0,
+                module.display()
+            );
+            continue;
+        }
+        let generated = isolation::report_path(&view, &relative(root, &report));
+        if !generated.is_file() {
+            eprintln!(
+                "Go coverage wrote no {}. Go coverage will be N/A.",
+                report.display()
+            );
+            continue;
+        }
+        merge_module_native(coverage, &view, root, &module, Language::Go)?;
+    }
+    Ok(())
+}
+
+/// crapper's Maven JaCoCo runner per stale module: the stale report and data
+/// go, the plugin prepares the agent, tests run, the report is written.
+fn java_coverage(root: &Path, files: &[PathBuf], coverage: &mut Coverage) -> Result<(), i32> {
+    if !files
+        .iter()
+        .any(|file| language_of(file) == Some(Language::Java))
+    {
+        return Ok(());
+    }
+    let modules = quality_core::runner::modules_with(files, Language::Java, "pom.xml", root);
+    if modules.is_empty() {
+        eprintln!("No pom.xml; skipping Java coverage.");
+        return Ok(());
+    }
+    let script = if cfg!(windows) {
+        format!(
+            "rmdir /s /q target\\site\\jacoco 2>nul & del /f /q target\\jacoco.exec 2>nul & {}",
+            quality_core::runner::JACOCO_MAVEN.join(" ")
+        )
+    } else {
+        format!(
+            "rm -rf target/site/jacoco target/jacoco.exec\n{}",
+            quality_core::runner::JACOCO_MAVEN.join(" ")
+        )
+    };
+    for module in modules {
+        let view = View::new(root).map_err(|error| {
+            eprintln!("Cannot create a mutation view: {error}");
+            1
+        })?;
+        let result = view_step(&view, root, &module, &script)?;
+        let report = module.join("target/site/jacoco/jacoco.xml");
+        if result.0 != 0 {
+            eprintln!(
+                "Java coverage exited {} in {}. Java coverage will be N/A.",
+                result.0,
+                module.display()
+            );
+            continue;
+        }
+        if !isolation::report_path(&view, &relative(root, &report)).is_file() {
+            eprintln!(
+                "Java coverage wrote no {}. Java coverage will be N/A.",
+                report.display()
+            );
+        }
+        merge_module_native(coverage, &view, root, &module, Language::Java)?;
+    }
+    Ok(())
+}
+
+/// crapper's Clojure runner at the root: `clj -M:cov --lcov`, retried without
+/// `--lcov` when Cloverage has no LCOV reporter.
+fn clojure_coverage(root: &Path, coverage: &mut Coverage) -> Result<(), i32> {
+    if !root.join("deps.edn").is_file() && !root.join("bb.edn").is_file() {
+        eprintln!("No deps.edn or bb.edn; skipping Clojure coverage.");
+        return Ok(());
+    }
+    let view = View::new(root).map_err(|error| {
+        eprintln!("Cannot create a mutation view: {error}");
+        1
+    })?;
+    let script: String = if cfg!(windows) {
+        "clj -M:cov --lcov || (echo clj -M:cov --lcov failed; retrying without --lcov. 1>&2 & clj -M:cov)".into()
+    } else {
+        "clj -M:cov --lcov\ncode=$?\nif [ $code -ne 0 ]; then echo 'clj -M:cov --lcov failed; retrying without --lcov.' >&2; clj -M:cov; code=$?; fi\nif [ $code -ne 0 ]; then echo \"Clojure coverage exited $code. Clojure coverage will be N/A.\" >&2; fi\nexit 0".into()
+    };
+    let cleanup = if cfg!(windows) {
+        // Keep the other languages' report directories and the stamp.
+        "for /d %D in (target\\coverage\\*) do @if not \"%~nxD\"==\"go\" if not \"%~nxD\"==\"java\" if not \"%~nxD\"==\"rust\" if not \"%~nxD\"==\"python\" if not \"%~nxD\"==\"typescript\" if not \"%~nxD\"==\"lua\" rmdir /s /q \"%D\"\nfor %F in (target\\coverage\\*) do @if not \"%~nxF\"==\"crapper-stamp.json\" del /f /q \"%F\" 2>nul\n"
+    } else {
+        "for entry in target/coverage/* target/coverage/.[!.]* target/coverage/..?*; do\n  if [ ! -e \"$entry\" ] && [ ! -L \"$entry\" ]; then continue; fi\n  case \"${entry##*/}\" in typescript|rust|go|python|lua|crapper-stamp.json) ;; *) rm -rf -- \"$entry\" || exit 1;; esac\ndone\n"
+    };
+    view_step(&view, root, root, &format!("{cleanup}{script}"))?;
+    merge_root_native(coverage, &view)?;
+    Ok(())
+}
+
+/// A path under `root` as a relative one, for a view's upper layer.
+fn relative(root: &Path, path: &Path) -> PathBuf {
+    path.strip_prefix(quality_core::paths::resolve(root))
+        .unwrap_or(path)
+        .to_path_buf()
+}
+
 /// The lines this file's tests hit: the Lua index where one exists, else the
-/// LCOV records. None means the file has no coverage data at all.
+/// language's own report. Java reads JaCoCo source lines, Go its statement
+/// profile, Clojure Cloverage form counts before LCOV, and every other
+/// language LCOV. None means the file has no coverage data at all.
 fn covered_lines(
     coverage: &Coverage,
     root: &Path,
     file: &Path,
     key: &str,
 ) -> Option<BTreeSet<usize>> {
-    if language_of(file) == Some(Language::Lua)
+    let language = language_of(file);
+    if language == Some(Language::Lua)
         && let Some(index) = coverage.indexes.get(&lua_module(root, file))
     {
         return index.hits(file).cloned();
     }
-    record_lines(&coverage.records, root, key)
+    let scoped = coverage
+        .modules
+        .iter()
+        .filter(|scope| Some(scope.language) == language && file.starts_with(&scope.root))
+        .max_by_key(|scope| scope.root.components().count());
+    if let Some(scope) = scoped {
+        let local = quality_core::paths::posix(&relative(&scope.root, file));
+        let names = candidates(&scope.root, &local);
+        let found = if language == Some(Language::Go) {
+            // Exact module-relative or absolute key first; a bare basename
+            // would let a subpackage's same-named file satisfy this module.
+            names
+                .last()
+                .and_then(|absolute| scope.native.go_lines_exact(absolute))
+                .or_else(|| scope.native.go_lines_exact(&local))
+                .or_else(|| scope.native.go_lines_exact(key))
+                .or_else(|| {
+                    names
+                        .last()
+                        .and_then(|absolute| scope.native.go_lines(absolute))
+                })
+        } else {
+            scope
+                .java
+                .iter()
+                .find(|(report, _)| names.contains(report))
+                .or_else(|| {
+                    scope
+                        .java
+                        .iter()
+                        .find(|(report, _)| suffix_hit(report, &names))
+                })
+                .map(|(_, lines)| lines.clone())
+        };
+        return found;
+    }
+    let candidates = candidates(root, key);
+    match language {
+        Some(Language::Java) => {
+            let index = coverage.java.as_ref()?;
+            index
+                .iter()
+                .find(|(report, _)| candidates.contains(report))
+                .or_else(|| {
+                    index
+                        .iter()
+                        .find(|(report, _)| suffix_hit(report, &candidates))
+                })
+                .map(|(_, lines)| lines.clone())
+        }
+        Some(Language::Go) => coverage.native.as_ref()?.go_lines(candidates.last()?),
+        Some(Language::Clojure) => {
+            let native = coverage.native.as_ref();
+            if let Some(lines) = native.and_then(|reports| lookup(reports.forms(), &candidates)) {
+                return Some(hits(lines));
+            }
+            // Custom/generated LCOV was collected from a view; existing
+            // reports were loaded from the project's native report bundle.
+            record_lines(&coverage.records, root, key).or_else(|| {
+                native.and_then(|reports| lookup(reports.lcov(), &candidates).map(hits))
+            })
+        }
+        _ => record_lines(&coverage.records, root, key),
+    }
 }
 
 /// Python's `reused_run` contract: the file still owns sites, its form digests
@@ -1470,3 +1929,7 @@ pub fn mutate(
         0
     }
 }
+
+#[cfg(test)]
+#[path = "native_report_tests.rs"]
+mod native_report_tests;

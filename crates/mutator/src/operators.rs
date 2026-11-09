@@ -1,4 +1,4 @@
-//! The original `sites.py` leaf rules shared by Python and TypeScript.
+//! The original `sites.py` leaf rules shared by Python, TypeScript, Go and Java.
 //!
 //! Every language but Clojure walks the syntax tree's leaves with the same
 //! rule: a token under a binary parent is swapped through the Java table (plus

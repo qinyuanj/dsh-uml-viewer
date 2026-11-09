@@ -1,4 +1,5 @@
-//! Differential mutation testing in isolated test runs (Linux, Windows).
+//! Differential mutation testing for seven languages in isolated test runs
+//! (Linux, Windows).
 use quality_core::language::{Language, language_of};
 use std::{ffi::OsString, path::Path, process::ExitCode};
 #[cfg(any(windows, target_os = "linux"))]
@@ -6,11 +7,14 @@ mod child_env;
 #[cfg(all(test, any(windows, target_os = "linux")))]
 mod child_env_tests;
 mod cli;
+mod clojure;
 #[cfg(windows)]
 mod copies;
 mod engine;
+mod golang;
 mod interrupts;
 mod isolation;
+mod java;
 pub mod lua;
 mod metrics;
 mod operators;
@@ -21,14 +25,12 @@ pub mod sites;
 mod typescript;
 mod workers;
 
-/// Whether this port mutates `language` yet: Rust and Lua (Go, Java and
-/// Clojure follow with qinyuanj/dsh-uml-viewer#14). Quality dispatch refuses
-/// a selection holding any other language instead of reporting it empty.
-pub fn mutates(language: quality_core::language::Language) -> bool {
-    matches!(
-        language,
-        quality_core::language::Language::Rust | quality_core::language::Language::Lua
-    )
+/// Whether this port mutates `language`: all seven languages
+/// (qinyuanj/dsh-uml-viewer#14 completed Go, Java and Clojure). Quality
+/// dispatch refuses a selection holding an unknown language instead of
+/// reporting it empty.
+pub fn mutates(_language: quality_core::language::Language) -> bool {
+    true
 }
 
 pub fn run(args: &[OsString]) -> ExitCode {
@@ -147,19 +149,8 @@ fn run_mutation(
             .select(&options.positionals, &mut std::io::stderr())
     };
     files.retain(|path| {
-        if !matches!(
-            quality_core::language::language_of(path),
-            Some(
-                quality_core::language::Language::Rust
-                    | quality_core::language::Language::Lua
-                    | quality_core::language::Language::Python
-                    | quality_core::language::Language::TypeScript
-            )
-        ) {
-            eprintln!(
-                "Skipping {}; this Linux mutation build mutates Rust, Lua, Python and TypeScript sources.",
-                path.display()
-            );
+        if quality_core::language::language_of(path).is_none() {
+            eprintln!("Skipping {}; it is not a source file.", path.display());
             return false;
         }
         if quality_core::language::is_test_file(path) {

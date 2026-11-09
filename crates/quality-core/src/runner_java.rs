@@ -7,7 +7,7 @@ use crate::language::Language;
 use crate::process::Program;
 use crate::runner::{modules_with, run_shell};
 
-const MAVEN: &[&str] = &[
+pub(crate) const MAVEN: &[&str] = &[
     "mvn",
     "-q",
     "org.jacoco:jacoco-maven-plugin:0.8.12:prepare-agent",

@@ -862,7 +862,11 @@ fn python_and_typescript_projects_mutate_through_the_real_binary() {
                     != Some(std::ffi::OsStr::new("1")),
                 "required mutation toolchain unavailable for {language}"
             );
-            eprintln!("SKIP: {language} toolchain unavailable (venv/node)");
+            // Write to the real stderr so the skip is visible even when
+            // libtest captures the test's own output.
+            let message = format!("SKIP: {language} toolchain unavailable (venv/node)\n");
+            use std::io::Write;
+            let _ = std::io::stderr().write_all(message.as_bytes());
             continue;
         }
         let directory = std::env::temp_dir().join(format!(
