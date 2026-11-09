@@ -10,7 +10,7 @@ what the panel displays, not a recording Canvas or a stubbed panel controller.
 - The DSH 0.2.2-rc.1 Desktop CLI or an equivalent CLI on `PATH`. Set `DSH_CLI`
   to its absolute path when it is not discoverable. On this Windows host the
   harness finds the installed Desktop CLI itself.
-- A real `uml-viewer` binary. Build it with `cargo build --locked -p
+- For checkout mode, a real `uml-viewer` binary. Build it with `cargo build --locked -p
   uml-viewer`, or set `UML_VIEWER_BIN` to an absolute executable. The lane
   passes the path in the plugin config of its scratch profile.
 - Chromium in the repository's scratch prefix. `pnpm e2e:install` explicitly
@@ -44,13 +44,56 @@ with `exitCode 127`, so `uml_ir` fails and the panel ends on
 `data-kind="closed"` instead of `"frame"`. Only the display assertion catches
 it.
 
+## Packaged install/remove acceptance (#31)
+
+The same bootstrap also accepts a local main tarball and the matching local
+platform tarball. Supply **both** absolute paths; a missing or relative input
+fails before installation. On Windows use Windows-absolute paths:
+
+```powershell
+$env:UML_VIEWER_E2E_SCRATCH = 'D:/scratch/uml-viewer-e2e'
+$env:UML_VIEWER_PACKAGE_MAIN = 'D:/scratch/uml-viewer-pack/dsh-uml-viewer-1.0.0.tgz'
+$env:UML_VIEWER_PACKAGE_PLATFORM = 'D:/scratch/uml-viewer-pack/dsh-uml-viewer-win32-x64-1.0.0.tgz'
+pnpm --filter @dsh-uml-viewer/e2e test:e2e package.spec.mjs
+```
+
+Use the host platform's tarball (`win32-x64`, `linux-x64`, `darwin-arm64` or
+`darwin-x64`) at the same version as the main package. Assembly and binary
+builds happen separately; this lane does not build or pack either artifact.
+With neither variable set, the regular checkout lane remains available and
+`package.spec.mjs` skips with an explicit reason.
+
+Packaged mode installs both tarballs in one `dsh plugin --profile web add
+--ignore-scripts --store-dir <scratch-store> <main> <platform>` invocation under the unique scratch
+`DSH_HOME`. It removes inherited `UML_VIEWER_BIN` and omits the Loader `binary`
+config, exercising the shipped platform dependency and DSH-home binary locator.
+The mock model still invokes real `uml_ir` and `uml_display`; acceptance opens
+the real Shop panel and requires a displayed frame and visible canvas.
+
+Before installation the spec seeds proposal and nested binary metrics fixtures
+in every sample project and captures policy, proposal and `.metrics/` bytes,
+directory membership and nanosecond mtimes. After display it closes the browser
+contexts and host, then runs `dsh plugin --profile web remove --store-dir <scratch-store>
+dsh-uml-viewer @dsh-uml-viewer/<platform>` in the same isolated home. CLI failure
+fails the test. The final snapshot must match the pre-install snapshot exactly,
+including inline policy proposals and their formatting. The run home retains
+`package-preservation.json` with both snapshots; the screenshot is
+`<scratch>/evidence/packaged-shop.png`. No live profile is consulted or changed.
+
 ## Isolation
 
 Every run creates a unique `DSH_HOME` under `.scratch/e2e/run-*`. That home
 holds its own `web` profile, sessions, workspace registry, plugin state, mock
 request log, failure screenshots and Playwright traces. The host listens on
-port 0 and is started with `--no-open`. The harness rejects any URL whose host
-is not loopback and rejects port 14227, which is the user's live GUI.
+port 0 and is started with `--no-open`. npm, pnpm store, Corepack and XDG
+caches are explicitly rooted under the run home's `cache/`; Chromium uses
+the separate scratch browser prefix. The store path is passed explicitly to
+DSH's bundled pnpm, because environment-only store configuration was ignored
+by Desktop 0.2.2-rc.1. Removal omits `--ignore-scripts`, which pnpm 11 rejects;
+the assembled packages contain no lifecycle scripts. Inherited `DSH_PROFILE` and
+`DSH_PROFILE_DIR` are removed from CLI/host environment. The harness rejects
+any URL whose host is not loopback and rejects port 14227, which is the user's
+live GUI.
 
 The only model endpoint is `packages/e2e/mock-llm.mjs`, configured through a
 per-run `--patch` overlay. It speaks the Messages SSE sequence, logs requests
@@ -148,7 +191,11 @@ gate is process-local (#21 residual); cross-restart restoration belongs to #23.
 Import from `packages/e2e/lane.mjs`; extend this lane instead of adding another
 host bootstrap.
 
-`launchViewerLane(browser, options?)` returns:
+`launchViewerLane(browser, options?)` accepts `packageMain` and
+`packagePlatform` (equivalent to the two environment variables), plus an async
+`prepareProjects(projects)` hook called after sample creation and before CLI
+installation. The hook lets lifecycle acceptance seed and snapshot protected
+project data before either install or plugin load. It returns:
 
 | member | meaning |
 |---|---|
@@ -161,7 +208,9 @@ host bootstrap.
 | `wheel(panel, notches)` | real wheel notches over the canvas centre; positive zooms out |
 | `sendPrompt(panel, text)` | send a visible composer message in that session |
 | `screenshot(panel, name)` | write a full-page scratch screenshot |
-| `close()` | close browser contexts, host and mock, in that order |
+| `close()` | idempotently close browser contexts, host and mock, in that order |
+| `packages` | `{ main, platform }` tarball paths in packaged mode; otherwise `null` |
+| `uninstall()` | close the lane, then remove the plugin (and direct platform package in packaged mode) through isolated CLI management |
 
 `panel.before` is the summary text after display; use it to assert that another
 session was untouched. Add new assertions to `*.spec.mjs`; set
