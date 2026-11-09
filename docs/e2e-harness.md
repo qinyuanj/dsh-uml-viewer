@@ -303,6 +303,38 @@ behavior. "Retired" marks window-only behavior with no panel counterpart.
 not been run in a browser.
 
 
+## Deterministic companion policy acceptance (#29)
+
+`packages/e2e/view-requests.spec.mjs` has three bounded cases. Its test-only
+`view-companion.mjs` binds to the lane-owned Deep scratch project during
+`prepareProjects`. It implements the companion protocol deterministically:
+source/proposal Hide splices the requested `:omit`, and New Proposal inserts
+one fresh id, the requested timestamp name and `:layers []`. The fixture edits
+once per request before returning `uml_ir({request})`; only a correlated
+successful IR result permits `uml_display`. Unknown messages, mismatched
+contexts, unsafe names and malformed timestamps refuse without a write.
+
+`view-policy.mjs` contains the deliberately spaced, commented policy. The
+fixture recognizes only its literal anchors and known panel request forms;
+it is not a general EDN parser or a production policy writer. Prefix and suffix
+UTF-8 bytes around each splice are compared explicitly, preserving unrelated
+comments, ordering, line layout and the existing proposal. Node tests compare
+exact expected policy bytes and exercise retries, refusal, context and failure
+gating. Run them offline with `node --test packages/e2e/view-policy.test.mjs`.
+
+Browser assertions cover source/proposal class absence in the real producer
+frame after IR/display, source visibility after a proposal-only omit, the new
+proposal's actual inspector row, preserved discussion context until an explicit
+choice, and untouched composer drafts. A malformed scratch policy exercises
+failed real IR: the mock emits no display, the generated IR bytes remain
+unchanged, and the displayed summary stays unchanged. These strengthened
+browser cases require CI runtime acceptance; local Node tests and Playwright
+discovery do not establish a browser pass.
+
+This tests a deterministic companion implementation of the documented
+protocol. No external model is called; arbitrary real LLM compliance with
+in-place editing or context instructions remains unproven by this harness.
+
 ## Harness API for #23–#29
 
 Import from `packages/e2e/lane.mjs`; extend this lane instead of adding another

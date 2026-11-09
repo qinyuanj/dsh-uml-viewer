@@ -3,80 +3,81 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { launchViewerLane } from './lane.mjs'
 import { producerFrame, toScreen } from './canvas.mjs'
+import { panBesideInspector } from './gestures.mjs'
+import { makeViewCompanion } from './view-companion.mjs'
+import { VIEW_POLICY } from './view-policy.mjs'
 
-/**
- * #29: not yet run against a real binary or browser. Run only with an
- * EXISTING binary:
- * UML_VIEWER_BIN=<absolute existing exe>
- * UML_VIEWER_E2E_SCRATCH=<scratch>/e2e-uml-viewer
- * PLAYWRIGHT_BROWSERS_PATH=<scratch>/e2e-uml-viewer/browsers
- * (set the last two for BOTH browser install and test invocations).
- *
- * The scripted LLM stands in for the companion: for :omit and :new-proposal
- * it runs uml_ir with the request id, then uml_display; for :context it only
- * answers. The policy edit itself is the companion's work (companion rules);
- * this spec checks the panel half: visible messages in click order, the draft
- * untouched, IR after a failed quality call, display only after IR success.
+/** #29 deterministic companion implementation of the protocol, NOT real LLM
+ * compliance evidence. It edits only the lane-owned Deep scratch policy with
+ * literal splices, once before returning uml_ir(request). Real IR/resident/
+ * display are exercised by CI; no synthetic frame or production writer is used.
+ * Local validation is Node-only; browser runtime requires CI's existing binary.
  */
-function viewReply(request) {
-  if (!request.tools?.length) return null
-  const messages = request.messages ?? []
-  let index = -1
-  let text
-  for (let i = 0; i < messages.length; i += 1) {
-    for (const part of messages[i].content ?? []) {
-      if (part.type === 'text' && part.text?.startsWith('UML viewer panel request:')) {
-        index = i
-        text = part.text
-      }
-    }
-  }
-  if (index < 0) return null
-  const op = /:op :([a-z-]+)/.exec(text)?.[1]
-  const id = /:request "([0-9a-f]{32})"/.exec(text)?.[1]
-  const tail = messages.slice(index)
-  const done = name => tail.some(message => (message.content ?? []).some(part => part.type === 'tool_use' && part.name === name))
-  if (op === 'context') return { text: 'Discussing the chosen diagram.' }
-  if (op === 'refresh-crap') {
-    if (!done('uml_crap')) return { tool: { name: 'uml_crap', input: {} } }
-    return { text: 'Stopped refresh-crap: quality returned validResult false; no IR or display.' }
-  }
-  if (!done('uml_ir')) return { tool: { name: 'uml_ir', input: { request: id } } }
-  if (JSON.stringify(tail).includes('\\"validResult\\":false')) return { text: `Stopped ${op}: IR failed; no display.` }
-  if (!done('uml_display')) return { tool: { name: 'uml_display', input: { path: 'diagram.edn' } } }
-  return { text: `Finished ${op}: IR, display.` }
+async function refusingCrap(projects) {
+  const root = projects.deep
+  await fs.writeFile(path.join(root, 'quality-fixture.mjs'), `process.stderr.write('controlled quality refusal\\n'); process.exitCode = 1\n`)
+  await fs.writeFile(path.join(root, 'uml-quality.json'), JSON.stringify({ version: 1, operations: {
+    crap: { argv: [process.execPath, path.join(root, 'quality-fixture.mjs')], forwardArgs: 'none', validResultExitCodes: [0], scope: 'whole-tree' },
+  } }))
 }
 
-async function refusingCrap(projects) {
-  for (const root of Object.values(projects)) {
-    await fs.writeFile(path.join(root, 'quality-fixture.mjs'), `process.stderr.write('controlled quality refusal\\n'); process.exitCode = 1\n`)
-    await fs.writeFile(path.join(root, 'uml-quality.json'), JSON.stringify({ version: 1, operations: {
-      crap: { argv: [process.execPath, path.join(root, 'quality-fixture.mjs')], forwardArgs: 'none', validResultExitCodes: [0], scope: 'whole-tree' },
-    } }))
-  }
+async function launch(browser, quality = false) {
+  const companion = makeViewCompanion()
+  const lane = await launchViewerLane(browser, {
+    prepareProjects: async projects => {
+      companion.prepare(projects)
+      if (quality) await refusingCrap(projects)
+    },
+    reply: companion.reply,
+  })
+  return { lane, companion }
+}
+
+function item(frame, id) {
+  return frame.world.find(item => item.id === id && (item.kind === 'class' || item.kind === 'package'))
 }
 
 async function menu(panel, frame, id, label) {
-  const item = frame.world.find(item => item.id === id && (item.kind === 'class' || item.kind === 'package'))
-  expect(item, `frame contains ${id}`).toBeTruthy()
-  const [x, y] = toScreen(frame, item.rect.x + item.rect.w / 2, item.rect.y + 10)
+  const target = item(frame, id)
+  expect(target, `frame contains ${id}`).toBeTruthy()
+  const [x, y] = toScreen(frame, target.rect.x + target.rect.w / 2, target.rect.y + 10)
   await panel.canvas.click({ position: { x, y }, button: 'right' })
   await panel.panel.getByRole('menu', { name: 'Element requests' }).getByRole('menuitem', { name: label, exact: true }).click()
 }
 
+function preserved(edit) {
+  const offset = Buffer.byteLength(edit.original.slice(0, edit.start))
+  expect(Buffer.from(edit.text).subarray(0, offset)).toEqual(Buffer.from(edit.original).subarray(0, offset))
+  expect(Buffer.from(edit.text).subarray(offset + Buffer.byteLength(edit.after)))
+    .toEqual(Buffer.from(edit.original).subarray(offset + Buffer.byteLength(edit.before)))
+}
+
+const composer = a => a.page.locator('[data-composer-input][contenteditable="true"]:visible').last()
+const finished = (a, op) => expect(a.page.getByText(`Finished ${op}: IR, display.`, { exact: true }).last()).toBeVisible()
+
 test('Hide after a failed refresh still regenerates the IR, then displays; the draft stays', async ({ browser }) => {
-  const lane = await launchViewerLane(browser, { prepareProjects: refusingCrap, reply: viewReply })
+  const { lane, companion } = await launch(browser, true)
   try {
     const a = await lane.openPanel('deep')
+    await panBesideInspector(a)
     const frame = await producerFrame(a, { root: lane.projects.deep, home: lane.home })
-    const composer = a.page.locator('[data-composer-input][contenteditable="true"]:visible').last()
-    await composer.fill('Unfinished draft 草稿')
+    await composer(a).fill('Unfinished draft 草稿')
+    const diagram = await fs.readFile(path.join(lane.projects.deep, 'diagram.edn'))
     await menu(a, frame, ':api', 'Refresh CRAP')
     await expect(a.page.getByText('Stopped refresh-crap', { exact: false }).last()).toBeVisible()
+    expect(await fs.readFile(path.join(lane.projects.deep, 'diagram.edn'))).toEqual(diagram)
+    expect(companion.edits).toHaveLength(0)
     await menu(a, frame, ':api', 'Hide')
     await expect(a.page.getByText(/^UML viewer panel request:\n\{:op :omit :target \{:id :api :kind :class\} :context \{:context :real\} :request "[0-9a-f]{32}"\}$/).last()).toBeVisible()
-    await expect(a.page.getByText('Finished omit: IR, display.', { exact: true }).last()).toBeVisible()
-    await expect(composer).toHaveText('Unfinished draft 草稿')
+    await finished(a, 'omit')
+    expect(companion.edits).toHaveLength(1)
+    preserved(companion.edits[0])
+    expect(await fs.readFile(path.join(lane.projects.deep, 'policy.edn'), 'utf8'))
+      .toBe(VIEW_POLICY.replace('[  ] ; source-only', '[ :api ] ; source-only'))
+    const after = await producerFrame(a, { root: lane.projects.deep, home: lane.home })
+    expect(item(after, ':api'), 'regenerated source frame excludes the requested class').toBeUndefined()
+    await expect(a.summary).toHaveAttribute('data-context', 'real')
+    await expect(composer(a)).toHaveText('Unfinished draft 草稿')
     await expect(a.summary).toHaveAttribute('data-kind', 'frame')
     expect(a.problems).toEqual([])
     await lane.screenshot(a, 't29-hide')
@@ -84,18 +85,85 @@ test('Hide after a failed refresh still regenerates the IR, then displays; the d
 })
 
 test('choosing a proposal tells the companion; 新建提案 sends a timestamp name; all in click order', async ({ browser }) => {
-  const lane = await launchViewerLane(browser, { reply: viewReply })
+  const { lane, companion } = await launch(browser)
   try {
     const a = await lane.openPanel('deep')
-    await producerFrame(a, { root: lane.projects.deep, home: lane.home })
     const inspector = a.panel.getByRole('complementary', { name: '检查器' })
+    await inspector.getByRole('button', { name: 'Review plan', exact: true }).click()
+    await expect(a.summary).toHaveAttribute('data-context', 'proposal')
+    await expect(a.summary).toContainText('Discussion: Review plan.')
+    await expect(a.page.getByText('Discussing the chosen diagram.', { exact: true }).last()).toBeVisible()
+    const root = lane.projects.deep
+    await panBesideInspector(a)
+    const grouped = await producerFrame(a, { root, home: lane.home, extra: '{:proposal-id :p-review}' })
+    const surface = item(grouped, ':proposal.surface')
+    expect(surface).toBeTruthy()
+    await lane.point(a, toScreen(grouped, surface.rect.x + surface.rect.w / 2, surface.rect.y + 10), 2)
+    await expect(a.summary).toHaveAttribute('data-depth', 'drilled')
+    const layer = await producerFrame(a, { root, home: lane.home, extra: '{:proposal-id :p-review :open-layer :proposal.surface}' })
+    await composer(a).fill('Proposal draft 草稿')
+    await menu(a, layer, ':api', 'Hide')
+    await finished(a, 'omit')
+    expect(companion.edits[0].context).toBe('p-review')
+    preserved(companion.edits[0])
+    expect(await fs.readFile(path.join(root, 'policy.edn'), 'utf8'))
+      .toBe(VIEW_POLICY.replace('[ ]} ; proposal-only', '[:api]} ; proposal-only'))
+    const hidden = await producerFrame(a, { root, home: lane.home, extra: '{:proposal-id :p-review :open-layer :proposal.surface}' })
+    expect(item(hidden, ':api')).toBeUndefined()
+    const source = await producerFrame(a, { root, home: lane.home })
+    expect(item(source, ':api'), 'proposal omit leaves the source class visible').toBeTruthy()
     await inspector.getByRole('button', { name: '新建提案', exact: true }).click()
-    await expect(a.page.getByText(/^UML viewer panel request:\n\{:op :new-proposal :name "\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}" :request "[0-9a-f]{32}"\}$/).last()).toBeVisible()
-    await expect(a.page.getByText('Finished new-proposal: IR, display.', { exact: true }).last()).toBeVisible()
-    // The source diagram row is the first entry; choosing it is a :context request.
+    const request = a.page.getByText(/^UML viewer panel request:\n\{:op :new-proposal :name "\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}" :request "[0-9a-f]{32}"\}$/).last()
+    await expect(request).toBeVisible()
+    const name = /:name "([^"]+)"/.exec(await request.innerText())[1]
+    await finished(a, 'new-proposal')
+    expect(companion.edits).toHaveLength(2)
+    const created = companion.edits[1]
+    preserved(created)
+    expect(created.context).toBe('p-review')
+    expect(created.proposalId).toBe(':p-e2e-1')
+    expect(await fs.readFile(path.join(root, 'policy.edn'), 'utf8')).toContain(`{:id :p-e2e-1 :name "${name}" :layers []}`)
+    await expect(inspector.getByRole('button', { name, exact: true })).toBeVisible()
+    // Creation preserves discussion context; choosing the actual new row changes it.
+    await expect(a.summary).toContainText('Discussion: Review plan.')
+    await inspector.getByRole('button', { name, exact: true }).click()
+    await expect(a.summary).toContainText(`Discussion: ${name}.`)
+    await expect.poll(() => companion.contexts.at(-1)).toBe('p-e2e-1')
+    const unchanged = await fs.readFile(path.join(root, 'policy.edn'))
     await inspector.locator('.dsh-uml-proposals button').first().click()
     await expect(a.page.getByText('UML viewer panel request:\n{:op :context :context {:context :real}}', { exact: true }).last()).toBeVisible()
     await expect(a.summary).toHaveAttribute('data-context', 'real')
+    await expect.poll(() => companion.contexts.at(-1)).toBe('real')
+    expect(await fs.readFile(path.join(root, 'policy.edn'))).toEqual(unchanged)
+    await expect(composer(a)).toHaveText('Proposal draft 草稿')
+    expect(a.problems).toEqual([])
+  } finally { await lane.close() }
+})
+
+test('failed IR after a scoped edit leaves the displayed diagram and draft unchanged', async ({ browser }) => {
+  const { lane, companion } = await launch(browser)
+  try {
+    const a = await lane.openPanel('deep')
+    await panBesideInspector(a)
+    const root = lane.projects.deep
+    const frame = await producerFrame(a, { root, home: lane.home })
+    const diagram = await fs.readFile(path.join(root, 'diagram.edn'))
+    const summary = await a.summary.innerText()
+    await composer(a).fill('Keep failed request draft')
+    // Deliberately malformed scratch policy makes the real IR call fail.
+    await fs.writeFile(path.join(root, 'policy.edn'), VIEW_POLICY.replace(':hierarchical true', ':hierarchical [invalid'))
+    const start = lane.mock.requests.length
+    await menu(a, frame, ':api', 'Hide')
+    await expect(a.page.getByText('Stopped omit: IR failed; no display.', { exact: true }).last()).toBeVisible()
+    expect(companion.edits).toHaveLength(1)
+    preserved(companion.edits[0])
+    const replies = await Promise.all(lane.mock.requests.slice(start).map((_, i) => fs.readFile(
+      path.join(lane.home, 'mock-requests', `${String(start + i + 1).padStart(3, '0')}-reply.json`), 'utf8').then(JSON.parse)))
+    expect(replies.some(reply => reply.tool?.name === 'uml_ir')).toBe(true)
+    expect(replies.some(reply => reply.tool?.name === 'uml_display')).toBe(false)
+    expect(await fs.readFile(path.join(root, 'diagram.edn'))).toEqual(diagram)
+    await expect(a.summary).toHaveText(summary)
+    await expect(composer(a)).toHaveText('Keep failed request draft')
     expect(a.problems).toEqual([])
   } finally { await lane.close() }
 })
