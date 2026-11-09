@@ -56,7 +56,7 @@ pub fn resolve_with(
         let path = Path::new(candidate);
         if path.is_file() {
             eprintln!(
-                "uml viewer: Sarasa Mono SC not found at {}; falling back to {}. Run get-uml-viewer to provision the font.",
+                "uml viewer: Sarasa Mono SC not found at {}; falling back to {}. Set UML_CJK_FONT to the packaged fonts/SarasaMonoSC-Regular.ttf to use it.",
                 provisioned.display(),
                 path.display()
             );
