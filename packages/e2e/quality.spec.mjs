@@ -121,11 +121,17 @@ test('quality colors, C/M dots and no-data survive light/dark and changed skin t
     }
     for (const mode of ['dark', 'light']) for (const skin of [false, true]) {
       await panel.panel.evaluate((el, { mode, skin }) => {
-        const tokens = skin ? {
-          '--dsw-alias-bg-base': '#3d3929', '--dsw-alias-label-primary': '#f0eee6',
+        // A skin's own palette (warm accent, violet success, blue error): none
+        // of it may repaint 质量色, 违规关系色, 无数据 or 依赖链高亮.
+        const tokens = !skin ? {} : mode === 'dark' ? {
+          '--dsw-alias-bg-base': '#1f1e1d', '--dsw-alias-label-primary': '#f0eee6',
           '--dsw-alias-label-tertiary': '#b1ada1', '--dsw-alias-state-business-primary': '#d97757',
           '--dsw-alias-state-success-primary': '#8a5cf6', '--dsw-alias-state-error-primary': '#517fff',
-        } : {}
+        } : {
+          '--dsw-alias-bg-base': '#f5f2ea', '--dsw-alias-label-primary': '#1f1e1d',
+          '--dsw-alias-label-tertiary': '#6b675c', '--dsw-alias-state-business-primary': '#c6613f',
+          '--dsw-alias-state-success-primary': '#7a4fd0', '--dsw-alias-state-error-primary': '#3f5fd8',
+        }
         for (const key of ['--dsw-alias-bg-base', '--dsw-alias-label-primary', '--dsw-alias-label-tertiary', '--dsw-alias-state-business-primary', '--dsw-alias-state-success-primary', '--dsw-alias-state-error-primary']) {
           if (skin) el.style.setProperty(key, tokens[key]); else el.style.removeProperty(key)
         }
