@@ -291,7 +291,8 @@ describe('local hover (关系悬停高亮, ADR 0013)', () => {
   const coreCenter = (view: SceneFrame): [number, number] => {
     const core = view.world.find(i => i.kind === 'class' && i.id === ':core')
     if (!core || core.kind !== 'class') throw new Error(':core')
-    return worldToScreen(viewTransform(view, 800, 600), core.rect.x + core.rect.w / 2, core.rect.y + core.rect.h / 2)
+    const [fx, fy] = worldToScreen(viewTransform(view, 800, 600), core.rect.x + core.rect.w / 2, core.rect.y + core.rect.h / 2)
+    return [fx * 800 / view.viewport.width, fy * 600 / view.viewport.height]
   }
   const warm = (painted: SceneFrame): string[] =>
     painted.edges.flatMap(e => (e.kind === 'stroke' && e.warm ? [`${e.from}->${e.to}:${e.stroke.role}`] : []))

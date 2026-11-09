@@ -545,14 +545,11 @@ function paintChrome(p: Painter, item: SceneFrame['chrome'][number]): void {
       return
     }
     case 'popup': {
-      ctx.fillStyle = colorOf(item.fill)
-      ctx.strokeStyle = colorOf(item.border)
-      ctx.lineWidth = 1
-      roundRect(ctx, item.rect.x, item.rect.y, item.rect.w, item.rect.h, 4)
-      ctx.fill()
-      ctx.stroke()
+      box(p, item.rect.x, item.rect.y, item.rect.w, item.rect.h, 4,
+        colorOf(item.fill), colorOf(item.border), 1, false)
       item.rows.forEach((row, index) => {
-        text(p, row.text, item.rect.x + 8, item.rect.y + 8 + 20 * index, 14, colorOf(row.ink))
+        label(p, row.text, item.rect.x + 8, item.rect.y + 8 + 20 * index,
+          frame.style.fonts.chrome, colorOf(row.ink))
       })
       return
     }

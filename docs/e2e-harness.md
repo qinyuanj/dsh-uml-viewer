@@ -44,6 +44,36 @@ with `exitCode 127`, so `uml_ir` fails and the panel ends on
 `data-kind="closed"` instead of `"frame"`. Only the display assertion catches
 it.
 
+## Resource-limited #26 verification
+
+`quality.spec.mjs` converts the quality/highlight scenarios to the existing lane:
+independent C/M dots and quality fills, missing CRAP/mutation/both data, red no-data
+ink, unchanged quality/violation hues with changed host skin tokens in both modes,
+resident selection/chain/dimming, local relation/class hover, and the overview
+class-name popup clearing on leave. `edges.spec.mjs` also checks that dimming
+preserves opaque hollow-head interiors. The producer oracle accepts `hover` and
+`pointer` as well as selection. No frames are injected.
+
+Under the current resource restriction these cases are **authored, NOT RUN**:
+there is no existing matching binary. Do not follow the build commands above to
+make one. A later authorized run must provide an existing matching executable and
+set **both** environment variables for browser installation and tests:
+
+```powershell
+$env:UML_VIEWER_E2E_SCRATCH = 'D:/dev/github/spec203-notes/scratch-t26'
+$env:PLAYWRIGHT_BROWSERS_PATH = 'D:/dev/github/spec203-notes/scratch-t26/browsers'
+$env:UML_VIEWER_BIN = 'D:/absolute/path/to/existing/uml-viewer.exe'
+# Only when a matching existing binary is available:
+pnpm e2e:install
+pnpm --filter @dsh-uml-viewer/e2e test:e2e quality.spec.mjs
+```
+
+Changed host tokens exercise the skin boundary without installing a skin in the
+user's live profile. This does not claim an installed dsh-claude-style browser
+run. Edge-hover dependency-list popups and intermediate `via-ids` hover remain
+unavailable because the current producer frame carries neither metadata field;
+raw child-row hover also lacks a separate hit record (see ADR 0013 #26 appendix).
+
 ## Packaged install/remove acceptance (#31)
 
 The same bootstrap also accepts a local main tarball and the matching local

@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { SceneFrame } from '@dsh-uml-viewer/contracts'
 import { hoverAt, withHover } from '../src/hover.js'
+import { paintFrame } from '../src/paint.js'
+import { fakeCanvas, DARK_TOKENS } from './fakes.js'
 
 /**
  * 关系悬停高亮 is client-side (ADR 0013): the panel restyles the resident's
@@ -67,11 +69,33 @@ describe('client hover (关系悬停高亮)', () => {
     expect(hovered).toEqual(expected)
   })
 
+  it('paints the overview popup text at the native top edge and chrome font size', () => {
+    const frame = golden('root-hover-frames')
+    const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true })
+    paintFrame({ ...frame, world: [], edges: [], chrome: frame.chrome.filter(c => c.kind === 'popup') }, canvas)
+    // Producer popup rect (300,256,56,36); native paint.rs uses +8,+8,
+    // CHROME_PX=18, draw_text top anchoring, and an inside 1px outline.
+    expect(canvas.recording.ops.find(o => o.op === 'fillText')).toMatchObject({
+      text: 'Core', x: 308, y: 264, textBaseline: 'top', fillStyle: '#ecece4',
+    })
+    expect(canvas.recording.ops.find(o => o.op === 'fillText')!.font).toMatch(/^18px /)
+    expect(canvas.recording.ops.filter(o => o.op === 'moveTo').map(o => o.args)).toEqual([[304, 256], [304, 256.5]])
+  })
+
   it('shows no class popup at the full tier, where the box shows its name', () => {
     const base = golden('root')
     expect(base.lod).toBe('full')
     const hovered = withHover(base, { kind: 'class', id: ':core' }, [300, 240])
     expect(hovered.chrome).toEqual(base.chrome)
+  })
+
+  it('uses the local camera tier for the overview name popup before another resident frame arrives', () => {
+    const base = golden('root')
+    const zoomed = { ...base, camera: { ...base.camera, zoom: 0.3 } }
+    expect(withHover(zoomed, { kind: 'class', id: ':core' }, [300, 240]).chrome.at(-1)?.kind).toBe('popup')
+    const overview = golden('root-hover-frames')
+    const localFull = { ...overview, chrome: overview.chrome.filter(c => c.kind !== 'popup'), camera: { ...overview.camera, zoom: 1 } }
+    expect(withHover(localFull, { kind: 'class', id: ':core' }, [300, 240]).chrome.some(c => c.kind === 'popup')).toBe(false)
   })
 
   it('lights only the edge under the pointer, undimmed, over a selection that dims it', () => {
@@ -141,6 +165,11 @@ describe('hover hit test (scene::hit::at order)', () => {
     const drilled = golden('core-port-selected')
     const port = drilled.world.find(i => i.kind === 'port')
     if (!port || port.kind !== 'port') throw new Error('port')
-    expect(hoverAt(drilled, [port.rect.x + port.rect.w / 2, port.rect.y + port.rect.h / 2])).toEqual({ kind: 'class', id: port.owner })
+    expect(hoverAt(drilled, [port.rect.x + port.rect.w / 2, port.rect.y + port.rect.h / 2])).toEqual({ kind: 'port', id: port.owner })
+    const hit = hoverAt(drilled, [port.rect.x + port.rect.w / 2, port.rect.y + port.rect.h / 2])
+    const overview = { ...drilled, camera: { ...drilled.camera, zoom: 0.3 } }
+    const hovered = withHover(overview, hit, [100, 100])
+    expect(hovered.chrome.some(c => c.kind === 'popup')).toBe(false)
+    expect(hovered.edges.filter(e => e.kind === 'stroke' && e.warm).length).toBeGreaterThan(0)
   })
 })

@@ -20,9 +20,10 @@
  */
 import type { ChromeItem, SceneFrame } from '@dsh-uml-viewer/contracts'
 import { estimateW } from './fit.js'
+import { tierOf } from './paint.js'
 
 export type HoverHit =
-  | { kind: 'class'; id: string }
+  | { kind: 'class' | 'port'; id: string }
   | { kind: 'edge'; from: string; to: string }
 
 /** `frame::theme::widths::EDGE_VIOLATING_HOT`: a hovered violating relation. */
@@ -76,7 +77,7 @@ export function hoverAt(frame: SceneFrame, world: Point): HoverHit | null {
   }
   for (let index = frame.world.length - 1; index >= 0; index -= 1) {
     const item = frame.world[index]!
-    if (item.kind === 'port' && item.owner !== null && contains(item.rect, world)) return { kind: 'class', id: item.owner }
+    if (item.kind === 'port' && item.owner !== null && contains(item.rect, world)) return { kind: 'port', id: item.owner }
     if (item.kind === 'class' && contains(item.rect, world)) return { kind: 'class', id: item.id }
   }
   for (let index = frame.edges.length - 1; index >= 0; index -= 1) {
@@ -88,7 +89,7 @@ export function hoverAt(frame: SceneFrame, world: Point): HoverHit | null {
 
 export function sameHover(a: HoverHit | null, b: HoverHit | null): boolean {
   if (a === null || b === null) return a === b
-  if (a.kind === 'class') return b.kind === 'class' && a.id === b.id
+  if (a.kind !== 'edge') return b.kind === a.kind && a.id === b.id
   return b.kind === 'edge' && a.from === b.from && a.to === b.to
 }
 
@@ -101,7 +102,7 @@ const VIOLATING = new Set(['violation', 'violation-hot'])
  */
 export function withHover(frame: SceneFrame, hit: HoverHit | null, pointer: Point | null): SceneFrame {
   if (hit === null) return frame
-  const hoveredClass = hit.kind === 'class' ? hit.id : null
+  const hoveredClass = hit.kind !== 'edge' ? hit.id : null
   const edges = frame.edges.map(edge => {
     if (edge.kind === 'indicator') return edge
     const hot = hit.kind === 'edge' && edge.from === hit.from && edge.to === hit.to
@@ -120,7 +121,7 @@ export function withHover(frame: SceneFrame, hit: HoverHit | null, pointer: Poin
   const world = hoveredClass === null
     ? frame.world
     : frame.world.map(item => (item.kind === 'class' && item.id === hoveredClass ? { ...item, hovered: true } : item))
-  const popup = hoveredClass !== null && pointer !== null && frame.lod !== 'full' ? namePopup(frame, hoveredClass, pointer) : null
+  const popup = hit.kind === 'class' && pointer !== null && tierOf(frame) !== 'full' ? namePopup(frame, hit.id, pointer) : null
   return { ...frame, world, edges, chrome: popup ? [...frame.chrome, popup] : frame.chrome }
 }
 

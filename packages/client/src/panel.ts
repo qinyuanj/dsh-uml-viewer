@@ -11,9 +11,9 @@
  * on_scroll, zoom_at, fit) so the panel behaves like the egui window.
  */
 import type { DiscussionContext, PanelAck, PanelAction, PanelEvent, SceneFrame, SearchResult } from '@dsh-uml-viewer/contracts'
-import { hitTest, paintFrame } from './paint.js'
+import { hitTest, paintFrame, tierOf } from './paint.js'
 import { hoverAt, sameHover, withHover, type HoverHit } from './hover.js'
-import { screenToWorld, viewTransform } from './fit.js'
+import { cssToWorld, screenToWorld, viewTransform } from './fit.js'
 
 /** A Remote stream handle: async-iterable, with the carrier's own teardown. */
 export interface PanelStream extends AsyncIterable<PanelEvent> {
@@ -152,7 +152,10 @@ export class PanelController {
 
   /** Paint a resident frame with the local hover feedback on top. */
   private draw(frame: SceneFrame): void {
-    const pointer = this.pointer ? [this.pointer.x, this.pointer.y] as const : null
+    const bounds = this.canvas.getBoundingClientRect()
+    const pointer = this.pointer && bounds.width > 0 && bounds.height > 0
+      ? [this.pointer.x * frame.viewport.width / bounds.width, this.pointer.y * frame.viewport.height / bounds.height] as const
+      : null
     this.paint(withHover(frame, this.hoverHit, pointer), this.canvas)
   }
 
@@ -249,9 +252,9 @@ export class PanelController {
   public hover(x: number, y: number): void {
     this.pointer = { x, y }
     if (!this.frame) return
-    const world = this.world(x, y)
+    const world = cssToWorld(this.frame, this.canvas.getBoundingClientRect(), x, y)
     const hit = world ? hoverAt(this.frame, world) : null
-    const followsPointer = hit?.kind === 'class' && this.frame.lod !== 'full'
+    const followsPointer = hit?.kind === 'class' && tierOf(this.frame) !== 'full'
     if (sameHover(hit, this.hoverHit) && !followsPointer) return
     this.hoverHit = hit
     this.draw(this.frame)

@@ -27,7 +27,7 @@ export async function panelViewport(panel) {
 }
 
 /** The producer frame for what `panel` shows (`uml-viewer scene --frame`). */
-export async function producerFrame(panel, { root, home, focus = null, extra = '{}', select = null }) {
+export async function producerFrame(panel, { root, home, focus = null, extra = '{}', select = null, hover = null, pointer = null }) {
   const camera = await panelCamera(panel)
   const viewport = await panelViewport(panel)
   const output = path.join(home, `oracle-${Date.now()}.frame.json`)
@@ -42,6 +42,8 @@ export async function producerFrame(panel, { root, home, focus = null, extra = '
     '--zoom', String(camera.zoom), '--camera', `${camera.x},${camera.y}`,
     '--extra', extra,
     ...(select ? ['--select', select] : []),
+    ...(hover ? ['--hover', hover] : []),
+    ...(pointer ? ['--pointer', pointer.join(',')] : []),
     '--output', output,
   ], { stdio: ['ignore', 'pipe', 'pipe'] })
   return JSON.parse(fs.readFileSync(output, 'utf8'))

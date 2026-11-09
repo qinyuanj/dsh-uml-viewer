@@ -194,4 +194,4 @@ package class count. Native and panel adapters only render the supplied lines.
 | `title` / `proposal-banner` / `back` | `text at ink plate` | text at `at`, size `fonts.chrome`, on a `plate` rect expanded 6 x 2 pt, radius 3 |
 | `status` | `text at ink plate(null)` | bottom-left status line |
 | `hint` | `text ink` | centred on the viewport |
-| `popup` | `rect fill border rows[{text violating ink}]` | radius 4, 1 pt `border`; row `i` at `rect.x + 8, rect.y + 8 + 20·i` |
+| `popup` | `rect fill border rows[{text violating ink}]` | radius 4, inside 1 pt `border`; row `i` top-anchored at `rect.x + 8, rect.y + 8 + 20·i`, size `fonts.chrome` |
