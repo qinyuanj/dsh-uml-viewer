@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { test, expect } from '@playwright/test'
 import { packageInputs } from './dsh-web.mjs'
 import { launchViewerLane } from './lane.mjs'
+import { UPGRADE_PROMPTS, upgradeReply } from './upgrade-reply.mjs'
 
 const initial = packageInputs()
 const next = process.env.UML_VIEWER_UPGRADE_MAIN || process.env.UML_VIEWER_UPGRADE_PLATFORM
@@ -41,21 +42,6 @@ function resident(binary) {
   return Array.isArray(parsed) ? parsed : [parsed]
 }
 
-// Read the actual public tool result, rather than assuming a scripted tool call
-// succeeded. Messages transports may wrap the tool's JSON inside text blocks.
-function managementResult(value) {
-  if (typeof value === 'string') {
-    try { return managementResult(JSON.parse(value)) } catch { return null }
-  }
-  if (!value || typeof value !== 'object') return null
-  if (typeof value.application === 'string') return value
-  for (const child of Object.values(value)) {
-    const found = managementResult(child)
-    if (found) return found
-  }
-  return null
-}
-
 // Every public management action asks for danger-full-access. This answers the
 // scratch page's real approval card each time it appears, without widening the
 // session policy or reaching into the Host. It returns as soon as the scripted
@@ -76,28 +62,6 @@ async function answerApprovals(page, done, timeoutMs = 120_000) {
   throw new Error('The isolated management action never completed')
 }
 
-// Public pinned tool -> PluginManager.removeBundle -> HMR.reconcileProfile.
-// Listing is included before the destructive operation, as the tool requires.
-function removalReply(observed) {
-  return request => {
-    if (!request.tools?.length) return null
-    const messages = request.messages ?? []
-    const start = messages.findIndex(message => JSON.stringify(message.content).includes('Perform isolated package upgrade'))
-    if (start < 0) return null
-    if (!request.tools.some(tool => tool.name === 'plugin_manager')) return { text: 'Missing public plugin_manager tool' }
-    const tail = messages.slice(start)
-    const uses = tail.flatMap(message => Array.isArray(message.content) ? message.content : [])
-      .filter(part => part.type === 'tool_use' && part.name === 'plugin_manager')
-    if (!uses.length) return { tool: { name: 'plugin_manager', input: { action: 'list_bundles', limit: 100 } } }
-    const remove = uses.find(part => part.input?.action === 'remove_bundle')
-    if (!remove) return { tool: { name: 'plugin_manager', input: { action: 'remove_bundle', target: 'dsh-uml-viewer' } } }
-    const result = tail.flatMap(message => Array.isArray(message.content) ? message.content : [])
-      .find(part => part.type === 'tool_result' && part.tool_use_id === remove.id)
-    observed.removal = managementResult(result)
-    return { text: observed.removal?.application === 'applied' ? 'Isolated removal applied' : 'Isolated removal did not apply' }
-  }
-}
-
 // This case adds a real package replacement and two explicit panel lifecycle
 // actions to the ordinary open, so it needs more than the lane's default 180 s.
 test.setTimeout(300_000)
@@ -107,7 +71,7 @@ test('installed update keeps the busy vN resident until explicit Close/Open, the
   test.skip(!initial || !next, 'Supply both initial and upgrade main/platform tarball pairs.')
   const observed = {}
   const lane = await launchViewerLane(browser, {
-    packageMain: initial.main, packagePlatform: initial.platform, reply: removalReply(observed),
+    packageMain: initial.main, packagePlatform: initial.platform, reply: upgradeReply(observed, { main: next.main }),
   })
   const evidence = { versions: ['1.0.0', '1.0.1'] }
   const home = path.join(lane.home, 'plugin-state')
@@ -135,19 +99,34 @@ test('installed update keeps the busy vN resident until explicit Close/Open, the
     evidence.beforeCanvas = await canvasDigest(shop)
     const origin = new URL(lane.host.url).origin
     const hostPid = lane.host.pid
-    await lane.sendPrompt(shop, 'Perform isolated package upgrade')
-    // The list and the removal each ask for the escalation they need. This is
-    // the scratch application's own approval card, and a policy that already
-    // allows the operation simply shows none.
-    const applied = shop.page.getByText('Isolated removal applied', { exact: true }).last()
-    await answerApprovals(shop.page, applied)
-    await expect(applied).toBeVisible()
-    expect(observed.removal?.application).toBe('applied')
+    // The pinned manager documents an update as removal then installation.
+    // 1. Public plugin_manager list_bundles + remove_bundle. The list and the
+    // removal each ask for the escalation they need through the scratch
+    // application's own approval card; a policy that allows it shows none.
+    await lane.sendPrompt(shop, UPGRADE_PROMPTS.remove)
+    // Either scripted outcome ends the wait; the tool's own result decides.
+    await answerApprovals(shop.page, shop.page.getByText(/^Isolated removal (applied|did not apply)$/).last())
     evidence.removal = observed.removal
-    // A completed manager removal has dropped mappings. Re-add BOTH real
-    // tarballs; the changed bundle selection is an explicit HMR watch trigger.
+    expect(observed.removal?.application).toBe('applied')
+    // 2. The 1.0.1 platform tarball as a plain dependency. With the bundle
+    // removed nothing maps it, so replacing it cannot be `package-moved`; it
+    // activates nothing by itself (CI11: an external CLI add never did).
+    lane.installPlatform(next.platform)
+    expect(JSON.parse(await fs.readFile(path.join(home, 'current.json'), 'utf8')).version).toBe('1.0.0')
+    // 3. Public plugin_manager install_bundle with the absolute 1.0.1 main
+    // tarball. The profile's direct dependencies then differ only in
+    // `dsh-uml-viewer` (the manager refuses any other count as
+    // ambiguous-install); the plugin's activation still requires the exact
+    // 1.0.1 platform package it finds. The manager selects the bundle and
+    // reconciles the live profile itself, answering `applied` only after the
+    // bundle's rows started.
+    await lane.sendPrompt(shop, UPGRADE_PROMPTS.install)
+    await answerApprovals(shop.page, shop.page.getByText(/^Isolated install (applied|did not apply)$/).last())
+    // Record before asserting, so a refused install leaves its diagnostic.
+    evidence.install = observed.install
+    expect(observed.install?.application).toBe('applied')
+    expect(observed.install).toMatchObject({ bundle: 'dsh-uml-viewer', version: '1.0.1' })
     // No host restart, page reload, private ctx or installed-file copying.
-    lane.installPackages(next)
     await expect.poll(async () => JSON.parse(await fs.readFile(path.join(home, 'current.json'), 'utf8')).version,
       { timeout: 10_000 }).toBe('1.0.1')
     expect(new URL(lane.host.url).origin).toBe(origin)

@@ -289,7 +289,7 @@ export async function launchViewerLane(browser, options = {}) {
   return {
     home, get host() { return host }, mock, projects, packages,
     openPanel, reopenPanel, restart, pan, wheel, point, sendPrompt, screenshot, close, uninstall,
-    installPackages: inputs => installed.installPackages(inputs),
+    installPlatform: file => installed.installPlatform(file),
     // A replacement may re-register the sidebar contribution. Let an automatic
     // remount win; otherwise select the real UML tab, never a synthetic mount.
     // A panel that stays closed after either is a failed acceptance, not retried.

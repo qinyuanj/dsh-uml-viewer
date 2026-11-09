@@ -123,14 +123,26 @@ platform tarballs above it requires absolute `UML_VIEWER_UPGRADE_MAIN` and
 pair it skips; the ordinary panel and package lifecycle cases are unchanged.
 
 The pinned DSH 0.2.2-rc.1 manager documents updates as removal followed by
-installation. The scripted scratch model calls the public `plugin_manager` tool
-(`list_bundles`, then `remove_bundle`); any requested approval is answered through
-the scratch page's **Allow once** button. The test requires the real removal
-result's `application: applied` before the CLI installs both new tarballs in the
-same home. Re-adding the bundle changes selection and triggers HMR reconciliation.
-A dependency-only CLI replacement would not trigger that watcher; directly
-replacing a mapped platform package can instead require a `package-moved`
-restart. The host and document remain running throughout this sequence.
+installation, and only Plugin Manager operations reconcile a running host: an
+external `dsh plugin add` writes files and selection and leaves activation to
+HMR's manifest watch, which can miss a removal and re-add that restore the
+same bundle list (CI run 42628045954 stayed on 1.0.0). The sequence is
+therefore three steps, each answered through the scratch page's **Allow once**
+button when approval is requested:
+
+1. a scripted prompt calls the public `plugin_manager` tool (`list_bundles`,
+   then `remove_bundle`); the real result must be `application: applied`;
+2. the CLI adds only the 1.0.1 platform tarball, a plain dependency that no
+   selected bundle maps any more, so it cannot cause `package-moved`;
+3. a second scripted prompt calls `plugin_manager` `install_bundle` with the
+   absolute 1.0.1 main tarball; the real result must be `application: applied`
+   for bundle `dsh-uml-viewer` version 1.0.1, after which `current.json` must
+   read 1.0.1. The manager refuses an installation that changes more than one
+   direct dependency, and activation requires the exact 1.0.1 platform package.
+
+The scripted replies live in `upgrade-reply.mjs` with offline unit tests.
+Directly replacing a mapped platform package while the bundle is selected
+remains unsupported. The host and document keep running throughout.
 
 The case requires the exact old resident PID, process creation identity,
 executable path and lease to survive; its canvas pixels and camera state must
@@ -138,8 +150,8 @@ survive remount and another canvas gesture must work. It verifies both installed
 executables with `--version`, then clicks **Close viewer / Open viewer**, requires
 a new PID on 1.0.1 and checks that the 1.0.0 lease and directory disappear.
 Windows write access to the mapped old executable must fail before the update.
-The CLI installation is bounded at 20 seconds and must finish soon enough for
-the real panel to rejoin within the unchanged 30-second withdrawal grace. A slow
+The platform CLI installation is bounded at 20 seconds, and the whole
+removal-to-install sequence must finish soon enough for the real panel to rejoin within the unchanged 30-second withdrawal grace. A slow
 or failed transition fails acceptance; neither the grace nor global test/job
 budgets are increased. Evidence is `upgrade-acceptance.json` and the two upgrade
 screenshots, under the existing explicit CI artifact whitelist.

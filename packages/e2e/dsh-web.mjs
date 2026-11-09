@@ -111,16 +111,19 @@ export async function startDshWeb({ home, projects, packages = null }) {
   // pnpm 11 remove does not accept --ignore-scripts; these archives have no scripts.
   const uninstall = () => run(command, ['plugin', '--profile', 'web', 'remove', ...store,
     'dsh-uml-viewer', ...(packages ? [`@dsh-uml-viewer/${process.platform}-${process.arch}`] : [])], env)
-  // Used only after the running manager has acknowledged removal. Re-adding
-  // the bundle changes selection, which pinned HMR watches; dependency-only
-  // `add` over a still-selected bundle would not request reconciliation.
-  const installPackages = inputs => {
-    const pair = packageInputs({ packageMain: inputs.main, packagePlatform: inputs.platform })
-    if (!pair) throw new Error('An upgrade requires both package tarballs')
-    run(command, ['plugin', '--profile', 'web', 'add', '--ignore-scripts', ...store,
-      pair.main, pair.platform], env, 20_000)
+  // Upgrade step 2 of 3, only after the running manager's removal applied.
+  // The platform package declares no dsh.bundle, so this is a plain dependency
+  // change: no selection change, no reconciliation, and no mapping moves,
+  // because no selected bundle depends on it once the main bundle is removed.
+  // Activation is the public plugin_manager install_bundle that follows; the
+  // CLI alone never reconciles a running host (pinned dsh-hmr README).
+  const installPlatform = file => {
+    if (!file || !path.isAbsolute(file) || !file.endsWith('.tgz') || !fs.existsSync(file)) {
+      throw new Error('An upgrade requires an absolute, existing platform tarball')
+    }
+    run(command, ['plugin', '--profile', 'web', 'add', '--ignore-scripts', ...store, file], env, 20_000)
   }
-  return { command, env, packages, uninstall, installPackages }
+  return { command, env, packages, uninstall, installPlatform }
 }
 
 export async function bootDshWeb({ command, env, home, mockUrl, packages = null }) {
