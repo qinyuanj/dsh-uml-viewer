@@ -14,8 +14,11 @@ edition = "2024"
 rust-version = "1.99.1"
 publish = false
 
-# Keep local checking small across the workspace and its worktrees.
-# Debug symbols and incremental object caches are deliberately disabled.
+# Keep local checking small across the workspace and its worktrees: the
+# maintainer's resource policy (D17), not a rule for every contributor. These
+# profiles only drop debug symbols and incremental caches; CI exports its own
+# CARGO_BUILD_JOBS for job count. Raise them once the resource constraint is
+# gone.
 [profile.dev]
 debug = false
 incremental = false

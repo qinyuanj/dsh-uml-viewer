@@ -221,3 +221,15 @@ binary, real font or plugin bundle.
 - acceptance criterion 1 (four platform packages produced by CI) is **NOT
   VERIFIED**, and criteria 2 and 3 are configured but unexecuted. No workflow
   run is green on this evidence.
+
+## Hardening items (open, not done)
+
+- **Actions are pinned by tag, not by commit SHA.** `package-release.yml` grants
+  `id-token: write` for npm trusted publishing, and a tag can be moved, so a
+  compromised or replaced release moves with it. Pinning every `uses:` in this
+  workflow to a full commit SHA is the hardening step; it is deliberately not
+  done in the current change, and the pinned SHAs must be updated by hand.
+- **Build parallelism.** `.cargo/config.toml` caps jobs at 2 for the
+  maintainer's local resource policy (D17). Release builds must not inherit
+  that: this workflow exports `CARGO_BUILD_JOBS: 4` for its own runners, and a
+  workstation that wants full parallelism exports the same variable.

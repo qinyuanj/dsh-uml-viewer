@@ -25,6 +25,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Not the repository's local jobs=2 policy (D17): release builds use their
+  # runner's own parallelism, as documented in docs/releasing.md.
+  CARGO_BUILD_JOBS: 4
 
 jobs:
   assemble:

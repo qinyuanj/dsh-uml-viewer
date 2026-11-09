@@ -1,4 +1,9 @@
-# User resource limit: check only; never start a build/test/coverage job.
+# This workstation's local resource policy (D17), not a rule for every
+# contributor: while the Rust build is resource-constrained, local Cargo work is
+# kept small and check-only (no build/test/coverage job is started from here).
+# CI is not capped by it - the workflows export CARGO_BUILD_JOBS=4 for their own
+# runners - and a workstation with room to spare exports CARGO_BUILD_JOBS too.
+# Remove these caps once the resource constraint is gone.
 [build]
 jobs = 2
 incremental = false
