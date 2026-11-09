@@ -89,6 +89,7 @@ def oracle_project(name: str, fixture: Path, scratch: Path, run) -> dict:
     assert rerun == published, f"{name}: unchanged rerun changed snapshot bytes"
     for relative, data in before.items():
         assert (source / relative).read_bytes() == data, f"{name}: fixture changed {relative}"
+        assert (root / relative).read_bytes() == data, f"{name}: run copy source changed {relative}"
     for data in published.values():
         assert b"\r" not in data and data.endswith(b"\n")
     output = fixture / name / "goldens"

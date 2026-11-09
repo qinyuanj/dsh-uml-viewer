@@ -34,6 +34,7 @@ pub mod number;
 pub mod paths;
 pub mod platform;
 pub mod process;
+mod report_files;
 pub mod runner;
 mod runner_clojure;
 mod runner_go;

@@ -53,6 +53,27 @@ default), on every platform including under the Python original, so a host
 without the component gains it on the first default-coverage run. CI installs
 it up front.
 
+## Go, Java and Clojure
+
+The language dispatch now accepts all seven mutation languages. Go uses the
+same per-module profiles and `go test -count=1 <package>` argument vectors as
+Linux; Java uses Maven/JaCoCo; Clojure uses the project's existing CLI aliases
+or babashka tasks. The site reader and operator rules are shared with Linux,
+including the custom Clojure reader. Every coverage, baseline and mutant
+command continues through the same copy and Job Object boundary.
+
+Maven and Clojure commands seed an independent copy of the cached `.m2`
+repository beside the copy and set Java's home there. They refuse linked
+repository directories through the same copy-tree guard, so dependency writes
+cannot follow a cache directory back into the user's profile.
+
+The Go golden test is enabled on native Windows and compares the pinned
+Linux oracle with the original's Windows isolation field (`:copy`). Its first
+run was interrupted under the user's Rust resource restriction; final native
+Go execution and Java/Clojure WSL acceptance remain pending. The existing
+11 Windows isolation tests passed earlier in #14, before the final adapters.
+No final cross-platform runtime claim follows from compilation alone.
+
 ## Weaker than Linux, and honest about it
 
 A copy is a convention, not an OS-enforced sandbox: an absolute path outside

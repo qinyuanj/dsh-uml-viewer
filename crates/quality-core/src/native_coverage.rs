@@ -10,11 +10,12 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use crate::coverage::{LCOV_REPORTS, Records, parse_lcov, report_texts};
+use crate::coverage::{LCOV_REPORTS, Records, parse_lcov};
 use crate::coverage_reports::{
     GO_REPORTS, GoProfile, JACOCO_REPORTS, cloverage_forms, go_segments, jacoco_document,
     parse_go_profile,
 };
+use crate::report_files::report_texts;
 
 /// The reports `load_bundle` reads under one directory, in its order.
 #[derive(Default)]
@@ -42,6 +43,19 @@ impl NativeReports {
             reports.lcov.update(parse_lcov(&text));
         }
         Ok(reports)
+    }
+
+    /// Forget reports about to be regenerated. A failed runner must not
+    /// reuse stale hits from an older report.
+    pub fn invalidate(&mut self, language: crate::language::Language) {
+        match language {
+            crate::language::Language::Go => self.go.clear(),
+            crate::language::Language::Clojure => {
+                self.forms = Records::default();
+                self.lcov = Records::default();
+            }
+            _ => {}
+        }
     }
 
     /// Reports another directory produced, after these, as one glob over

@@ -1,11 +1,12 @@
 //! Native report formats used by Go, Java and Cloverage.
 use crate::coverage::{
     Lines, Records, SuffixIndex, candidates, coverage_percent, normalize_path, python_repr,
-    python_strip, report_texts, splitlines,
+    python_strip, splitlines,
 };
 use crate::functions::Function;
 use crate::language::Language;
 use crate::paths::posix;
+use crate::report_files::report_texts;
 use regex::Regex;
 use std::{
     fs,

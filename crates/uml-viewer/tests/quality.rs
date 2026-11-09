@@ -583,22 +583,27 @@ fn mutation_targets_are_checked_before_launch() {
     assert!(!project.root.join(".metrics").exists());
 }
 
-/// A language whose tool is not ported for the operation is an explicit
-/// error, never an empty success.
+/// All seven languages reach their built-in tools. The Go scan has a real
+/// site, so dispatch cannot silently turn it into an empty selection.
 #[test]
-fn an_unported_language_is_an_explicit_error_record() {
+fn all_quality_languages_reach_the_built_in_tools() {
     let project = Project::new();
     project.config(r#"{"version":1,"standardTools":{"sourceRoots":["src"]}}"#);
-    project.write("src/main.go", "package main\n\nfunc main() {}\n");
+    project.write(
+        "src/main.go",
+        "package main\n\nfunc value() bool { return true }\n",
+    );
     project.write("src/main.ts", "export function f() { return 1; }\n");
-    let output = project.quality(&["mutate", "src/main.go"]);
-    let record = checked(&output, "mutate", &project.root);
-    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
-    assert_eq!(record["validResult"], false);
-    let reason = record["reason"].as_str().unwrap();
-    assert!(reason.contains("not ported for go"), "{reason}");
-    assert!(!stderr(&output).contains("No source files"));
-    assert!(!project.root.join(".metrics").exists());
+    #[cfg(any(target_os = "linux", windows))]
+    {
+        let output = project.quality(&["mutate", "--scan", "src/main.go"]);
+        let record = checked(&output, "mutate", &project.root);
+        assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+        assert_eq!(record["validResult"], true);
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Scan: 1 mutation sites"));
+        assert!(!stderr(&output).contains("No source files"));
+        assert!(!project.root.join(".metrics").exists());
+    }
     // After #7, dryer reads every ported language: the same mixed project is
     // a real run, not an empty success and not a "not ported" refusal.
     let output = project.quality(&["dry"]);

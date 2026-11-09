@@ -178,3 +178,74 @@ skipped on the recorded run), publishes the goldens and the site inventory, and
 records provenance and tool versions in `python-typescript-evidence.json`.
 Grammar and test dependencies install only into a disposable `/tmp` scratch;
 nothing is installed globally and the reference clones are never written.
+
+## Go, Java and Clojure oracles (#14)
+
+The new projects exercise real test runners: Go 1.26.3 on WSL, JDK
+17.0.21+9 with Maven 3.9.11 and JUnit 5.11.4, and Clojure CLI 1.12.6.1673
+with Clojure 1.12.0/Cloverage 1.2.4. CPython 3.12.3 with tree-sitter 0.26.0
+and language-pack 1.21.0 runs the two unmodified pins listed above. A scratch
+`clj` shim invokes the installed `clojure` because this host lacks rlwrap;
+nothing is installed globally. Cached Maven dependencies are prerequisites.
+
+Regenerate on Linux/WSL with those tools on PATH:
+
+```bash
+python3 scripts/mutate_goldens_go_java_clojure.py --references <spec203-notes>/ref
+```
+
+The generator verifies reference pins and cleanliness, installs pinned Python
+oracle dependencies into disposable `/tmp`, runs the original
+`test_sites.py`, `test_runner.py`, `test_coverage.py` and
+`test_snapshot_bytes.py` (60 passed, 1 skipped in the captured run), and uses
+`FixedTime` to generate seven raw snapshots. The projects run once with
+`--mutate-all --max-workers 1 --timeout-factor 20`, then unchanged without
+`--mutate-all`. All three first runs and differential reruns exit 3; all
+seven rerun snapshots keep identical bytes. The current generator additionally
+checks the run copy's source bytes, as well as the fixture originals. The
+captured evidence predates that extra assertion.
+
+| Language | Targets | Oracles |
+| --- | --- | --- |
+| Go | `demo/calc.go`, `widgets/widget.go` | `demo.edn`, `demo.Counter.edn`, `example.com/widgets.edn`, `example.com/widgets.Box.edn` |
+| Java | `src/main/java/demo/Board.java` | `demo.Board.edn`, `demo.Board.Cell.edn` |
+| Clojure | `src/demo/core.clj` | `demo.core.edn` |
+
+The Go `demo` module's profile names its source `demo/calc.go`, which joins
+by suffix. The second module's import path `example.com/widgets/widget.go`
+does not join the project path `widgets/widget.go` under the pinned original:
+its three sites stay uncovered despite the real tests running. This is an
+observed original behavior, retained in the goldens. The first module has
+six killed sites, three survivors and two uncovered sites; Java has twelve
+killed, one survivor and four uncovered; Clojure has five killed, three
+survivors and one uncovered. All goldens use the fixed clock above and
+`:namespace-view`. The Windows test adapts only the expected isolation field
+to `:copy`, as #10's tests do; Linux goldens themselves stay raw.
+
+`go-java-clojure-evidence.json` records exact toolchain versions, pins,
+arguments, statuses, sizes and SHA-256s. `sites/go-java-clojure.json` records
+21 source files, 288 sites and their forms/digests. The site corpus includes
+the six original language-specific `test_sites.py` cases, the three
+non-bitwise parameter cases, all Clojure head swaps, reader macros, metadata,
+quotes, errors, Unicode/CRLF, Go receivers and Java nested classes. The CRLF
+fixture is `-text` in `.gitattributes` so a fresh checkout retains its bytes.
+
+The custom Clojure reader was also compared with the original's grammar on
+132 library sources extracted from locally cached jars: 7,033 sites matched
+exactly. This optional differential runs via the ignored external-corpus test
+with `MUTATOR_CLOJURE_CORPUS` and `MUTATOR_CLOJURE_RAW`; the generator's
+`--clojure-corpus DIR --raw-output FILE` produces its independent oracle.
+The external corpus is scratch and is not committed.
+
+Rust tests cover native report selection from the original
+`test_coverage.py` cases, Cloverage precedence/fallback, missing native
+reports, malformed reports, fixed-clock real runner snapshots, reruns and
+worker-count equality. The original `test_runner.py` Go package argv,
+Java/Maven fallback and all Clojure task/alias cases are ported too. Toolchain
+skips write directly to real stderr, so libtest capture cannot hide them;
+`MUTATOR_REQUIRE_TOOLCHAINS=1` makes them fail.
+
+Final Rust runtime acceptance remains pending under the user's #14 resource
+restriction (scoped `cargo check` only). The committed Python oracles and the
+passing site-reader differential are evidence for those parts; they do not
+substitute for execution of the final engine tests.

@@ -189,6 +189,24 @@ impl Slot {
                 environment.push(("RUSTUP_HOME".into(), default.into_os_string()));
             }
         }
+        // JVM tools use java.user.home for dependency repositories. Cached
+        // jars are independent copies; downloads and lockfiles stay beside
+        // this worker, rather than writing to the user's Maven repository.
+        let rendered = program.display();
+        if rendered.contains("mvn") || rendered.contains("clj") || rendered.contains("clojure") {
+            let jvm_home = home.join("home");
+            let repository = quality_core::paths::home().join(".m2");
+            if repository.is_dir() {
+                let destination = jvm_home.join(".m2");
+                fs::create_dir_all(&destination).map_err(message)?;
+                copy_tree(&repository, &destination, &[]).map_err(message)?;
+            }
+            let previous = std::env::var("JAVA_TOOL_OPTIONS").unwrap_or_default();
+            environment.push((
+                "JAVA_TOOL_OPTIONS".into(),
+                format!("{previous} -Duser.home=\"{}\"", jvm_home.display()).into(),
+            ));
+        }
         environment.push((
             "MUTATOR_VIEW".into(),
             self.directory.clone().into_os_string(),

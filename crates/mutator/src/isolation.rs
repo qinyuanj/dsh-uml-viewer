@@ -170,6 +170,15 @@ export CARGO_HOME RUSTUP_HOME
 home="$root/target/mutator-home"
 mkdir -p "$home/tmp" "$home/.cache"
 export HOME="$home" XDG_CACHE_HOME="$home/.cache" TMPDIR="$home/tmp"
+# JVM tools locate their repositories through java.user.home, not just HOME.
+# Seed independent copies of cached dependencies; new downloads and lockfiles
+# belong to this view and cannot modify the user's repository.
+case "$*" in
+  *mvn*|*clj*|*clojure*)
+    if [ -d "$toolchain_home/.m2" ]; then cp -R "$toolchain_home/.m2" "$home/.m2"; fi
+    export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Duser.home=$home"
+    ;;
+esac
 export CARGO_TARGET_DIR="$root/target/mutator-build"
 unset CARGO_BUILD_TARGET_DIR CARGO_ENCODED_RUSTFLAGS LLVM_PROFILE_FILE
 exec "$@"

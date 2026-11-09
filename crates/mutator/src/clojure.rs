@@ -836,3 +836,119 @@ pub fn raw_sites(text: &str) -> Vec<Raw> {
 pub fn private(header: &str) -> bool {
     header.starts_with("(defn-")
 }
+
+use std::path::{Path, PathBuf};
+
+fn read_project(path: &Path) -> String {
+    std::fs::read_to_string(path).unwrap_or_default()
+}
+
+/// `_clojure_command`: Babel's babashka runner, Speclj's tagged runner or the
+/// plain `:test` alias, chosen by the text of the project's own files.
+pub fn command(directory: &Path) -> Vec<String> {
+    let deps = directory.join("deps.edn");
+    let bb = directory.join("bb.edn");
+    if bb.is_file() && !deps.is_file() {
+        if read_project(&bb).contains("spec") {
+            return ["bb", "spec", "--tag", "~no-mutate"]
+                .map(String::from)
+                .to_vec();
+        }
+        return ["bb", "test"].map(String::from).to_vec();
+    }
+    let text = read_project(&deps);
+    if text.contains(":spec") && text.contains("speclj") {
+        return ["clj", "-M:spec", "--tag", "~no-mutate"]
+            .map(String::from)
+            .to_vec();
+    }
+    if text.contains(":spec") {
+        return ["clj", "-M:spec"].map(String::from).to_vec();
+    }
+    ["clj", "-M:test"].map(String::from).to_vec()
+}
+
+/// `test_plan(root, source, "clojure", None)`: the nearest `deps.edn`, then
+/// the nearest `bb.edn`, then the root.
+pub fn test_plan(root: &Path, source: &Path) -> (Vec<String>, PathBuf) {
+    use quality_core::{paths::resolve, runner::nearest};
+    let root = resolve(root);
+    let directory = nearest(source, "deps.edn", &root)
+        .or_else(|| nearest(source, "bb.edn", &root))
+        .unwrap_or_else(|| root.clone());
+    (command(&directory), directory)
+}
+
+#[cfg(test)]
+mod tests {
+    //! Ported from the original `tests/test_runner.py` Clojure cases.
+    use super::*;
+    use std::fs;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+    fn directory(name: &str) -> PathBuf {
+        let directory = std::env::temp_dir().join(format!(
+            "mutator-clj-plan-{}-{}-{name}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        directory
+    }
+
+    #[test]
+    fn clojure_commands() {
+        let bb = directory("bb-spec");
+        fs::write(bb.join("bb.edn"), "{:tasks {spec \"spec\"}}").unwrap();
+        assert_eq!(command(&bb), ["bb", "spec", "--tag", "~no-mutate"]);
+
+        let bb_test = directory("bb-test");
+        fs::write(
+            bb_test.join("bb.edn"),
+            "{:tasks {test (clojure \"-M:test\")}}",
+        )
+        .unwrap();
+        assert_eq!(command(&bb_test), ["bb", "test"]);
+
+        let spec = directory("spec");
+        fs::write(
+            spec.join("deps.edn"),
+            "{:aliases {:spec {:extra-deps {speclj/speclj {}}}}}",
+        )
+        .unwrap();
+        assert_eq!(command(&spec), ["clj", "-M:spec", "--tag", "~no-mutate"]);
+
+        let spec_only = directory("spec-only");
+        fs::write(spec_only.join("deps.edn"), "{:aliases {:spec {}}}").unwrap();
+        assert_eq!(command(&spec_only), ["clj", "-M:spec"]);
+
+        let plain = directory("plain");
+        fs::write(plain.join("deps.edn"), "{:deps {}}").unwrap();
+        assert_eq!(command(&plain), ["clj", "-M:test"]);
+        for path in [bb, bb_test, spec, spec_only, plain] {
+            fs::remove_dir_all(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn clojure_plans_prefer_deps_over_a_nearer_bb_edn() {
+        let root = directory("root");
+        let sub = root.join("sub");
+        fs::create_dir(&sub).unwrap();
+        let source = sub.join("core.clj");
+        fs::write(&source, "(ns core)\n").unwrap();
+        fs::write(sub.join("bb.edn"), "{}\n").unwrap();
+        assert_eq!(
+            test_plan(&root, &source),
+            (vec!["bb".into(), "test".into()], sub.clone())
+        );
+        fs::write(root.join("deps.edn"), "{}\n").unwrap();
+        assert_eq!(
+            test_plan(&root, &source),
+            (vec!["clj".into(), "-M:test".into()], root.clone())
+        );
+        // Neither marker: the root with the plain test alias.
+        fs::remove_dir_all(&root).unwrap();
+    }
+}

@@ -367,3 +367,6 @@ pub fn run_coverage_with_lua_shards(
 pub fn stale_files(root: &Path, files: &[PathBuf], command: Option<&str>) -> Vec<PathBuf> {
     crate::stamp::stale_files(root, files, command)
 }
+
+/// crapper's Maven JaCoCo command, which mutator runs in its own views.
+pub const JACOCO_MAVEN: &[&str] = crate::runner_java::MAVEN;
