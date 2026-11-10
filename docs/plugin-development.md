@@ -308,7 +308,7 @@ in `packages/e2e/requests.spec.mjs` use the existing isolated lane and a
 scripted model with scratch-project Node quality overrides (no Cargo); they
 require a separately available existing native binary.
 
-### Request status (#51, ADR 0015)
+### Request status (#51, #52, ADR 0015)
 
 `packages/host/src/request-status.ts` keeps each session's panel requests in
 process memory (DSH restarting forgets them; at most 64 per session, finished
@@ -324,7 +324,45 @@ refreshed page sees the unfinished entries again. A session's list never
 reaches another session's stream. The status bar (`statusbar.ts`) shows the
 entry that changed last; with no history it shows the oldest unfinished entry,
 else the newest. `RequestStatuses.record` replaces an entry with the same id,
-which is the seam for the later transitions (#52) and dismissal (#53).
+which is the seam for the transitions below and for dismissal (#53).
+
+#52 attributes the companion's work to those entries in FIFO order: the head
+of the list — the oldest entry still `queued` or `running` — is the request it
+is handling, so
+
+| Trigger | Transition |
+| --- | --- |
+| the first `uml_*` call after the head was admitted | `queued` → `running` |
+| a quality result with `validResult: false` | `running` → `failed`, with the record's `reason` (a fixed sentence when the record has none) and its `exitCode` |
+| a failed `uml_ir` | `running` → `failed`, with the IR record's reason and exit code |
+| a successful `uml_display` | `running` → `done` |
+| the companion's turn ends with the request unfinished | → `failed`, reason *the companion ended this turn without completing the display* |
+
+The attribution is the FIFO one the spec accepts: a quality call the user asks
+for by hand is attributed to the head too, so its result can end a request the
+user did not ask it for. A hide or a new proposal is matched exactly instead:
+`uml_ir({request})` names one entry by the grant id it carries, so its `running`
+and `failed` transitions land on that entry, not on the head. A successful
+`uml_display` completes the head and reports that entry's `target` in its
+result, which is what 「在面板中查看」 locates (#54); a display that answers no
+request names no element. The head is read from the list itself, in request
+order, never from a separately remembered "last request" record.
+
+Turn boundaries come from DSH's published `session/event` feed, the one public
+event a plugin can observe them through: `turn/start` clears the turn's claims,
+and `turn/end` settles the request that turn consumed. A durable
+`user/message` echoes the prompt `requestId` as its source `rpcId`, which is how
+the host knows a turn consumed one of its requests: a turn of the user's own
+that ends while a request still waits in DSH's queue leaves that request
+`queued`. The head is also failed at `turn/end` when it is `running` without a
+claim, so a companion that ran tools in a resumed or older session still
+settles. `agent/status` is not used: it carries no turn identity, so a
+per-agent idle would fail a request the next turn is about to pick up.
+
+A refused request still names the element the browser clicked (#52 F26): the
+refusal keeps the id the user clicked when the shown diagram gives its kind
+(an unresolved target of a refresh, a foreign library, a class without source).
+Requests whose id is not in the shown diagram any more name no element.
 
 ## Contracts and follow-on seams
 
