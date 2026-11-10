@@ -121,7 +121,7 @@ it('an inflight borrow never extends the withdrawal deadline and shutdown drains
 it('a late action from a withdrawn panel neither stops the resident nor cancels its grace', async () => {
   const h = setup()
   const abort = new AbortController()
-  const stream = h.viewer.watchOwned(h.agent, owner('first'), abort.signal)[Symbol.asyncIterator]()
+  const stream = h.viewer.watchOwned(h.agent, owner('first'), null, abort.signal)[Symbol.asyncIterator]()
   await stream.next()
   abort.abort()
   await stream.return!()
@@ -137,12 +137,12 @@ it('a late action from a withdrawn panel neither stops the resident nor cancels 
 it('a delayed old holder close cannot poison the replacement holder withdrawal', async () => {
   const h = setup()
   const firstAbort = new AbortController()
-  const first = h.viewer.watchOwned(h.agent, owner('first'), firstAbort.signal)[Symbol.asyncIterator]()
+  const first = h.viewer.watchOwned(h.agent, owner('first'), null, firstAbort.signal)[Symbol.asyncIterator]()
   await first.next()
   firstAbort.abort()
   await first.return!()
   const secondAbort = new AbortController()
-  const second = h.viewer.watchOwned(h.agent, owner('second'), secondAbort.signal)[Symbol.asyncIterator]()
+  const second = h.viewer.watchOwned(h.agent, owner('second'), null, secondAbort.signal)[Symbol.asyncIterator]()
   await second.next()
   expect(await h.viewer.closeOwned(h.agent, owner('first'))).toEqual({ closed: false })
   secondAbort.abort()

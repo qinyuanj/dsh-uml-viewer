@@ -1,5 +1,5 @@
 import type { PanelAck, PanelAction, PanelCloseAck, PanelEvent, ResidentEvent } from '@dsh-uml-viewer/contracts'
-import { parsePanelAction, parsePanelOwner, type PanelOwner } from '@dsh-uml-viewer/contracts'
+import { parsePanelAction, parsePanelLanguage, parsePanelOwner, type PanelOwner } from '@dsh-uml-viewer/contracts'
 import type { Agent } from './dsh.js'
 import type { PanelPrompts } from './prompt.js'
 import type { PanelRequests } from './requests.js'
@@ -53,18 +53,31 @@ export class ViewerService {
     private readonly requests: PanelRequests,
   ) {}
 
-  watchOwned(agent: Agent, owner: PanelOwner, signal: AbortSignal): AsyncIterable<PanelEvent> {
-    return this.watch(agent, signal, parsePanelOwner(owner))
+  /**
+   * The owned panel stream. The gateway passes the descriptor's parameters in
+   * order and the cancellation signal last; `language` is the DSH language the
+   * panel passes (#44), `null` from a panel that predates it.
+   */
+  watchOwned(agent: Agent, owner: PanelOwner, language: string | null | undefined, signal: AbortSignal): AsyncIterable<PanelEvent> {
+    return this.watch(agent, signal, parsePanelOwner(owner), language)
   }
 
   async closeOwned(agent: Agent, owner: PanelOwner): Promise<PanelCloseAck> {
     return { closed: await this.sessions.closeOwned(agent, parsePanelOwner(owner)) }
   }
 
-  async *watch(agent: Agent, signal: AbortSignal, owner?: PanelOwner): AsyncIterable<PanelEvent> {
+  /**
+   * Open this session's panel stream. `language` is the DSH language the panel
+   * passes (#44): DSH has one language for every panel, so the latest one wins
+   * and no view state records it.
+   */
+  async *watch(agent: Agent, signal: AbortSignal, owner?: PanelOwner, language?: string | null): AsyncIterable<PanelEvent> {
     let connection
     try {
-      connection = owner ? await this.sessions.openOwned(agent, signal, owner) : await this.sessions.open(agent, signal, true)
+      const locale = parsePanelLanguage(language)
+      connection = owner
+        ? await this.sessions.openOwned(agent, signal, owner, locale)
+        : await this.sessions.open(agent, signal, true, locale)
     } catch (error) {
       yield error instanceof Refusal ? { kind: 'refused', reason: error.message } : { kind: 'failed', reason: reasonOf(error) }
       return

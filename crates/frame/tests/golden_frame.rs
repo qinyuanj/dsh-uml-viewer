@@ -39,21 +39,68 @@ fn frame(args: &[&str]) -> String {
     text
 }
 
+/// The golden of one view in each language the resident lays text out in
+/// (#44): Chinese is `{name}.frame.json`, English `{name}.en.frame.json`.
 fn golden(name: &str, args: &[&str]) {
-    let actual = frame(args);
-    let path = fixtures().join("frames").join(format!("{name}.frame.json"));
+    for (lang, file) in [
+        ("zh", format!("{name}.frame.json")),
+        ("en", format!("{name}.en.frame.json")),
+    ] {
+        let mut argv = vec!["--lang", lang];
+        argv.extend_from_slice(args);
+        compare(&file, &frame(&argv));
+    }
+}
+
+fn compare(file: &str, actual: &str) {
+    let path = fixtures().join("frames").join(file);
     if std::env::var_os("UPDATE_FRAME_GOLDENS").is_some() {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, &actual).unwrap();
+        std::fs::write(&path, actual).unwrap();
     }
     let expected = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("missing golden {}: {e}", path.display()))
         .replace("\r\n", "\n");
     assert!(
         actual == expected,
-        "{name}: frame differs from {}; rerun with UPDATE_FRAME_GOLDENS=1 and review the diff",
+        "{file}: frame differs from {}; rerun with UPDATE_FRAME_GOLDENS=1 and review the diff",
         path.display()
     );
+}
+
+fn golden_text(file: &str) -> String {
+    std::fs::read_to_string(fixtures().join("frames").join(file))
+        .unwrap()
+        .replace("\r\n", "\n")
+}
+
+/// An unmeasured class box says 无数据 in Chinese and "No data" in English.
+#[test]
+fn the_no_data_marker_follows_the_language() {
+    let marker = |file: &str| {
+        let frame: serde_json::Value = serde_json::from_str(&golden_text(file)).unwrap();
+        let texts: Vec<String> = frame["world"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|item| item["kind"] == "no-data")
+            .map(|item| item["text"].as_str().unwrap().to_owned())
+            .collect();
+        assert!(!texts.is_empty(), "{file} has no no-data marker");
+        texts
+    };
+    assert!(marker("root.frame.json").iter().all(|t| t == "无数据"));
+    assert!(marker("root.en.frame.json").iter().all(|t| t == "No data"));
+}
+
+/// Only Chinese and English are shipped: any other language, and none, is English.
+#[test]
+fn an_unsupported_or_missing_language_falls_back_to_english() {
+    let english = golden_text("root.en.frame.json");
+    assert_eq!(english, frame(&["--lang", "fr"]));
+    assert_eq!(english, frame(&["--lang", "ja-JP"]));
+    assert_eq!(english, frame(&[]));
+    assert_eq!(golden_text("root.frame.json"), frame(&["--lang", "zh-CN"]));
 }
 
 #[test]

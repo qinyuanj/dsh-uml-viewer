@@ -22,6 +22,7 @@ describe('panel Remote descriptors', () => {
     expect(watch.service).toBe(REMOTE_SERVICE)
     expect(watch.namespace).toBe(REMOTE_SERVICE)
     expect(watch.scope).toEqual({ context: 'agent', wire: 'agentId' })
+    // The legacy watch keeps its version-1 wire shape; the language rides on watchOwned (#44).
     expect(watch.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup']])
     expect(watch.parameters[0]!.codec.typeSymbol).toBe('@deepseek-ai/dsh-session/types#SessionId')
     expect(watch.cancellation).toEqual({ parameter: 'signal' })
@@ -55,9 +56,10 @@ describe('panel Remote descriptors', () => {
     expect(close.id).toBe('dsh-uml-viewer#umlViewer/closeOwned')
     expect(close.mode).toBeUndefined()
     expect(close.cancellation).toBeUndefined()
+    expect(watch.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup'], ['owner', 'json'], ['language', 'json']])
+    expect(close.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup'], ['owner', 'json']])
     for (const descriptor of [watch, close]) {
       expect(descriptor.scope).toEqual({ context: 'agent', wire: 'agentId' })
-      expect(descriptor.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup'], ['owner', 'json']])
       expect(descriptor.parameters[0]!.codec.typeSymbol).toBe('@deepseek-ai/dsh-session/types#SessionId')
       const owner = descriptor.parameters[1]!.codec.create()
       expect(owner.parse({ pageId: 'page-1', holderId: 'a_b-C' })).toEqual({ pageId: 'page-1', holderId: 'a_b-C' })
@@ -69,6 +71,23 @@ describe('panel Remote descriptors', () => {
       expect(owner.parse({ pageId: 'p', holderId: 'h', sessionId: 'other' })).toEqual({ pageId: 'p', holderId: 'h' })
     }
     expect(close.result.create().parse({ closed: false })).toEqual({ closed: false })
+  })
+
+  it('takes a locale tag, or nothing, as the watch language (#44)', () => {
+    for (const method of ['watchOwned']) {
+      const descriptor = UML_VIEWER_REMOTE.descriptors.find(entry => entry.method === method)!
+      const language = descriptor.parameters.find(parameter => parameter.wire === 'language')!.codec.create()
+      expect(language.parse('zh')).toBe('zh')
+      expect(language.parse('zh-CN')).toBe('zh-CN')
+      expect(language.parse('en')).toBe('en')
+      // An older panel passes none; the resident keeps its language.
+      expect(language.parse(undefined)).toBeNull()
+      expect(language.parse(null)).toBeNull()
+      expect(() => language.parse(7)).toThrow(/language/)
+      expect(() => language.parse('')).toThrow(/language/)
+      expect(() => language.parse('zh;rm -rf')).toThrow(/language/)
+      expect(() => language.parse('x'.repeat(36))).toThrow(/language/)
+    }
   })
 
   it('parses every event kind the panel receives, and rejects the rest', () => {
@@ -105,6 +124,7 @@ describe('panel Remote descriptors', () => {
       { action: 'select', at: null }, { action: 'select', at: [3, 4] },
       { action: 'search', query: 'graph' }, { action: 'locate', id: ':ir.graph' },
       { action: 'context', proposalId: null }, { action: 'context', proposalId: ':p-shop' },
+      { action: 'language', language: 'zh-CN' }, { action: 'language', language: 'en' },
     ]
     for (const action of actions) expect(parsePanelAction(action), action.action).toEqual(action)
     expect(() => parsePanelAction({ action: 'shell', argv: ['rm'] })).toThrow(/action/)
@@ -114,6 +134,8 @@ describe('panel Remote descriptors', () => {
     // #45: a breadcrumb click names its level; anything else is not a target.
     expect(() => parsePanelAction({ action: 'back', target: 7 })).toThrow(/target/)
     expect(() => parsePanelAction({ action: 'back', target: {} })).toThrow(/target/)
+    expect(() => parsePanelAction({ action: 'language' })).toThrow(/language/)
+    expect(() => parsePanelAction({ action: 'language', language: 'en\n' })).toThrow(/language/)
   })
 
   it('names the packaged Sarasa face the client loads', () => {
@@ -132,10 +154,25 @@ describe('uml_display contract', () => {
 
   it('returns a version-1 record with the ADR 0001 fields', () => {
     const record = { version: 1, operation: 'display', projectRoot: 'D:/p', path: 'diagram.edn', exitCode: null,
-      validResult: true, crapScope: null, configured: false, tool: 'uml-viewer', status: 'ok', reason: null }
+      validResult: true, crapScope: null, configured: false, tool: 'uml-viewer', status: 'ok', reason: null, target: null }
     expect(validateDisplayResult(record)).toEqual(record)
     expect(DISPLAY_RESULT_SCHEMA.properties.operation).toMatchObject({ const: 'display' })
     expect(() => validateDisplayResult({ ...record, status: 'applied' })).toThrow(/status/)
     expect(() => validateDisplayResult({ ...record, operation: 'ir' })).toThrow(/operation/)
+  })
+
+  // #54: the panel request a display answers names one element; the result
+  // carries it so 「在面板中查看」 can locate the element. A display that answers
+  // no request says so with null.
+  it('carries the element target a display answers, validated like a panel request', () => {
+    const record = { version: 1, operation: 'display', projectRoot: 'D:/p', path: 'diagram.edn', exitCode: null,
+      validResult: true, crapScope: null, configured: false, tool: 'uml-viewer', status: 'ok', reason: null,
+      target: { id: ':core', kind: 'component' } }
+    expect(validateDisplayResult(record)).toEqual(record)
+    expect(DISPLAY_RESULT_SCHEMA.required).toContain('target')
+    expect(() => validateDisplayResult({ ...record, target: { id: 'core', kind: 'class' } })).toThrow(/keyword/)
+    expect(() => validateDisplayResult({ ...record, target: { id: ':core', kind: 'layer' } })).toThrow(/kind/)
+    expect(() => validateDisplayResult({ ...record, target: undefined })).toThrow(/target/)
+    expect(validateDisplayResult({ ...record, target: null }).target).toBeNull()
   })
 })

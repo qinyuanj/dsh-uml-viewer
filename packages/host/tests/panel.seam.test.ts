@@ -135,13 +135,18 @@ async function setup(options: {
   }
   const viewer = () => ctx.get('umlViewer') as unknown as {
     watch(agent: Agent, signal: AbortSignal): AsyncIterable<PanelEvent>
+    watchOwned(agent: Agent, owner: { pageId: string; holderId: string }, language: string | null, signal: AbortSignal): AsyncIterable<PanelEvent>
     action(agent: Agent, action: unknown): Promise<{ accepted: boolean; reason: string | null }>
     close(agent: Agent): Promise<{ closed: boolean }>
   }
-  const stream = (session: string) => {
+  const stream = (session: string, owned?: { holderId: string; language: string | null }) => {
     const controller = new AbortController()
     controllers.push(controller)
-    const iterator = viewer().watch(agents[session]!, controller.signal)[Symbol.asyncIterator]()
+    // The owned stream is called as the gateway calls it: its parameters in
+    // descriptor order, then the cancellation signal.
+    const iterator = (owned
+      ? viewer().watchOwned(agents[session]!, { pageId: 'page', holderId: owned.holderId }, owned.language, controller.signal)
+      : viewer().watch(agents[session]!, controller.signal))[Symbol.asyncIterator]()
     return {
       controller,
       next: async () => (await iterator.next()) as IteratorResult<PanelEvent>,
@@ -379,6 +384,34 @@ it('streams the resident scene frame to the panel bound to that session', async 
   await reader.close()
   expect((await actionLog(projects['session-a']!)).map(entry => entry.action))
     .toEqual(['open', 'reload', 'save', 'search', 'save', 'quit'])
+})
+
+it('passes the panel language to the resident on open and on a switch (#44)', async () => {
+  const { stream, projects, agents, viewer, home } = await setup()
+  const reader = stream('session-a', { holderId: 'first', language: 'zh-CN' })
+  expect((await timeout(reader.next())).value?.kind).toBe('ready')
+  expect((await timeout(reader.next())).value?.kind).toBe('frame')
+  // The open action carries the language; the resident is not restarted for it.
+  const actions = await actionLog(projects['session-a']!)
+  expect(actions[0]).toMatchObject({ action: 'open', language: 'zh-CN' })
+
+  // The same session's other panel passed no language (an older panel): the
+  // latest writer decides, so it does not push the resident back to English.
+  const other = stream('session-a', { holderId: 'second', language: null })
+  expect((await timeout(other.next())).value?.kind).toBe('ready')
+  expect((await actionLog(projects['session-a']!)).filter(entry => entry.action === 'open')).toHaveLength(1)
+
+  // A DSH language switch reaches the resident, without any save of a language.
+  expect(await viewer().action(agents['session-a']!, { action: 'language', language: 'en' }))
+    .toEqual({ accepted: true, reason: null })
+  expect((await actionLog(projects['session-a']!)).find(entry => entry.action === 'language'))
+    .toMatchObject({ action: 'language', language: 'en' })
+  // A view change persists the view; it never records the language, which is the resident's.
+  expect(await viewer().action(agents['session-a']!, { action: 'declutter' })).toMatchObject({ accepted: true })
+  await reader.withdraw()
+  await other.withdraw()
+  const state = await readJson(path.join(home, 'dsh-uml-viewer', 'sessions', 'session-a.json'))
+  expect(Object.keys(state).filter(key => key.startsWith('lang'))).toEqual([])
 })
 
 it('keeps one resident per session and stops it when the last panel closes', async () => {

@@ -12,8 +12,8 @@
  */
 import type { DiscussionContext } from './resident.js'
 import type { PanelRequestTarget } from './requests.js'
-import { PANEL_REQUEST_HEADER, parseElementId } from './requests.js'
-import { parseRequestId } from './tools.js'
+import { PANEL_REQUEST_HEADER } from './requests.js'
+import { parseElementId, parseRequestId } from './tools.js'
 
 /** The longest `:context` map or proposal name a request quotes, in UTF-8 bytes. */
 export const VIEW_REQUEST_LIMITS = Object.freeze({ contextBytes: 4096, nameBytes: 256 })

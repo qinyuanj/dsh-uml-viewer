@@ -344,3 +344,26 @@ it('carries the #29 request formats and the request-id rule in the embedded comp
     expect(rules).toContain(phrase)
   }
 })
+
+// #54: 「在面板中查看」 locates the element the answered panel request named, so
+// the display result must say which element a request was about, once, and only
+// for the session that made the request.
+it('names the element a display answers in its result, once, for that session alone', async () => {
+  const s = await setup({
+    resident: { qualityTargets: { ':core': { kind: 'component', files: ['src/core/order.ts'] } } },
+  })
+  await s.open('session-a')
+  // A display that answers no request names no element: the conversation only opens the tab.
+  expect(await s.tool('uml_ir', {})).toMatchObject({ status: 'ok' })
+  expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: null })
+  // The request admitted in this session names its element for the display that answers it.
+  expect(await s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':core' }))
+    .toEqual({ accepted: true, reason: null })
+  expect(await s.tool('uml_ir', {})).toMatchObject({ status: 'ok' })
+  expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: { id: ':core', kind: 'component' } })
+  // The next display answers no request: the target belonged to the one before it.
+  expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: null })
+  // Another session's display names nothing of this session's request.
+  expect(await s.tool('uml_ir', {}, 'session-b')).toMatchObject({ status: 'ok' })
+  expect(await s.tool('uml_display', {}, 'session-b')).toMatchObject({ status: 'ok', target: null })
+})

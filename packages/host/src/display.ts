@@ -8,7 +8,7 @@ import { READ_ONLY_REASON, Refusal, ResidentSessions } from './resident.js'
 export function displayResult(projectRoot: string, patch: Partial<DisplayResult> = {}): DisplayResult {
   return {
     version: 1, operation: 'display', projectRoot, path: null, exitCode: null, validResult: false,
-    crapScope: null, configured: false, tool: 'uml-viewer', status: 'refused', reason: null, ...patch,
+    crapScope: null, configured: false, tool: 'uml-viewer', status: 'refused', reason: null, target: null, ...patch,
   }
 }
 

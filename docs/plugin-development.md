@@ -374,8 +374,33 @@ falls back to English. A switch relabels the open panel in place through
 both files (a unit test keeps their key sets and `{placeholders}` equal), reads
 it with `text.t(key, params)` and relabels on `subscribe`. Chinese copy uses
 the GLOSSARY's interface terms (源码图, 提案, 隐藏, 类卡片, 源码窗口). Text the
-resident lays out (card rows, 「无数据」, hover rows) is chosen by the Rust
-string tables instead (#44).
+resident lays out (card rows, 「无数据」, source errors) is chosen by the Rust
+string tables instead (#44): the panel passes `text.language` when it opens its
+stream and again on every switch, and `crates/frame/src/strings.rs` holds the
+Chinese and English tables behind `Lang`, with English for anything else.
+
+## Conversation tool views (#54, ADR 0015)
+
+The five `uml_*` tools register the host's keyed `tool.call.toolview` slot in
+`packages/client/src/tool-views.ts`, one key per wire name, so a call in the
+conversation reads as its outcome instead of the raw JSON record. The quality
+tools show validity, the reason and the targets the call dispatched (`targets`
+come from the call arguments; a call that named none ran over the whole
+business scope); `uml_ir` shows success and its bounded output; `uml_display`
+shows the diagram it put on screen and 「在面板中查看」. Every word comes from
+the `panel` section of `locale/{en,zh}.json` and follows a DSH language switch,
+like the panel's own chrome (#42): the row subscribes through `PanelText` and
+re-renders in place. Rows are plain markup styled from `--dsw-*` tokens; they
+never load `dsh-client-ui-primitives` or the host's Tool views (ADR 0013).
+
+`uml_display` carries one additive field, `target: {id, kind} | null`: the
+element of the shown diagram that the panel request it answered named
+(`PanelRequests` remembers the target of the session's last admitted request
+and `uml_display` consumes it on success). 「在面板中查看」 opens that session's
+UML tab through `ctx.sidebarRight.openTab` and sends the existing `locate`
+action once the panel can take actions — immediately, or on the reopened
+panel's first live frame. A display that answered no request (`target: null`)
+only opens the tab, and a refused or failed display does not locate anything.
 
 ## Manifests and verification
 

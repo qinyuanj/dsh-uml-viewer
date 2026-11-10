@@ -88,7 +88,8 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
   const grants = new RequestGrants()
   const states = new SessionStates(home)
   const { sessions, prompts } = panelLifetime(ctx, home, services, effectiveConfig, states)
-  const viewer = new ViewerService(sessions, prompts, new PanelRequests(services, sessions, grants))
+  const requests = new PanelRequests(services, sessions, grants)
+  const viewer = new ViewerService(sessions, prompts, requests)
 
   ctx.effect(() => services.tools.register({
     name: 'uml_ir',
@@ -194,8 +195,14 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
     isConcurrencySafe: () => true,
     output: { schema: DISPLAY_RESULT_SCHEMA, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
     async execute(args, exec) {
+      const sessionId = exec.agent?.session.id
       try {
-        return await runDisplay(services, sessions, gate, exec, parseDisplayRequest(args))
+        const result = await runDisplay(services, sessions, gate, exec, parseDisplayRequest(args))
+        // #54: a display that answers a panel request names the element that
+        // request was about, once, so 「在面板中查看」 can locate it. A failed
+        // display leaves the request unanswered and keeps its target.
+        if (result.status !== 'ok' || sessionId === undefined) return result
+        return { ...result, target: requests.takeTarget(sessionId) }
       } catch (error) {
         return displayResult(exec.agent ? services.workingDirectory.get(exec.agent.session) : '', {
           reason: error instanceof Error ? error.message : String(error),

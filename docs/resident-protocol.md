@@ -76,7 +76,7 @@ An `error` changes nothing; the session keeps running.
 
 | action | fields | answer | effect |
 |---|---|---|---|
-| `open` | `viewport?` `{width, height}`, `diagram?`, `state?`, `waiting?` | `frame` | open the session. The diagram is `diagram` (relative to the project), else the state's `diagram`, else the project default (`diagram.edn`, `examples/<project>.edn`, any example). With `state` the saved view and discussion context are restored; otherwise the diagram is fitted to the viewport. `waiting: true` shows the empty waiting canvas until `display`, except that a `state` naming a displayed `diagram` restores that view (a reopened session, a restarted DSH). When that diagram does not exist yet the canvas waits, `save` answers the saved state unchanged, and the first `display` of the same diagram restores the view instead of fitting it. A missing diagram opens with the canvas hint; an unreadable IR is an `error`. Another `open` replaces the session. |
+| `open` | `viewport?` `{width, height}`, `diagram?`, `state?`, `waiting?`, `language?` | `frame` | open the session. The diagram is `diagram` (relative to the project), else the state's `diagram`, else the project default (`diagram.edn`, `examples/<project>.edn`, any example). With `state` the saved view and discussion context are restored; otherwise the diagram is fitted to the viewport. `waiting: true` shows the empty waiting canvas until `display`, except that a `state` naming a displayed `diagram` restores that view (a reopened session, a restarted DSH). When that diagram does not exist yet the canvas waits, `save` answers the saved state unchanged, and the first `display` of the same diagram restores the view instead of fitting it. A missing diagram opens with the canvas hint; an unreadable IR is an `error`. Another `open` replaces the session. `language` is the [language](#language) the panel passes (#44). |
 | `viewport` | `viewport` `{width, height}` (points) | `frame` | the client's canvas size; a pending fit uses it |
 | `camera` | `x`, `y`, `zoom` | `ack` | the client panned or zoomed locally: the frame's `camera` (top-left world point and zoom) the client now shows. Saved with the state; no frame is sent back. |
 | `display` | `path` | `frame` | show this diagram (what `uml_display` asks for): relative to the project or absolute. The same diagram keeps the view; another one is fitted. Ends the waiting canvas. |
@@ -97,6 +97,7 @@ An `error` changes nothing; the session keeps running.
 | `close-card` | — | `frame` | close the class card; the selection stays |
 | `scroll-card` | `delta` (wheel notches), `viewHeight` | `frame` | a wheel over the card: `frame::inspector::scroll` owns the 48-point step and both clamps |
 | `quality-target` | `id` (canonical EDN text) | `quality-target` | resolve the class or component to source files from the CURRENT loaded session document and shown proposal, without changing view or discussion state. Unknown, foreign, omitted or sourceless targets are an `error`; a partial or empty success is never returned. |
+| `language` | `language` (a locale tag) | `frame` | the DSH language the panel passes (#44); the resident re-lays the frame out in it and answers with that frame, so every watching panel redraws its 无数据 markers and asks again for an open class card. The latest one wins: DSH has one language for every panel. Before `open` it is remembered and answered with an `ack`. |
 | `open-source` | `id` (EDN), `member?` | `source` | open the class's source: the whole module, or one member's declaration line. The resident reads the file from the session project; an unknown class, file, language or member, or a source over the [source window limits](#source-window-limits), is an `error`. |
 
 The child polls the diagram and the `.metrics/` quality snapshots every
@@ -197,9 +198,23 @@ an arbitrary filename to this action.
 | `selected` | string \| null | the selected hit (EDN) |
 | `labels` | `{inspector, proposals, pHint}` | the sidebar's UI copy, from `frame::strings` |
 
-Summary text, member text, class counts, CRAP/mutation figures and the 无数据
-line are the shared model's, exactly as the deleted egui window printed them; a class
-with no quality data keeps its red 无数据 line in the `no-data` role.
+Summary text, member text, class counts, CRAP/mutation figures and the version's
+`no-data` line are the shared model's; a class with no quality data keeps its red
+line in the `no-data` role.
+
+## Language (#44)
+
+The text the resident lays out — the class card's rows and tooltips, the class
+box's 无数据 marker and the source window's 打开失败 error — comes in Chinese and
+English. Any other locale tag reads English, and so does a resident that was
+never told one. The panel passes the DSH language when it opens its stream and
+again on every switch; the host sends it on `open` (a fresh resident) or as a
+`language` action (a running one).
+
+The language is the resident's, not the session's: DSH has one language for all
+panels, the latest write wins, and the [session state](#session-state) never
+records it. Metric and tool names (CRAP, CC, Cov, killed, survived, uncovered,
+IR) read the same in both languages.
 
 ## Class card
 
