@@ -30,10 +30,11 @@ attach 各平台各有一套。DeepSeek Harness（DSH）已经提供会话、消
   的 exe，运行中的会话也不换版本。
 - **companion**：面板所绑定的 DSH 会话即 companion。删除 Herdr、Claude Code / Codex
   提供方、companion 归属记录、恢复控制器、`--restart` 与 `:quit-for-restart`。
-- **viewer 面板**：viewer 是会话右侧边栏的面板（可展开为 `main` 页面），绑定当前会话，
+- **viewer 面板**：viewer 是会话右侧边栏的面板（全宽形态用宿主的全屏展示，见 [ADR 0015](0015-panel-interaction-redesign.md)），绑定当前会话，
   被查看的项目即该会话的工作目录。host 端原生二进制计算场景并流式推送；客户端以
-  Canvas 2D 画图，检查器、类卡片与源码窗口用宿主提供的 React 18 与
-  `dsh-client-ui-primitives`。颜色取自宿主主题 token；质量色与违规红只随明暗适配，
+  Canvas 2D 画图，检查器、类卡片与源码窗口用宿主提供的 React 18；
+  控件为插件自有 markup，仿照宿主控件的外观与行为，不加载
+  `dsh-client-ui-primitives`（见 [ADR 0013](0013-repository-migration.md) 附录）。颜色取自宿主主题 token；质量色与违规红只随明暗适配，
   不改色相。egui 原生窗口在功能对齐后删除。
 - **面板请求代替邮件**：面板操作以 `session.prompt` 投递为对话中可见的消息，FIFO 由
   DSH 消息队列保证；删除 to-companion / to-viewer 邮件文件。展示由插件工具推送给面板。
