@@ -63,6 +63,21 @@
     "breadcrumbs.label": "Breadcrumb path",
     "breadcrumb.go": "Go to {name}",
     "status.waitingDisplay": "Waiting for :display to load the diagram…",
-    "status.missingFile": "The IR file is not there: {path}"
+    "status.missingFile": "The IR file is not there: {path}",
+    "request.label": "Request status",
+    "request.op.refresh-crap": "Refresh CRAP",
+    "request.op.refresh-mutate": "Differential mutation",
+    "request.op.refresh-mutate-all": "Full mutation",
+    "request.op.omit": "Hide",
+    "request.op.context": "Switch discussion context",
+    "request.op.new-proposal": "New proposal",
+    "request.state.queued": "Queued",
+    "request.state.running": "In progress",
+    "request.state.done": "Done",
+    "request.state.failed": "Failed",
+    "request.line": "{op} {target}: {state}",
+    "request.line.untargeted": "{op}: {state}",
+    "request.failure": "{line} — {reason}",
+    "request.failure.exitCode": "{line} — {reason} (exit code {code})"
   }
 }
