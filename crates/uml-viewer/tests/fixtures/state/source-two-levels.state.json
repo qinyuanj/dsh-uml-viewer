@@ -13,5 +13,11 @@
       "name": "inner"
     }
   ],
+  "proposals": [
+    {
+      "id": ":p-levels",
+      "name": "Levels proposal"
+    }
+  ],
   "status": null
 }

@@ -76,7 +76,7 @@ async function harness(options: { declutter?: string | null; rejectSave?: boolea
   const emit = (event: PanelEvent): void => streams.at(-1)!.emit(event)
   await controller.open('session-a')
   emit({ kind: 'frame', seq: 1, frame })
-  emit({ kind: 'state', state: stateWith(options.declutter ?? null), breadcrumbs: [{ id: null, name: 'Shop' }], status: null })
+  emit({ kind: 'state', state: stateWith(options.declutter ?? null), breadcrumbs: [{ id: null, name: 'Shop' }], status: null, proposals: [] })
   await flush()
   const menu = mountMoreMenu(host as unknown as HTMLElement, trigger as unknown as HTMLButtonElement, {
     text: ENGLISH_TEXT,

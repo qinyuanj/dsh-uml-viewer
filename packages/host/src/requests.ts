@@ -42,48 +42,41 @@ export const ADMISSION_TIMEOUT_MS = 20_000
  *
  * Each admission outcome is the request's first request status (#51): an
  * admitted request is queued, a context switch is done once admitted (it needs
- * no companion run), and a refused one fails with the admission reason.
+ * no companion run), and a refused one fails with the admission reason. From
+ * there #52 attributes the companion's `uml_*` calls to the session's queue.
  */
 export class PanelRequests {
   private readonly tails = new Map<string, Promise<void>>()
-  /**
-   * The element the session's last admitted request named (#54): a display that
-   * answers that request carries it, so 「在面板中查看」 can locate the element.
-   * Only quality refreshes and hides name an element; a later context switch or
-   * new proposal names none and clears the record, so a display that answered
-   * it names nothing.
-   */
-  private readonly targets = new Map<string, PanelRequestTarget>()
 
   constructor(
     private readonly services: HostServices,
     private readonly sessions: ResidentSessions,
     private readonly grants: RequestGrants,
     private readonly admissionTimeoutMs = ADMISSION_TIMEOUT_MS,
-    /** Where each request's status is kept for the session's panels (#51). */
+    /**
+     * Where each request's status is kept for the session's panels (#51). Its
+     * FIFO is also the attribution rule of #52: a display completes the head,
+     * and `uml_ir({request})` names one entry exactly.
+     */
     readonly statuses = new RequestStatuses(),
   ) {}
-
-  /**
-   * The element the session's next display answers, consumed once: one request,
-   * one display. A display that answers no request names no element.
-   * @param sessionId the session whose request made it.
-   * @returns the admitted request's target, or null.
-   */
-  public takeTarget(sessionId: string): PanelRequestTarget | null {
-    const target = this.targets.get(sessionId) ?? null
-    this.targets.delete(sessionId)
-    return target
-  }
 
   /** A right-click quality refresh of one element. */
   deliver(agent: Agent, op: QualityRequestOp, id: string): Promise<PanelAck> {
     let named: PanelRequestTarget | null = null
     return this.enqueue(agent, op, async signal => {
-      const target = await this.sessions.qualityTarget(agent, signal, id)
-      named = { id: target.id, kind: target.kind }
-      const request: PanelRequest = { op, target: named, files: target.files }
-      return { text: renderPanelRequest(request) }
+      try {
+        const target = await this.sessions.qualityTarget(agent, signal, id)
+        named = { id: target.id, kind: target.kind }
+        const request: PanelRequest = { op, target: named, files: target.files }
+        return { text: renderPanelRequest(request) }
+      } catch (error) {
+        // A refused request still names the element the browser clicked, when
+        // the shown diagram can give its kind (#52 F26); a target the resident
+        // could not resolve leaves the entry naming no element.
+        named ??= await this.shownTarget(agent, signal, id)
+        throw error
+      }
     }, () => named)
   }
 
@@ -95,8 +88,10 @@ export class PanelRequests {
       if (!frame || frame.waiting) throw new Error('no diagram: the panel shows nothing yet; run uml_ir and uml_display first')
       const element = frame.world.find(item => (item.kind === 'class' || item.kind === 'package') && item.id === id)
       if (!element) throw new Error(`no class or namespace component ${id} in the shown diagram`)
-      if (element.kind === 'class' && element.shape === 'oval') throw new Error(`${id} is a foreign library; it is not in the policy and cannot be hidden`)
+      // Named before the policy checks: a refusal still says which element of
+      // the diagram it was about (#52 F26).
       named = { id, kind: element.kind === 'package' ? 'component' : 'class' }
+      if (element.kind === 'class' && element.shape === 'oval') throw new Error(`${id} is a foreign library; it is not in the policy and cannot be hidden`)
       return { kind: 'omit', text: (request: string) => renderOmitRequest({ target: named!, context, request }) }
     }, () => named)
   }
@@ -125,9 +120,9 @@ export class PanelRequests {
 
   /**
    * Admit one request in this session's click order. `named` reports the
-   * element the delivered message names (if any) once it is known, so an
-   * admitted request is the one this session's next display answers (#54).
-   * The outcome becomes the request's status entry (#51).
+   * element the delivered message names (if any) once it is known; it becomes
+   * the entry's target, which the display that answers the request reports
+   * (#54). The outcome becomes the request's status entry (#51).
    */
   private enqueue(
     agent: Agent,
@@ -137,16 +132,14 @@ export class PanelRequests {
   ): Promise<PanelAck> {
     const sessionId = agent.session.id
     const previous = this.tails.get(sessionId) ?? Promise.resolve()
-    const result = previous.then(() => this.admit(agent, resolve)).then(({ ack, id }) => {
-      const target = named ? named() : null
-      if (ack.accepted) this.remember(sessionId, target)
+    const result = previous.then(() => this.admit(agent, resolve)).then(({ ack, id, promptId }) => {
       this.statuses.record(sessionId, {
-        id, op, target,
+        id, op, target: named ? named() : null,
         // A context switch already happened in the resident; nothing is left to run.
         state: ack.accepted ? op === 'context' ? 'done' : 'queued' : 'failed',
         reason: ack.accepted ? null : ack.reason ?? 'the request was not admitted',
         exitCode: null,
-      })
+      }, promptId)
       return ack
     })
     const tail = result.then(() => undefined, () => undefined)
@@ -157,9 +150,21 @@ export class PanelRequests {
     return result
   }
 
-  private remember(sessionId: string, target: PanelRequestTarget | null): void {
-    if (target) this.targets.set(sessionId, target)
-    else this.targets.delete(sessionId)
+  /**
+   * The element a refused request still names (#52 F26): what the shown
+   * diagram says about the id the browser clicked. Null when the diagram has
+   * no such element — then the clicked id names nothing the panel can show.
+   */
+  private async shownTarget(agent: Agent, signal: AbortSignal, id: string): Promise<PanelRequestTarget | null> {
+    try {
+      const { frame } = await this.sessions.shownView(agent, signal)
+      const element = frame?.world.find(item => (item.kind === 'class' || item.kind === 'package') && item.id === id)
+      if (!element) return null
+      return { id, kind: element.kind === 'package' ? 'component' : 'class' }
+    } catch {
+      // The diagram could not be read either: the refusal's own reason stands.
+      return null
+    }
   }
 
   /**
@@ -167,14 +172,14 @@ export class PanelRequests {
    * grant id `uml_ir({request})` presents for a granted request (so #52 can
    * match that call exactly), otherwise the admitted message's correlation id.
    */
-  private async admit(agent: Agent, resolve: (signal: AbortSignal) => Promise<Message>): Promise<{ ack: PanelAck; id: string }> {
+  private async admit(agent: Agent, resolve: (signal: AbortSignal) => Promise<Message>): Promise<{ ack: PanelAck; id: string; promptId: string }> {
     const sessionId = agent.session.id
     let grant: string | null = null
     const requestId = randomUUID()
     try {
       const controller = this.services.sessionController
       if (!controller) {
-        return { id: requestId, ack: { accepted: false,
+        return { id: requestId, promptId: requestId, ack: { accepted: false,
           reason: 'this DSH has no sessionController service, so the panel cannot queue a request message' } }
       }
       const ack = await this.withDeadline(async signal => {
@@ -194,11 +199,11 @@ export class PanelRequests {
         }, signal)
         return { accepted: true, reason: null }
       })
-      return { ack, id: grant ?? requestId }
+      return { ack, id: grant ?? requestId, promptId: requestId }
     } catch (error) {
       // A message that never reached the session leaves no usable grant.
       if (grant !== null) this.grants.revoke(sessionId, grant)
-      return { id: grant ?? requestId, ack: { accepted: false, reason: reasonOf(error) } }
+      return { id: grant ?? requestId, promptId: requestId, ack: { accepted: false, reason: reasonOf(error) } }
     }
   }
 

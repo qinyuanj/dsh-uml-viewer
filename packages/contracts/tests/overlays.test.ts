@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   parsePanelAction, parseResidentLine, RESIDENT_LINE_MAX_BYTES, SOURCE_LIMITS, validateCardModel,
-  utf8Bytes, validateInspectorModel, validateSourceModel,
+  utf8Bytes, validateSourceModel,
 } from '../src/index.js'
 
 /**
@@ -10,27 +10,6 @@ import {
  * `crates/viewer-session/src/overlays.rs` writes, and refuse malformed lines
  * instead of letting the panel render a half-parsed model.
  */
-
-const inspector = {
-  entries: [
-    { id: null, label: 'Shop', active: true },
-    { id: ':p-shop', label: '2026-10-24 10:00:00', active: false },
-  ],
-  summary: {
-    kind: 'class',
-    lines: [
-      { type: 'label', text: 'order', color: { role: 'ink' } },
-      { type: 'label', text: '包 core', color: { role: 'muted' } },
-      { type: 'segments', parts: ['Crap μ 4.0', 'max 8.0', 'σ 1.5'], color: { role: 'accent' } },
-      { type: 'segments', parts: ['7 killed / 2 survived', '3 uncovered'], color: { role: 'muted' } },
-      { type: 'label', text: '无数据', color: { role: 'no-data' } },
-    ],
-  },
-  declutterLabel: '精简：无',
-  detail: ':core.order',
-  selected: '{:kind :class :id :core.order}',
-  labels: { inspector: '检查器', proposals: '提案', pHint: 'P：返回命名空间树' },
-}
 
 const card = {
   id: ':core.order',
@@ -89,27 +68,20 @@ const source = {
 }
 
 describe('overlay validators', () => {
-  it('validates one exact line of each new event captured from the real resident binary', () => {
-    const captured = ['inspector', 'card', 'source'].map(name => parseResidentLine(
+  it('validates one exact line of each overlay event captured from the real resident binary', () => {
+    const captured = ['card', 'source'].map(name => parseResidentLine(
       readFileSync(new URL(`./protocol-samples/${name}.json`, import.meta.url), 'utf8').trimEnd(),
     ))
-    expect(captured.map(event => event.event)).toEqual(['inspector', 'card', 'source'])
-    const [inspect, detail, opened] = captured
-    if (inspect?.event !== 'inspector' || detail?.event !== 'card' || opened?.event !== 'source') {
-      throw new Error('producer samples must contain the three new resident event variants')
+    expect(captured.map(event => event.event)).toEqual(['card', 'source'])
+    const [detail, opened] = captured
+    if (detail?.event !== 'card' || opened?.event !== 'source') {
+      throw new Error('producer samples must contain the card and source resident event variants')
     }
-    expect(inspect.inspector.entries.map(entry => entry.id)).toEqual([null, ':p-inspector'])
-    expect(detail.card.id).toBe(':catalog')
-    expect(detail.card.title).toBe('Catalog')
+    expect(detail.card?.id).toBe(':catalog')
+    expect(detail.card?.title).toBe('Catalog')
     expect(opened.source.line).toBe(82)
     expect(opened.source.rows).toHaveLength(84)
     expect(opened.source.rows.filter(row => row.marked).map(row => row.number)).toEqual([82])
-  })
-  it('accepts the inspector model with its summary lines and semantic roles', () => {
-    const parsed = validateInspectorModel(inspector)
-    expect(parsed).toEqual(inspector)
-    expect(parsed.summary.lines.map(line => line.type)).toEqual(['label', 'label', 'segments', 'segments', 'label'])
-    expect(parsed.entries[0]).toEqual({ id: null, label: 'Shop', active: true })
   })
 
   it('accepts the card paint plan, keeping grades, fractions and null rels', () => {
@@ -177,20 +149,13 @@ describe('overlay validators', () => {
   })
 
   it('refuses malformed payloads instead of guessing', () => {
-    expect(() => validateInspectorModel({ ...inspector, entries: [{ label: 'x', active: 'yes' }] })).toThrow(/entries\[0\]/)
-    expect(() => validateInspectorModel({ ...inspector, summary: { kind: 'unknown', lines: [] } })).toThrow(/summary.kind/)
-    expect(() => validateInspectorModel({
-      ...inspector,
-      summary: { kind: 'empty', lines: [{ type: 'label', text: 3, color: { role: 'muted' } }] },
-    })).toThrow(/summary.lines\[0\].text/)
     expect(() => validateCardModel({ ...card, items: [{ ...card.items[0], y: 'top' }] })).toThrow(/items\[0\].y/)
     expect(() => validateCardModel({ ...card, maxScroll: Number.NaN })).toThrow(/maxScroll/)
     expect(() => validateSourceModel({ ...source, rows: [{ ...source.rows[0], marked: 1 }] })).toThrow(/rows\[0\].marked/)
   })
 
-  it('carries the three new resident events at version 1', () => {
+  it('carries the overlay resident events at version 1', () => {
     for (const [event, key, payload] of [
-      ['inspector', 'inspector', inspector],
       ['card', 'card', card],
       ['source', 'source', source],
     ] as const) {
@@ -202,11 +167,21 @@ describe('overlay validators', () => {
     expect(() => parseResidentLine(JSON.stringify({ version: 1, seq: 7, event: 'card', card: { id: 1 } })))
       .toThrow(/card/)
   })
+
+  it('answers card with null when no class card is open (#47)', () => {
+    const parsed = parseResidentLine(JSON.stringify({ version: 1, seq: 8, event: 'card', card: null }))
+    expect(parsed).toEqual({ version: 1, seq: 8, event: 'card', card: null })
+  })
+
+  it('no longer knows the inspector: its event and its action are refused (#47)', () => {
+    expect(() => parseResidentLine(JSON.stringify({ version: 1, seq: 7, event: 'inspector', inspector: {} })))
+      .toThrow(/event/)
+    expect(() => parsePanelAction({ action: 'inspector' })).toThrow(/action/)
+  })
 })
 
 describe('overlay panel actions', () => {
   it('parses each action the overlays send', () => {
-    expect(parsePanelAction({ action: 'inspector' })).toEqual({ action: 'inspector' })
     expect(parsePanelAction({ action: 'close-card' })).toEqual({ action: 'close-card' })
     expect(parsePanelAction({ action: 'card', viewHeight: 120 })).toEqual({ action: 'card', viewHeight: 120 })
     expect(parsePanelAction({ action: 'card' })).toEqual({ action: 'card' })

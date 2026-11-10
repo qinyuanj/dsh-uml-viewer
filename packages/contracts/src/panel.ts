@@ -6,13 +6,13 @@
  * generator in this package). They are plain data with `create(): { parse }`
  * codecs, so the host and the browser bundle share one declaration.
  */
-import type { BreadcrumbLevel, DiscussionContext, SearchResult, SessionState, SessionStatus } from './resident.js'
+import type { BreadcrumbLevel, DiscussionContext, ProposalEntry, SearchResult, SessionState, SessionStatus } from './resident.js'
 import type { SceneFrame } from './scene-frame.js'
 import { validateSceneFrame } from './scene-frame.js'
-import { validateBreadcrumbs, validateSessionState, validateSessionStatus } from './resident.js'
+import { validateBreadcrumbs, validateProposalEntries, validateSessionState, validateSessionStatus } from './resident.js'
 import { normalizeRelativePath } from './tools.js'
-import type { CardModel, InspectorModel, SourceModel } from './overlays.js'
-import { validateCardModel, validateInspectorModel, validateSourceModel } from './overlays.js'
+import type { CardModel, SourceModel } from './overlays.js'
+import { validateCardModel, validateSourceModel } from './overlays.js'
 import type { QualityRequestOp } from './requests.js'
 import { parseQualityRequestOp } from './requests.js'
 import { parseElementId } from './tools.js'
@@ -30,7 +30,9 @@ export type PanelEvent =
   | { kind: 'ready'; actions: string[] }
   | { kind: 'frame'; seq: number | null; frame: SceneFrame }
   | { kind: 'context'; context: DiscussionContext }
-  | { kind: 'state'; state: SessionState; breadcrumbs: BreadcrumbLevel[]; status: SessionStatus | null }
+  // #47: `proposals` lists the shown diagram's proposals for the switcher.
+  | { kind: 'state'; state: SessionState; breadcrumbs: BreadcrumbLevel[]; status: SessionStatus | null
+      proposals: ProposalEntry[] }
   | { kind: 'search'; query: string; results: SearchResult[] }
   | { kind: 'refused'; reason: string }
   | { kind: 'failed'; reason: string }
@@ -53,7 +55,7 @@ export type PanelAction =
   | { action: 'display'; path?: string }
   | { action: 'reload' } | { action: 'namespace-tree' } | { action: 'save' }
   // #46: the More menu's Remove arrows toggle names the declutter mode it
-  // wants; no mode cycles as the inspector's button did.
+  // wants; without one the resident cycles the modes.
   | { action: 'declutter'; mode?: DeclutterMode }
   // #45: a breadcrumb click names the level to return to; no target is one
   // level up, and `null` is the source diagram's root.
@@ -65,7 +67,6 @@ export type PanelAction =
   | { action: 'context'; proposalId: string | null }
   // #27 overlays: the answers come back on the ack, so one panel's card or
   // source window never appears in another panel of the same session.
-  | { action: 'inspector' }
   | { action: 'card'; width?: number; viewHeight?: number }
   | { action: 'open-card'; id?: string; at?: [number, number] }
   | { action: 'close-card' }
@@ -122,10 +123,8 @@ export function parsePanelLanguage(value: unknown, label = 'language'): string |
 export interface PanelAck {
   accepted: boolean
   reason: string | null
-  /** The inspector model, when the action was `inspector`. */
-  inspector?: InspectorModel
-  /** The class card paint plan, when the action was `card`. */
-  card?: CardModel
+  /** The class card paint plan when the action was `card`; null when no card is open (#47). */
+  card?: CardModel | null
   /** The opened source, when the action was `open-source`. */
   source?: SourceModel
 }
@@ -229,7 +228,8 @@ export function parsePanelEvent(value: unknown, label = 'panel event'): PanelEve
       case 'state':
         return { kind, state: validateSessionState(source.state, `${label}.state`),
           breadcrumbs: validateBreadcrumbs(source.breadcrumbs, `${label}.breadcrumbs`),
-          status: validateSessionStatus(source.status, `${label}.status`) }
+          status: validateSessionStatus(source.status, `${label}.status`),
+          proposals: validateProposalEntries(source.proposals, `${label}.proposals`) }
       case 'search':
         if (!Array.isArray(source.results)) at(`${label}.results`, 'must be an array')
         return { kind, query: str(source.query, `${label}.query`),
@@ -304,7 +304,7 @@ export function parsePanelAction(value: unknown, label = 'panel action'): PanelA
           ? null : str(source.proposalId, `${label}.proposalId`)
         return { action, proposalId }
       }
-      case 'inspector': case 'close-card':
+      case 'close-card':
         return { action }
       case 'card': {
         const width = source.width === undefined || source.width === null ? undefined : num(source.width, `${label}.width`)
@@ -353,10 +353,8 @@ function parseAck(value: unknown, label = 'panel ack'): PanelAck {
   if (typeof accepted !== 'boolean') at(`${label}.accepted`, 'must be a boolean')
   const reason = source.reason === null || source.reason === undefined ? null : str(source.reason, `${label}.reason`)
   const ack: PanelAck = { accepted, reason }
-  if (source.inspector !== undefined && source.inspector !== null) {
-    ack.inspector = validateInspectorModel(source.inspector, `${label}.inspector`)
-  }
-  if (source.card !== undefined && source.card !== null) ack.card = validateCardModel(source.card, `${label}.card`)
+  if (source.card === null) ack.card = null
+  else if (source.card !== undefined) ack.card = validateCardModel(source.card, `${label}.card`)
   if (source.source !== undefined && source.source !== null) ack.source = validateSourceModel(source.source, `${label}.source`)
   return ack
 }

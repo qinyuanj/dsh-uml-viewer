@@ -51,8 +51,8 @@ pub const ACTIONS: &[&str] = &[
     "declutter",
     "save",
     "quit",
-    // #27 overlays (additive; see docs/resident-protocol.md).
-    "inspector",
+    // #27 overlays (additive; see docs/resident-protocol.md). #47 deleted
+    // `inspector`; the `state` event lists the proposals instead.
     "card",
     "open-card",
     "close-card",
@@ -205,6 +205,17 @@ fn crumbs_json(state: &scene::ViewState) -> Json {
                     "name": crumb.name,
                 })
             })
+            .collect(),
+    )
+}
+
+/// The shown diagram's proposals for the discussion-context switcher (#47):
+/// EDN id and display name, in the document's order.
+fn proposals_json(state: &scene::ViewState) -> Json {
+    Json::Array(
+        frame::discussion::proposals(state)
+            .iter()
+            .map(|p| json!({"id": edn_text(&p.id), "name": p.name}))
             .collect(),
     )
 }
@@ -452,9 +463,9 @@ impl Resident {
                 };
                 if let Some(id) = &id {
                     let session = self.session()?;
-                    if !frame::inspector::entries(session.state())
+                    if !frame::discussion::proposals(session.state())
                         .iter()
-                        .any(|entry| entry.id.as_ref() == Some(id))
+                        .any(|proposal| &proposal.id == id)
                     {
                         return Err(format!("unknown proposal {}", edn_text(id)));
                     }
@@ -495,6 +506,7 @@ impl Resident {
                         "state": saved,
                         "breadcrumbs": crumbs_json(session.state()),
                         "status": session.status_code().map_or(Json::Null, |code| code.to_json()),
+                        "proposals": proposals_json(session.state()),
                     }),
                 )]);
             }
@@ -502,20 +514,12 @@ impl Resident {
                 self.quit = true;
                 return Ok(vec![event("ack", seq, json!({}))]);
             }
-            // #27: the panel's inspector, class card and source window.
-            "inspector" => {
-                let inspector = overlays::inspector_json(self.session()?);
-                return Ok(vec![event(
-                    "inspector",
-                    seq,
-                    json!({"inspector": inspector}),
-                )]);
-            }
+            // #27: the panel's class card and source window.
             "card" => {
                 let width = optional_number(action, "width")?;
                 let view_height = optional_number(action, "viewHeight")?;
                 let language = self.language;
-                let card = overlays::card_json(self.session()?, width, view_height, language)?;
+                let card = overlays::card_json(self.session()?, width, view_height, language);
                 return Ok(vec![event("card", seq, json!({"card": card}))]);
             }
             "open-card" => {

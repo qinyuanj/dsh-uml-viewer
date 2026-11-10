@@ -2,10 +2,12 @@ import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
 import { producerFrame, screenRect, toScreen } from './canvas.mjs'
 import { TARGET_LINE, TARGET_TEXT } from './inspector-project.mjs'
+import { chooseContext, switcherButton } from './switcher.mjs'
 import { toggleFullscreen } from './lifecycle.mjs'
 
 // Browser counterparts of the deleted source_jump, source_window,
-// detail_scroll, review_fixes and inspector window drivers (#30). Every model comes from the real IR/resident lane.
+// detail_scroll, review_fixes and inspector window drivers (#30); the inspector itself was deleted in #47.
+// Every model comes from the real IR/resident lane.
 let lane
 
 test.beforeAll(async ({ browser }) => { lane = await launchViewerLane(browser) })
@@ -22,7 +24,7 @@ async function openCatalog(panel) {
   const item = frame.world.find(item => item.kind === 'class' && item.id === ':catalog')
   expect(item, 'real producer frame contains the catalog module').toBeTruthy()
   const rect = screenRect(frame, item.rect)
-  // Near the title's left edge, away from the inspector over the canvas right.
+  // Near the title's left edge.
   await panel.canvas.dblclick({ position: { x: rect.x + 12, y: rect.y + 12 } })
   await expect(card(panel)).toBeVisible()
   return card(panel)
@@ -83,32 +85,29 @@ async function cardNotch(panel, scroll, direction) {
   await expect.poll(async () => (await metrics(scroll)).top).toBe(expected)
 }
 
-test('inspector follows class selection, switches proposal, and P returns to the namespace tree', async () => {
+test('no inspector: the switcher changes the discussion, P returns to the source tree root (#47)', async () => {
   const panel = await lane.openPanel('inspector')
-  const inspector = panel.panel.getByRole('complementary', { name: '检查器' })
-  await expect(inspector).toBeVisible()
-  const summary = inspector.locator('[data-summary-kind]')
-  await expect(summary).toHaveAttribute('data-summary-kind', 'empty')
-  await expect(summary).toContainText('单击类或命名空间查看摘要')
-  await expect(inspector.getByRole('button', { name: 'Inspector', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  // The inspector, its summary line and its P hint button are gone.
+  await expect(panel.panel.getByRole('complementary')).toHaveCount(0)
+  await expect(panel.panel.getByText('检查器')).toHaveCount(0)
+  await expect(panel.panel.locator('[data-summary-kind]')).toHaveCount(0)
+  await expect(switcherButton(panel)).toHaveText(/Source diagram/)
   await openCatalog(panel)
-  await expect(summary).toHaveAttribute('data-summary-kind', 'class')
-  await expect(summary).toContainText('Catalog')
-  await expect(summary).toContainText('无数据')
   await card(panel).getByRole('button', { name: 'Close class card' }).click()
   await expect(card(panel)).toHaveCount(0)
 
-  const proposal = inspector.getByRole('button', { name: 'Inspector proposal', exact: true })
-  await proposal.click()
+  await chooseContext(panel, 'Inspector proposal')
   await expect(panel.summary).toHaveAttribute('data-view', 'proposal')
-  await expect(proposal).toHaveAttribute('aria-pressed', 'true')
+  await expect(panel.summary).toHaveAttribute('data-context', 'proposal')
   await expect(panel.summary).toContainText('Inspector proposal')
-  // Focus stays on the proposal button after choosing it. P must work from
-  // the inspector as naturally as from the canvas, without touching chat.
+  await expect(switcherButton(panel)).toHaveText(/Inspector proposal/)
+  // The switcher hands the keyboard back to the canvas; P there is the same
+  // as choosing the source diagram: the discussion and the tree root.
   await panel.page.keyboard.press('p')
   await expect(panel.summary).toHaveAttribute('data-view', 'source')
-  await expect(proposal).toHaveAttribute('aria-pressed', 'false')
-  await expect(inspector.getByRole('button', { name: 'Inspector', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(panel.summary).toHaveAttribute('data-context', 'real')
+  await expect(panel.summary).toHaveAttribute('data-depth', 'root')
+  await expect(switcherButton(panel)).toHaveText(/Source diagram/)
   await openCatalog(panel)
   await expect(panel.panel.locator('.dsh-uml-overlay-failure')).toHaveCount(0)
   expect(panel.problems).toEqual([])
@@ -310,7 +309,7 @@ async function tokenColor(locator, property, token) {
   }, { property, token })
 }
 
-test('inspector, card and source chrome follow host light and dark theme tokens', async () => {
+test('card and source chrome follow host light and dark theme tokens', async () => {
   const panel = await lane.openPanel('inspector')
   const dialog = await openCatalog(panel)
   const cardColors = []
@@ -341,7 +340,6 @@ test('inspector, card and source chrome follow host light and dark theme tokens'
       else document.body.removeAttribute('data-ds-dark-theme')
     }, dark)
     const surfaces = [
-      [panel.panel.locator('.dsh-uml-inspector'), 'backgroundColor', '--dsw-alias-bg-layer-3'],
       [source, 'backgroundColor', '--dsw-alias-bg-layer-2'],
       [source.locator('[data-marked=true]'), 'backgroundColor', '--dsw-alias-state-business-tertiary'],
       [source.locator('.dsh-uml-source-gutter').first(), 'backgroundColor', '--dsw-alias-bg-layer-3'],
@@ -362,6 +360,6 @@ test('inspector, card and source chrome follow host light and dark theme tokens'
     styles.push(colors)
   }
   expect(styles[0], 'host theme changes overlay surfaces and text').not.toEqual(styles[1])
-  expect(styles[0][0], 'inspector background switches with host theme').not.toBe(styles[1][0])
+  expect(styles[0][0], 'source background switches with host theme').not.toBe(styles[1][0])
   expect(panel.problems).toEqual([])
 })

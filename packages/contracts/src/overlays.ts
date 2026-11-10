@@ -1,38 +1,16 @@
 /**
- * The panel overlays (#27): inspector, class card and source window payloads.
+ * The panel overlays (#27): class card and source window payloads. The
+ * inspector that also lived here was deleted in #47; the discussion-context
+ * switcher reads its proposal list from the `state` event instead.
  *
  * These are *views of the Rust models*, not data the client interprets:
- * `frame::inspector` owns summary text, counts, CRAP/mutation formatting and
- * no-data semantics, `frame::detail` owns the card's rows, metric columns,
+ * `frame::detail` owns the card's rows, metric columns,
  * bars, swatches and scroll clamps, and `frame::source` owns declaration
  * lines, tab expansion and token runs. The validators below check the shape
  * the resident writes (`crates/viewer-session/src/overlays.rs`); they never
  * derive a figure.
  */
 import type { FrameColor } from './scene-frame.js'
-
-/** One inspector summary line, in display order. */
-export type SummaryLine =
-  | { type: 'label'; text: string; color: FrameColor }
-  | { type: 'segments'; parts: string[]; color: FrameColor }
-
-export interface InspectorEntry { id: string | null; label: string; active: boolean }
-
-export interface InspectorSummary {
-  kind: 'class' | 'package' | 'empty'
-  lines: SummaryLine[]
-}
-
-export interface InspectorModel {
-  entries: InspectorEntry[]
-  summary: InspectorSummary
-  declutterLabel: string
-  /** The class whose card is open (EDN), or null. */
-  detail: string | null
-  /** The selected hit (EDN), or null. */
-  selected: string | null
-  labels: { inspector: string; proposals: string; pHint: string }
-}
 
 export interface CardCell {
   id: string
@@ -213,60 +191,6 @@ function color(value: unknown, label: string): FrameColor {
   if (source.grade !== undefined) parsed.grade = source.grade === null ? null : num(source.grade, `${label}.grade`)
   if (source.ratio !== undefined) parsed.ratio = source.ratio === null ? null : num(source.ratio, `${label}.ratio`)
   return parsed
-}
-
-function summaryLine(value: unknown, label: string): SummaryLine {
-  const source = record(value, label)
-  const type = str(source.type, `${label}.type`)
-  if (type === 'label') {
-    return { type, text: str(source.text, `${label}.text`), color: color(source.color, `${label}.color`) }
-  }
-  if (type === 'segments') {
-    return {
-      type,
-      parts: list(source.parts, `${label}.parts`).map((part, index) => str(part, `${label}.parts[${index}]`)),
-      color: color(source.color, `${label}.color`),
-    }
-  }
-  return at(`${label}.type`, `unknown summary line ${JSON.stringify(type)}`)
-}
-
-/** Validate the inspector payload of an `inspector` answer. */
-export function validateInspectorModel(value: unknown, label = 'inspector'): InspectorModel {
-  try {
-    const source = record(value, label)
-    const kind = str(record(source.summary, `${label}.summary`).kind, `${label}.summary.kind`)
-    if (kind !== 'class' && kind !== 'package' && kind !== 'empty') {
-      at(`${label}.summary.kind`, `unknown summary kind ${JSON.stringify(kind)}`)
-    }
-    const summary = record(source.summary, `${label}.summary`)
-    const labels = record(source.labels, `${label}.labels`)
-    return {
-      entries: list(source.entries, `${label}.entries`).map((entry, index) => {
-        const row = record(entry, `${label}.entries[${index}]`)
-        return {
-          id: optionalString(row.id, `${label}.entries[${index}].id`),
-          label: str(row.label, `${label}.entries[${index}].label`),
-          active: bool(row.active, `${label}.entries[${index}].active`),
-        }
-      }),
-      summary: {
-        kind,
-        lines: list(summary.lines, `${label}.summary.lines`).map((line, index) => summaryLine(line, `${label}.summary.lines[${index}]`)),
-      },
-      declutterLabel: str(source.declutterLabel, `${label}.declutterLabel`),
-      detail: optionalString(source.detail, `${label}.detail`),
-      selected: optionalString(source.selected, `${label}.selected`),
-      labels: {
-        inspector: str(labels.inspector, `${label}.labels.inspector`),
-        proposals: str(labels.proposals, `${label}.labels.proposals`),
-        pHint: str(labels.pHint, `${label}.labels.pHint`),
-      },
-    }
-  } catch (error) {
-    if (error instanceof Invalid) throw new Error(error.message)
-    throw error
-  }
 }
 
 function cardCell(value: unknown, label: string): CardCell {

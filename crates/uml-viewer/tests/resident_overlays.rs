@@ -1,8 +1,9 @@
-//! Seam ① through the real binary (#27): the class card, the inspector
-//! (selected element + proposal list) and the source window travel over the
-//! resident protocol. Every summary, count, CRAP/mutation figure, no-data
-//! line, card row and source line is produced by `frame::inspector`,
-//! `frame::detail` and `frame::source`; the assertions below name the values
+//! Seam ① through the real binary (#27): the class card and the source window
+//! travel over the resident protocol, and the `state` event lists the
+//! proposals the discussion-context switcher offers (#47, which deleted the
+//! inspector). Every card row, CRAP/mutation figure, no-data line and source
+//! line is produced by `frame::detail` and `frame::source`; the assertions
+//! below name the values
 //! the fixtures and the shared model tests (`crates/frame/tests`) pin down.
 //! The panel renders these events; it never recomputes them.
 
@@ -151,8 +152,12 @@ fn opened(project: &Path) -> Resident {
     let mut resident = Resident::start(project);
     let ready = resident.expect("ready");
     assert_eq!(json!("dsh-uml-viewer/resident"), ready["schema"]);
+    let actions = ready["actions"].as_array().unwrap();
+    assert!(
+        !actions.contains(&json!("inspector")),
+        "the inspector is gone (#47): {ready}"
+    );
     for action in [
-        "inspector",
         "card",
         "open-card",
         "close-card",
@@ -195,75 +200,76 @@ fn centre_of(frame: &Value, id: &str) -> [f64; 2] {
     [n("x") + n("w") / 2.0, n("y") + n("h") / 2.0]
 }
 
-fn summary_lines(inspector: &Value) -> &Vec<Value> {
-    inspector["inspector"]["summary"]["lines"]
-        .as_array()
-        .unwrap()
-}
-
-fn line_text(line: &Value) -> String {
-    match line["type"].as_str().unwrap() {
-        "label" => line["text"].as_str().unwrap().to_owned(),
-        "segments" => line["parts"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|p| p.as_str().unwrap())
-            .collect::<Vec<_>>()
-            .join(" "),
-        other => panic!("unknown summary line {other}"),
-    }
+/// The `state` reply to `save`, the event the panel reads after every frame.
+fn saved(resident: &mut Resident, seq: i64) -> Value {
+    resident.ask(seq, json!({"action": "save"}), "state")
 }
 
 #[test]
-fn inspector_lists_the_source_diagram_and_proposals_with_the_empty_help() {
-    let dir = shop_project("inspector");
+fn the_state_event_lists_the_proposals_the_switcher_offers() {
+    let dir = shop_project("switcher");
     let mut resident = opened(&dir);
-    let shown = resident.ask(2, json!({"action": "inspector"}), "inspector");
+    // The shop fixture's one proposal, by EDN id and its display name; the
+    // source diagram is the switcher's own first row, so it is not listed.
+    let state = saved(&mut resident, 2);
     assert_eq!(
-        json!([
-            {"id": null, "label": "Shop", "active": true},
-            {"id": ":p-shop", "label": "2026-10-24 10:00:00", "active": false}
-        ]),
-        shown["inspector"]["entries"]
+        json!([{"id": ":p-shop", "name": "2026-10-24 10:00:00"}]),
+        state["proposals"]
     );
-    assert_eq!(json!("empty"), shown["inspector"]["summary"]["kind"]);
-    assert_eq!(Value::Null, shown["inspector"]["detail"]);
-    assert_eq!(Value::Null, shown["inspector"]["selected"]);
-    // The no-selection explanation is frame::strings::HELP, verbatim.
-    assert_eq!(
-        json!(
-            "单击类或命名空间查看摘要。\n双击类打开详情卡片。\n双击命名空间进入下一层。\nEsc（或 ←）返回上一层。\n滚轮平移；Shift+滚轮横向平移。\nCtrl+滚轮或 Ctrl+/− 以光标为中心缩放。\n空白处左键拖拽平移；Ctrl+0 适配全图。\nR 重新加载；F3 切换性能显示。\n单击上方列表中的图或提案即可切换。"
-        ),
-        summary_lines(&shown)[0]["text"]
-    );
-    assert_eq!(json!("muted"), summary_lines(&shown)[0]["color"]["role"]);
-    assert_eq!(json!("精简：无"), shown["inspector"]["declutterLabel"]);
+    assert_eq!(Value::Null, state["state"]["proposalId"]);
 
-    // Choosing a proposal makes its entry active; P returns to the source tree.
+    // Choosing the proposal is the existing `context` action; the list does
+    // not change, the view's proposal flag does.
     resident.ask(
         3,
         json!({"action": "context", "proposalId": ":p-shop"}),
         "context",
     );
     resident.expect("frame");
-    let proposal = resident.ask(4, json!({"action": "inspector"}), "inspector");
+    let state = saved(&mut resident, 4);
+    assert_eq!(json!(":p-shop"), state["state"]["proposalId"]);
     assert_eq!(
-        json!([
-            {"id": null, "label": "Shop", "active": false},
-            {"id": ":p-shop", "label": "2026-10-24 10:00:00", "active": true}
-        ]),
-        proposal["inspector"]["entries"]
+        json!([{"id": ":p-shop", "name": "2026-10-24 10:00:00"}]),
+        state["proposals"]
     );
-    resident.ask(5, json!({"action": "namespace-tree"}), "frame");
-    let tree = resident.ask(6, json!({"action": "inspector"}), "inspector");
-    assert_eq!(json!(true), tree["inspector"]["entries"][0]["active"]);
+
+    // Choosing the source diagram returns to the namespace tree's root.
+    let context = resident.ask(
+        5,
+        json!({"action": "context", "proposalId": null}),
+        "context",
+    );
+    assert_eq!(json!("real"), context["context"]["kind"]);
+    resident.expect("frame");
+    let state = saved(&mut resident, 6);
+    assert_eq!(Value::Null, state["state"]["proposalId"]);
+    assert_eq!(json!([]), state["state"]["focus"]);
+
+    // An id the diagram does not list is still refused.
+    resident.ask(
+        7,
+        json!({"action": "context", "proposalId": ":p-missing"}),
+        "error",
+    );
     resident.finish();
     let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
-fn double_click_opens_the_class_card_and_the_inspector_summarizes_the_class() {
+fn the_inspector_action_is_unknown() {
+    let dir = shop_project("no inspector");
+    let mut resident = opened(&dir);
+    let refused = resident.ask(2, json!({"action": "inspector"}), "error");
+    assert!(
+        refused["message"].as_str().unwrap().contains("inspector"),
+        "{refused}"
+    );
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn double_click_opens_the_class_card_and_close_card_empties_it() {
     let dir = source_project("card");
     let mut resident = opened(&dir);
     let core = resident.ask(2, json!({"action": "drill-in", "id": ":core"}), "frame");
@@ -278,28 +284,6 @@ fn double_click_opens_the_class_card_and_the_inspector_summarizes_the_class() {
         order["selected"],
         "the card's class is selected"
     );
-
-    let inspector = resident.ask(4, json!({"action": "inspector"}), "inspector");
-    assert_eq!(json!("class"), inspector["inspector"]["summary"]["kind"]);
-    assert_eq!(json!(":core.order"), inspector["inspector"]["detail"]);
-    let texts: Vec<String> = summary_lines(&inspector).iter().map(line_text).collect();
-    // Identity, package, level and the fixture's literal quality figures,
-    // exactly as frame::inspector::class_summary orders them.
-    assert_eq!(
-        vec![
-            "order".to_owned(),
-            "包 core".to_owned(),
-            "层级 0".to_owned(),
-            "Crap μ 4.0 max 8.0 σ 1.5".to_owned(),
-            "7 killed / 2 survived 3 uncovered".to_owned(),
-        ],
-        texts
-    );
-    let crap = summary_lines(&inspector)
-        .iter()
-        .find(|l| line_text(l).starts_with("Crap"))
-        .unwrap();
-    assert_eq!(json!("accent"), crap["color"]["role"]);
 
     let card = resident.ask(5, json!({"action": "card", "viewHeight": 100.0}), "card");
     assert_eq!(json!(":core.order"), card["card"]["id"]);
@@ -342,17 +326,10 @@ fn double_click_opens_the_class_card_and_the_inspector_summarizes_the_class() {
         labels
     );
 
-    // An unmeasured class keeps its 无数据 line, in the no-data role.
-    let plain = centre_of(&frame, ":core.plain");
-    resident.ask(6, json!({"action": "open-card", "at": plain}), "frame");
-    let inspector = resident.ask(7, json!({"action": "inspector"}), "inspector");
-    let last = summary_lines(&inspector).last().unwrap();
-    assert_eq!(json!("无数据"), last["text"]);
-    assert_eq!(json!("no-data"), last["color"]["role"]);
-
+    // Closing the card leaves none: `card` answers null instead of an error.
     resident.ask(8, json!({"action": "close-card"}), "frame");
-    let inspector = resident.ask(9, json!({"action": "inspector"}), "inspector");
-    assert_eq!(Value::Null, inspector["inspector"]["detail"]);
+    let card = resident.ask(9, json!({"action": "card"}), "card");
+    assert_eq!(Value::Null, card["card"], "{card}");
     resident.finish();
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -370,47 +347,8 @@ fn double_click_on_a_namespace_drills_instead_of_opening_a_card() {
             .any(|c| c["id"] == ":core.order"),
         "double-clicking a namespace enters it"
     );
-    let inspector = resident.ask(4, json!({"action": "inspector"}), "inspector");
-    assert_eq!(Value::Null, inspector["inspector"]["detail"]);
-    resident.finish();
-    let _ = std::fs::remove_dir_all(dir);
-}
-
-#[test]
-fn selecting_a_package_summarizes_its_class_count_and_missing_quality() {
-    let dir = shop_project("package summary");
-    let mut resident = opened(&dir);
-    let root = resident.ask(2, json!({"action": "viewport"}), "frame");
-    // The root view's own package band, above every class it contains.
-    let package = items(&root, "package")
-        .into_iter()
-        .find(|p| p["id"] == ":view")
-        .expect("the root draws its view package");
-    // Native package commands keep missing quality visible even when the
-    // inspector displays the pooled CRAP summary for the collapsed view.
-    assert_eq!(json!("red"), package["band"], "{package}");
-    assert_eq!(json!(true), package["missing"], "{package}");
-    let r = &package["rect"];
-    let at = [
-        r["x"].as_f64().unwrap() + 12.0,
-        r["y"].as_f64().unwrap() + 16.0,
-    ];
-    resident.ask(3, json!({"action": "select", "at": at}), "frame");
-    let inspector = resident.ask(4, json!({"action": "inspector"}), "inspector");
-    assert_eq!(
-        json!("package"),
-        inspector["inspector"]["summary"]["kind"],
-        "{inspector}"
-    );
-    let texts: Vec<String> = summary_lines(&inspector).iter().map(line_text).collect();
-    // Each unmeasured function contributes CRAP 20 in the native pool, so
-    // this package has a summary. The standalone 无数据 line is reserved for
-    // a package without any CRAP record (frame::inspector::package_summary).
-    assert_eq!(
-        vec!["Shop", "Crap μ 20.0 max 20.0 σ 0.0", "类数：4"],
-        texts,
-        "{inspector}"
-    );
+    let card = resident.ask(4, json!({"action": "card"}), "card");
+    assert_eq!(Value::Null, card["card"], "no card opened: {card}");
     resident.finish();
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -477,19 +415,22 @@ fn card_scroll_steps_by_48_and_clamps_at_both_ends() {
 }
 
 #[test]
-fn a_card_request_without_an_open_card_is_an_error_that_changes_nothing() {
+fn a_card_request_without_an_open_card_answers_null_and_changes_nothing() {
     let dir = shop_project("no card");
     let mut resident = opened(&dir);
-    resident.ask(2, json!({"action": "card"}), "error");
+    let card = resident.ask(2, json!({"action": "card"}), "card");
+    assert_eq!(Value::Null, card["card"], "{card}");
+    // A card on a class the diagram does not have is no open card either.
     resident.ask(
         3,
         json!({"action": "open-card", "id": ":missing.class"}),
         "frame",
     );
-    resident.ask(4, json!({"action": "card"}), "error");
+    let card = resident.ask(4, json!({"action": "card"}), "card");
+    assert_eq!(Value::Null, card["card"], "{card}");
     resident.ask(5, json!({"action": "open-source", "id": ":api"}), "error");
-    let inspector = resident.ask(6, json!({"action": "inspector"}), "inspector");
-    assert_eq!(json!("empty"), inspector["inspector"]["summary"]["kind"]);
+    let state = saved(&mut resident, 6);
+    assert_eq!(Value::Null, state["state"]["proposalId"]);
     resident.finish();
     let _ = std::fs::remove_dir_all(dir);
 }

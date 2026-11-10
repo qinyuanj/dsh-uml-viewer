@@ -308,7 +308,7 @@ in `packages/e2e/requests.spec.mjs` use the existing isolated lane and a
 scripted model with scratch-project Node quality overrides (no Cargo); they
 require a separately available existing native binary.
 
-### Request status (#51, ADR 0015)
+### Request status (#51, #52, ADR 0015)
 
 `packages/host/src/request-status.ts` keeps each session's panel requests in
 process memory (DSH restarting forgets them; at most 64 per session, finished
@@ -322,7 +322,8 @@ exitCode}]}` (`packages/contracts/src/request-status.ts`). It is sent once
 after the opening events and again after each change, so a reopened tab or a
 refreshed page sees the unfinished entries again. A session's list never
 reaches another session's stream. `RequestStatuses.record` replaces an entry
-with the same id, which is the seam for the later transitions (#52).
+with the same id, which is the seam for the transitions below and for dismissal
+(#53).
 
 The status bar (`packages/client/src/statusbar.ts`) shows one current entry and
 how many wait behind it as 「还有 N 条」; the button opens the whole queue in
@@ -334,10 +335,53 @@ one stays until the user dismisses it. Dismissal is the `dismiss-request` panel
 action (`{action: 'dismiss-request', id}`), answered by
 `RequestStatuses.dismiss` in the host: only a finished entry goes, and the
 session's new list reaches every panel. The browser evidence is
-`packages/e2e/queue.spec.mjs`; the host seam is in
-`packages/host/tests/requests.seam.test.ts`, the standing rules in
+`packages/e2e/queue.spec.mjs`; the host seams are in
+`packages/host/tests/requests.seam.test.ts` and
+`packages/host/tests/request-status.seam.test.ts`, the standing rules in
 `packages/host/tests/request-status.test.ts` and the bar's own behaviour in
 `packages/client/tests/statusbar.test.ts`.
+
+#52 attributes the companion's work to those entries in FIFO order: the head
+of the list — the oldest entry still `queued` or `running` — is the request it
+is handling, so
+
+| Trigger | Transition |
+| --- | --- |
+| the first `uml_*` call after the head was admitted | `queued` → `running` |
+| a quality result with `validResult: false` | `running` → `failed`, with the record's `reason` (a fixed sentence when the record has none) and its `exitCode` |
+| a failed `uml_ir` | `running` → `failed`, with the IR record's reason and exit code |
+| a successful `uml_display` | `running` → `done` |
+| a turn ends with a request it owned unfinished (consumed, or admitted before it began) | → `failed`, reason *the companion ended this turn without completing the display* |
+
+The attribution is the FIFO one the spec accepts: a quality call the user asks
+for by hand is attributed to the head too, so its result can end a request the
+user did not ask it for. A hide or a new proposal is matched exactly instead:
+`uml_ir({request})` names one entry by the grant id it carries, so its `running`
+and `failed` transitions land on that entry, not on the head. A successful
+`uml_display` completes the head and reports that entry's `target` in its
+result, which is what 「在面板中查看」 locates (#54); a display that answers no
+request names no element. The head is read from the list itself, in request
+order, never from a separately remembered "last request" record.
+
+Turn boundaries come from DSH's published `session/event` feed, the one public
+event a plugin can observe them through: `turn/start` clears the turn's claims
+and numbers the turn, and `turn/end` settles it. A durable `user/message` echoes
+the prompt `requestId` as its source `rpcId`, which is how the host knows a turn
+consumed one of its requests; the claim is held by prompt id until the turn
+ends, so a message that reaches the log before the panel's own admission
+returns is still matched. `turn/end` also fails the head as it stood when the
+turn ended, unless the request was admitted while that turn was already
+running: a turn owns every request queued before it began, so a request the
+companion never handled fails with the turn-end reason instead of staying
+`queued` forever, while a request the panel queued mid-turn waits for the next
+one — an admission racing a turn's end is not failed by the turn that could not
+have handled it. `agent/status` is not used: it carries no turn identity, so a
+per-agent idle would fail a request the next turn is about to pick up.
+
+A refused request still names the element the browser clicked (#52 F26): the
+refusal keeps the id the user clicked when the shown diagram gives its kind
+(an unresolved target of a refresh, a foreign library, a class without source).
+Requests whose id is not in the shown diagram any more name no element.
 
 ## Contracts and follow-on seams
 

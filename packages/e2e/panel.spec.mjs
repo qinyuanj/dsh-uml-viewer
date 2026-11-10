@@ -78,15 +78,17 @@ test('lays out the top bar, the canvas and the status bar in the narrow sidebar 
     expect(canvas.height).toBeGreaterThan(150)
     expect(status.y + status.height).toBeLessThanOrEqual(panelBox.y + panelBox.height + 1)
 
-    // The bar's controls in reading order: the breadcrumb path, the discussion
-    // context's name, the search button and 「更多」.
+    // The bar's controls in reading order: the breadcrumb path, the discussion-
+    // context switcher (#47), the search button and 「更多」.
     await expect(topBar(panel).getByRole('navigation', { name: 'Breadcrumb path' })).toBeVisible()
-    await expect(topBar(panel).locator('.dsh-uml-viewer-context')).toHaveText('source diagram')
+    await expect(topBar(panel).getByRole('button', { name: 'Discussion context: Source diagram', exact: true }))
+      .toHaveAttribute('aria-haspopup', 'menu')
+    await expect(topBar(panel).locator('.dsh-uml-viewer-switcher-name')).toHaveText('Source diagram')
     await expect(searchButton(panel)).toBeVisible()
     await expect(moreButton(panel)).toBeVisible()
 
-    // **Tab** walks them in that order: a breadcrumb level, then search, then
-    // 「更多」. Drill in first so the path has a level to focus.
+    // **Tab** walks them in that order: a breadcrumb level, the switcher, then
+    // search, then 「更多」. Drill in first so the path has a level to focus.
     const root = await producerFrame(panel, { root: lane.projects.deep, home: lane.home })
     const core = root.world.find(item => item.id === ':core' && (item.kind === 'class' || item.kind === 'package'))
     expect(core, 'the root has a drillable core component').toBeTruthy()
@@ -94,6 +96,8 @@ test('lays out the top bar, the canvas and the status bar in the narrow sidebar 
     await expect(panel.summary).toHaveAttribute('data-depth', 'drilled', { timeout: 30_000 })
     const path = topBar(panel).getByRole('navigation', { name: 'Breadcrumb path' })
     await path.getByRole('button').first().focus()
+    await panel.page.keyboard.press('Tab')
+    expect((await focused(panel))?.className).toContain('dsh-uml-viewer-switcher-button')
     await panel.page.keyboard.press('Tab')
     expect((await focused(panel))?.className).toContain('dsh-uml-viewer-search-open')
     await panel.page.keyboard.press('Tab')

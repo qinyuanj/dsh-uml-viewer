@@ -26,6 +26,8 @@ import { PanelViews, registerToolViews } from './tool-views.js'
 import { MORE_MENU_STYLE } from './more-menu.js'
 import { STATUSBAR_STYLE, mountStatusBar, type StatusBar } from './statusbar.js'
 import { TOPBAR_STYLE, mountTopBar, type TopBar } from './topbar.js'
+import { returnToSourceTree, type SwitcherActions } from './context-switcher.js'
+import { ACTION_BAR_STYLE, elementSelection, mountActionBar, type ActionBar } from './action-bar.js'
 import { LEGEND_STYLE, legendEntries, mountLegend, type Legend } from './legend.js'
 import { observeLayout } from './layout.js'
 
@@ -34,7 +36,7 @@ export const TAB_KIND = 'dsh-uml-viewer'
 export const GUIDE_ORDER = 30
 const REMOTE_NAMESPACE = 'umlViewer'
 
-const STYLE = `${TOPBAR_STYLE}${MORE_MENU_STYLE}${STATUSBAR_STYLE}${REQUEST_MENU_STYLE}${LEGEND_STYLE}
+const STYLE = `${TOPBAR_STYLE}${MORE_MENU_STYLE}${STATUSBAR_STYLE}${REQUEST_MENU_STYLE}${ACTION_BAR_STYLE}${LEGEND_STYLE}
 /* The three sections (#46): the top bar, the canvas, the status bar. The
    overlay root covers the canvas alone, so a drawer never hides either bar. */
 .dsh-uml-viewer-panel { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; width: 100%; }
@@ -177,7 +179,7 @@ export interface MountOptions {
   tabId?: string
   /** The host tab's `bindCommands`: the tab refresh command reloads the diagram. */
   bindCommands?: (commands: TabCommands) => () => void
-  /** Receives this mount's overlay controller (inspector, card, sources). */
+  /** Receives this mount's overlay controller (card, sources). */
   onOverlays?: (controller: OverlayController | null) => void
 }
 
@@ -239,6 +241,8 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   let placeOverlays: () => void = () => {}
   /** Whether the legend's strip was part of those insets last time. */
   let legendVisible: boolean | null = null
+  /** The selection action bar (#48), over the bottom of the canvas area. */
+  let actionBar: ActionBar | null = null
   /** A refusal from the element menu, re-rendered on a language switch. */
   let reported: string | (() => string) | null = null
   /** The frame the overlays last refreshed for; search/status updates reuse it. */
@@ -247,7 +251,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   let lastOwner: PanelOwner | null = null
   const renderStatus = (state: PanelStatus): void => {
     const frame = state.frame
-    // A new view frame refreshes the inspector/card; a search or status
+    // A new view frame refreshes the card; a search or status
     // publish that keeps the same frame does not re-request them.
     if (state.kind === 'live' && frame && overlays && frame !== overlayFrame) {
       overlayFrame = frame
@@ -299,6 +303,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
       legendVisible = visible
       placeOverlays()
     }
+    actionBar?.render(elementSelection(controller.selected, frame))
   }
   const controller = new PanelController({
     canvas,
@@ -311,10 +316,20 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   })
   // The three sections, in reading order: the top bar, the canvas, the status
   // bar. The canvas row holds the canvas and the legend's reserved strip (#50).
+  // The discussion-context switcher (#47) acts through the overlays, so a card
+  // reply in flight cannot repopulate the card after the view switches.
+  const switcherActions: SwitcherActions = {
+    choose: proposalId => { void overlays?.choose(proposalId) },
+    namespaceTree: () => {
+      if (overlays) void overlays.namespaceTree()
+      else void controller.namespaceTree()
+    },
+    newProposal: () => { void overlays?.newProposal(new Date()) },
+  }
   const canvasRow = document.createElement('div')
   canvasRow.className = 'dsh-uml-viewer-canvas-row'
   topBar = mountTopBar(host, {
-    controller, text, onDone: focusCanvas,
+    controller, text, onDone: focusCanvas, context: switcherActions,
     // 「更多」 carries the legend's entry (#50), which opens the popover.
     moreEntries: () => (legend ? legendEntries(legend, text) : []),
   })
@@ -337,6 +352,15 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     text,
   })
   overlays = new OverlayController(action => controller.send(action), text)
+  actionBar = mountActionBar(canvasArea, {
+    text,
+    send: action => controller.send(action),
+    openCard: id => overlays?.openCard(id),
+    report(reason) {
+      reported = reason
+      statusBar?.setMessage(reason)
+    },
+  })
   options.views?.attach(options.sessionId, overlays)
   options.onOverlays?.(overlays)
   // Esc closes the class card / source drawer before it goes back (#49), and
@@ -364,12 +388,10 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     legend?.setLayout(layout)
     placeOverlays()
   })
-  /** **P**: one dispatch, through the overlays so a card reply in flight cannot
-   * repopulate the card after the tree resets. */
-  const namespaceTree = (): void => {
-    if (overlays) void overlays.namespaceTree()
-    else void controller.namespaceTree()
-  }
+  /** **P** (#47): the same as choosing the source diagram in the switcher —
+   * back to the namespace tree's root, leaving a proposal under discussion,
+   * through the overlays so a card reply in flight cannot repopulate the card. */
+  const namespaceTree = (): void => returnToSourceTree(controller.current.context, switcherActions)
   // Closing the host tab is the explicit close; while this body is mounted the
   // controller closes its live holder (the stream ends without a withdrawal).
   const tabId = options.tabId
@@ -498,6 +520,8 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     options.onOverlays?.(null)
     if (panelElement !== host) panelElement.removeEventListener('keydown', onPanelKey)
     disposeQualityMenu()
+    actionBar?.dispose()
+    actionBar = null
     disposeSections()
     unsubscribeText()
     unsubscribe()

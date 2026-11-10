@@ -5,5 +5,11 @@
       "name": "Levels proposal"
     }
   ],
+  "proposals": [
+    {
+      "id": ":p-levels",
+      "name": "Levels proposal"
+    }
+  ],
   "status": null
 }

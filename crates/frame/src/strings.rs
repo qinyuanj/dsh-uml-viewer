@@ -6,9 +6,8 @@
 //! The text the resident lays out for the panel (#44, ADR 0015) — the class
 //! card, the class box's 无数据 and the source error — comes in Chinese and
 //! English through [`Lang::text`]; any other language falls back to English.
-//! The remaining constants are the inspector's, which #47 removes; they stay
-//! Chinese until then. The canvas chrome (title, proposal banner, return line,
-//! status, hint) left with #46, whose text lives in the panel's locale files.
+//! The inspector's Chinese-only constants left with it (#47). The canvas
+//! chrome (title, proposal banner, return line, status, hint) left with #46, whose text lives in the panel's locale files.
 //! The window's glyph-coverage probe and F3 performance line left with the
 //! standalone window (dsh-uml-viewer#30).
 
@@ -195,65 +194,6 @@ pub const EN: Text = Text {
     },
 };
 
-pub const REAL_DIAGRAM: &str = "源码图";
-pub const INSPECTOR: &str = "检查器";
-pub const SEARCH: &str = "搜索类名或命名空间";
-pub const SEARCH_OPEN: &str = "打开所选结果 (Enter)";
-pub const SEARCH_EMPTY: &str = "没有匹配的类";
-pub const TREE_AND_PROPOSALS: &str = "命名空间树 / 提案";
-pub const NEW_PROPOSAL: &str = "新建提案";
-pub const DECLUTTER: &str = "精简视图";
-/// Declutter control labels by current mode (`declutter_modes`).
-pub const DECLUTTER_MODES: [(&str, &str); 5] = [
-    ("full", "精简：无"),
-    ("arrows", "精简：箭头"),
-    ("triangles", "移除箭头"),
-    ("elements", "精简：元素"),
-    ("classes", "精简：类"),
-];
-pub const RENAME: &str = "重命名";
-pub const DELETE: &str = "删除";
-pub const PROPOSAL_NAME: &str = "提案名称";
-pub const RENAME_PROPOSAL: &str = "重命名提案";
-pub const CANCEL: &str = "取消";
-pub const P_HINT: &str = "P：返回命名空间树";
-pub const PROPOSALS_LABEL: &str = "提案";
-pub const CLASS_COUNT: &str = "类数：";
-pub const PACKAGE_CRAP: &str = "Crap μ %s max %s σ %s";
-pub const PACKAGE_MUTATION: &str = "%d killed / %d survived";
-pub const PACKAGE_UNCOVERED: &str = "   %d uncovered";
-pub const NO_DATA: &str = ZH.no_data;
-pub const SELECT_CLASS: &str = "单击类或命名空间查看摘要；双击打开详情卡片。";
-pub const REGEN: &str = "重新生成 IR";
-pub const PERFORMANCE: &str = "性能：%d FPS · 帧耗时 %.2f ms";
-pub const HELP: &str = "单击类或命名空间查看摘要。
-双击类打开详情卡片。
-双击命名空间进入下一层。
-Esc（或 ←）返回上一层。
-滚轮平移；Shift+滚轮横向平移。
-Ctrl+滚轮或 Ctrl+/− 以光标为中心缩放。
-空白处左键拖拽平移；Ctrl+0 适配全图。
-R 重新加载；F3 切换性能显示。
-单击上方列表中的图或提案即可切换。";
-/// Element menu labels; the mail operations themselves stay English.
-pub const MENU: [(&str, &str); 4] = [
-    ("refresh-crap", "刷新 CRAP"),
-    ("refresh-mutate", "刷新 mutation"),
-    ("refresh-mutate-all", "全量 mutation"),
-    ("omit", "隐藏"),
-];
-// The inspector's Chinese card terms (the inspector goes with #47).
-pub const LEVEL: &str = ZH.level;
-pub const PACKAGE: &str = ZH.package;
 /// Non-table glyphs the canvas and cards draw: stereotype guillemets, the
 /// abstract marker, crap statistics and arrows.
 pub const EXTRA_GLYPHS: &str = "«»αμσ←→—…";
-
-/// The declutter control label for a mode name; unknown modes read as the
-/// generic 精简视图.
-pub fn declutter_label(mode: &str) -> &'static str {
-    DECLUTTER_MODES
-        .iter()
-        .find(|(m, _)| *m == mode)
-        .map_or(DECLUTTER, |(_, label)| label)
-}

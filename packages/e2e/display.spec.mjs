@@ -1,7 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
 import { panelViewport, producerFrame, toScreen } from './canvas.mjs'
-import { panBesideInspector } from './gestures.mjs'
 
 /**
  * The panel equivalent of the deleted dpi_window.edn / dpi_shots.edn window
@@ -26,7 +25,6 @@ test('scale-2 canvas rasterizes at device pixels, hits at CSS points and follows
     expect(first.height).toBe(Math.round(before.height * 2))
     expect(first.ratio).toBeCloseTo(2, 1)
 
-    await panBesideInspector(shop)
     const frame = await producerFrame(shop, { root: lane.projects.shop, home: lane.home })
     const orders = frame.world.find(item => item.id === ':orders' && (item.kind === 'class' || item.kind === 'package'))
     expect(orders, 'the shop root shows the orders module').toBeTruthy()

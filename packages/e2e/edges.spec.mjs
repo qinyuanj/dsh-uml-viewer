@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
-import { panBesideInspector } from './gestures.mjs'
 import { producerFrame, sample, same, toScreen, panelCamera, inkCount } from './canvas.mjs'
 
 // #25: real source -> uml_ir -> resident -> panel. The separate binary frame
@@ -136,15 +135,13 @@ test('closed heads stay opaque when relations dim, including the mesh scale', as
   try {
     const selected = '{:kind :class :id :observer}'
     const panel = await lane.openPanel('nexus')
-    // The isolated observer is behind the inspector in the fitted sidebar.
-    await panBesideInspector(panel)
     let frame = await producerFrame(panel, { root: lane.projects.nexus, home: lane.home })
     const observer = frame.world.find(p => p.kind === 'class' && p.id === ':observer')
     expect(observer, 'isolated observer').toBeTruthy()
     const at = toScreen(frame, observer.rect.x + observer.rect.w / 2, observer.rect.y + observer.rect.h / 2)
     await panel.canvas.click({ position: { x: at[0], y: at[1] } })
     await expect(panel.summary).toHaveAttribute('data-selected', ':observer')
-    // Restore the head region after selecting the exposed observer.
+    // Restore the head region after selecting the observer.
     await panel.canvas.focus()
     await panel.page.keyboard.press('Control+0')
     await settled(panel)
@@ -179,7 +176,7 @@ test('proposal relation stays solid in full and frames tiers and disappears in b
     // bar's discussion context and the path's root, and the frame is the
     // diagram alone.
     expect(frame.chrome).toEqual([])
-    await expect(panel.panel.locator('.dsh-uml-viewer-context')).toHaveText('Ledger proposal')
+    await expect(panel.panel.locator('.dsh-uml-viewer-switcher-name')).toHaveText('Ledger proposal')
     await expect(panel.panel.locator('.dsh-uml-viewer-crumbs [aria-current="page"]')).toHaveText('Ledger proposal')
     for (const tier of ['full', 'frames', 'blocks']) {
       if (tier !== 'full') {
@@ -207,7 +204,7 @@ test('triangles mode paints incoming/outgoing indicators and preserves violating
   try {
     const panel = await lane.openPanel('nexus')
     // 移除箭头 is the 「更多」 menu's toggle now (#46): it names :triangles
-    // instead of cycling through the inspector's five modes.
+    // instead of cycling through every declutter mode.
     const more = panel.panel.getByRole('button', { name: 'More actions', exact: true })
     const arrows = () => panel.panel.locator('.dsh-uml-viewer-more-menu')
       .getByRole('menuitemcheckbox', { name: 'Remove arrows', exact: true })

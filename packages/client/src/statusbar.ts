@@ -41,8 +41,11 @@ export const STATUSBAR_STYLE = `
 .dsh-uml-viewer-request-more[hidden] { display: none; }
 .dsh-uml-viewer-request-more:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-uml-viewer-request-more:focus-visible { outline: 1px solid var(--dsw-focus-ring-color); }
+/* The queue opens over the canvas's bottom edge, where the selection action bar
+   (#48) sits: it paints above the bar and the drawer (#49), which are transient
+   surfaces of the canvas, so neither hides the queue it is opened from. */
 .dsh-uml-viewer-request-list {
-  position: absolute; left: 4px; right: 4px; bottom: 100%; z-index: 2; max-height: 180px;
+  position: absolute; left: 4px; right: 4px; bottom: 100%; z-index: 50; max-height: 180px;
   overflow-x: hidden; overflow-y: auto; box-sizing: border-box; padding: 4px; margin-bottom: 2px;
   border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px;
   background: var(--dsw-alias-bg-layer-2); box-shadow: 0 4px 12px rgb(0 0 0 / 18%);

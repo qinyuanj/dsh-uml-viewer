@@ -417,6 +417,23 @@ pub fn scroll(rows: &[Row], view_h: f64, offset: f64, delta: f64) -> f64 {
     (offset + delta * SCROLL_STEP).clamp(0.0, max_scroll(rows, view_h))
 }
 
+/// A wheel over the panel's class card: `delta` notches on the open card (or
+/// the selected class's), clamped by its rows and the viewport height the
+/// panel reported. Row heights do not depend on the language, only their text.
+pub fn scroll_card(state: &ViewState, delta: f64, view_h: f64) -> ViewState {
+    let id = state
+        .detail_id
+        .clone()
+        .or_else(|| state.selected.as_ref().and_then(|s| get(s, "id").cloned()));
+    let rows = id
+        .and_then(|id| for_state(state, &id))
+        .map(|m| rows(&m, Lang::default()))
+        .unwrap_or_default();
+    let mut next = state.clone();
+    next.detail_scroll = scroll(&rows, view_h, state.detail_scroll, delta);
+    next
+}
+
 /// The hovered card row: an operation, relationship, or the module row.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Hover {

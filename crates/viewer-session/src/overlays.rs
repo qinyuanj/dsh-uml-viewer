@@ -1,7 +1,7 @@
-//! The panel overlays (#27): the inspector, the class card and the source
-//! window as resident-protocol JSON. Every text, count, CRAP/mutation figure,
-//! no-data line, card row, metric column, color role and source line comes
-//! from the shared window-free models (`frame::inspector`, `frame::detail`,
+//! The panel overlays (#27): the class card and the source window as
+//! resident-protocol JSON (the inspector left with #47). Every text,
+//! CRAP/mutation figure, no-data line, card row, metric column, color role and
+//! source line comes from the shared window-free models (`frame::detail`,
 //! `frame::source`). Nothing is recomputed here
 //! beyond serializing those models, so the TypeScript panel only renders.
 //!
@@ -19,7 +19,7 @@ use serde_json::{Value as Json, json};
 
 use frame::frame::role_json;
 use frame::strings::Lang;
-use frame::{detail, inspector, source, strings};
+use frame::{detail, source};
 
 use crate::Session;
 
@@ -189,74 +189,6 @@ fn optional_id(id: Option<&Value>) -> Json {
     id.map_or(Json::Null, |id| json!(edn_text(id)))
 }
 
-/// One `inspector::SummaryLine`: a label, or metric segments that wrap only
-/// between whole statistics. Colors stay semantic roles.
-fn summary_line(line: &inspector::SummaryLine) -> Json {
-    match line {
-        inspector::SummaryLine::Label { text, color } => {
-            json!({"type": "label", "text": text, "color": role_json(*color)})
-        }
-        inspector::SummaryLine::Segments { parts, color } => {
-            json!({"type": "segments", "parts": parts, "color": role_json(*color)})
-        }
-    }
-}
-
-fn summary(lines: Vec<inspector::SummaryLine>, kind: &str) -> Json {
-    let lines: Vec<Json> = lines.iter().map(summary_line).collect();
-    json!({"kind": kind, "lines": lines})
-}
-
-/// The inspector sidebar: the diagram/proposal list, the selected element's
-/// summary and the labels of its controls.
-pub fn inspector_json(session: &Session) -> Json {
-    let state = session.state();
-    let entries: Vec<Json> = inspector::entries(state)
-        .iter()
-        .map(|entry| {
-            json!({"id": optional_id(entry.id.as_ref()), "label": entry.label,
-                   "active": entry.active})
-        })
-        .collect();
-    let selected = state.selected.as_ref();
-    let id = selected.and_then(|s| get(s, "id"));
-    let kind = selected
-        .and_then(|s| get(s, "kind"))
-        .and_then(local_name)
-        .unwrap_or_default();
-    // The window's own choice: a class with a card model summarizes the class,
-    // a package summarizes the package, anything else shows the explanation.
-    let summary = match id.and_then(|id| detail::for_state(state, id)) {
-        Some(model) => summary(inspector::class_summary(&model), "class"),
-        None if kind == "package" => match id {
-            Some(id) => summary(inspector::package_summary(&state.scene, id), "package"),
-            None => summary(Vec::new(), "package"),
-        },
-        None => {
-            let message = inspector::empty_explanation(state).unwrap_or(strings::SELECT_CLASS);
-            summary(
-                vec![inspector::SummaryLine::Label {
-                    text: message.to_owned(),
-                    color: frame::theme::Role::Muted,
-                }],
-                "empty",
-            )
-        }
-    };
-    json!({
-        "entries": entries,
-        "summary": summary,
-        "declutterLabel": inspector::declutter_label(state),
-        "detail": optional_id(state.detail_id.as_ref()),
-        "selected": optional_id(selected),
-        "labels": {
-            "inspector": strings::INSPECTOR,
-            "proposals": strings::PROPOSALS_LABEL,
-            "pHint": strings::P_HINT,
-        },
-    })
-}
-
 fn cell_json(cell: &detail::Cell) -> Json {
     json!({
         "id": cell.id, "text": cell.text, "left": cell.left, "right": cell.right,
@@ -289,20 +221,21 @@ fn item_json(item: &detail::Item) -> Json {
 /// swatches and roles in content space, plus the scroll model. `width` is the
 /// card's content width in points (the native default is 624, floor 560) and
 /// `viewHeight` the card viewport the scroll clamps against. The rows are
-/// worded in `language` (#44).
+/// worded in `language` (#44). With no class card open — none was opened, or
+/// its class is not in the shown diagram — the answer is `null` (#47).
 pub fn card_json(
     session: &Session,
     width: Option<f64>,
     view_height: Option<f64>,
     language: Lang,
-) -> Result<Json, String> {
+) -> Json {
     let state = session.state();
-    let id = state
-        .detail_id
-        .clone()
-        .ok_or_else(|| "no class card is open".to_owned())?;
-    let model = detail::for_state(state, &id)
-        .ok_or_else(|| format!("no class card for {}", edn_text(&id)))?;
+    let Some(id) = state.detail_id.clone() else {
+        return Json::Null;
+    };
+    let Some(model) = detail::for_state(state, &id) else {
+        return Json::Null;
+    };
     let rows = detail::rows(&model, language);
     let items = detail::view(&rows, width, language);
     let view_h = view_height.filter(|h| *h > 0.0).unwrap_or(detail::HEIGHT);
@@ -314,7 +247,7 @@ pub fn card_json(
         })
         .or(model.ns.clone())
         .unwrap_or_default();
-    Ok(json!({
+    json!({
         "id": edn_text(&id),
         "title": title,
         "contentHeight": detail::content_h(&rows),
@@ -322,7 +255,7 @@ pub fn card_json(
         "scroll": state.detail_scroll.clamp(0.0, max_scroll),
         "maxScroll": max_scroll,
         "items": items.iter().map(item_json).collect::<Vec<_>>(),
-    }))
+    })
 }
 
 /// Open a source window on the class's module (`member` None) or on one

@@ -3,6 +3,7 @@ import { launchViewerLane } from './lane.mjs'
 import { panDeltaBounds } from './canvas-probes.mjs'
 import { inkCount, panelCamera, producerFrame, sample, screenRect, toScreen } from './canvas.mjs'
 import { exposeTarget } from './gestures.mjs'
+import { chooseContext } from './switcher.mjs'
 
 /**
  * The panel equivalents of the deleted window drivers navigation.edn and
@@ -70,6 +71,12 @@ test('drills in and back, selects a dependency chain, searches and returns with 
     await deep.canvas.focus()
     await deep.page.keyboard.press('p')
     await expect(deep.summary).toHaveAttribute('data-depth', 'root')
+    // The switcher's source-diagram row is the same as P (#47).
+    await lane.point(deep, toScreen(root, core.rect.x + core.rect.w / 2, core.rect.y + core.rect.h / 2), 2)
+    await expect(deep.summary).toHaveAttribute('data-depth', 'drilled')
+    await chooseContext(deep, 'Source diagram')
+    await expect(deep.summary).toHaveAttribute('data-depth', 'root')
+    await expect(deep.summary).toHaveAttribute('data-context', 'real')
 
     // Ctrl+F, Chinese text input, same-name results, Down/Enter locate.
     await deep.canvas.focus()
@@ -116,7 +123,7 @@ test('returns to any breadcrumb level of the source tree and of a proposal', asy
       edn: '{:context :proposal :name "Levels proposal" :proposal-id :p-levels}' },
     proposalId: ':p-levels',
   }
-  /** Double-click a box of the view the producer describes; pan when the inspector covers it. */
+  /** Double-click a box of the view the producer describes, once it is on the canvas. */
   const drill = async (panel, view) => {
     const measure = async () => {
       const frame = await producerFrame(panel, {

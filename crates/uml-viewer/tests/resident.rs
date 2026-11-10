@@ -252,7 +252,7 @@ fn the_declutter_action_sets_the_mode_the_panel_names() {
             .iter()
             .all(|edge| edge["kind"] == "indicator")
     );
-    // No mode still cycles, as the inspector's button did.
+    // No mode still cycles the modes, as any old control did.
     resident.ask(5, json!({"action": "declutter"}), "frame");
     let cycled = resident.ask(6, json!({"action": "save"}), "state");
     assert_eq!(json!(":elements"), cycled["state"]["declutter"]);
@@ -812,7 +812,7 @@ fn state_golden(name: &str, event: &Value) {
     );
 }
 
-/// The event's #45 fields. A status's `path` is the machine's, so the golden
+/// The event's #45 fields and the switcher's proposal list (#47). A status's `path` is the machine's, so the golden
 /// records the file it names rather than the checkout it was captured in.
 fn recorded(event: &Value) -> Value {
     let mut status = event["status"].clone();
@@ -823,7 +823,7 @@ fn recorded(event: &Value) -> Value {
             .unwrap_or_default();
         status["path"] = json!(file);
     }
-    json!({"breadcrumbs": event["breadcrumbs"], "status": status})
+    json!({"breadcrumbs": event["breadcrumbs"], "status": status, "proposals": event["proposals"]})
 }
 
 fn saved(resident: &mut Resident, seq: i64) -> Value {

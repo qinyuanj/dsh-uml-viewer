@@ -310,12 +310,12 @@ the visible conversation's session id to change when the chosen workspace
 changes. The chooser label alone updates before the new conversation mounts.
 The delayed-transition check keeps those two states separate.
 
-The Shop DPI and metrics-reload cases pan left by the measured inspector width
-before asking the producer for a fresh frame. Their previous target was under
-the floating inspector, so a raw page click reached the inspector rather than
-the canvas. The gesture check replays the CI CSS geometry at both DPR values;
-the browser cases still require real selection, resize and metrics changes.
-Node fixture checks do not establish browser acceptance.
+Nothing floats over the canvas since the inspector was deleted (#47), so a
+fitted view's target is exposed where it is measured: `exposeTarget` refuses a
+point off the canvas instead of panning around it (#47 replaced the CI-era
+`panBesideInspector` workaround). The Shop DPI and metrics-reload cases ask the
+producer for a fresh frame after their own gesture. Node fixture checks do not
+establish browser acceptance.
 
 ## Sample projects
 
@@ -479,10 +479,10 @@ behavior. "Retired" marks window-only behavior with no panel counterpart.
 | deleted driver | Playwright case | not carried over |
 |---|---|---|
 | `class_boxes.edn` | `primitives.spec.mjs` › paints class boxes, component boxes, α/I, levels, CJK names and the foreign ellipse like the producer | egui italic glyph-vertex shear (italic font choice: `packages/client/tests/primitives.test.ts`) |
-| `detail_scroll.edn` | `overlays.spec.mjs` › class card wheel steps clamp at both ends, keep inspector visible, and resize columns; › inspector follows class selection, switches proposal, and P returns to the namespace tree (empty-inspector help) | right-click Rename/Delete menu: retired, the panel edits no policy; the New Proposal row is now a panel request, `view-requests.spec.mjs` › choosing a proposal tells the companion; 新建提案 sends a timestamp name; all in click order (#29) |
+| `detail_scroll.edn` | `overlays.spec.mjs` › class card wheel steps clamp at both ends, keep the top bar in place, and resize columns; › no inspector: the switcher changes the discussion, P returns to the source tree root (#47) | right-click Rename/Delete menu: retired, the panel edits no policy; the New Proposal row is now a panel request, `view-requests.spec.mjs` › choosing a proposal tells the companion; 新建提案 sends a timestamp name; all in click order (#29) |
 | `dpi_shots.edn`, `dpi_window.edn` | `display.spec.mjs` › scale-2 canvas rasterizes at device pixels, hits at CSS points and follows a resized page | window size limits and the 280 → 340 sidebar drag: retired, the host owns the panel size |
 | `font_parity.edn`, `font_parity_baseline.edn`, `fonts.edn` | `primitives.spec.mjs` (names inked inside their producer slots, no label past a box edge, Sarasa CJK/Latin advances) | window font lookup chain and the glyph-coverage probe: retired with the window's font loader |
-| `inspector.edn` | `overlays.spec.mjs` › inspector follows class selection, switches proposal, and P returns to the namespace tree; `session.spec.mjs` › restores the proposal discussion context after a DSH restart | proposal rename, its Chinese text input and policy/IR write-back: retired, the companion edits the policy in place (`docs/companion-rules.md`) |
+| `inspector.edn` | `overlays.spec.mjs` › no inspector: the switcher changes the discussion, P returns to the source tree root (#47); `navigation.spec.mjs` › the switcher's source-diagram row equals P; `session.spec.mjs` › restores the proposal discussion context after a DSH restart | proposal rename, its Chinese text input and policy/IR write-back: retired, the companion edits the policy in place (`docs/companion-rules.md`) |
 | `lod_shots.edn` | `primitives.spec.mjs` (full → frames tier); `edges.spec.mjs` › proposal relation stays solid in full and frames tiers and disappears in blocks | — |
 | `metrics.edn` | `reload.spec.mjs` › a metric-only snapshot edit reloads quality without rewriting the IR | — |
 | `navigation.edn` | `navigation.spec.mjs` › drills in and back, selects a dependency chain, searches and returns with P; › anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and toggles 移除箭头 from the 「更多」 menu in place | — |
@@ -519,8 +519,8 @@ gating. Run them offline with `node --test packages/e2e/view-policy.test.mjs`.
 
 Browser assertions cover source/proposal class absence in the real producer
 frame after IR/display, source visibility after a proposal-only omit, the new
-proposal's actual inspector row, preserved discussion context until an explicit
-choice, and untouched composer drafts. A malformed scratch policy exercises
+proposal's actual row in the top bar's discussion-context switcher, preserved
+discussion context until an explicit choice, and untouched composer drafts. A malformed scratch policy exercises
 failed real IR: the mock emits no display, the generated IR bytes remain
 unchanged, and the displayed summary stays unchanged. These strengthened
 browser cases require CI runtime acceptance; local Node tests and Playwright
@@ -591,9 +591,9 @@ The file has 84 displayed rows including the trailing empty row.
 The cases port the applicable behavior of `source_jump.edn`,
 `source_window.edn`, `detail_scroll.edn` and `inspector.edn`:
 
-- The inspector explains an empty selection, refreshes to the selected class
-  and its no-data summary, selects the named proposal, and accepts **P** with
-  focus still on that proposal button to return to the source namespace tree.
+- There is no inspector (#47): the top bar's switcher lists the source diagram,
+  the proposal and 新建提案; picking the proposal switches the canvas and the
+  discussion context, and **P** returns to the source namespace tree.
 - A real canvas double-click opens the class card at coordinates from
   `producerFrame`, without injecting a frame or invoking a private controller.
   In a sidebar of about 400px (the window is narrowed when the host has no
@@ -614,7 +614,7 @@ The cases port the applicable behavior of `source_jump.edn`,
 - With the host's fullscreen toggle the panel container reaches 900px and the
   card docks on the right edge of the canvas (`data-layout="docked"`); leaving
   fullscreen returns it to the bottom drawer without remounting.
-- Switching `body[data-ds-dark-theme]` checks computed inspector, card, source,
+- Switching `body[data-ds-dark-theme]` checks computed card, source,
   gutter, keyword and border colors against resolved host tokens in both
   modes, and requires the actual surface colors to change.
 
