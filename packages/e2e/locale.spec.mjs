@@ -52,6 +52,8 @@ test('panel DOM text and accessible names follow a DSH language switch without r
     await expect(shop.panel.getByRole('menu', { name: '元素请求' })).toHaveCount(1)
     await shop.page.keyboard.press('Escape')
     await expect(declutter(shop)).toHaveAccessibleName(/^精简：/)
+    // #45: the top bar's breadcrumb path is our markup, so its name follows too.
+    await expect(shop.panel.getByRole('navigation', { name: '面包屑路径' })).toBeVisible()
 
     await switchLanguage(shop.page, 'English')
     // The same mount: still the shop frame, relabelled in place.
@@ -65,6 +67,7 @@ test('panel DOM text and accessible names follow a DSH language switch without r
     await expect(shop.panel.getByRole('menu', { name: 'Element requests' })).toHaveCount(1)
     await shop.page.keyboard.press('Escape')
     await expect(declutter(shop)).toHaveAccessibleName(/^Declutter: /)
+    await expect(shop.panel.getByRole('navigation', { name: 'Breadcrumb path' })).toBeVisible()
     await lane.screenshot(shop, 'locale-english')
   } finally {
     await lane.close()

@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
 import { panDeltaBounds } from './canvas-probes.mjs'
 import { inkCount, panelCamera, producerFrame, sample, screenRect, toScreen } from './canvas.mjs'
+import { exposeTarget } from './gestures.mjs'
 
 /**
  * The panel equivalents of the deleted window drivers navigation.edn and
@@ -74,6 +75,87 @@ test('drills in and back, selects a dependency chain, searches and returns with 
     await deep.page.keyboard.press('p')
     await expect(deep.summary).toHaveAttribute('data-depth', 'root')
     expect(deep.problems).toEqual([])
+  } finally {
+    await lane.close()
+  }
+})
+
+/**
+ * The top bar's breadcrumb path (#45): the state event carries the tree path,
+ * every level above the current one returns straight to it, and a proposal's
+ * path starts at the proposal rather than at the source diagram.
+ */
+test('returns to any breadcrumb level of the source tree and of a proposal', async ({ browser }) => {
+  const lane = await launchViewerLane(browser)
+  const proposalContext = {
+    context: { kind: 'proposal', proposalId: ':p-levels', name: 'Levels proposal',
+      edn: '{:context :proposal :name "Levels proposal" :proposal-id :p-levels}' },
+    proposalId: ':p-levels',
+  }
+  /** Double-click a box of the view the producer describes; pan when the inspector covers it. */
+  const drill = async (panel, view) => {
+    const measure = async () => {
+      const frame = await producerFrame(panel, {
+        root: lane.projects.levels, home: lane.home,
+        ...(view.focus ? { focus: view.focus } : {}),
+        ...(view.extra ? { extra: view.extra } : {}),
+      })
+      const box = frame.world.find(entry => entry.id === view.id
+        && (entry.kind === 'class' || entry.kind === 'package'))
+      expect(box, `the view shows ${view.id}`).toBeTruthy()
+      return { frame, point: toScreen(frame, box.rect.x + box.rect.w / 2, box.rect.y + box.rect.h / 2) }
+    }
+    const measured = await exposeTarget(panel, measure)
+    await lane.point(panel, measured.point, 2)
+  }
+  const atRoot = panel => expect(panel.summary).toHaveAttribute('data-depth', 'root')
+  const current = path => path.locator('[aria-current="page"]')
+  try {
+    const levels = await lane.openPanel('levels')
+    const path = levels.panel.getByRole('navigation', { name: 'Breadcrumb path' })
+    // The path starts at the diagram; the level shown is not a button.
+    await expect(path).toContainText('Levels')
+    await expect(path.getByRole('button')).toHaveCount(0)
+
+    // Two namespace levels down: root → core → core.inner.
+    await drill(levels, { id: ':core' })
+    await expect(path.getByRole('button', { name: 'Go to Levels', exact: true })).toBeVisible()
+    await drill(levels, { id: ':core.inner', focus: ':core' })
+    await expect(levels.summary).toHaveAttribute('data-depth', 'drilled')
+    await expect(current(path)).toHaveText('inner')
+
+    // The middle level: one click back to `core`, from two levels below it.
+    await path.getByRole('button', { name: 'Go to core', exact: true }).click()
+    await expect(current(path)).toHaveText('core')
+    const atCore = await producerFrame(levels, { root: lane.projects.levels, home: lane.home, focus: ':core' })
+    const inner = atCore.world.find(entry => entry.id === ':core.inner' && entry.kind === 'class')
+    expect(inner, 'the core level is the one drawn').toBeTruthy()
+    const background = (await sample(levels, [[atCore.viewport.width - 6, atCore.viewport.height - 6]]))[0]
+    expect(await inkCount(levels, screenRect(atCore, inner.rect), background, 12), 'the core level is drawn').toBeGreaterThan(10)
+
+    // The root: the whole diagram again.
+    await path.getByRole('button', { name: 'Go to Levels', exact: true }).click()
+    await atRoot(levels)
+
+    // The proposal's path is the proposal's, with its layer and nested group.
+    const proposal = await lane.openPanel('levels', { state: proposalContext })
+    await expect(proposal.summary).toHaveAttribute('data-view', 'proposal')
+    const proposalPath = proposal.panel.getByRole('navigation', { name: 'Breadcrumb path' })
+    await expect(current(proposalPath)).toHaveText('Levels proposal')
+    const inProposal = '{:proposal true :proposal-id :p-levels}'
+    await drill(proposal, { id: ':proposal.domain', extra: inProposal })
+    await drill(proposal, { id: ':core-group', extra: '{:proposal true :proposal-id :p-levels :open-layer :proposal.domain}' })
+    await expect(proposal.summary).toHaveAttribute('data-depth', 'drilled')
+    await expect(current(proposalPath)).toHaveText('Core')
+
+    // Back to the layer, then to the proposal's root: never to the source tree.
+    await proposalPath.getByRole('button', { name: 'Go to Domain', exact: true }).click()
+    await expect(current(proposalPath)).toHaveText('Domain')
+    await proposalPath.getByRole('button', { name: 'Go to Levels proposal', exact: true }).click()
+    await atRoot(proposal)
+    await expect(proposal.summary).toHaveAttribute('data-view', 'proposal')
+    expect(levels.problems).toEqual([])
+    expect(proposal.problems).toEqual([])
   } finally {
     await lane.close()
   }

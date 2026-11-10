@@ -299,10 +299,13 @@ Node fixture checks do not establish browser acceptance.
 
 ## Sample projects
 
-`packages/e2e/projects.mjs` copies five TypeScript projects into the
-scratch home: `shop`, `ledger`, `deep`, `atlas` and `nexus`. `deep` (#23) has
+`packages/e2e/projects.mjs` copies six TypeScript projects into the
+scratch home: `shop`, `ledger`, `deep`, `atlas`, `levels` and `nexus`. `deep` (#23) has
 nested namespaces, cross-namespace dependencies and same-named CJK classes
-for navigation and search. `atlas` is the panel-primitives sample of
+for navigation and search. `levels` (#45) has two namespace levels to drill
+into and a proposal whose layer holds a nested group, so the top bar's
+breadcrumb path has the same depth in the source tree and in a proposal.
+`atlas` is the panel-primitives sample of
 #24: an interface, a CJK-named module, two architecture levels and `react` as
 a foreign package, all unmeasured. Each has its own `policy.edn`, source files
 and proposal where needed. `nexus` (#25) scans six imports from a hub and uses
@@ -362,7 +365,11 @@ golden.
 real double-click drill-in, an in-browser painted dependency-port assertion,
 selection with dependency-chain highlighting and dimming, Escape/back, P,
 Ctrl+F, CJK typing/paste, same-name namespace disambiguation and Down/Enter
-locate.
+locate. It also covers the top bar's breadcrumb path (#45): two namespace
+levels down and clicked back to the middle and root level (with a painted
+check that the level's box is what is drawn), then the same in a proposal,
+where the path starts at the proposal and its root returns to the proposal
+rather than to the source diagram.
 
 `lifecycle.spec.mjs` (#43) drives the host tab lifecycle through the host's
 own controls: the tab refresh command and **R** each send `reload`; collapsing
@@ -490,7 +497,7 @@ project data before either install or plugin load. It returns:
 | `home` | run-scoped `DSH_HOME` with projects, logs, traces |
 | `host` | `{ url, stop, exited, output }` for the isolated DSH |
 | `mock` | `{ url, requests, stop }`; inspect the exact model requests |
-| `projects` | `{ shop, ledger, deep, atlas, nexus, inspector }` absolute sample roots |
+| `projects` | `{ shop, ledger, deep, atlas, levels, nexus, inspector }` absolute sample roots |
 | `openPanel(name, options?)` | create/select that session, open the sidebar tab, render IR, and return `{ page, panel, canvas, summary, sessionId, before, problems }`; optional `state` overrides the seeded persisted session state before panel open |
 | `pan(panel)` | real pointer drag on that panel's canvas |
 | `wheel(panel, notches)` | real Ctrl+wheel notches over the canvas centre; positive zooms out (plain wheel pans) |
