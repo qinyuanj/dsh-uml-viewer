@@ -109,7 +109,7 @@ export class RequestStatuses {
    * @returns the entry in progress, or undefined when nothing matches.
    */
   begin(sessionId: string, id?: string): RequestStatusEntry | undefined {
-    const entry = id === undefined ? this.head(sessionId) : this.list(sessionId).find(item => item.id === id && unfinished(item))
+    const entry = this.pending(sessionId, id)
     if (!entry) return undefined
     return entry.state === 'running' ? entry : this.replace(sessionId, { ...entry, state: 'running' })
   }
@@ -122,7 +122,7 @@ export class RequestStatuses {
    * @returns the entry as it now reads, or undefined when nothing is unfinished.
    */
   end(sessionId: string, end: RequestEnd, id?: string): RequestStatusEntry | undefined {
-    const entry = id === undefined ? this.head(sessionId) : this.list(sessionId).find(item => item.id === id && unfinished(item))
+    const entry = this.pending(sessionId, id)
     if (!entry) return undefined
     return this.replace(sessionId, end.state === 'done'
       ? { ...entry, state: 'done' }
@@ -185,6 +185,13 @@ export class RequestStatuses {
       set.delete(listener)
       if (set.size === 0 && this.listeners.get(sessionId) === set) this.listeners.delete(sessionId)
     }
+  }
+
+  /** The entry a transition acts on: the one `id` names exactly, else the head. */
+  private pending(sessionId: string, id?: string): RequestStatusEntry | undefined {
+    return id === undefined
+      ? this.head(sessionId)
+      : this.list(sessionId).find(item => item.id === id && unfinished(item))
   }
 
   /** Replace one entry in place, telling the session's listeners. */
