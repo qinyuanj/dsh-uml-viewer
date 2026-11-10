@@ -43,6 +43,7 @@
     "card.member": "成员",
     "source.label": "源码窗口 {title}",
     "source.close": "关闭源码窗口",
+    "source.back": "返回类卡片",
     "tool.valid": "有效",
     "tool.invalid": "无效",
     "tool.running": "正在运行",

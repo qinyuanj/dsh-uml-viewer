@@ -477,10 +477,10 @@ behavior. "Retired" marks window-only behavior with no panel counterpart.
 | `lod_shots.edn` | `primitives.spec.mjs` (full → frames tier); `edges.spec.mjs` › proposal relation stays solid in full and frames tiers and disappears in blocks | — |
 | `metrics.edn` | `reload.spec.mjs` › a metric-only snapshot edit reloads quality without rewriting the IR | — |
 | `navigation.edn` | `navigation.spec.mjs` › drills in and back, selects a dependency chain, searches and returns with P; › anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and toggles 移除箭头 from the 「更多」 menu in place | — |
-| `review_fixes.edn` | `overlays.spec.mjs` › module source, exact member line, native copy, same-file reuse and independent source windows | per-window retained selections after copying from another widget: the browser owns one document selection |
+| `review_fixes.edn` | `overlays.spec.mjs` › a member source replaces the card in the same drawer at its line; back returns to the card | per-window retained selections after copying from another widget: the browser owns one document selection |
 | `route_library.edn`, `route_proposal.edn`, `route_shots.edn` | `edges.spec.mjs` (all four cases) | before/after screenshots only; they asserted nothing |
 | `search.edn` | `navigation.spec.mjs` › drills in and back, selects a dependency chain, searches and returns with P | — |
-| `source_jump.edn`, `source_window.edn` | `overlays.spec.mjs` › module source, exact member line, native copy, same-file reuse and independent source windows | — |
+| `source_jump.edn`, `source_window.edn` | `overlays.spec.mjs` › a member source replaces the card in the same drawer at its line; back returns to the card | — |
 | `standalone.edn` | `reload.spec.mjs` › an edited diagram.edn hot-reloads into the open panel | — |
 | `terminate.edn`, `window_controls.edn` | none | retired: WM_CLOSE/SIGTERM and undecorated-window close buttons belong to the deleted window; the panel's lifecycle is the host seams' and `package.spec.mjs` |
 
@@ -587,27 +587,31 @@ The cases port the applicable behavior of `source_jump.edn`,
   focus still on that proposal button to return to the source namespace tree.
 - A real canvas double-click opens the class card at coordinates from
   `producerFrame`, without injecting a frame or invoking a private controller.
-  Wheel gestures advance by 48 pixels and clamp at both ends while the
-  inspector and diagram camera stay put. End/Home native scrolling followed by
+  In a sidebar of about 400px (the window is narrowed when the host has no
+  width handle) the card is the bottom drawer (#49): it fills the lower half of
+  the canvas, the diagram stays visible above it, and the 560-pixel column plan
+  scrolls sideways. Wheel gestures advance by 48 pixels and clamp at both ends
+  while the diagram camera stays put. End/Home native scrolling followed by
   another wheel notch verifies the DOM and resident offsets stay synchronized.
-  Native CSS resize gestures exercise
-  horizontal overflow below the 560-pixel plan minimum and column layout at
-  the available sidebar width.
-- The module row opens the whole file without a marked line. The member row
-  reuses that source window, marks exactly line 82, and puts the full row
-  inside a genuinely scrolled source viewport. A native word selection and
-  copy put `function` on Chromium's clipboard; the line-number gutter remains
-  unselectable. A relationship row locates the second module; its source can
-  coexist with the first and close independently.
+- The module row shows the whole file in the same drawer, in place of the card,
+  without a marked line; the back button returns to the card. The member row
+  then marks exactly line 82 and puts the full row inside a genuinely scrolled
+  source viewport. A native word selection and copy put `function` on
+  Chromium's clipboard; the line-number gutter remains unselectable. A
+  relationship row locates the second module, whose card and source take the
+  same drawer; there is never more than one `.dsh-uml-drawer`.
+- Esc closes the drawer first, from the canvas or from the source with focus
+  inside it, and only the next Esc goes back from the drilled `deep` level.
+- With the host's fullscreen toggle the panel container reaches 900px and the
+  card docks on the right edge of the canvas (`data-layout="docked"`); leaving
+  fullscreen returns it to the bottom drawer without remounting.
 - Switching `body[data-ds-dark-theme]` checks computed inspector, card, source,
   gutter, keyword and border colors against resolved host tokens in both
   modes, and requires the actual surface colors to change.
 
-Proposal creation, rename/delete and regeneration remain #28/#29 scope. Source
-window coexistence uses distinct files; repeated opens of the same file reuse
-its existing DOM window. The source window is resized to expose card controls
-while testing reuse. Browser clipboard permissions are scoped to that isolated
-context. No case attaches to the live GUI.
+Proposal creation, rename/delete and regeneration remain #28/#29 scope.
+Browser clipboard permissions are scoped to that isolated context. No case
+attaches to the live GUI.
 
 Run only these cases after the plugin and binary have been built and scratch
 Chromium has been installed. For the native Windows t27 scratch lane:

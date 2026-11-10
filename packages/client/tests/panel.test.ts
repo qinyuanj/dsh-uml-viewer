@@ -371,6 +371,40 @@ describe('session-bound panel stream', () => {
     h.controller.close()
   })
 
+  it('Escape closes the search, then the drawer, then goes back, then clears the selection (#49)', async () => {
+    const h = harness([{ kind: 'ready', actions: [] }, { kind: 'frame', seq: 1, frame }])
+    await h.controller.open('session-a')
+    await settle(() => h.painted.length === 1, 'the frame')
+    let drawer = true
+    let closes = 0
+    h.controller.setDrawer({ open: () => drawer, close: () => { closes += 1; drawer = false } })
+    h.emit({ kind: 'state', state: stateWith(null), breadcrumbs: [
+      { id: null, name: 'Shop' }, { id: ':core', name: 'core' },
+    ], status: null })
+    await settle(() => h.controller.current.breadcrumbs.length === 2, 'the drilled path')
+    const sent = (name: string) => h.actions.filter(entry => entry.action.action === name).length
+
+    h.controller.openSearch()
+    h.controller.key('Escape')
+    expect(h.controller.current.search.active).toBe(false)
+    expect([closes, sent('back')]).toEqual([0, 0])
+
+    h.controller.key('Escape')
+    expect(closes).toBe(1)
+    expect(sent('back')).toBe(0)
+
+    h.controller.key('Escape')
+    await settle(() => sent('back') === 1, 'escape goes back once the drawer is closed')
+    expect(closes).toBe(1)
+
+    h.emit({ kind: 'state', state: stateWith(null), breadcrumbs: [{ id: null, name: 'Shop' }], status: null })
+    await settle(() => h.controller.current.breadcrumbs.length === 1, 'the root path')
+    h.controller.key('Escape')
+    await settle(() => h.actions.some(entry => entry.action.action === 'select'), 'escape clears the selection at the root')
+    expect(h.actions.at(-1)!.action).toEqual({ action: 'select', at: null })
+    h.controller.close()
+  })
+
   it('searches through the host, captures canvas keys and locates the chosen result', async () => {
     const h = harness([{ kind: 'ready', actions: [] }, { kind: 'frame', seq: 1, frame }])
     await h.controller.open('session-a')

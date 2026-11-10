@@ -18,7 +18,9 @@ function elements() {
     },
     useRef: () => ({ current: null }), useState: (value: unknown) => [value, () => {}], useEffect: () => {},
   }
-  vm.runInNewContext(code, { module, exports: module.exports, require: () => hooks })
+  // `Overlays` resolves its first theme from the page; a light page with no tokens.
+  const page = { document: { body: {} }, getComputedStyle: () => ({ getPropertyValue: () => '' }) }
+  vm.runInNewContext(code, { module, exports: module.exports, require: () => hooks, ...page })
   return module.exports
 }
 function all(tree: Element, predicate: (e: Element) => boolean): Element[] {
@@ -91,18 +93,39 @@ it('renders producer rows and sends member/module/relationship activations throu
   expect(text(cell)).toBe('4.0')
 })
 
+const sourceModel = {
+  title: 'src/order.rs:82', line: 82, rows: [{ number: 82, marked: true,
+    tokens: [{ kind: 'ink', text: '  ' }, { kind: 'keyword', text: 'pub' }, { kind: 'ink', text: ' fn target()' }] }],
+}
+
 it('renders source tokens, declaration marker and unselectable gutter without reading files', () => {
-  const closeSource = vi.fn()
-  const tree = elements().SourceView!({ index: 0, controller: { closeSource }, window: { serial: 7, model: {
-    title: 'src/order.rs:82', line: 82, rows: [{ number: 82, marked: true,
-      tokens: [{ kind: 'ink', text: '  ' }, { kind: 'keyword', text: 'pub' }, { kind: 'ink', text: ' fn target()' }] }],
-  } } })
+  const backToCard = vi.fn(), closeDrawer = vi.fn()
+  const tree = elements().SourceView!({ controller: { backToCard, closeDrawer }, model: sourceModel, back: true })
   expect(tree.props['aria-label']).toBe('Source window src/order.rs:82')
+  expect(tree.props.className).toContain('dsh-uml-drawer')
   expect(all(tree, e => e.props['data-marked'] === true)[0]!.props['data-source-line']).toBe(82)
   expect(text(all(tree, e => e.type === 'code')[0]!)).toBe('  pub fn target()')
   expect(all(tree, e => e.props.className === 'dsh-uml-source-gutter')[0]!.props['aria-hidden']).toBe(true)
+  // The drawer's back button returns to the card; × closes the whole drawer.
+  all(tree, e => e.props['aria-label'] === 'Back to class card')[0]!.props.onClick()
+  expect(backToCard).toHaveBeenCalledTimes(1)
   all(tree, e => e.props['aria-label'] === 'Close source window')[0]!.props.onClick()
-  expect(closeSource).toHaveBeenCalledWith(7)
+  expect(closeDrawer).toHaveBeenCalledTimes(1)
+  // A source with no card to return to has no back button.
+  const alone = elements().SourceView!({ controller: {}, model: sourceModel, back: false })
+  expect(all(alone, e => e.props['aria-label'] === 'Back to class card')).toEqual([])
+})
+
+it('draws one drawer: the source in place of the card, else the card, else nothing', () => {
+  const card = { id: ':order', title: 'Order', scroll: 0, contentHeight: 40, items: [] }
+  const overlays = (state: Record<string, unknown>) => elements().Overlays!({ controller: {
+    current: { inspector: null, failure: null, card: null, source: null, drawer: null, ...state }, subscribe: () => () => {},
+  } })
+  const drawers = (tree: Element) => all(tree, e => typeof e.props.className === 'string' && e.props.className.split(' ').includes('dsh-uml-drawer'))
+  const both = drawers(overlays({ card, source: sourceModel, drawer: 'source' }))
+  expect(both.map(e => e.props['aria-label'])).toEqual(['Source window src/order.rs:82'])
+  expect(drawers(overlays({ card, drawer: 'card' })).map(e => e.props['aria-label'])).toEqual(['Class card Order'])
+  expect(drawers(overlays({}))).toEqual([])
 })
 
 it('colours card cells, bars and swatches through the shared role resolver with producer grade/ratio', () => {
@@ -140,7 +163,7 @@ describe('bounded source DOM', () => {
 
   it('renders only a bounded row window of a long file, around the declaration line', () => {
     const view = elements() as unknown as Record<string, any>
-    const tree = view.SourceView({ index: 0, controller: {}, window: { serial: 1, model: big(4000, 3000) } })
+    const tree = view.SourceView({ controller: {}, model: big(4000, 3000), back: false })
     const rows = all(tree, e => e.props['data-source-line'] !== undefined)
     expect(rows.length).toBeGreaterThan(0)
     expect(rows.length).toBeLessThanOrEqual(view.SOURCE_MAX_RENDERED_ROWS)
