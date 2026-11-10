@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
-import { producerFrame, same, screenRect, toScreen } from './canvas.mjs'
+import { producerFrame, same, sample, screenRect, toScreen } from './canvas.mjs'
 import { toggleFullscreen } from './lifecycle.mjs'
+import { switchLanguage } from './locale-switch.mjs'
 
 /**
  * The diagram's legend (#50, ADR 0015): the rows are typeset by the resident
@@ -43,17 +44,6 @@ async function narrowSidebar(panel, width = 400) {
     await panel.page.setViewportSize({ width: Math.max(800, Math.round(viewport.width - (box.width - width) * 2)), height: viewport.height })
   }
   return panel.panel.evaluate(element => element.clientWidth)
-}
-
-/** Switch the DSH language the way a user does (Settings → General → Language). */
-async function switchLanguage(page, label) {
-  await page.getByRole('button', { name: /^(Account menu|账号菜单)$/ }).first().click()
-  await page.locator('[role^="menuitem"]').filter({ hasText: /^(Settings|设置)/ }).first().click()
-  await page.getByText(/^(General|通用设置)$/).first().click()
-  const languageRow = page.getByText(/^(Language|语言)$/).first().locator('xpath=ancestor::*[.//button[@aria-haspopup="menu"]][1]')
-  await languageRow.locator('button[aria-haspopup="menu"]').click()
-  await page.locator('[role^="menuitem"]').filter({ hasText: new RegExp(`^${label}$`) }).first().click()
-  await page.keyboard.press('Escape')
 }
 
 /** A canvas point on a class box, from the producer frame. */
@@ -114,9 +104,13 @@ test('from 900px the legend is resident beside the diagram, and below it returns
   const region = legend(panel)
   await expect(region).toBeVisible()
   await expect(region).toHaveAttribute('data-mode', 'docked')
-  // Resident without being opened: no popover state and no close button.
+  // Resident without being opened: no popover state, no close button, and no
+  // 「更多」 entry that would do nothing (F45).
   await expect(region).toHaveAttribute('data-open', 'false')
   await expect(region.getByRole('button', { name: 'Close legend' })).toBeHidden()
+  await moreButton(panel).click()
+  await expect(moreMenu(panel).getByRole('menuitem', { name: 'Legend', exact: true })).toHaveCount(0)
+  await panel.page.keyboard.press('Escape')
 
   // Pinned, not overlaid (F28): the canvas row reserves a strip below the
   // diagram, so the legend and the drawing share no pixel and the canvas keeps
@@ -138,9 +132,8 @@ test('from 900px the legend is resident beside the diagram, and below it returns
   expect(Math.abs(viewport.width - canvasBox.width)).toBeLessThanOrEqual(2)
   await lane.screenshot(panel, 't50-legend-docked')
 
-  // The overlay root stops above the strip, so even a docked card — which
-  // overlays the drawing (F28's open question, not this ticket's) — leaves the
-  // resident legend in view.
+  // The overlay root stops above the strip, so a docked card — now reserved
+  // space beside the drawing (F28) — leaves the resident legend in view.
   const frame = await producerFrame(panel, { root: lane.projects.shop, home: lane.home })
   const item = frame.world.find(entry => entry.kind === 'class' && entry.shape !== 'oval')
   expect(item, 'the frame has a class box').toBeTruthy()
@@ -172,13 +165,19 @@ test('from 900px the legend is resident beside the diagram, and below it returns
 })
 
 test('the legend swatches are the colors the diagram paints with', async () => {
-  const panel = await lane.openPanel('inspector')
+  const panel = await lane.openPanel('atlas')
   // The hue-fixed roles keep their documented dark values (docs/scene-frame.md).
   await panel.page.evaluate(() => document.body.setAttribute('data-ds-dark-theme', ''))
-  await narrowSidebar(panel)
-  await moreButton(panel).click()
-  await moreMenu(panel).getByRole('menuitem', { name: 'Legend', exact: true }).click()
+  // Use the wide form: it puts the atlas foreign-package oval on the same
+  // canvas as the resident legend, so the swatches can be checked against the
+  // ellipse's actual pixels rather than an off-screen producer rectangle.
+  await toggleFullscreen(panel, true)
+  await expect(panel.panel).toHaveAttribute('data-layout', 'docked')
   await expect(legend(panel)).toBeVisible()
+  await expect.poll(async () => panel.canvas.evaluate(canvas =>
+    Math.abs(canvas.width / (window.devicePixelRatio || 1) - canvas.getBoundingClientRect().width)),
+  { message: 'the resident refits the canvas to the fullscreen width' }).toBeLessThanOrEqual(2)
+  await panel.page.waitForTimeout(500)
 
   const style = (locator, property) => locator.evaluate((element, property) => getComputedStyle(element)[property], property)
   const swatch = (id, chip = 0) => row(panel, id).locator('.dsh-uml-legend-mark > span').nth(chip)
@@ -186,6 +185,13 @@ test('the legend swatches are the colors the diagram paints with', async () => {
   expect(await Promise.all([0, 1, 2].map(n => style(swatch('quality-ramp', n), 'backgroundColor'))))
     .toEqual(['rgb(74, 40, 24)', 'rgb(61, 58, 24)', 'rgb(30, 74, 56)'])
   await expect(row(panel, 'quality-ramp')).toContainText('Quality color')
+  // 外来包椭圆 is an unmeasured quality oval at GRADE_WORST (grade 1), not a
+  // neutral box and not the ramp's grade-0 stop (F53).
+  expect(await style(swatch('foreign-package'), 'borderRadius')).toBe('50%')
+  expect(await style(swatch('foreign-package'), 'backgroundColor')).toBe('rgb(71, 44, 24)')
+  expect(await style(swatch('foreign-package'), 'borderColor')).toBe('rgb(222, 136, 77)')
+  expect(await style(swatch('foreign-package'), 'backgroundColor'))
+    .not.toBe(await style(swatch('quality-ramp', 0), 'backgroundColor'))
   // 违规关系色, 依赖链高亮 and 无数据.
   expect(await style(swatch('violation'), 'borderTopColor')).toBe('rgb(196, 42, 36)')
   expect(await style(swatch('dependency-chain'), 'borderTopColor')).toBe('rgb(62, 152, 236)')
@@ -194,9 +200,32 @@ test('the legend swatches are the colors the diagram paints with', async () => {
   expect(await style(swatch('dimmed'), 'borderTopColor')).toBe(await style(swatch('relation'), 'borderTopColor'))
   expect(Number(await style(swatch('dimmed'), 'opacity'))).toBeCloseTo(70 / 255, 3)
 
+  // The foreign-package swatch must be the oval's own worst-grade colors: read
+  // the real canvas pixels where the producer draws the ellipse and its ring.
+  const frame = await producerFrame(panel, { root: lane.projects.atlas, home: lane.home })
+  const foreignRow = frame.legend.sections.flatMap(section => section.rows)
+    .find(entry => entry.id === 'foreign-package')
+  expect(foreignRow?.sample).toMatchObject({
+    shape: 'oval', fill: { role: 'quality-fill', grade: 1 }, stroke: { role: 'quality-stroke', grade: 1 },
+  })
+  const oval = frame.world.find(item => item.kind === 'class' && item.shape === 'oval')
+  expect(oval, 'the atlas draws a foreign-package oval').toBeTruthy()
+  const box = screenRect(frame, oval.rect)
+  const [cx, cy, rx, ry] = [box.x + box.w / 2, box.y + box.h / 2, box.w / 2, box.h / 2]
+  const fill = (await style(swatch('foreign-package'), 'backgroundColor')).match(/\d+/g).map(Number)
+  const stroke = (await style(swatch('foreign-package'), 'borderColor')).match(/\d+/g).map(Number)
+  const inside = [[cx - rx * 0.55, cy + ry * 0.45], [cx + rx * 0.45, cy - ry * 0.45], [cx, cy]]
+  const body = await sample(panel, inside)
+  expect(body.some(pixel => same(pixel, fill, 8)),
+    `the oval body is the swatch fill ${fill}: ${JSON.stringify(body)}`).toBe(true)
+  const ring = []
+  for (let k = 0; k < 24; k += 1) ring.push([cx + rx * Math.cos((2 * Math.PI * k) / 24), cy + ry * Math.sin((2 * Math.PI * k) / 24)])
+  const outline = await sample(panel, ring)
+  expect(outline.some(pixel => same(pixel, stroke, 24)),
+    `the oval ring is the swatch stroke ${stroke}: ${JSON.stringify(outline.slice(0, 8))}`).toBe(true)
+
   // 普通关系色 is the host's own token, so compare it with the pixels the
   // canvas painted for a plain relation in the same frame.
-  const frame = await producerFrame(panel, { root: lane.projects.inspector, home: lane.home })
   const edge = frame.edges.find(item => item.kind === 'stroke' && item.stroke.role === 'relation')
   expect(edge, 'the diagram draws a plain relation').toBeTruthy()
   // Every point of the edge's route is on the line the canvas painted, so one

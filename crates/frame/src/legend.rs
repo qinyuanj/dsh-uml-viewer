@@ -14,6 +14,8 @@
 
 use serde_json::{Value as Json, json};
 
+use scene::GRADE_WORST;
+
 use crate::strings::Lang;
 use crate::theme::Role;
 
@@ -125,11 +127,11 @@ pub fn legend(lang: Lang) -> Legend {
                         "foreign-package",
                         text.foreign_package,
                         Sample::Box {
-                            // A foreign package has no measured quality, and
-                            // the diagram shows it in the unmeasured quality
-                            // colors.
-                            fill: Role::QualityFill(None),
-                            stroke: Role::QualityStroke(None),
+                            // A foreign package has no measured quality, so
+                            // commands.rs draws its oval at the worst grade —
+                            // the same red as a class with no data.
+                            fill: Role::QualityFill(Some(GRADE_WORST)),
+                            stroke: Role::QualityStroke(Some(GRADE_WORST)),
                             shape: Shape::Oval,
                             dimmed: false,
                         },

@@ -196,13 +196,13 @@
             "sample": {
               "dimmed": false,
               "fill": {
-                "grade": null,
+                "grade": 1.0,
                 "role": "quality-fill"
               },
               "kind": "box",
               "shape": "oval",
               "stroke": {
-                "grade": null,
+                "grade": 1.0,
                 "role": "quality-stroke"
               }
             }
