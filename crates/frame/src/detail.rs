@@ -9,7 +9,7 @@ use edn::record::{flag, get, local_name, num, seq};
 use scene::document::ViewState;
 
 use crate::source::Ident;
-use crate::strings;
+use crate::strings::{self, Lang};
 use crate::theme::{Role, RowMarker};
 
 /// Default card window, in points.
@@ -21,13 +21,15 @@ pub const SWATCH_GAP: f64 = 4.0;
 /// One wheel notch scrolls one step.
 pub const SCROLL_STEP: f64 = 48.0;
 
-/// A relationship row: the other class and the directional phrase.
+/// A relationship row: the other class, the relationship kind and its
+/// direction; the phrase is laid out in the card's language.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rel {
     pub id: Value,
     pub name: String,
     pub label: Option<String>,
-    pub phrase: String,
+    pub kind: String,
+    pub outgoing: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -70,13 +72,14 @@ fn string(v: Option<&Value>) -> Option<String> {
     }
 }
 
-fn phrase(kind: Option<&Value>, outgoing: bool) -> String {
-    let kind = kind.and_then(local_name).unwrap_or_default().to_owned();
-    let (out, inc) = strings::PHRASES
+fn phrase(rel: &Rel, lang: Lang) -> &'static str {
+    let text = lang.text();
+    let (out, inc) = text
+        .phrases
         .iter()
-        .find(|(k, _, _)| *k == kind)
-        .map_or(strings::PHRASE_FALLBACK, |(_, o, i)| (*o, *i));
-    if outgoing { out } else { inc }.to_string()
+        .find(|(k, _, _)| *k == rel.kind)
+        .map_or(text.phrase_fallback, |(_, o, i)| (*o, *i));
+    if rel.outgoing { out } else { inc }
 }
 
 /// The card model of a scene-core neighbourhood: phrasing and names only.
@@ -95,7 +98,13 @@ fn assemble(n: scene::Neighbourhood) -> Model {
                 name: string(r.other_name.as_ref())
                     .unwrap_or_else(|| local_name(&r.other).unwrap_or_default().to_owned()),
                 label: string(r.label.as_ref()),
-                phrase: phrase(r.kind.as_ref(), r.outgoing),
+                kind: r
+                    .kind
+                    .as_ref()
+                    .and_then(local_name)
+                    .unwrap_or_default()
+                    .to_owned(),
+                outgoing: r.outgoing,
                 id: r.other,
             })
             .collect(),
@@ -188,7 +197,7 @@ fn number_text(v: &Value) -> String {
     }
 }
 
-fn cells(c: &Value, class: bool) -> Cells {
+fn cells(c: &Value, class: bool, lang: Lang) -> Cells {
     let count = |k: &str| {
         let n = get(c, k).and_then(num);
         if n.is_some() || !class {
@@ -224,7 +233,7 @@ fn cells(c: &Value, class: bool) -> Cells {
     };
     let total = killed.unwrap_or(0.0) + survived.unwrap_or(0.0) + uncovered.unwrap_or(0.0);
     if total == 0.0 && sites.unwrap_or(0.0) == 0.0 {
-        r.mut_note = Some(strings::NO_MUTATION_SITES.into());
+        r.mut_note = Some(lang.text().no_mutation_sites.into());
     } else {
         r.killed_s = killed.map(whole);
         r.survived_s = survived.map(whole);
@@ -247,8 +256,10 @@ fn row(kind: &'static str, text: impl Into<String>, y: f64, h: f64) -> Row {
     }
 }
 
-/// The card rows in content space (20-point title, 18-point body rows).
-pub fn rows(model: &Model) -> Vec<Row> {
+/// The card rows in content space (20-point title, 18-point body rows),
+/// worded in `lang`.
+pub fn rows(model: &Model, lang: Lang) -> Vec<Row> {
+    let text = lang.text();
     let c = &model.class;
     let mut rows: Vec<Row> = Vec::new();
     let mut y = 0.0;
@@ -270,10 +281,10 @@ pub fn rows(model: &Model) -> Vec<Row> {
     let meta: Vec<String> = [
         get(c, "level")
             .filter(|v| **v != Value::Nil)
-            .map(|level| format!("{}{}", strings::LEVEL, number_text(level))),
+            .map(|level| format!("{}{}", text.level, number_text(level))),
         model
             .package_label()
-            .map(|p| format!("{}{p}", strings::PACKAGE)),
+            .map(|p| format!("{}{p}", text.package)),
     ]
     .into_iter()
     .flatten()
@@ -309,7 +320,7 @@ pub fn rows(model: &Model) -> Vec<Row> {
     }
     let crap = get(c, "crap").filter(|v| **v != Value::Nil);
     if let Some(crap) = crap {
-        let text = match num(crap) {
+        let line = match num(crap) {
             Some(n) => strings::CRAP_SINGLE.replace("%s", &one(n)),
             None => {
                 let f = |k: &str| get(crap, k).and_then(num).map(one).unwrap_or_default();
@@ -319,7 +330,7 @@ pub fn rows(model: &Model) -> Vec<Row> {
                     .replacen("%s", &f("sigma"), 1)
             }
         };
-        emit(&mut rows, &mut y, row("crap", text, 0.0, 18.0));
+        emit(&mut rows, &mut y, row("crap", line, 0.0, 18.0));
     }
     let ops = seq(get(c, "ops"));
     let has = |k: &str| get(c, k).is_some_and(|v| *v != Value::Nil);
@@ -339,17 +350,17 @@ pub fn rows(model: &Model) -> Vec<Row> {
             0.0,
             18.0,
         );
-        stats.cells = cells(c, true);
+        stats.cells = cells(c, true, lang);
         emit(&mut rows, &mut y, stats);
         for op in ops {
             let private = edn::record::is_true(op, "private");
-            let text = format!(
+            let signature = format!(
                 "{}{}",
                 if private { "- " } else { "+ " },
                 string(get(op, "text")).unwrap_or_default()
             );
-            let mut r = row("stats", text, 0.0, 18.0);
-            r.cells = cells(op, false);
+            let mut r = row("stats", signature, 0.0, 18.0);
+            r.cells = cells(op, false, lang);
             r.private = private;
             r.op_name = string(get(op, "name"));
             emit(&mut rows, &mut y, r);
@@ -358,17 +369,13 @@ pub fn rows(model: &Model) -> Vec<Row> {
     let fields = seq(get(c, "fields"));
     if !fields.is_empty() {
         y += 12.0;
-        emit(
-            &mut rows,
-            &mut y,
-            row("heading", strings::FIELDS, 0.0, 18.0),
-        );
+        emit(&mut rows, &mut y, row("heading", text.fields, 0.0, 18.0));
         for f in fields {
-            let text = match f {
+            let field = match f {
                 Value::String(s) => s.clone(),
                 other => string(get(other, "text")).unwrap_or_default(),
             };
-            emit(&mut rows, &mut y, row("field", text, 0.0, 18.0));
+            emit(&mut rows, &mut y, row("field", field, 0.0, 18.0));
         }
     }
     if !model.rels.is_empty() {
@@ -376,7 +383,7 @@ pub fn rows(model: &Model) -> Vec<Row> {
         emit(
             &mut rows,
             &mut y,
-            row("heading", strings::RELATIONSHIPS, 0.0, 18.0),
+            row("heading", text.relationships, 0.0, 18.0),
         );
         for rel in &model.rels {
             let label = rel
@@ -386,7 +393,7 @@ pub fn rows(model: &Model) -> Vec<Row> {
                 .unwrap_or_default();
             let mut r = row(
                 "rel",
-                format!("{}  {}{label}", rel.phrase, rel.name),
+                format!("{}  {}{label}", phrase(rel, lang), rel.name),
                 0.0,
                 18.0,
             );
@@ -599,15 +606,17 @@ fn cell_text(c: &Cells, id: &str) -> Option<String> {
     }
 }
 
-fn tip(id: &str) -> Option<&'static str> {
-    strings::COLUMN_TIPS
+fn tip(id: &str, lang: Lang) -> Option<&'static str> {
+    lang.text()
+        .column_tips
         .iter()
         .find(|(k, _)| *k == id)
         .map(|(_, t)| *t)
 }
 
-/// The paint plan for `rows` at a content width (points).
-pub fn view(rows: &[Row], width: Option<f64>) -> Vec<Item> {
+/// The paint plan for `rows` at a content width (points), with the column
+/// header and tips in `lang`.
+pub fn view(rows: &[Row], width: Option<f64>, lang: Lang) -> Vec<Item> {
     let cols = column_layout(width);
     let groups = group_layout(width);
     let member_right = cols[0].left - 10.0;
@@ -648,7 +657,7 @@ pub fn view(rows: &[Row], width: Option<f64>) -> Vec<Item> {
                     }
                 }
                 "col-header" => {
-                    it.text = Some(strings::MEMBER.into());
+                    it.text = Some(lang.text().member.into());
                     for c in &cols {
                         it.cells.push(Cell {
                             id: c.id,
@@ -657,7 +666,7 @@ pub fn view(rows: &[Row], width: Option<f64>) -> Vec<Item> {
                             right: c.right,
                             center: false,
                             color: Role::Accent,
-                            tip: tip(c.id),
+                            tip: tip(c.id, lang),
                         });
                     }
                 }

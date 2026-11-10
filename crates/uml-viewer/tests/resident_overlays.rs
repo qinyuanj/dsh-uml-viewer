@@ -663,3 +663,111 @@ fn open_source_reads_the_session_project_and_lands_on_the_declaration_line() {
     resident.finish();
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Every string inside a JSON value, depth first.
+fn strings_in(value: &Value) -> Vec<String> {
+    match value {
+        Value::String(s) => vec![s.clone()],
+        Value::Array(items) => items.iter().flat_map(strings_in).collect(),
+        Value::Object(map) => map.values().flat_map(strings_in).collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn has_chinese(text: &str) -> bool {
+    text.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
+}
+
+/// The text every no-data marker of a frame shows; the frame has some.
+fn no_data_text(frame: &Value) -> String {
+    let texts: Vec<&str> = items(frame, "no-data")
+        .iter()
+        .map(|item| item["text"].as_str().unwrap())
+        .collect();
+    assert!(!texts.is_empty(), "no no-data marker: {frame}");
+    assert!(texts.iter().all(|t| *t == texts[0]), "{texts:?}");
+    texts[0].to_owned()
+}
+
+fn card_texts(card: &Value) -> Vec<String> {
+    card["card"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item["text"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// #44: the text the resident lays out — the class card, the class box's
+/// no-data marker and the source error — follows the language the panel
+/// passes, English when none or an unsupported one was passed. The view the
+/// session saves never records the language.
+#[test]
+fn the_card_no_data_marker_and_source_error_follow_the_passed_language() {
+    let dir = source_project("language");
+    let mut resident = opened(&dir);
+    let frame = resident.ask(2, json!({"action": "drill-in", "id": ":core"}), "frame");
+    assert_eq!("No data", no_data_text(&frame));
+    resident.ask(
+        3,
+        json!({"action": "open-card", "id": ":core.order"}),
+        "frame",
+    );
+    let card = resident.ask(4, json!({"action": "card"}), "card");
+    let texts = card_texts(&card);
+    for expected in ["Member", "Relationships", "depends on  core"] {
+        assert!(
+            texts.contains(&expected.to_owned()),
+            "{expected}: {texts:?}"
+        );
+    }
+    let everything = strings_in(&card);
+    assert!(!everything.iter().any(|t| has_chinese(t)), "{everything:?}");
+    let error = resident.ask(
+        5,
+        json!({"action": "open-source", "id": ":core.order", "member": "vanished"}),
+        "error",
+    );
+    assert_eq!(
+        json!("Could not open the source: src/order.rs/vanished"),
+        error["message"]
+    );
+
+    // The panel passes Chinese: the answer is the frame in Chinese, and the
+    // open card asked again is Chinese too.
+    let frame = resident.ask(
+        6,
+        json!({"action": "language", "language": "zh-CN"}),
+        "frame",
+    );
+    assert_eq!("无数据", no_data_text(&frame));
+    let texts = card_texts(&resident.ask(7, json!({"action": "card"}), "card"));
+    for expected in ["成员", "关系", "依赖  core"] {
+        assert!(
+            texts.contains(&expected.to_owned()),
+            "{expected}: {texts:?}"
+        );
+    }
+    let error = resident.ask(
+        8,
+        json!({"action": "open-source", "id": ":core.order", "member": "vanished"}),
+        "error",
+    );
+    assert_eq!(
+        json!("未能打开源码：src/order.rs/vanished"),
+        error["message"]
+    );
+    let saved = resident.ask(9, json!({"action": "save"}), "state");
+    let keys: Vec<&String> = saved["state"].as_object().unwrap().keys().collect();
+    assert!(
+        !keys.iter().any(|k| k.starts_with("lang")),
+        "the saved view has no language: {keys:?}"
+    );
+
+    // Any other language reads English; a language must be a string.
+    let frame = resident.ask(10, json!({"action": "language", "language": "fr"}), "frame");
+    assert_eq!("No data", no_data_text(&frame));
+    resident.ask(11, json!({"action": "language", "language": 7}), "error");
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
+}

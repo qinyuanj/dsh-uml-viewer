@@ -24,7 +24,8 @@ export interface PanelStream extends AsyncIterable<PanelEvent> {
 /** What the panel hands to the host side of the Remote. */
 export interface PanelRemoteApi {
   watch(sessionId: string): PanelStream
-  watchOwned?(sessionId: string, owner: PanelOwner): PanelStream
+  /** `language` is the DSH language (#44); the resident lays its text out in it. */
+  watchOwned?(sessionId: string, owner: PanelOwner, language: string): PanelStream
   closeOwned?(sessionId: string, owner: PanelOwner): Promise<unknown>
   action(sessionId: string, action: PanelAction): Promise<unknown>
   /**
@@ -63,6 +64,8 @@ export interface PanelDeps {
   onStatus?: (status: PanelStatus) => void
   /** A new holder per open; the document identity stays stable on remount. */
   owner?: () => PanelOwner
+  /** The DSH language, read when the stream opens and on every switch (#44). */
+  language?: () => string
 }
 
 export interface KeyModifiers { control?: boolean; shift?: boolean }
@@ -92,6 +95,9 @@ export class PanelController {
   private sessionId: string | null = null
   private owner: PanelOwner | null = null
   private readonly makeOwner: (() => PanelOwner) | undefined
+  private readonly language: () => string
+  /** The language this stream opened with; a switch sends the new one. */
+  private sentLanguage: string | null = null
   private frame: SceneFrame | null = null
   private status: PanelStatus = { kind: 'connecting', reason: null, actions: [], frame: null, context: null, search: EMPTY_SEARCH }
   private observer: MutationObserver | null = null
@@ -112,6 +118,7 @@ export class PanelController {
     this.paint = deps.paint ?? paintFrame
     this.onStatus = deps.onStatus
     this.makeOwner = deps.owner
+    this.language = deps.language ?? (() => 'en')
   }
 
   public get current(): PanelStatus {
@@ -141,7 +148,10 @@ export class PanelController {
     this.setViewport(size.width, size.height)
     if (abort.signal.aborted) return
     this.owner = this.makeOwner && this.api.watchOwned && this.api.closeOwned ? this.makeOwner() : null
-    let stream = this.owner ? this.api.watchOwned!(sessionId, this.owner) : this.api.watch(sessionId)
+    this.sentLanguage = this.language()
+    let stream = this.owner
+      ? this.api.watchOwned!(sessionId, this.owner, this.sentLanguage)
+      : this.api.watch(sessionId)
     this.stream = stream
     void (async () => {
       try {
@@ -169,6 +179,19 @@ export class PanelController {
         this.publish({ kind: 'failed', reason: messageOf(error), actions: [], frame: this.frame, context: this.status.context, search: this.status.search })
       }
     })()
+  }
+
+  /**
+   * Follow a DSH language switch (#44): the resident lays the frame, the
+   * 无数据 markers and the open class card out again, so the panel redraws
+   * the frame it receives and re-requests the card. The language is the
+   * resident's, never part of this session's saved view.
+   */
+  public async setLanguage(language: string): Promise<void> {
+    if (this.sessionId === null || language === this.sentLanguage) return
+    this.sentLanguage = language
+    // The answer is a frame in the new language; a refusal keeps the old one.
+    await this.send({ action: 'language', language })
   }
 
   /** Presentation teardown is withdrawal; it carries no user close intent. */

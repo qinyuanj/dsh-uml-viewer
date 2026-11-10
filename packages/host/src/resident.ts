@@ -487,7 +487,7 @@ export class ResidentSessions {
    * `panel` marks a watch stream attaching; a short call (an action, a tool)
    * only borrows the child and leaves a pending withdrawal window running.
    */
-  async open(agent: Agent, signal: AbortSignal, panel = true): Promise<ResidentConnection> {
+  async open(agent: Agent, signal: AbortSignal, panel = true, language: string | null = null): Promise<ResidentConnection> {
     // Reuse is still an open: a session that became read-only must not acquire
     // another panel stream merely because a resident already exists.
     this.writablePolicy(agent)
@@ -520,7 +520,7 @@ export class ResidentSessions {
       joined.refs += 1
       return joined
     }
-    const started = this.startFresh(agent, signal, panel)
+    const started = this.startFresh(agent, signal, panel, language)
     this.pool.opening.set(id, started)
     try {
       return await started
@@ -539,14 +539,15 @@ export class ResidentSessions {
     }
   }
 
-  async openOwned(agent: Agent, signal: AbortSignal, owner: { pageId: string; holderId: string }): Promise<ResidentConnection> {
+  async openOwned(agent: Agent, signal: AbortSignal, owner: { pageId: string; holderId: string },
+    language: string | null = null): Promise<ResidentConnection> {
     return this.transition(agent.session.id, async () => {
       this.writablePolicy(agent)
       const old = this.pool.connections.get(agent.session.id)
       // A distinct document is fresh only when nobody still holds the session.
       // Live same-session panels always share one resident, across pages too.
       if (old && old.refs === 0 && old.pageId !== null && old.pageId !== owner.pageId) await this.stop(old)
-      const connection = await this.open(agent, signal, true)
+      const connection = await this.open(agent, signal, true, language)
       for (const [id, holder] of connection.holders) if (!holder.active) connection.holders.delete(id)
       if (connection.holders.has(owner.holderId)) {
         await this.release(connection, 'withdrawn')
@@ -585,7 +586,8 @@ export class ResidentSessions {
     })
   }
 
-  private async startFresh(agent: Agent, signal: AbortSignal, panel: boolean): Promise<ResidentConnection> {
+  private async startFresh(agent: Agent, signal: AbortSignal, panel: boolean,
+    language: string | null): Promise<ResidentConnection> {
     const connection = await this.start(agent, signal)
     connection.refs = 1
     connection.panelRefs = panel ? 1 : 0
@@ -593,7 +595,10 @@ export class ResidentSessions {
     try {
       const state = await this.states.read(connection.id)
       connection.latestContext = state?.context ?? null
-      const opened = await connection.request({ action: 'open', waiting: true, ...(state ? { state } : {}) }, READY_TIMEOUT_MS)
+      // #44: only a fresh open carries the language; an already-running
+      // resident keeps the language its panel last passed.
+      const opened = await connection.request({ action: 'open', waiting: true,
+        ...(language !== null ? { language } : {}), ...(state ? { state } : {}) }, READY_TIMEOUT_MS)
       if (opened.event === 'error') throw new Refusal(`uml-viewer resident could not open the project: ${opened.message}`)
       if (opened.event !== 'frame') throw new Error(`uml-viewer resident answered open with ${opened.event}`)
       connection.latestFrame = opened.frame

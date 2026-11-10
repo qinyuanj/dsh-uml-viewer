@@ -1,0 +1,1885 @@
+{
+  "camera": {
+    "x": -339.77047294391264,
+    "y": -132.0,
+    "zoom": 1.0
+  },
+  "chrome": [
+    {
+      "at": [
+        12.0,
+        8.0
+      ],
+      "ink": {
+        "role": "accent"
+      },
+      "kind": "proposal-banner",
+      "plate": {
+        "role": "chrome-plate"
+      },
+      "text": "提案（未在源码中实例化） · 2026-10-24 10:00:00"
+    }
+  ],
+  "edges": [
+    {
+      "dimmed": false,
+      "from": ":api",
+      "hot": false,
+      "kind": "stroke",
+      "lod": "frames",
+      "points": [
+        [
+          117.25905411217468,
+          380.0
+        ],
+        [
+          117.25905411217468,
+          516.0
+        ]
+      ],
+      "stroke": {
+        "role": "relation"
+      },
+      "to": ":core",
+      "warm": false,
+      "width": 1.6
+    },
+    {
+      "behind": [
+        117.25905411217468,
+        380.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "role": "canvas"
+      },
+      "from": ":api",
+      "head": "open",
+      "hot": false,
+      "kind": "head",
+      "lod": "full",
+      "stroke": {
+        "role": "relation"
+      },
+      "tip": [
+        117.25905411217468,
+        516.0
+      ],
+      "to": ":core",
+      "warm": false,
+      "width": 1.6
+    },
+    {
+      "dimmed": false,
+      "from": ":store",
+      "hot": false,
+      "kind": "stroke",
+      "lod": "frames",
+      "points": [
+        [
+          272.45905411217467,
+          380.0
+        ],
+        [
+          147.65905411217466,
+          516.0
+        ]
+      ],
+      "stroke": {
+        "role": "relation"
+      },
+      "to": ":core",
+      "warm": false,
+      "width": 1.6
+    },
+    {
+      "behind": [
+        272.45905411217467,
+        380.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "role": "canvas"
+      },
+      "from": ":store",
+      "head": "triangle",
+      "hot": false,
+      "kind": "head",
+      "lod": "full",
+      "stroke": {
+        "role": "relation"
+      },
+      "tip": [
+        147.65905411217466,
+        516.0
+      ],
+      "to": ":core",
+      "warm": false,
+      "width": 1.6
+    },
+    {
+      "dimmed": false,
+      "from": ":core",
+      "hot": false,
+      "kind": "stroke",
+      "lod": "frames",
+      "points": [
+        [
+          72.45905411217467,
+          552.0
+        ],
+        [
+          70.62572077884134,
+          552.0
+        ],
+        [
+          66.78845867116921,
+          551.8132635925022
+        ],
+        [
+          64.37808616544791,
+          551.3697646246948
+        ],
+        [
+          61.92762391746434,
+          550.5061087400172
+        ],
+        [
+          60.762985965368046,
+          549.7609287171467
+        ],
+        [
+          59.718381400300444,
+          548.1860285032617
+        ],
+        [
+          58.869915190044324,
+          545.0917402129709
+        ],
+        [
+          58.29369230238245,
+          539.7883959608829
+        ],
+        [
+          58.06581770509764,
+          531.5863278616066
+        ],
+        [
+          58.262396365972656,
+          519.7958680297509
+        ],
+        [
+          60.23333333333333,
+          482.6911016267357
+        ],
+        [
+          64.605074962765,
+          424.8192100806881
+        ],
+        [
+          67.97284224290905,
+          385.0
+        ]
+      ],
+      "stroke": {
+        "role": "violation"
+      },
+      "to": ":util",
+      "warm": false,
+      "width": 2.4
+    },
+    {
+      "dimmed": false,
+      "from": ":core",
+      "hot": false,
+      "kind": "stroke",
+      "lod": "frames",
+      "points": [
+        [
+          75.13811759770348,
+          303.0
+        ],
+        [
+          86.85905411217468,
+          172.0
+        ]
+      ],
+      "stroke": {
+        "role": "violation"
+      },
+      "to": ":util",
+      "warm": false,
+      "width": 2.4
+    },
+    {
+      "behind": [
+        75.66286038942067,
+        295.6788841467012
+      ],
+      "dimmed": false,
+      "fill": {
+        "role": "canvas"
+      },
+      "from": ":core",
+      "head": "open",
+      "hot": false,
+      "kind": "head",
+      "lod": "full",
+      "stroke": {
+        "role": "violation"
+      },
+      "tip": [
+        86.85905411217468,
+        172.0
+      ],
+      "to": ":util",
+      "warm": false,
+      "width": 2.4
+    },
+    {
+      "dimmed": false,
+      "from": ":store",
+      "hot": false,
+      "kind": "stroke",
+      "lod": "frames",
+      "points": [
+        [
+          352.45905411217467,
+          336.0
+        ],
+        [
+          404.45905411217467,
+          336.0
+        ]
+      ],
+      "stroke": {
+        "role": "relation"
+      },
+      "to": ":serde",
+      "warm": false,
+      "width": 1.6
+    },
+    {
+      "behind": [
+        352.45905411217467,
+        336.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "role": "canvas"
+      },
+      "from": ":store",
+      "head": "open",
+      "hot": false,
+      "kind": "head",
+      "lod": "full",
+      "stroke": {
+        "role": "relation"
+      },
+      "tip": [
+        404.45905411217467,
+        336.0
+      ],
+      "to": ":serde",
+      "warm": false,
+      "width": 1.6
+    },
+    {
+      "dimmed": false,
+      "from": ":api",
+      "hot": false,
+      "kind": "stroke",
+      "lod": "frames",
+      "points": [
+        [
+          147.65905411217466,
+          380.0
+        ],
+        [
+          147.65905411217466,
+          381.8333333333333
+        ],
+        [
+          147.84655411217466,
+          385.6875
+        ],
+        [
+          148.29186661217466,
+          388.13802083333337
+        ],
+        [
+          149.15905411217466,
+          390.6666666666667
+        ],
+        [
+          149.8680276364802,
+          391.89876302083337
+        ],
+        [
+          151.1745923066191,
+          393.0859375
+        ],
+        [
+          153.53571426842467,
+          394.2145182291667
+        ],
+        [
+          157.40835966773022,
+          395.27083333333337
+        ],
+        [
+          163.24949465036912,
+          396.2412109375
+        ],
+        [
+          171.51608536217464,
+          397.1119791666667
+        ],
+        [
+          197.1534985566191,
+          398.5
+        ],
+        [
+          236.1367450843969,
+          399.30859375
+        ],
+        [
+          282.923637445508,
+          399.34375
+        ],
+        [
+          330.1324048066191,
+          398.39453125
+        ],
+        [
+          351.588188226758,
+          397.48486328125
+        ],
+        [
+          370.3812763343969,
+          396.25
+        ],
+        [
+          385.8174308482858,
+          394.62158203125
+        ],
+        [
+          398.1163457788414,
+          392.36328125
+        ],
+        [
+          403.22939373891074,
+          390.91094970703125
+        ],
+        [
+          407.7261982093969,
+          389.19677734375
+        ],
+        [
+          411.66278132571637,
+          387.18597412109375
+        ],
+        [
+          415.0951652232858,
+          384.84375
+        ],
+        [
+          418.0793720375219,
+          382.13531494140625
+        ],
+        [
+          420.67142390384134,
+          379.02587890625
+        ],
+        [
+          422.9273429576608,
+          375.48065185546875
+        ],
+        [
+          424.9031513343969,
+          371.46484375
+        ],
+        [
+          428.23852459828584,
+          361.88232421875
+        ],
+        [
+          431.12572077884136,
+          350.0
+        ]
+      ],
+      "stroke": {
+        "role": "relation"
+      },
+      "to": ":serde",
+      "warm": false,
+      "width": 1.6
+    },
+    {
+      "behind": [
+        423.6257207788414,
+        385.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "role": "canvas"
+      },
+      "from": ":api",
+      "head": "open",
+      "hot": false,
+      "kind": "head",
+      "lod": "full",
+      "stroke": {
+        "role": "relation"
+      },
+      "tip": [
+        431.12572077884136,
+        350.0
+      ],
+      "to": ":serde",
+      "warm": false,
+      "width": 1.6
+    }
+  ],
+  "lod": "full",
+  "schema": "dsh-uml-viewer/scene-frame",
+  "style": {
+    "dimAlpha": 70,
+    "edgeDecimatePx": 8.0,
+    "fonts": {
+      "badge": 9.0,
+      "canvas": 16.0,
+      "chrome": 18.0,
+      "level": 11.0,
+      "marker": 12.0,
+      "port": 10.0
+    },
+    "lodZoom": {
+      "frames": 0.15,
+      "full": 0.4
+    },
+    "minTextPx": 5.0,
+    "radius": {
+      "class": 4.0,
+      "package": 8.0,
+      "port": 3.0,
+      "rowWash": 2.0
+    },
+    "widths": {
+      "band": 2.0,
+      "dash": 6.0,
+      "dashGap": 4.0,
+      "dot": 1.0,
+      "portLink": 1.3,
+      "rule": 1.0
+    }
+  },
+  "version": 1,
+  "viewport": {
+    "height": 884.0,
+    "width": 1220.0
+  },
+  "waiting": false,
+  "world": [
+    {
+      "band": "red",
+      "bounds": {
+        "h": 128.0,
+        "w": 180.0,
+        "x": 60.45905411217468,
+        "y": 56.0
+      },
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "package-fill"
+      },
+      "grade": 1.0,
+      "id": ":proposal.unassigned",
+      "ink": {
+        "role": "accent"
+      },
+      "kind": "package",
+      "lod": "blocks",
+      "maxW": 135.2,
+      "missing": true,
+      "missingCount": 1,
+      "rect": {
+        "h": 128.0,
+        "w": 180.0,
+        "x": 60.45905411217468,
+        "y": 56.0
+      },
+      "related": false,
+      "selected": false,
+      "size": 16.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "package-stroke"
+      },
+      "strokeWidth": 2.0,
+      "text": "Unassigned"
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 128.0,
+        "w": 180.0,
+        "x": 60.45905411217468,
+        "y": 56.0
+      },
+      "center": [
+        216.45905411217467,
+        66.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "id": ":proposal.unassigned",
+      "ink": {
+        "role": "marker"
+      },
+      "kind": "quality",
+      "lod": "frames",
+      "of": "package",
+      "owner": null,
+      "radius": 6.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "text": "C"
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 128.0,
+        "w": 180.0,
+        "x": 60.45905411217468,
+        "y": 56.0
+      },
+      "center": [
+        230.45905411217467,
+        66.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "id": ":proposal.unassigned",
+      "ink": {
+        "role": "marker"
+      },
+      "kind": "quality",
+      "lod": "frames",
+      "of": "package",
+      "owner": null,
+      "radius": 6.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "text": "M"
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 128.0,
+        "w": 304.0,
+        "x": 60.45905411217468,
+        "y": 264.0
+      },
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "package-fill"
+      },
+      "grade": 1.0,
+      "id": ":proposal.edge",
+      "ink": {
+        "role": "accent"
+      },
+      "kind": "package",
+      "lod": "blocks",
+      "maxW": 259.2,
+      "missing": true,
+      "missingCount": 2,
+      "rect": {
+        "h": 128.0,
+        "w": 304.0,
+        "x": 60.45905411217468,
+        "y": 264.0
+      },
+      "related": false,
+      "selected": false,
+      "size": 16.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "package-stroke"
+      },
+      "strokeWidth": 2.0,
+      "text": "Edge"
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 128.0,
+        "w": 304.0,
+        "x": 60.45905411217468,
+        "y": 264.0
+      },
+      "center": [
+        340.45905411217467,
+        274.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "id": ":proposal.edge",
+      "ink": {
+        "role": "marker"
+      },
+      "kind": "quality",
+      "lod": "frames",
+      "of": "package",
+      "owner": null,
+      "radius": 6.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "text": "C"
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 128.0,
+        "w": 304.0,
+        "x": 60.45905411217468,
+        "y": 264.0
+      },
+      "center": [
+        354.45905411217467,
+        274.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "id": ":proposal.edge",
+      "ink": {
+        "role": "marker"
+      },
+      "kind": "quality",
+      "lod": "frames",
+      "of": "package",
+      "owner": null,
+      "radius": 6.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "text": "M"
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 128.0,
+        "w": 180.0,
+        "x": 60.45905411217468,
+        "y": 472.0
+      },
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "package-fill"
+      },
+      "grade": 1.0,
+      "id": ":proposal.domain",
+      "ink": {
+        "role": "accent"
+      },
+      "kind": "package",
+      "lod": "blocks",
+      "maxW": 135.2,
+      "missing": true,
+      "missingCount": 1,
+      "rect": {
+        "h": 128.0,
+        "w": 180.0,
+        "x": 60.45905411217468,
+        "y": 472.0
+      },
+      "related": false,
+      "selected": false,
+      "size": 16.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "package-stroke"
+      },
+      "strokeWidth": 2.0,
+      "text": "Domain"
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 128.0,
+        "w": 180.0,
+        "x": 60.45905411217468,
+        "y": 472.0
+      },
+      "center": [
+        216.45905411217467,
+        482.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "id": ":proposal.domain",
+      "ink": {
+        "role": "marker"
+      },
+      "kind": "quality",
+      "lod": "frames",
+      "of": "package",
+      "owner": null,
+      "radius": 6.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "text": "C"
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 128.0,
+        "w": 180.0,
+        "x": 60.45905411217468,
+        "y": 472.0
+      },
+      "center": [
+        230.45905411217467,
+        482.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "id": ":proposal.domain",
+      "ink": {
+        "role": "marker"
+      },
+      "kind": "quality",
+      "lod": "frames",
+      "of": "package",
+      "owner": null,
+      "radius": 6.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "text": "M"
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 100.0
+      },
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "hovered": false,
+      "id": ":util",
+      "kind": "class",
+      "lod": "blocks",
+      "missing": true,
+      "owner": ":util",
+      "rect": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 100.0
+      },
+      "related": false,
+      "selected": false,
+      "shape": "",
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "strokeWidth": 2.5
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 100.0
+      },
+      "center": [
+        186.45905411217467,
+        109.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "id": ":util",
+      "ink": {
+        "role": "marker"
+      },
+      "kind": "quality",
+      "lod": "frames",
+      "of": "class",
+      "owner": ":util",
+      "radius": 5.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "text": "C"
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 100.0
+      },
+      "center": [
+        186.45905411217467,
+        121.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "id": ":util",
+      "ink": {
+        "role": "marker"
+      },
+      "kind": "quality",
+      "lod": "frames",
+      "of": "class",
+      "owner": ":util",
+      "radius": 5.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "text": "M"
+    },
+    {
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 100.0
+      },
+      "dimmed": false,
+      "from": [
+        78.45905411217467,
+        125.5
+      ],
+      "kind": "band",
+      "lod": "full",
+      "owner": ":util",
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "to": [
+        186.45905411217467,
+        125.5
+      ]
+    },
+    {
+      "bold": true,
+      "bounds": {
+        "h": 20.0,
+        "w": 120.0,
+        "x": 84.05905411217466,
+        "y": 116.0
+      },
+      "center": true,
+      "dimmed": false,
+      "ink": {
+        "role": "ink"
+      },
+      "italic": false,
+      "kind": "text",
+      "line": "name",
+      "lod": "frames",
+      "maxW": 96.8,
+      "owner": ":util",
+      "size": 16.0,
+      "slot": 16.0,
+      "text": "Util",
+      "top": 108.5,
+      "x": 84.05905411217466
+    },
+    {
+      "bounds": {
+        "h": 2.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 129.0
+      },
+      "dimmed": false,
+      "from": [
+        78.45905411217467,
+        130.0
+      ],
+      "kind": "rule",
+      "lod": "full",
+      "owner": ":util",
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "to": [
+        186.45905411217467,
+        130.0
+      ]
+    },
+    {
+      "bold": false,
+      "bounds": {
+        "h": 20.0,
+        "w": 120.0,
+        "x": 84.45905411217467,
+        "y": 146.0
+      },
+      "center": false,
+      "dimmed": false,
+      "ink": {
+        "role": "ink"
+      },
+      "italic": false,
+      "kind": "text",
+      "line": "op",
+      "lod": "full",
+      "maxW": 96.0,
+      "owner": ":util",
+      "size": 16.0,
+      "slot": 16.0,
+      "text": "clamp",
+      "top": 135.5,
+      "x": 84.45905411217467
+    },
+    {
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 100.0
+      },
+      "dimmed": false,
+      "ink": {
+        "role": "no-data"
+      },
+      "kind": "no-data",
+      "lod": "full",
+      "owner": ":util",
+      "right": 180.45905411217467,
+      "size": 11.0,
+      "text": "No data",
+      "y": 158.0
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 308.0
+      },
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "hovered": false,
+      "id": ":api",
+      "kind": "class",
+      "lod": "blocks",
+      "missing": true,
+      "owner": ":api",
+      "rect": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 308.0
+      },
+      "related": false,
+      "selected": false,
+      "shape": "",
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "strokeWidth": 2.5
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 308.0
+      },
+      "center": [
+        186.45905411217467,
+        317.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "id": ":api",
+      "ink": {
+        "role": "marker"
+      },
+      "kind": "quality",
+      "lod": "frames",
+      "of": "class",
+      "owner": ":api",
+      "radius": 5.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "text": "C"
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 308.0
+      },
+      "center": [
+        186.45905411217467,
+        329.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "id": ":api",
+      "ink": {
+        "role": "marker"
+      },
+      "kind": "quality",
+      "lod": "frames",
+      "of": "class",
+      "owner": ":api",
+      "radius": 5.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "text": "M"
+    },
+    {
+      "at": [
+        76.45905411217467,
+        311.0
+      ],
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 308.0
+      },
+      "dimmed": false,
+      "ink": {
+        "role": "muted"
+      },
+      "kind": "level",
+      "lod": "full",
+      "owner": ":api",
+      "size": 11.0,
+      "text": "1"
+    },
+    {
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 308.0
+      },
+      "dimmed": false,
+      "from": [
+        78.45905411217467,
+        338.0
+      ],
+      "kind": "band",
+      "lod": "full",
+      "owner": ":api",
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "to": [
+        186.45905411217467,
+        338.0
+      ]
+    },
+    {
+      "bold": true,
+      "bounds": {
+        "h": 20.0,
+        "w": 120.0,
+        "x": 84.05905411217466,
+        "y": 324.0
+      },
+      "center": true,
+      "dimmed": false,
+      "ink": {
+        "role": "ink"
+      },
+      "italic": false,
+      "kind": "text",
+      "line": "name",
+      "lod": "frames",
+      "maxW": 96.8,
+      "owner": ":api",
+      "size": 16.0,
+      "slot": 15.0,
+      "text": "Api",
+      "top": 322.0,
+      "x": 84.05905411217466
+    },
+    {
+      "bounds": {
+        "h": 2.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 337.0
+      },
+      "dimmed": false,
+      "from": [
+        78.45905411217467,
+        338.0
+      ],
+      "kind": "rule",
+      "lod": "full",
+      "owner": ":api",
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "to": [
+        186.45905411217467,
+        338.0
+      ]
+    },
+    {
+      "bold": false,
+      "bounds": {
+        "h": 20.0,
+        "w": 120.0,
+        "x": 84.45905411217467,
+        "y": 354.0
+      },
+      "center": false,
+      "dimmed": false,
+      "ink": {
+        "role": "ink"
+      },
+      "italic": false,
+      "kind": "text",
+      "line": "op",
+      "lod": "full",
+      "maxW": 96.0,
+      "owner": ":api",
+      "size": 16.0,
+      "slot": 16.0,
+      "text": "serve",
+      "top": 343.5,
+      "x": 84.45905411217467
+    },
+    {
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 308.0
+      },
+      "dimmed": false,
+      "ink": {
+        "role": "no-data"
+      },
+      "kind": "no-data",
+      "lod": "full",
+      "owner": ":api",
+      "right": 180.45905411217467,
+      "size": 11.0,
+      "text": "No data",
+      "y": 366.0
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 232.45905411217467,
+        "y": 308.0
+      },
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "hovered": false,
+      "id": ":store",
+      "kind": "class",
+      "lod": "blocks",
+      "missing": true,
+      "owner": ":store",
+      "rect": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 232.45905411217467,
+        "y": 308.0
+      },
+      "related": false,
+      "selected": false,
+      "shape": "",
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "strokeWidth": 2.5
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 232.45905411217467,
+        "y": 308.0
+      },
+      "center": [
+        346.45905411217467,
+        317.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "id": ":store",
+      "ink": {
+        "role": "marker"
+      },
+      "kind": "quality",
+      "lod": "frames",
+      "of": "class",
+      "owner": ":store",
+      "radius": 5.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "text": "C"
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 232.45905411217467,
+        "y": 308.0
+      },
+      "center": [
+        346.45905411217467,
+        329.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "id": ":store",
+      "ink": {
+        "role": "marker"
+      },
+      "kind": "quality",
+      "lod": "frames",
+      "of": "class",
+      "owner": ":store",
+      "radius": 5.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "text": "M"
+    },
+    {
+      "at": [
+        236.45905411217467,
+        311.0
+      ],
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 232.45905411217467,
+        "y": 308.0
+      },
+      "dimmed": false,
+      "ink": {
+        "role": "muted"
+      },
+      "kind": "level",
+      "lod": "full",
+      "owner": ":store",
+      "size": 11.0,
+      "text": "1"
+    },
+    {
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 232.45905411217467,
+        "y": 308.0
+      },
+      "dimmed": false,
+      "from": [
+        238.45905411217467,
+        338.0
+      ],
+      "kind": "band",
+      "lod": "full",
+      "owner": ":store",
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "to": [
+        346.45905411217467,
+        338.0
+      ]
+    },
+    {
+      "bold": true,
+      "bounds": {
+        "h": 20.0,
+        "w": 120.0,
+        "x": 244.05905411217466,
+        "y": 324.0
+      },
+      "center": true,
+      "dimmed": false,
+      "ink": {
+        "role": "ink"
+      },
+      "italic": false,
+      "kind": "text",
+      "line": "name",
+      "lod": "frames",
+      "maxW": 96.8,
+      "owner": ":store",
+      "size": 16.0,
+      "slot": 15.0,
+      "text": "Store",
+      "top": 322.0,
+      "x": 244.05905411217466
+    },
+    {
+      "bounds": {
+        "h": 2.0,
+        "w": 120.0,
+        "x": 232.45905411217467,
+        "y": 337.0
+      },
+      "dimmed": false,
+      "from": [
+        238.45905411217467,
+        338.0
+      ],
+      "kind": "rule",
+      "lod": "full",
+      "owner": ":store",
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "to": [
+        346.45905411217467,
+        338.0
+      ]
+    },
+    {
+      "bold": false,
+      "bounds": {
+        "h": 20.0,
+        "w": 120.0,
+        "x": 244.45905411217467,
+        "y": 354.0
+      },
+      "center": false,
+      "dimmed": false,
+      "ink": {
+        "role": "ink"
+      },
+      "italic": false,
+      "kind": "text",
+      "line": "op",
+      "lod": "full",
+      "maxW": 96.0,
+      "owner": ":store",
+      "size": 16.0,
+      "slot": 16.0,
+      "text": "open",
+      "top": 343.5,
+      "x": 244.45905411217467
+    },
+    {
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 232.45905411217467,
+        "y": 308.0
+      },
+      "dimmed": false,
+      "ink": {
+        "role": "no-data"
+      },
+      "kind": "no-data",
+      "lod": "full",
+      "owner": ":store",
+      "right": 340.45905411217467,
+      "size": 11.0,
+      "text": "No data",
+      "y": 366.0
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 516.0
+      },
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "hovered": false,
+      "id": ":core",
+      "kind": "class",
+      "lod": "blocks",
+      "missing": true,
+      "owner": ":core",
+      "rect": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 516.0
+      },
+      "related": false,
+      "selected": false,
+      "shape": "",
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "strokeWidth": 2.5
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 516.0
+      },
+      "center": [
+        186.45905411217467,
+        525.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "id": ":core",
+      "ink": {
+        "role": "marker"
+      },
+      "kind": "quality",
+      "lod": "frames",
+      "of": "class",
+      "owner": ":core",
+      "radius": 5.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "text": "C"
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 516.0
+      },
+      "center": [
+        186.45905411217467,
+        537.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "id": ":core",
+      "ink": {
+        "role": "marker"
+      },
+      "kind": "quality",
+      "lod": "frames",
+      "of": "class",
+      "owner": ":core",
+      "radius": 5.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "text": "M"
+    },
+    {
+      "at": [
+        76.45905411217467,
+        519.0
+      ],
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 516.0
+      },
+      "dimmed": false,
+      "ink": {
+        "role": "muted"
+      },
+      "kind": "level",
+      "lod": "full",
+      "owner": ":core",
+      "size": 11.0,
+      "text": "0"
+    },
+    {
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 516.0
+      },
+      "dimmed": false,
+      "from": [
+        78.45905411217467,
+        546.0
+      ],
+      "kind": "band",
+      "lod": "full",
+      "owner": ":core",
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "to": [
+        186.45905411217467,
+        546.0
+      ]
+    },
+    {
+      "bold": true,
+      "bounds": {
+        "h": 20.0,
+        "w": 120.0,
+        "x": 84.05905411217466,
+        "y": 532.0
+      },
+      "center": true,
+      "dimmed": false,
+      "ink": {
+        "role": "ink"
+      },
+      "italic": false,
+      "kind": "text",
+      "line": "name",
+      "lod": "frames",
+      "maxW": 96.8,
+      "owner": ":core",
+      "size": 16.0,
+      "slot": 15.0,
+      "text": "Core",
+      "top": 530.0,
+      "x": 84.05905411217466
+    },
+    {
+      "bounds": {
+        "h": 2.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 545.0
+      },
+      "dimmed": false,
+      "from": [
+        78.45905411217467,
+        546.0
+      ],
+      "kind": "rule",
+      "lod": "full",
+      "owner": ":core",
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "to": [
+        186.45905411217467,
+        546.0
+      ]
+    },
+    {
+      "bold": false,
+      "bounds": {
+        "h": 20.0,
+        "w": 120.0,
+        "x": 84.45905411217467,
+        "y": 562.0
+      },
+      "center": false,
+      "dimmed": false,
+      "ink": {
+        "role": "ink"
+      },
+      "italic": false,
+      "kind": "text",
+      "line": "op",
+      "lod": "full",
+      "maxW": 96.0,
+      "owner": ":core",
+      "size": 16.0,
+      "slot": 16.0,
+      "text": "run",
+      "top": 551.5,
+      "x": 84.45905411217467
+    },
+    {
+      "bounds": {
+        "h": 72.0,
+        "w": 120.0,
+        "x": 72.45905411217467,
+        "y": 516.0
+      },
+      "dimmed": false,
+      "ink": {
+        "role": "no-data"
+      },
+      "kind": "no-data",
+      "lod": "full",
+      "owner": ":core",
+      "right": 180.45905411217467,
+      "size": 11.0,
+      "text": "No data",
+      "y": 574.0
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 44.0,
+        "w": 80.0,
+        "x": 404.45905411217467,
+        "y": 306.0
+      },
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "hovered": false,
+      "id": ":serde",
+      "kind": "class",
+      "lod": "blocks",
+      "missing": true,
+      "owner": ":serde",
+      "rect": {
+        "h": 44.0,
+        "w": 80.0,
+        "x": 404.45905411217467,
+        "y": 306.0
+      },
+      "related": false,
+      "selected": false,
+      "shape": "oval",
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "strokeWidth": 2.5
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 44.0,
+        "w": 80.0,
+        "x": 404.45905411217467,
+        "y": 306.0
+      },
+      "center": [
+        478.45905411217467,
+        315.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "id": ":serde",
+      "ink": {
+        "role": "marker"
+      },
+      "kind": "quality",
+      "lod": "frames",
+      "of": "class",
+      "owner": ":serde",
+      "radius": 5.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "text": "C"
+    },
+    {
+      "band": "red",
+      "bounds": {
+        "h": 44.0,
+        "w": 80.0,
+        "x": 404.45905411217467,
+        "y": 306.0
+      },
+      "center": [
+        478.45905411217467,
+        327.0
+      ],
+      "dimmed": false,
+      "fill": {
+        "grade": 1.0,
+        "role": "quality-fill"
+      },
+      "grade": 1.0,
+      "id": ":serde",
+      "ink": {
+        "role": "marker"
+      },
+      "kind": "quality",
+      "lod": "frames",
+      "of": "class",
+      "owner": ":serde",
+      "radius": 5.0,
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "text": "M"
+    },
+    {
+      "bounds": {
+        "h": 44.0,
+        "w": 80.0,
+        "x": 404.45905411217467,
+        "y": 306.0
+      },
+      "dimmed": false,
+      "from": [
+        410.45905411217467,
+        331.0
+      ],
+      "kind": "band",
+      "lod": "full",
+      "owner": ":serde",
+      "stroke": {
+        "grade": 1.0,
+        "role": "quality-stroke"
+      },
+      "to": [
+        478.45905411217467,
+        331.0
+      ]
+    },
+    {
+      "bold": true,
+      "bounds": {
+        "h": 20.0,
+        "w": 80.0,
+        "x": 416.0590541121747,
+        "y": 322.0
+      },
+      "center": true,
+      "dimmed": false,
+      "ink": {
+        "role": "ink"
+      },
+      "italic": false,
+      "kind": "text",
+      "line": "name",
+      "lod": "frames",
+      "maxW": 56.8,
+      "owner": ":serde",
+      "size": 16.0,
+      "slot": 16.0,
+      "text": "serde",
+      "top": 314.0,
+      "x": 416.0590541121747
+    }
+  ]
+}

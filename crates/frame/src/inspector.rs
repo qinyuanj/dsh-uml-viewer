@@ -261,9 +261,10 @@ pub fn card_id(state: &ViewState) -> Option<Value> {
 /// Card wheel input: `delta` notches, clamped by the card's rows and the
 /// viewport height the window reported.
 pub fn scroll(state: &ViewState, delta: f64, view_h: f64) -> ViewState {
+    // Row heights do not depend on the language; only their text does.
     let rows = card_id(state)
         .and_then(|id| detail::for_state(state, &id))
-        .map(|m| detail::rows(&m))
+        .map(|m| detail::rows(&m, crate::strings::Lang::default()))
         .unwrap_or_default();
     scroll_rows(state, &rows, delta, view_h)
 }

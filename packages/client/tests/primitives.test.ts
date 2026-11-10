@@ -326,8 +326,8 @@ describe('tier from the camera zoom', () => {
 
   it('agrees with the producer tier on every golden', () => {
     const names = readdirSync(framesDir).filter(name => name.endsWith('.frame.json'))
-    // #25 added root-triangles-selected (移除箭头 indicators at reading zoom).
-    expect(names).toHaveLength(7)
+    // #44: each of the seven views has a Chinese and an English golden.
+    expect(names).toHaveLength(14)
     for (const name of names) {
       const frame = golden(name)
       expect(tierOf(frame), name).toBe(frame.lod)

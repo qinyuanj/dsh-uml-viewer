@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { producerFrame, toScreen } from './canvas.mjs'
+import { producerFrame, screenRect, toScreen } from './canvas.mjs'
 import { launchViewerLane } from './lane.mjs'
 
 /**
@@ -69,4 +69,43 @@ test('panel DOM text and accessible names follow a DSH language switch without r
   } finally {
     await lane.close()
   }
+})
+
+// The class card, the 无数据 marker and the source error are laid out by the
+// resident, so only the language the panel passes decides their wording (#44).
+const CJK = /[\u3400-\u9fff]/
+
+async function openCatalog(panel) {
+  const frame = await producerFrame(panel, { root: lane.projects.inspector, home: lane.home })
+  const item = frame.world.find(entry => entry.kind === 'class' && entry.id === ':catalog')
+  expect(item, 'the producer frame has the catalog module').toBeTruthy()
+  const rect = screenRect(frame, item.rect)
+  await panel.canvas.dblclick({ position: { x: rect.x + 12, y: rect.y + 12 } })
+  const card = panel.panel.getByRole('dialog').first()
+  await expect(card).toBeVisible()
+  return card
+}
+
+let lane
+
+test.beforeAll(async ({ browser }) => { lane = await launchViewerLane(browser) })
+test.afterAll(async () => { await lane?.close() })
+
+test('the class card is worded by the resident in the DSH language, and switches in place (#44)', async () => {
+  const panel = await lane.openPanel('inspector')
+  const card = await openCatalog(panel)
+  // DSH starts in English: every resident row is English, with no Chinese left.
+  const english = await card.innerText()
+  expect(english).toContain('Member')
+  expect(english).not.toMatch(CJK)
+
+  await switchLanguage(panel.page, '中文')
+  await expect.poll(async () => card.innerText()).toContain('成员')
+  expect(await card.innerText()).toMatch(CJK)
+
+  // The same open card follows the switch back, without reopening the tab.
+  await switchLanguage(panel.page, 'English')
+  await expect.poll(async () => card.innerText()).toContain('Member')
+  expect(await card.innerText()).not.toMatch(CJK)
+  await lane.screenshot(panel, 'locale-resident-card')
 })

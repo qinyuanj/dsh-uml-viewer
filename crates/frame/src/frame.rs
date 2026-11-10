@@ -14,6 +14,7 @@ use serde_json::{Map, Value as Json, json};
 
 use crate::commands::{self, Command, EdgeCommand, PopupRow};
 use crate::lod::{self, Tier};
+use crate::strings::Lang;
 use crate::theme::{self, Role, RowMarker};
 
 /// The `schema` tag every frame carries.
@@ -30,9 +31,14 @@ pub struct Layers {
     pub edges: Vec<EdgeCommand>,
 }
 
-pub fn layers(scene: &Value, selected: Option<&Value>, hover: Option<&Value>) -> Layers {
+pub fn layers(
+    scene: &Value,
+    selected: Option<&Value>,
+    hover: Option<&Value>,
+    lang: Lang,
+) -> Layers {
     Layers {
-        world: commands::commands(scene, selected, hover),
+        world: commands::commands(scene, selected, hover, lang),
         edges: commands::edge_commands(scene, selected, hover),
     }
 }
@@ -80,13 +86,15 @@ pub fn paint_zoom(state: &ViewState) -> f64 {
     if state.zoom > 0.0 { state.zoom } else { 1.0 }
 }
 
-/// The frame of `state` in a `width` x `height` viewport (points).
+/// The frame of `state` in a `width` x `height` viewport (points), with the
+/// resident-laid-out text in `lang`.
 pub fn build(
     state: &ViewState,
     width: f64,
     height: f64,
     hint: Option<&str>,
     status: Option<&str>,
+    lang: Lang,
 ) -> Frame {
     let zoom = paint_zoom(state);
     Frame {
@@ -103,7 +111,12 @@ pub fn build(
                 edges: Vec::new(),
             }
         } else {
-            layers(&state.scene, state.selected.as_ref(), state.hover.as_ref())
+            layers(
+                &state.scene,
+                state.selected.as_ref(),
+                state.hover.as_ref(),
+                lang,
+            )
         },
         chrome: chrome(state, width, height, hint, status),
     }
