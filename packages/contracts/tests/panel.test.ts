@@ -124,10 +124,25 @@ describe('uml_display contract', () => {
 
   it('returns a version-1 record with the ADR 0001 fields', () => {
     const record = { version: 1, operation: 'display', projectRoot: 'D:/p', path: 'diagram.edn', exitCode: null,
-      validResult: true, crapScope: null, configured: false, tool: 'uml-viewer', status: 'ok', reason: null }
+      validResult: true, crapScope: null, configured: false, tool: 'uml-viewer', status: 'ok', reason: null, target: null }
     expect(validateDisplayResult(record)).toEqual(record)
     expect(DISPLAY_RESULT_SCHEMA.properties.operation).toMatchObject({ const: 'display' })
     expect(() => validateDisplayResult({ ...record, status: 'applied' })).toThrow(/status/)
     expect(() => validateDisplayResult({ ...record, operation: 'ir' })).toThrow(/operation/)
+  })
+
+  // #54: the panel request a display answers names one element; the result
+  // carries it so 「在面板中查看」 can locate the element. A display that answers
+  // no request says so with null.
+  it('carries the element target a display answers, validated like a panel request', () => {
+    const record = { version: 1, operation: 'display', projectRoot: 'D:/p', path: 'diagram.edn', exitCode: null,
+      validResult: true, crapScope: null, configured: false, tool: 'uml-viewer', status: 'ok', reason: null,
+      target: { id: ':core', kind: 'component' } }
+    expect(validateDisplayResult(record)).toEqual(record)
+    expect(DISPLAY_RESULT_SCHEMA.required).toContain('target')
+    expect(() => validateDisplayResult({ ...record, target: { id: 'core', kind: 'class' } })).toThrow(/keyword/)
+    expect(() => validateDisplayResult({ ...record, target: { id: ':core', kind: 'layer' } })).toThrow(/kind/)
+    expect(() => validateDisplayResult({ ...record, target: undefined })).toThrow(/target/)
+    expect(validateDisplayResult({ ...record, target: null }).target).toBeNull()
   })
 })

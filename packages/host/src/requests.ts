@@ -41,6 +41,14 @@ export const ADMISSION_TIMEOUT_MS = 20_000
  */
 export class PanelRequests {
   private readonly tails = new Map<string, Promise<void>>()
+  /**
+   * The element the session's last admitted request named (#54): a display that
+   * answers that request carries it, so 「在面板中查看」 can locate the element.
+   * Only quality refreshes and hides name an element; a later context switch or
+   * new proposal names none and clears the record, so a display that answered
+   * it names nothing.
+   */
+  private readonly targets = new Map<string, PanelRequestTarget>()
 
   constructor(
     private readonly services: HostServices,
@@ -49,26 +57,41 @@ export class PanelRequests {
     private readonly admissionTimeoutMs = ADMISSION_TIMEOUT_MS,
   ) {}
 
+  /**
+   * The element the session's next display answers, consumed once: one request,
+   * one display. A display that answers no request names no element.
+   * @param sessionId the session whose request made it.
+   * @returns the admitted request's target, or null.
+   */
+  public takeTarget(sessionId: string): PanelRequestTarget | null {
+    const target = this.targets.get(sessionId) ?? null
+    this.targets.delete(sessionId)
+    return target
+  }
+
   /** A right-click quality refresh of one element. */
   deliver(agent: Agent, op: QualityRequestOp, id: string): Promise<PanelAck> {
+    let named: PanelRequestTarget | null = null
     return this.enqueue(agent, async signal => {
       const target = await this.sessions.qualityTarget(agent, signal, id)
-      const request: PanelRequest = { op, target: { id: target.id, kind: target.kind }, files: target.files }
+      named = { id: target.id, kind: target.kind }
+      const request: PanelRequest = { op, target: named, files: target.files }
       return { text: renderPanelRequest(request) }
-    })
+    }, () => named)
   }
 
   /** Hide one element of the shown diagram, in the current discussion context. */
   omit(agent: Agent, id: string): Promise<PanelAck> {
+    let named: PanelRequestTarget | null = null
     return this.enqueue(agent, async signal => {
       const { frame, context } = await this.sessions.shownView(agent, signal)
       if (!frame || frame.waiting) throw new Error('no diagram: the panel shows nothing yet; run uml_ir and uml_display first')
       const element = frame.world.find(item => (item.kind === 'class' || item.kind === 'package') && item.id === id)
       if (!element) throw new Error(`no class or namespace component ${id} in the shown diagram`)
       if (element.kind === 'class' && element.shape === 'oval') throw new Error(`${id} is a foreign library; it is not in the policy and cannot be hidden`)
-      const target: PanelRequestTarget = { id, kind: element.kind === 'package' ? 'component' : 'class' }
-      return { kind: 'omit', text: (request: string) => renderOmitRequest({ target, context, request }) }
-    })
+      named = { id, kind: element.kind === 'package' ? 'component' : 'class' }
+      return { kind: 'omit', text: (request: string) => renderOmitRequest({ target: named!, context, request }) }
+    }, () => named)
   }
 
   /**
@@ -93,16 +116,33 @@ export class PanelRequests {
     })
   }
 
-  private enqueue(agent: Agent, resolve: (signal: AbortSignal) => Promise<Message>): Promise<PanelAck> {
+  /**
+   * Admit one request in this session's click order. `named` reports the
+   * element the delivered message names (if any) once it is known, so an
+   * admitted request is the one this session's next display answers (#54).
+   */
+  private enqueue(
+    agent: Agent,
+    resolve: (signal: AbortSignal) => Promise<Message>,
+    named?: () => PanelRequestTarget | null,
+  ): Promise<PanelAck> {
     const sessionId = agent.session.id
     const previous = this.tails.get(sessionId) ?? Promise.resolve()
-    const result = previous.then(() => this.admit(agent, resolve))
+    const result = previous.then(() => this.admit(agent, resolve)).then(ack => {
+      if (ack.accepted) this.remember(sessionId, named ? named() : null)
+      return ack
+    })
     const tail = result.then(() => undefined, () => undefined)
     this.tails.set(sessionId, tail)
     void tail.then(() => {
       if (this.tails.get(sessionId) === tail) this.tails.delete(sessionId)
     })
     return result
+  }
+
+  private remember(sessionId: string, target: PanelRequestTarget | null): void {
+    if (target) this.targets.set(sessionId, target)
+    else this.targets.delete(sessionId)
   }
 
   private async admit(agent: Agent, resolve: (signal: AbortSignal) => Promise<Message>): Promise<PanelAck> {

@@ -14,7 +14,8 @@ import { normalizeRelativePath } from './tools.js'
 import type { CardModel, InspectorModel, SourceModel } from './overlays.js'
 import { validateCardModel, validateInspectorModel, validateSourceModel } from './overlays.js'
 import type { QualityRequestOp } from './requests.js'
-import { parseElementId, parseQualityRequestOp } from './requests.js'
+import { parseQualityRequestOp } from './requests.js'
+import { parseElementId } from './tools.js'
 import { parseProposalName } from './view-requests.js'
 
 /** The Remote namespace the panel mounts. */

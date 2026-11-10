@@ -8,7 +8,7 @@
  * queues that answer, so no client input ever becomes a file path and no
  * TypeScript re-derives the scene's grouping.
  */
-import { normalizeRelativePath } from './tools.js'
+import { normalizeRelativePath, parseElementId } from './tools.js'
 
 export type QualityRequestOp = 'refresh-crap' | 'refresh-mutate' | 'refresh-mutate-all'
 
@@ -50,21 +50,6 @@ export const QUALITY_TARGET_LIMITS = Object.freeze({
 
 /** The first line of every panel request message; the EDN request follows. */
 export const PANEL_REQUEST_HEADER = 'UML viewer panel request:'
-
-/** A scene/IR id: one EDN keyword without whitespace or EDN delimiters. */
-const KEYWORD = /^:[^\s,()[\]{}"';@^`~\\:][^\s,()[\]{}"';@^`~\\]*$/
-
-/**
- * Validate an element id the panel sends or the request carries.
- * @param value the id.
- * @param label the field name used in failure messages.
- * @returns the same id.
- */
-export function parseElementId(value: unknown, label: string): string {
-  if (typeof value !== 'string') throw new Error(`${label} must be a string`)
-  if (!KEYWORD.test(value)) throw new Error(`${label} must be one EDN keyword id such as :core.order`)
-  return value
-}
 
 /**
  * Validate the request op.

@@ -58,6 +58,17 @@ dependency tooltip rows, and the overview class-name popup clearing on leave.
 The producer oracle accepts `hover`, `pointer` and `--hover-metadata`, so tooltip
 expectations come from Rust; no frames are injected.
 
+`toolviews.spec.mjs` covers the conversation side (#54): a finished turn keeps
+its steps collapsed, so the spec opens the turn and its tool group the way a
+user does, then reads the quality rows (validity, the refusal's reason, the
+targets) in English and after a DSH language switch to Chinese. Its second case
+closes the UML tab and clicks 「在面板中查看」 on a display result twice: once
+for a display that answered no panel request (the tab opens with nothing
+selected) and once for a display that answered a refresh asked for on
+`:core.order` (the tab opens and locates that class). The quality operations
+are a Node fixture declared in the scratch project, so no Cargo work runs
+inside the lane; IR, resident and display are the real binary's.
+
 These cases have run in remote CI; see the [partial results below](#ci).
 The lane never builds, so a run needs an existing matching executable supplied from outside.
 Do not follow the build commands above to make one inside the lane. A run sets

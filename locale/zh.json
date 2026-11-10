@@ -41,6 +41,23 @@
     "card.close": "关闭类卡片",
     "card.member": "成员",
     "source.label": "源码窗口 {title}",
-    "source.close": "关闭源码窗口"
+    "source.close": "关闭源码窗口",
+    "tool.valid": "有效",
+    "tool.invalid": "无效",
+    "tool.running": "正在运行",
+    "tool.reason": "原因",
+    "tool.exitCode": "退出码",
+    "tool.targets": "目标",
+    "tool.targets.all": "整个业务范围",
+    "tool.output": "输出",
+    "tool.noOutput": "没有输出",
+    "tool.ir.ok": "IR 已生成",
+    "tool.ir.failed": "IR 失败",
+    "tool.display.ok": "已展示",
+    "tool.display.failed": "未展示",
+    "tool.display.diagram": "图：{name}",
+    "tool.display.latest": "最新的图",
+    "tool.display.view": "在面板中查看",
+    "tool.label": "{tool} 结果：{status}"
   }
 }

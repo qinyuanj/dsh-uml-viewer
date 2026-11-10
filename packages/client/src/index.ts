@@ -23,6 +23,7 @@ import { cssToWorld } from './fit.js'
 import { DECLUTTER_STYLE, mountDeclutterControl } from './declutter.js'
 import { REQUEST_MENU_STYLE, mountQualityMenu } from './requests.js'
 import { panelText, type PanelText } from './locale.js'
+import { PanelViews, registerToolViews } from './tool-views.js'
 
 export const TAB_ID = 'dsh-uml-viewer'
 export const TAB_KIND = 'dsh-uml-viewer'
@@ -117,9 +118,10 @@ interface TabInfo {
   tab?: { id?: string; actions?: { bindCommands?(commands: TabCommands): () => void } }
 }
 
-/** `ctx.sidebarRight`: only the close hook is used. */
+/** `ctx.sidebarRight`: the close hook, and the navigation 「在面板中查看」 uses (#54). */
 export interface SidebarRightFace {
   registerCloseHandler?(kind: string, handler: (sessionId: string, tab: { id: string }) => void): () => void
+  openTab?(kind: string): void
 }
 
 /** The client services this bundle uses; unknown services stay `undefined`. */
@@ -224,6 +226,8 @@ function labelButton(element: HTMLButtonElement, label: string, title: string): 
 export interface MountOptions {
   sessionId: string
   ctx: ClientContext
+  /** The conversation's 「在面板中查看」 target: this mount's overlays and its live frames. */
+  views?: PanelViews
   /** The host tab this body draws; its close handler closes this mount's holder. */
   tabId?: string
   /** The host tab's `bindCommands`: the tab refresh command reloads the diagram. */
@@ -298,6 +302,9 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     if (state.kind === 'live' && frame && overlays && frame !== overlayFrame) {
       overlayFrame = frame
       void overlays.refresh()
+      // A locate from the conversation waited for this panel to be able to take
+      // actions; the first live frame is that moment (#54).
+      options.views?.shown(options.sessionId)
     }
     summary.dataset.kind = frame ? 'frame' : state.kind
     summary.dataset.context = state.context?.kind ?? 'real'
@@ -369,6 +376,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     text,
   })
   overlays = new OverlayController(action => controller.send(action), text)
+  options.views?.attach(options.sessionId, overlays)
   options.onOverlays?.(overlays)
   /** **P** and the toolbar's tree button: one dispatch, through the overlays so
    * a card reply in flight cannot repopulate the card after the tree resets. */
@@ -520,6 +528,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
       }
     }
     observer?.disconnect()
+    if (overlays) options.views?.detach(options.sessionId, overlays)
     overlays?.dispose()
     overlays = null
     options.onOverlays?.(null)
@@ -543,7 +552,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
 }
 
 /** The sidebar tab's body component. */
-export function makePanelComponent(ctx: ClientContext): (props: ClientPanelProps) => unknown {
+export function makePanelComponent(ctx: ClientContext, views?: PanelViews): (props: ClientPanelProps) => unknown {
   return function UmlViewerPanel(props: ClientPanelProps): unknown {
     // One live mount per attach. A detach or rebind while `mountPanel` is
     // still awaiting invalidates that mount: its late disposer runs at once
@@ -572,7 +581,7 @@ export function makePanelComponent(ctx: ClientContext): (props: ClientPanelProps
       const mount: { dispose: (() => void) | null } = { dispose: null }
       mountRef.current = mount
       void mountPanel(element, {
-        sessionId, ctx,
+        sessionId, ctx, ...(views ? { views } : {}),
         ...(typeof tab?.id === 'string' ? { tabId: tab.id } : {}),
         ...(typeof actions?.bindCommands === 'function' ? { bindCommands: commands => actions.bindCommands!(commands) } : {}),
         onOverlays: controller => { if (mountRef.current === mount) setOverlays(controller) },
@@ -580,7 +589,7 @@ export function makePanelComponent(ctx: ClientContext): (props: ClientPanelProps
         if (mountRef.current === mount) mount.dispose = dispose
         else dispose()
       })
-    }, [ctx, props.sessionId, tabId])
+    }, [ctx, props.sessionId, tabId, views])
     return createElement('div', { className: 'dsh-uml-viewer-panel', 'data-font': FONT_FAMILY },
       createElement('div', { className: 'dsh-uml-viewer-canvas-host', ref: attach }),
       overlays ? createElement(Overlays, { controller: overlays }) : null)
@@ -601,9 +610,23 @@ function installStyles(): () => void {
   }
 }
 
+/**
+ * 「在面板中查看」 (#54): open this session's UML tab through the host's
+ * navigation, which reveals the column and records the navigation like the
+ * sidebar's own controls. The tab kind is this plugin's page; a host without
+ * the service simply has no column to open.
+ */
+function openPanelTab(ctx: ClientContext): void {
+  const sidebar = ctx.get('sidebarRight') as SidebarRightFace | undefined
+  sidebar?.openTab?.(TAB_KIND)
+}
+
 function registerPanels(ctx: ClientContext): void {
-  const Panel = makePanelComponent(ctx)
+  const views = new PanelViews(() => openPanelTab(ctx))
+  const Panel = makePanelComponent(ctx, views)
   ctx.effect(() => installStyles(), 'dsh-uml-viewer: panel style')
+  // The five `uml_*` tool result views (#54); they locate into this panel.
+  ctx.effect(() => registerToolViews(ctx, views), 'dsh-uml-viewer: tool views')
 
   // The tab is bound to the session the right sidebar belongs to; the pane
   // receives that session id from the shell.
