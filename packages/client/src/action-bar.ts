@@ -2,7 +2,9 @@
  * The selection action bar (#48, ADR 0015): what can be done to the selected
  * class or component, without a double-click or the right-click menu. It sits
  * over the bottom edge of the canvas, just above the status bar, so panning and
- * zooming never move it and showing it never resizes or re-fits the canvas.
+ * zooming never move it and showing it never resizes or re-fits the canvas; the
+ * card/source drawer (#49) pushes it up, or aside when the drawer docks, so the
+ * two never cover each other.
  *
  * - A class: its name, Open class card, Refresh CRAP, Differential mutation, Hide.
  * - A component (a drillable box, or a proposal layer): its name, Drill in, and
@@ -52,6 +54,13 @@ export const ACTION_BAR_STYLE = `
 }
 .dsh-uml-viewer-action-menu[hidden] { display: none; }
 .dsh-uml-viewer-action-menu button { display: block; width: 100%; text-align: left; color: inherit; }
+/* The class card / source drawer (#49) owns the lower half of the canvas, or the
+   right edge of it from 900px; the bar keeps clear of it, so neither surface
+   hides the other's rows or its scrollbar. Only an open drawer is in the DOM. */
+.dsh-uml-viewer-panel:has(.dsh-uml-drawer) .dsh-uml-viewer-action-bar { bottom: calc(50% + 8px); }
+.dsh-uml-viewer-panel[data-layout="docked"]:has(.dsh-uml-drawer) .dsh-uml-viewer-action-bar {
+  bottom: 8px; max-width: calc(100% - clamp(420px, 42%, 680px) - 24px);
+}
 `
 
 /** What the bar offers depends on the kind of element selected. */
