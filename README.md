@@ -213,9 +213,10 @@ a successful quality result with `validResult: true`.
   agent in the conversation). Its last row, **新建提案**, is a request to the
   agent, named with a timestamp by default; the agent edits the policy in
   place. **P** returns to the source diagram's tree root. The inspector that
-  used to list all this was deleted (#47). **Declutter** cycles Declutter arrows / Remove arrows / Declutter
-  elements / Declutter classes / Declutter none. **Remove arrows** hides
-  the lines and puts a triangle on the top (incoming) and bottom
+  used to list all this was deleted (#47). The **More** menu's
+  **Remove arrows** toggle switches between full arrows and the compact
+  triangles mode; it no longer cycles five declutter modes. **Remove arrows**
+  hides the lines and puts a triangle on the top (incoming) and bottom
   (outgoing) of each box, **including nested classes** as well as their
   packages. A triangle is red if any bundled pair is violating. Hover it
   for the `from -> to` list.
@@ -425,13 +426,10 @@ named with a timestamp; renaming or deleting a proposal is also a request
 to the agent, which edits the policy in place. Double-click a ns box to drill; **←** at the
 top returns to the proposal.
 
-The **Declutter** button cycles **Declutter arrows** (one arrow per
-component pair per direction) → **Remove arrows** (triangles on each box
-and on nested classes instead of lines; hover lists deps; red if any pair
-is violating) →
-**Declutter elements** (also hide nested names, members, and ports) →
-**Declutter classes** (also hide classes inside components) →
-**Declutter none**.
+The **More** menu's **Remove arrows** toggle switches between full arrows
+(one arrow per component pair per direction) and the compact triangles mode
+(triangles on each box and on nested classes instead of lines; hover lists
+deps; red if any pair is violating). The old five-step Declutter cycle is gone.
 
 When a proposal is shown, rank follows **that** proposal's component order
 and violating arrows are re-evaluated. The real diagram uses `:levels`.

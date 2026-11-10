@@ -395,8 +395,11 @@ fn fixture_project() -> std::path::PathBuf {
     }
     let source =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/mutate/rust");
+    // Rust CLI fixtures have their own prefix: the Python/TypeScript test
+    // below mints its own serial from zero in the same process, and parallel
+    // tests otherwise remove each other's whole directory (F54).
     let directory = std::env::temp_dir().join(format!(
-        "mutate-cli-{}-{}",
+        "mutate-cli-rust-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
@@ -409,6 +412,8 @@ fn remove_fixture(root: &std::path::Path) {
     let directory = root.parent().unwrap();
     let name = directory.file_name().unwrap().to_str().unwrap();
     assert_eq!(directory.parent(), Some(std::env::temp_dir().as_path()));
+    // Only a directory this test suite minted may be swept; prefix families
+    // keep parallel fixture owners from deleting one another (F54).
     assert!(name.starts_with("mutate-cli-"), "{name}");
     fs::remove_dir_all(directory).unwrap();
 }
@@ -907,8 +912,10 @@ fn python_and_typescript_projects_mutate_through_the_real_binary() {
             let _ = std::io::stderr().write_all(message.as_bytes());
             continue;
         }
+        // Distinct from `mutate-cli-rust-*` above: both tests can run in
+        // parallel and remove a whole fixture directory (F54).
         let directory = std::env::temp_dir().join(format!(
-            "mutate-cli-{}-{}",
+            "mutate-cli-cross-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));

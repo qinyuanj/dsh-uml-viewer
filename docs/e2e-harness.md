@@ -60,18 +60,22 @@ expectations come from Rust; no frames are injected.
 
 `queue.spec.mjs` (#53) drives the request queue in the status bar: three
 admitted refreshes show the current entry and 「还有 N 条」, the button opens
-the queue in list order, a refused refresh stays as a failed entry past the
+the queue in list order outside the short `aria-live` region, Esc and an
+outside press close it, a refused refresh stays as a failed entry past the
 ten-second fade, and its dismissal shrinks the list, adds no message to the
 conversation and survives a page refresh (the host dropped the entry). Its
-scripted companion only acknowledges, so every admitted request stays queued;
-the completed fade needs the transitions of #52 and is covered in
+scripted companion holds one turn open for that queue case; a second case runs
+`uml_ir`/`uml_display` and asserts the Done entry fades when the next request
+starts (F33). The ten-second timer path stays in
 `packages/client/tests/statusbar.test.ts`.
 
 `toolviews.spec.mjs` covers the conversation side (#54): a finished turn keeps
 its steps collapsed, so the spec opens the turn and its tool group the way a
 user does, then reads the quality rows (validity, the refusal's reason, the
-targets) in English and after a DSH language switch to Chinese. Its second case
-closes the UML tab and clicks 「在面板中查看」 on a display result twice: once
+dispatched targets) in English and after a DSH language switch to Chinese; a
+configured `crapScope: "targets"` case proves an override is never described
+as the whole business scope. Its display case closes the UML tab and clicks
+「在面板中查看」 on a display result twice: once
 for a display that answered no panel request (the tab opens with nothing
 selected) and once for a display that answered a refresh asked for on
 `:core.order` (the tab opens and locates that class). The quality operations
@@ -387,7 +391,11 @@ the source tree), and `data-depth` is `drilled` once the breadcrumb path has
 more than one level. A proposal's root is therefore `proposal`/`root`, a
 drilled namespace is `source`/`drilled`, and a proposal viewed from a source
 discussion reads `proposal` until **P**. It gives later tickets a user-readable assertion seam
-without reaching into client internals.
+without reaching into client internals. `data-layout` is likewise the measured
+`drawer`/`docked` CSS hook. The request queue has no test-only dataset: specs
+read the visible status line, the "N more" button and the queue's visible list
+items; `data-state` on a request line/item remains only as the failed-color CSS
+selector.
 
 `primitives.spec.mjs` (#24) is the Playwright form of the deleted egui
 class-box driver scenarios (`class_boxes.edn`, `font_parity.edn`,
@@ -612,8 +620,11 @@ The cases port the applicable behavior of `source_jump.edn`,
 - Esc closes the drawer first, from the canvas or from the source with focus
   inside it, and only the next Esc goes back from the drilled `deep` level.
 - With the host's fullscreen toggle the panel container reaches 900px and the
-  card docks on the right edge of the canvas (`data-layout="docked"`); leaving
-  fullscreen returns it to the bottom drawer without remounting.
+  card docks beside the canvas (`data-layout="docked"`): a right-hand flex
+  column reserves its width, the canvas and the resident viewport shrink, and
+  a ~960px screenshot checks that no class or edge is under the card while the
+  diagram keeps the larger share. Leaving fullscreen returns it to the bottom
+  drawer without remounting.
 - Switching `body[data-ds-dark-theme]` checks computed card, source,
   gutter, keyword and border colors against resolved host tokens in both
   modes, and requires the actual surface colors to change.

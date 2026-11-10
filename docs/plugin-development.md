@@ -126,8 +126,8 @@ A legacy `close` still stops a resident that only legacy watches use, but it
 is ignored once a resident has an owned holder, so an old client's close
 cannot cut off a new panel; that resident ends at its window instead. These
 are Node seam tests through the real `mountPanel` disposer, a new mount and
-the root pool. Real browser HMR, sidebar/main moves, page reload and app
-restart are **not** run-verified.
+the root pool. Real browser HMR, right-sidebar presentation changes, page
+reload and app restart are **not** run-verified.
 
 Cleanup removes only version directories that are neither current nor leased
 by a live owner. A lease whose heartbeat is old but whose PID is still alive
@@ -403,6 +403,8 @@ exports the public contracts. Later additions belong in separate modules:
   Do not invent a second scene model. Additive fields/kinds are compatible;
   unknown kinds are skipped and unknown roles render as `ink`.
 
+Compatibility note: `PanelEvent.state` requires `breadcrumbs`/`status` in TS while the validator defaults absent fields to `[]`/`null` for a resident from before #45, and `DisplayResult.target` is optional in TS while `DISPLAY_RESULT_SCHEMA`/`validateDisplayResult` require it; in-repo producers always send both (F5/F11).
+
 The host's `dsh.ts` is a narrow structural boundary to the inspected DSH
 0.2.2-rc.1 services; `process.ts` owns confinement and bounded subprocess
 execution; `runner.ts` composes IR arguments and the tool result; `quality.ts`
@@ -477,20 +479,22 @@ slot the panel sits in. Below 900px the legend is a popover opened from
 of the canvas row below the diagram, so the canvas — and the viewport the
 resident is told about — shrink with it and the legend never covers a class.
 The overlay root stops above the strip, so a docked drawer never covers the
-legend either. That is deliberate:
-a docked layer is reserved space, not an overlay on the drawing (follow-up
-F28). The 「更多」 entry stays listed while it is resident and does nothing,
-since there is no popover to open.
+legend either. That is deliberate: a docked card reserves the right column of
+the drawing stage, its canvas shrinks, and the resident is told the smaller
+viewport so it refits — the card is not an overlay on the drawing (F28).
+The 「更多」 legend entry is omitted while the legend is resident, since there
+is no popover to open (F45).
 
 ## Conversation tool views (#54, ADR 0015)
 
 The five `uml_*` tools register the host's keyed `tool.call.toolview` slot in
 `packages/client/src/tool-views.ts`, one key per wire name, so a call in the
 conversation reads as its outcome instead of the raw JSON record. The quality
-tools show validity, the reason and the targets the call dispatched (`targets`
-come from the call arguments; a call that named none ran over the whole
-business scope); `uml_ir` shows success and its bounded output; `uml_display`
-shows the diagram it put on screen and 「在面板中查看」. Every word comes from
+tools show validity, the reason and the targets the call dispatched (`args.targets`
+names explicit files, `crapScope: "targets"` names a configured target scope,
+and only a whole-tree result says the whole business scope); `uml_ir` shows
+success and its bounded output; `uml_display` shows the diagram it put on
+screen and 「在面板中查看」. Every word comes from
 the `panel` section of `locale/{en,zh}.json` and follows a DSH language switch,
 like the panel's own chrome (#42): the row subscribes through `PanelText` and
 re-renders in place. Rows are plain markup styled from `--dsw-*` tokens; they

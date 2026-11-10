@@ -17,7 +17,13 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         if path.is_dir() {
-            if !matches!(name.as_str(), ".git" | "target" | ".uml-viewer" | ".claude") {
+            // An e2e scratch can hold a pnpm `node_modules` symlink back to
+            // the checkout; neither it nor dependency trees are repository
+            // EDN, and following that link would loop forever (F9).
+            if !matches!(
+                name.as_str(),
+                ".git" | "target" | ".uml-viewer" | ".claude" | ".scratch" | "node_modules"
+            ) {
                 collect(&path, out);
             }
         } else if name.ends_with(".edn") {
@@ -111,4 +117,41 @@ fn every_repository_edn_file_round_trips_byte_stably() {
         files.len(),
         failures.join("\n")
     );
+}
+
+/// An e2e scratch contains a pnpm `node_modules/dsh-uml-viewer` symlink back
+/// into the checkout. The repository walker must skip both the scratch and
+/// dependency trees rather than following that link forever (F9).
+#[test]
+fn repository_walk_skips_e2e_scratch_and_node_modules() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "uml-edn-walk-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join(".scratch/e2e/node_modules")).unwrap();
+    std::fs::create_dir_all(root.join("node_modules/dependency")).unwrap();
+    std::fs::write(
+        root.join(".scratch/e2e/node_modules/loop.edn"),
+        "{:scratch true}",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("node_modules/dependency/dep.edn"),
+        "{:dependency true}",
+    )
+    .unwrap();
+    std::fs::write(root.join("kept.edn"), "{:repository true}").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&root, root.join(".scratch/e2e/node_modules/dsh-uml-viewer"))
+        .unwrap();
+
+    let mut files = Vec::new();
+    collect(&root, &mut files);
+    assert_eq!(files, vec![root.join("kept.edn")]);
+    std::fs::remove_dir_all(&root).unwrap();
 }

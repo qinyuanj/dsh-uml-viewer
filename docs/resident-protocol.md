@@ -126,6 +126,8 @@ the state object:
 {"version":1,"seq":11,"event":"state","state":{...},"breadcrumbs":[],"status":{"code":"missing-file","path":"/project/diagram.edn"}}
 ```
 
+The TS `PanelEvent.state` type requires `breadcrumbs` and `status`, while the contracts validator defaults absent fields to `[]` and `null` for a resident from before #45; in-repo producers always send both (F11).
+
 `breadcrumbs` is the path from the tree root to the current component, root
 first, and is `[]` before any diagram is loaded. Each level's `id` is the
 component it shows, in the same canonical EDN text the frames use; `name` is
@@ -204,7 +206,7 @@ ignored by the panel; one that does not know the action answers `error`.
 ## Language (#44)
 
 The text the resident lays out — the class card's rows and tooltips, the class
-box's 无数据 marker, the source window's 未能打开源码：%s error and the
+box's 无数据 marker, the source window's exact `未能打开源码：%s` error and the
 [legend](scene-frame.md#legend) rows every frame carries — comes in Chinese and
 English. Any other locale tag reads English, and so does a resident that was
 never told one. The panel passes the DSH language when it opens its stream and
@@ -300,7 +302,8 @@ event. Panels request a fresh card after a new frame; `card` with none open answ
 
 A panel's watch stream is not the session's lifetime. Ending one — the gateway
 aborting the method signal and returning the iterator on a client unload, a
-carrier reconnect, or the sidebar/main reparent — keeps that session's resident
+carrier reconnect, or a panel body remount during a right-sidebar presentation
+change — keeps that session's resident
 for one bounded window (`WITHDRAWAL_GRACE_MS`, 30 s), so the same session
 re-attaches to the same child and the same plugin version. A mount disposer
 never closes. Panels use the additive `umlViewer/watchOwned` and
