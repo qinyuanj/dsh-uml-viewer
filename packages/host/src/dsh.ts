@@ -25,6 +25,29 @@ export interface Agent {
 
 export interface ToolRunContext { agent?: Agent; signal: AbortSignal }
 
+/**
+ * One session log event as DSH's published `session/event` feed delivers it
+ * (#52): only what this plugin reads. `turn/start`, `user/message` and
+ * `turn/end` are entries of the public session event map; a `user/message`
+ * source echoes the prompt's request id as `rpcId`.
+ */
+export interface SessionLogEvent {
+  readonly type: string
+  readonly data?: {
+    readonly source?: { readonly kind?: string; readonly rpcId?: string }
+  }
+}
+
+/**
+ * DSH's session event feed (#52), the one host event a plugin may observe a
+ * turn's boundaries through: `session/event(session, event)` on the Cordis bus,
+ * post-commit and fire-and-forget, delivered to an untagged listener for every
+ * session (a scope-tagged listener only sees its own scope's).
+ */
+export interface SessionEventFeed {
+  on(name: 'session/event', listener: (session: Session, event: SessionLogEvent) => void): () => boolean
+}
+
 export interface Policy {
   mode: 'read-only' | 'workspace-write' | 'danger-full-access'
   workspaceRoot: string

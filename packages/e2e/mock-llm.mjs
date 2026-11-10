@@ -21,7 +21,10 @@ export async function startMockLlm({ log, reply: scriptedReply }) {
       }
       const request = JSON.parse(body)
       const serialized = JSON.stringify(request.messages ?? [])
-      const reply = scriptedReply?.(request) ?? (!request.tools?.length
+      // A scripted reply may be a promise: a spec that holds it keeps the
+      // model call open, so DSH's turn (and its panel request) stays unfinished
+      // while the test works. Everything else replies synchronously.
+      const reply = (await scriptedReply?.(request)) ?? (!request.tools?.length
         ? { text: 'Isolated UML session' }
         : !serialized.includes('"name":"uml_ir"')
           ? { tool: { name: 'uml_ir', input: {} } }
