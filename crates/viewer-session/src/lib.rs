@@ -21,7 +21,7 @@ use edn::Value;
 use scene::document::{self, ViewState};
 use scene::events::{self, Dims};
 
-use frame::{inspector, watch};
+use frame::{detail, discussion, watch};
 
 pub mod display;
 pub mod metrics;
@@ -276,7 +276,7 @@ impl Session {
         let state = &self.state;
         self.state = match action {
             Action::Choose(id) => {
-                let choice = inspector::choose(state, id.as_ref());
+                let choice = discussion::choose(state, id.as_ref());
                 let mut next = choice.state;
                 next.discussion_context = Some(choice.context.clone());
                 outcome.context = Some(choice.context);
@@ -315,7 +315,7 @@ impl Session {
     /// A wheel over the panel's class card (#27): the shared scroll model
     /// owns the 48-point step and both clamps.
     pub fn scroll_card(&mut self, delta: f64, view_h: f64) {
-        self.state = inspector::scroll(&self.state, delta, view_h);
+        self.state = detail::scroll_card(&self.state, delta, view_h);
     }
 
     /// Apply one host command (`{:op :display :path …}` or

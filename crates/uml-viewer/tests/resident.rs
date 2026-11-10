@@ -812,7 +812,7 @@ fn state_golden(name: &str, event: &Value) {
     );
 }
 
-/// The event's #45 fields. A status's `path` is the machine's, so the golden
+/// The event's #45 fields and the switcher's proposal list (#47). A status's `path` is the machine's, so the golden
 /// records the file it names rather than the checkout it was captured in.
 fn recorded(event: &Value) -> Value {
     let mut status = event["status"].clone();
@@ -823,7 +823,7 @@ fn recorded(event: &Value) -> Value {
             .unwrap_or_default();
         status["path"] = json!(file);
     }
-    json!({"breadcrumbs": event["breadcrumbs"], "status": status})
+    json!({"breadcrumbs": event["breadcrumbs"], "status": status, "proposals": event["proposals"]})
 }
 
 fn saved(resident: &mut Resident, seq: i64) -> Value {
