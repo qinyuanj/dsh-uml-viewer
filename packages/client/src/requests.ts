@@ -35,12 +35,18 @@ export function mountQualityMenu(host: HTMLElement, canvas: HTMLCanvasElement, o
 }): () => void {
   const menu = document.createElement('div')
   menu.className = 'dsh-uml-quality-menu'
-  menu.setAttribute('role', 'menu')
   menu.setAttribute('aria-label', 'Element requests')
+  // `role="menu"` only while open. The host's shortcut service treats any
+  // `[role="menu"]` in the document as an open modal, even a `hidden` one, and
+  // a modal blocks every command that does not admit it (the tab refresh is one).
   menu.hidden = true
   let target: string | null = null
   let disposed = false
-  const hide = (): void => { menu.hidden = true; target = null }
+  const hide = (): void => {
+    menu.hidden = true
+    menu.removeAttribute('role')
+    target = null
+  }
   // The three quality refreshes (#28), then Hide (#29): each sends the bound id only.
   const entries: [string, (id: string) => PanelAction][] = [
     ...QUALITY_REQUESTS.map((op): [string, (id: string) => PanelAction] => [LABELS[op], id => ({ action: 'quality-request', request: op, id })]),
@@ -80,6 +86,7 @@ export function mountQualityMenu(host: HTMLElement, canvas: HTMLCanvasElement, o
     target = id
     menu.style.left = `${Math.max(0, Math.min(event.offsetX, bounds.width - 230))}px`
     menu.style.top = `${Math.max(0, Math.min(event.offsetY, bounds.height - 140)) + (canvas.offsetTop ?? 0)}px`
+    menu.setAttribute('role', 'menu')
     menu.hidden = false
   }
   const dismiss = (event: Event): void => {
