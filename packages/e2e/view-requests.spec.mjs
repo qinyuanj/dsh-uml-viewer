@@ -82,9 +82,11 @@ test('Hide after a failed refresh still regenerates the IR, then displays; the d
     expect(companion.edits).toHaveLength(0)
     await menu(a, frame, ':api', 'Hide')
     await expect(a.page.getByText(/^UML viewer panel request:\n\{:op :omit :target \{:id :api :kind :class\} :context \{:context :real\} :request "[0-9a-f]{32}"\}$/).last()).toBeVisible()
-    // #51: the admitted hide is queued on the panel.
-    await expect(statusBar(a)).toContainText('Hide :api: Queued')
     await finished(a, 'omit')
+    // #52: the companion's uml_ir and the display it followed completed the
+    // hide, and the bar says so.
+    await expect(statusBar(a)).toContainText('Hide :api: Done')
+    await expect(statusBar(a)).toHaveAttribute('data-request', 'done')
     expect(companion.edits).toHaveLength(1)
     preserved(companion.edits[0])
     expect(await fs.readFile(path.join(lane.projects.deep, 'policy.edn'), 'utf8'))
