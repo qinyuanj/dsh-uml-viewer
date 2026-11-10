@@ -346,13 +346,32 @@ default twice.
 - Ledger's full summary, including project, discussion context and camera, is
   byte-for-byte unchanged after Shop is driven.
 - Neither page emitted a `pageerror`.
+- The three-section skeleton (#46): the top bar, the canvas and the status bar
+  stack in the narrow sidebar, the canvas sits between the bars and is neither
+  behind them nor smaller than the diagram needs; the bar holds the breadcrumb
+  path, the discussion context's name, the search button and 「更多」; **Tab**
+  reaches the search button and then 「更多」 from the canvas; 「更多」 lists
+  Fit view with `Ctrl+0` and the Remove arrows toggle, keeps `role="menu"`
+  only while open (a hidden one would be read as a modal by the host's
+  shortcut service, #43) and closes on **Esc**.
+- A panel opened before any display (`openPanel(name, { display: false })`,
+  lane option) shows the waiting canvas and puts the localized
+  `waiting-display` text in the status bar, with `data-status` on the
+  summary; no chip of text is painted into the canvas.
 
 The summary is an accessibility surface. It is visually clipped but is a
 `role="status"` with class `uml-viewer-summary`, `data-kind` (`frame` or a
-failure kind), `data-context` (`real` or `proposal`), and text of the form
-`Diagram: … Discussion: … Camera: x, y, zoom`. It is populated from the same
-frame and context events that paint the Canvas. It gives later tickets a
-user-readable assertion seam without reaching into client internals.
+failure kind), `data-context` (`real` or `proposal`), `data-view` (`source` or
+`proposal`), `data-depth` (`root` or `drilled`), `data-breadcrumbs` (the path's
+length), `data-status` (the canvas status code, empty when there is none),
+`data-search`/`data-results`, `data-selected`, `data-chain` and `data-dimmed`,
+and text of the form `Diagram: … Discussion: … Camera: x, y, zoom`. It is
+populated from the same frame, context and state events that paint the Canvas.
+The view and the depth come from the discussion context and the `state`
+event's breadcrumbs (#46), not from chrome the frame no longer carries, so a
+proposal's root is `proposal`/`root` and a drilled namespace is
+`source`/`drilled`. It gives later tickets a user-readable assertion seam
+without reaching into client internals.
 
 `primitives.spec.mjs` (#24) is the Playwright form of the deleted egui
 class-box driver scenarios (`class_boxes.edn`, `font_parity.edn`,
@@ -423,8 +442,11 @@ must mask the shaft with opaque canvas/ink fill, including when the relation
 is dimmed and at the native mesh scale below 0.6. Triangles mode must paint
 both incoming and outgoing dependency indicators, retaining red for violations.
 The test clicks the isolated Observer class to dim relations, then uses the
-accessible declutter control to reach triangles mode; no frame is injected.
-The Ledger proposal case checks the proposal banner, its real `api → orders`
+「更多」 menu's Remove arrows toggle to reach triangles mode (it names
+`:triangles` instead of cycling, #46); no frame is injected.
+The Ledger proposal case checks that the frame carries no proposal banner (the
+proposal's name is the top bar's discussion context and the path's root, #46),
+the proposal's real `api → orders`
 shaft at the full and frames tiers, and its disappearance in blocks after
 real wheel gestures. The producer supplies geometry for each camera and tier.
 Failure evidence and the Playwright trace stay under the run's scratch root.
@@ -447,7 +469,7 @@ behavior. "Retired" marks window-only behavior with no panel counterpart.
 | `inspector.edn` | `overlays.spec.mjs` › inspector follows class selection, switches proposal, and P returns to the namespace tree; `session.spec.mjs` › restores the proposal discussion context after a DSH restart | proposal rename, its Chinese text input and policy/IR write-back: retired, the companion edits the policy in place (`docs/companion-rules.md`) |
 | `lod_shots.edn` | `primitives.spec.mjs` (full → frames tier); `edges.spec.mjs` › proposal relation stays solid in full and frames tiers and disappears in blocks | — |
 | `metrics.edn` | `reload.spec.mjs` › a metric-only snapshot edit reloads quality without rewriting the IR | — |
-| `navigation.edn` | `navigation.spec.mjs` › drills in and back, selects a dependency chain, searches and returns with P; › anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and cycles declutter in place | — |
+| `navigation.edn` | `navigation.spec.mjs` › drills in and back, selects a dependency chain, searches and returns with P; › anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and toggles 移除箭头 from the 「更多」 menu in place | — |
 | `review_fixes.edn` | `overlays.spec.mjs` › module source, exact member line, native copy, same-file reuse and independent source windows | per-window retained selections after copying from another widget: the browser owns one document selection |
 | `route_library.edn`, `route_proposal.edn`, `route_shots.edn` | `edges.spec.mjs` (all four cases) | before/after screenshots only; they asserted nothing |
 | `search.edn` | `navigation.spec.mjs` › drills in and back, selects a dependency chain, searches and returns with P | — |
@@ -509,7 +531,7 @@ project data before either install or plugin load. It returns:
 | `host` | `{ url, stop, exited, output }` for the isolated DSH |
 | `mock` | `{ url, requests, stop }`; inspect the exact model requests |
 | `projects` | `{ shop, ledger, deep, atlas, levels, nexus, inspector }` absolute sample roots |
-| `openPanel(name, options?)` | create/select that session, open the sidebar tab, render IR, and return `{ page, panel, canvas, summary, sessionId, before, problems }`; optional `state` overrides the seeded persisted session state before panel open |
+| `openPanel(name, options?)` | create/select that session, open the sidebar tab, render IR, and return `{ page, panel, canvas, summary, sessionId, before, problems }`; optional `state` overrides the seeded persisted session state before panel open; `display: false` stops before the display prompt, so the panel shows the waiting canvas and its status-bar text (#46) |
 | `pan(panel)` | real pointer drag on that panel's canvas |
 | `wheel(panel, notches)` | real Ctrl+wheel notches over the canvas centre; positive zooms out (plain wheel pans) |
 | `point(panel, [x,y], clicks?)` | real canvas-local click or double-click |

@@ -195,6 +195,13 @@ export async function launchViewerLane(browser, options = {}) {
       }
       records.get(page).stage = 'open-sidebar'
       const opened = await openSidebar(page)
+      // A panel opened before any display shows the waiting canvas, which is
+      // how the status bar's canvas-status line is observed (#46).
+      if (options.display === false) {
+        await expect(opened.summary).toHaveAttribute('data-status', 'waiting-display', { timeout: 30_000 })
+        records.get(page).stage = 'panel-waiting'
+        return await result(page, problems, opened)
+      }
       await composer.click()
       records.get(page).stage = 'submit-display-prompt'
       await composer.fill('Render the sample diagram')

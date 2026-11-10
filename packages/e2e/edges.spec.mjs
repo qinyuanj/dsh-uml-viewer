@@ -175,9 +175,12 @@ test('proposal relation stays solid in full and frames tiers and disappears in b
     const options = { root: lane.projects.ledger, home: lane.home, extra: '{:proposal true :proposal-id :p-ledger}' }
     const palette = await colors(panel)
     let frame = await producerFrame(panel, options)
-    const background = (await sample(panel, [[frame.viewport.width - 5, frame.viewport.height - 5]]))[0]
-    expect(frame.chrome.filter(c => c.kind === 'proposal-banner').length).toBe(1)
-    expect(await inkCount(panel, { x: 12, y: 8, w: 200, h: 24 }, background), 'proposal banner ink').toBeGreaterThan(20)
+    // The proposal banner left the frame (#46): the proposal's name is the top
+    // bar's discussion context and the path's root, and the frame is the
+    // diagram alone.
+    expect(frame.chrome).toEqual([])
+    await expect(panel.panel.locator('.dsh-uml-viewer-context')).toHaveText('Ledger proposal')
+    await expect(panel.panel.locator('.dsh-uml-viewer-crumbs [aria-current="page"]')).toHaveText('Ledger proposal')
     for (const tier of ['full', 'frames', 'blocks']) {
       if (tier !== 'full') {
         const threshold = frame.style.lodZoom[tier === 'frames' ? 'full' : 'frames']
@@ -203,13 +206,17 @@ test('triangles mode paints incoming/outgoing indicators and preserves violating
   const lane = await launchViewerLane(browser)
   try {
     const panel = await lane.openPanel('nexus')
-    const control = panel.panel.getByRole('button', { name: /Declutter:/ })
-    await expect(control).toHaveAttribute('data-mode', 'full')
-    await control.click()
-    await expect(control).toHaveAttribute('data-mode', 'arrows')
-    await expect(control).toBeEnabled()
-    await control.click()
-    await expect(control).toHaveAttribute('data-mode', 'triangles')
+    // 移除箭头 is the 「更多」 menu's toggle now (#46): it names :triangles
+    // instead of cycling through the inspector's five modes.
+    const more = panel.panel.getByRole('button', { name: 'More actions', exact: true })
+    const arrows = () => panel.panel.locator('.dsh-uml-viewer-more-menu')
+      .getByRole('menuitemcheckbox', { name: 'Remove arrows', exact: true })
+    await more.click()
+    await expect(arrows()).toHaveAttribute('aria-checked', 'false')
+    await arrows().click()
+    await more.click()
+    await expect(arrows()).toHaveAttribute('aria-checked', 'true')
+    await panel.page.keyboard.press('Escape')
     await settled(panel)
     const frame = await producerFrame(panel, { root: lane.projects.nexus, home: lane.home, extra: '{:declutter :triangles}' })
     expect(frame.edges.length).toBe(9)

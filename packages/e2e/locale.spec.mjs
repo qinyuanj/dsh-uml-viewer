@@ -18,8 +18,11 @@ async function switchLanguage(page, label) {
   await page.keyboard.press('Escape')
 }
 
-// The inspector (deleted by #47, not localized) has its own 精简 button.
-const declutter = panel => panel.panel.locator('button.dsh-uml-viewer-declutter')
+// The top bar's 「更多」 menu and the status bar are the panel's own DOM (#46),
+// so they follow the language too.
+const moreButton = panel => panel.panel.locator('.dsh-uml-viewer-more')
+const moreMenu = panel => panel.panel.locator('.dsh-uml-viewer-more-menu')
+const statusBar = panel => panel.panel.locator('.dsh-uml-viewer-statusbar')
 // The element menu carries `role="menu"` only while it is open: the host reads
 // any such role in the document as an open modal and blocks the tab refresh
 // command with it (#43), so a closed menu is found by its class instead.
@@ -51,7 +54,13 @@ test('panel DOM text and accessible names follow a DSH language switch without r
     await shop.canvas.click({ position: { x: at[0], y: at[1] }, button: 'right' })
     await expect(shop.panel.getByRole('menu', { name: '元素请求' })).toHaveCount(1)
     await shop.page.keyboard.press('Escape')
-    await expect(declutter(shop)).toHaveAccessibleName(/^精简：/)
+    await expect(statusBar(shop)).toHaveAttribute('aria-label', '面板状态')
+    await expect(moreButton(shop)).toHaveAccessibleName('更多操作')
+    await moreButton(shop).click()
+    await expect(moreMenu(shop)).toHaveAttribute('aria-label', '更多操作')
+    await expect(moreMenu(shop).getByRole('menuitem', { name: /适配视图/ })).toHaveAttribute('aria-keyshortcuts', 'Ctrl+0')
+    await expect(moreMenu(shop).getByRole('menuitemcheckbox', { name: '移除箭头', exact: true })).toBeVisible()
+    await shop.page.keyboard.press('Escape')
     // #45: the top bar's breadcrumb path is our markup, so its name follows too.
     await expect(shop.panel.getByRole('navigation', { name: '面包屑路径' })).toBeVisible()
 
@@ -66,7 +75,13 @@ test('panel DOM text and accessible names follow a DSH language switch without r
     await shop.canvas.click({ position: { x: at[0], y: at[1] }, button: 'right' })
     await expect(shop.panel.getByRole('menu', { name: 'Element requests' })).toHaveCount(1)
     await shop.page.keyboard.press('Escape')
-    await expect(declutter(shop)).toHaveAccessibleName(/^Declutter: /)
+    await expect(statusBar(shop)).toHaveAttribute('aria-label', 'Panel status')
+    await expect(moreButton(shop)).toHaveAccessibleName('More actions')
+    await moreButton(shop).click()
+    await expect(moreMenu(shop)).toHaveAttribute('aria-label', 'More actions')
+    await expect(moreMenu(shop).getByRole('menuitem', { name: /Fit view/ })).toContainText('Ctrl+0')
+    await expect(moreMenu(shop).getByRole('menuitemcheckbox', { name: 'Remove arrows', exact: true })).toBeVisible()
+    await shop.page.keyboard.press('Escape')
     await expect(shop.panel.getByRole('navigation', { name: 'Breadcrumb path' })).toBeVisible()
     await lane.screenshot(shop, 'locale-english')
   } finally {
@@ -88,6 +103,19 @@ async function openCatalog(panel) {
   await expect(card).toBeVisible()
   return card
 }
+
+/** The canvas status the resident sends (#45) is the bar's text, in the DSH language (#46). */
+test('the status bar carries the canvas status and follows the language (#46)', async () => {
+  const waiting = await lane.openPanel('shop', { display: false })
+  await expect(statusBar(waiting)).toContainText('Waiting for :display to load the diagram…')
+  await expect(statusBar(waiting)).toHaveAttribute('data-code', 'waiting-display')
+  await switchLanguage(waiting.page, '中文')
+  await expect(statusBar(waiting)).toContainText('等待 :display 命令加载图示…')
+  await expect(statusBar(waiting)).toHaveAttribute('aria-label', '面板状态')
+  await switchLanguage(waiting.page, 'English')
+  await expect(statusBar(waiting)).toContainText('Waiting for :display to load the diagram…')
+  expect(waiting.problems).toEqual([])
+})
 
 let lane
 

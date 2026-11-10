@@ -18,6 +18,27 @@ test('drills in and back, selects a dependency chain, searches and returns with 
     const root = await producerFrame(deep, { root: lane.projects.deep, home: lane.home })
     const core = root.world.find(item => item.id === ':core' && (item.kind === 'class' || item.kind === 'package'))
     expect(core, 'the root has a drillable core component').toBeTruthy()
+
+    // At the root Escape has no level to leave and no search to close, so it
+    // clears the selection: the chain is search → back → clear (#46). This runs
+    // first, while the diagram is unobstructed and the camera is the fit.
+    const target = root.world
+      .filter(item => item.kind === 'class')
+      .map(item => {
+        const [x, y] = toScreen(root, item.rect.x + item.rect.w / 2, item.rect.y + item.rect.h / 2)
+        const inside = x > 24 && y > 24 && x < root.viewport.width - 24 && y < root.viewport.height - 24
+        return inside ? { id: item.id, x, y, area: item.rect.w * item.rect.h } : null
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.area - a.area)[0]
+    expect(target, 'the root view draws a class inside the canvas').toBeTruthy()
+    await lane.point(deep, [target.x, target.y])
+    await expect(deep.summary).toHaveAttribute('data-selected', target.id)
+    await deep.canvas.focus()
+    await deep.page.keyboard.press('Escape')
+    await expect(deep.summary).toHaveAttribute('data-selected', '')
+    await expect(deep.summary).toHaveAttribute('data-depth', 'root')
+
     await lane.point(deep, toScreen(root, core.rect.x + core.rect.w / 2, core.rect.y + core.rect.h / 2), 2)
     await expect(deep.summary).toHaveAttribute('data-depth', 'drilled', { timeout: 30_000 })
 
@@ -41,7 +62,9 @@ test('drills in and back, selects a dependency chain, searches and returns with 
     await deep.canvas.focus()
     await deep.page.keyboard.press('Escape')
     await expect(deep.summary).toHaveAttribute('data-depth', 'root')
-    await deep.panel.getByRole('button', { name: 'Namespace tree (P)' }).waitFor()
+    // The toolbar's `Namespace tree` button is gone (#46): P is the only entry,
+    // and the breadcrumb path names where the view is.
+    await expect(deep.panel.getByRole('button', { name: 'Namespace tree (P)' })).toHaveCount(0)
     await lane.point(deep, toScreen(root, core.rect.x + core.rect.w / 2, core.rect.y + core.rect.h / 2), 2)
     await expect(deep.summary).toHaveAttribute('data-depth', 'drilled')
     await deep.canvas.focus()
@@ -74,6 +97,7 @@ test('drills in and back, selects a dependency chain, searches and returns with 
     await deep.canvas.focus()
     await deep.page.keyboard.press('p')
     await expect(deep.summary).toHaveAttribute('data-depth', 'root')
+
     expect(deep.problems).toEqual([])
   } finally {
     await lane.close()
@@ -185,7 +209,7 @@ const world = (camera, [x, y]) => [camera.x + x / camera.zoom, camera.y + y / ca
  * cursor-anchored Ctrl+wheel zoom, blank-canvas drag pan, plain wheel pan,
  * Ctrl+0 fit and the five-step declutter cycle that keeps the view.
  */
-test('anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and cycles declutter in place', async ({ browser }) => {
+test('anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and toggles 移除箭头 in place', async ({ browser }) => {
   const lane = await launchViewerLane(browser)
   try {
     const deep = await lane.openPanel('deep')
@@ -234,15 +258,30 @@ test('anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and cycl
     await deep.page.keyboard.press('Control+0')
     await expect.poll(() => panelCamera(deep)).toEqual(fitted)
 
-    // Declutter is a rebuild: five clicks return to full and keep the view.
-    const control = deep.panel.getByRole('button', { name: /Declutter:/ })
+    // 移除箭头 is the 「更多」 menu's toggle now (#46): one click clears the
+    // arrows, the next brings them back, and the view is rebuilt in place.
     const view = await deep.summary.innerText()
     const selected = await deep.summary.getAttribute('data-selected')
-    for (const mode of ['arrows', 'triangles', 'elements', 'classes', 'full']) {
-      await control.click()
-      await expect(control).toHaveAttribute('data-mode', mode)
-      await expect(control).toBeEnabled()
+    const more = deep.panel.getByRole('button', { name: 'More actions', exact: true })
+    const menu = deep.panel.locator('.dsh-uml-viewer-more-menu')
+    const arrows = () => menu.getByRole('menuitemcheckbox', { name: 'Remove arrows', exact: true })
+    const toggleArrows = async () => {
+      await more.click()
+      await arrows().click()
     }
+    await toggleArrows()
+    await more.click()
+    await expect(arrows()).toHaveAttribute('aria-checked', 'true')
+    await deep.page.keyboard.press('Escape')
+    const arrowsRemoved = await producerFrame(deep, {
+      root: lane.projects.deep, home: lane.home, extra: '{:declutter :triangles}',
+    })
+    expect(arrowsRemoved.edges.length).toBeGreaterThan(0)
+    expect(arrowsRemoved.edges.every(edge => edge.kind === 'indicator')).toBe(true)
+    await toggleArrows()
+    await more.click()
+    await expect(arrows()).toHaveAttribute('aria-checked', 'false')
+    await deep.page.keyboard.press('Escape')
     await expect(deep.summary).toHaveText(view)
     await expect(deep.summary).toHaveAttribute('data-selected', selected ?? '')
     await expect(deep.summary).toHaveAttribute('data-depth', 'root')
