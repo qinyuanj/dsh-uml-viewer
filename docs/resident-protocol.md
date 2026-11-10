@@ -87,10 +87,10 @@ An `error` changes nothing; the session keeps running.
 | `search` | `query` | `search` | search class names and namespaces (ASCII case-insensitive substring); a blank query has no results. The view does not change. |
 | `locate` | `id` (EDN) | `frame` | go to a search result: enter its namespace or proposal layer, select it, open its card and centre it |
 | `context` | `proposalId` (EDN, or `null` for the source diagram) | `context`, then `frame` | the user chose the 讨论上下文; the view switches to that diagram. The host turns the `context` event into the panel request. |
-| `declutter` | `mode?` | `frame` | the arrow mode: `full`, `arrows`, `triangles`, `elements` or `classes`. A named mode is set (the panel's 「更多」 menu names `triangles`/`full`, #46); with none without one the resident cycles the modes. An unknown mode is an `error` and changes nothing |
+| `declutter` | `mode?` | `frame` | the arrow mode: `full`, `arrows`, `triangles`, `elements` or `classes`. A named mode is set (the panel's 「更多」 menu names `triangles`/`full`, #46); without one the resident cycles the modes. An unknown mode is an `error` and changes nothing |
 | `save` | — | `state` | the session state to persist |
 | `quit` | — | `ack` | end the session (exit 0), like closing stdin |
-| `card` | `width?`, `viewHeight?` (points) | `card` | the open class card's paint plan; `width` is the card content width (native default 624, floor 560), `viewHeight` the card viewport its scroll clamps against (default 700). No open card is an `error`. |
+| `card` | `width?`, `viewHeight?` (points) | `card` | the open class card's paint plan; `width` is the card content width (native default 624, floor 560), `viewHeight` the card viewport its scroll clamps against (default 700). With no class card open the answer is `card: null`, which changes nothing (#47). |
 | `open-card` | `id` (EDN) or `at` (world point) | `frame` | **double-click**: a namespace or proposal layer is entered, a class is selected and its card opens (`scene::events::on_double_press`). With `id` the class's card opens without moving the view. |
 | `close-card` | — | `frame` | close the class card; the selection stays |
 | `scroll-card` | `delta` (wheel notches), `viewHeight` | `frame` | a wheel over the card: `frame::detail::scroll_card` owns the 48-point step and both clamps |

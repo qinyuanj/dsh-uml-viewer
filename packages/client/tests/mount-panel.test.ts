@@ -245,6 +245,42 @@ describe('mounted panel quality menu (#28)', () => {
   })
 })
 
+describe('mounted panel action bar (#48)', () => {
+  const state = (selected: string | null) => ({
+    kind: 'state', seq: 9, breadcrumbs: [], status: null,
+    state: { schema: 'dsh-uml-viewer/session-state', version: 1, diagram: null, context: null, focus: [], proposalId: null,
+      openLayer: null, declutter: null, camera: { x: 0, y: 0, zoom: 1 }, selected, detail: null },
+  }) as unknown as PanelEvent
+
+  it('follows the resident selection over the canvas area and drills into a selected component', async () => {
+    const { host } = await mount()
+    await emit({ kind: 'frame', seq: 2, frame: golden })
+    const bar = host.descendants().find(el => el.className.includes('dsh-uml-viewer-action-bar'))!
+    expect(bar.hidden).toBe(true)
+    // The bar overlays the canvas area: it never takes height from the canvas.
+    expect(bar.parent?.className).toBe('dsh-uml-viewer-canvas-area')
+    await emit(state('{:kind :class :id :core :drill? true}'))
+    expect(bar.hidden).toBe(false)
+    expect(bar.descendants().map(el => el.textContent)).toContain('Core')
+    bar.descendants().find(el => el.textContent === 'Drill in')!.fire('click')
+    await settled()
+    expect(actions.filter(a => a.action === 'drill-in')).toEqual([{ action: 'drill-in', id: ':core' }])
+    // A click on blank canvas selects the level's frame: no bar.
+    await emit(state('{:kind :package :id :view}'))
+    expect(bar.hidden).toBe(true)
+  })
+
+  it('opens a selected class card through the overlays, without moving the view', async () => {
+    const { host } = await mount()
+    await emit({ kind: 'frame', seq: 2, frame: golden })
+    await emit(state('{:kind :class :id :util :drill? false}'))
+    const bar = host.descendants().find(el => el.className.includes('dsh-uml-viewer-action-bar'))!
+    bar.descendants().find(el => el.textContent === 'Open class card')!.fire('click')
+    await settled()
+    expect(actions.filter(a => a.action === 'open-card')).toEqual([{ action: 'open-card', id: ':util' }])
+  })
+})
+
 describe('mounted panel language (#42)', () => {
   /** DSH's `ctx.locale` face: the active id and a change subscription. */
   function dshLocale(active: string) {

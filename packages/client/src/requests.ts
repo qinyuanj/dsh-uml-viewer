@@ -23,6 +23,43 @@ const LABELS: Record<QualityRequestOp, TextKey> = {
   'refresh-mutate-all': 'menu.refreshMutateAll',
 }
 
+/** One panel request an element offers: the element menu and the action bar (#48) share these. */
+export interface ElementRequest {
+  readonly label: TextKey
+  /** The request for one element id; the host resolves its files. */
+  action(id: string): PanelAction
+  /** Slow or rarely wanted: the action bar keeps it in its secondary menu. */
+  readonly secondary: boolean
+}
+
+/** The three quality refreshes (#28), then Hide (#29); full mutation is the slow one. */
+export const ELEMENT_REQUESTS: readonly ElementRequest[] = [
+  ...QUALITY_REQUESTS.map((op): ElementRequest => ({
+    label: LABELS[op],
+    action: id => ({ action: 'quality-request', request: op, id }),
+    secondary: op === 'refresh-mutate-all',
+  })),
+  { label: 'menu.hide', action: id => ({ action: 'omit', id }), secondary: false },
+]
+
+/**
+ * Send one element request and put a refusal on the status bar. `live` says
+ * whether the surface that asked still exists when the answer comes back.
+ */
+export function sendElementRequest(action: PanelAction, options: {
+  send(action: PanelAction): Promise<PanelAck | null>
+  report(reason: string | (() => string) | null): void
+  text: PanelText
+  live(): boolean
+}): void {
+  options.report(null)
+  void options.send(action).then(ack => {
+    if (options.live() && ack && !ack.accepted) options.report(ack.reason ?? (() => options.text.t('request.refused')))
+  }, error => {
+    if (options.live()) options.report(error instanceof Error ? error.message : String(error))
+  })
+}
+
 /**
  * Attach the element menu to one panel: the quality refreshes (#28) and Hide
  * (#29, `omit`). It sends only a validated element id to
@@ -50,27 +87,19 @@ export function mountQualityMenu(host: HTMLElement, canvas: HTMLCanvasElement, o
     menu.removeAttribute('role')
     target = null
   }
-  // The three quality refreshes (#28), then Hide (#29): each sends the bound id only.
-  const entries: [TextKey, (id: string) => PanelAction][] = [
-    ...QUALITY_REQUESTS.map((op): [TextKey, (id: string) => PanelAction] => [LABELS[op], id => ({ action: 'quality-request', request: op, id })]),
-    ['menu.hide', id => ({ action: 'omit', id })],
-  ]
+  // All four element requests, the action bar's secondary one included (#48):
+  // each sends the bound id only.
   const labels: (() => void)[] = [() => menu.setAttribute('aria-label', text.t('menu.label'))]
-  for (const [label, action] of entries) {
+  for (const request of ELEMENT_REQUESTS) {
     const button = document.createElement('button')
     button.type = 'button'
     button.setAttribute('role', 'menuitem')
-    labels.push(() => { button.textContent = text.t(label) })
+    labels.push(() => { button.textContent = text.t(request.label) })
     button.addEventListener('click', () => {
       const id = target
       hide()
       if (id === null) return
-      options.report(null)
-      void options.send(action(id)).then(ack => {
-        if (!disposed && ack && !ack.accepted) options.report(ack.reason ?? (() => text.t('request.refused')))
-      }, error => {
-        if (!disposed) options.report(error instanceof Error ? error.message : String(error))
-      })
+      sendElementRequest(request.action(id), { send: options.send, report: options.report, text, live: () => !disposed })
     })
     menu.appendChild(button)
   }

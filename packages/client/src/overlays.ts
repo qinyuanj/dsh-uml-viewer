@@ -190,6 +190,11 @@ export class OverlayController {
     await this.changeCard({ action: 'open-card', at })
   }
 
+  /** The action bar's Open class card (#48): that class's card; the view stays. */
+  public async openCard(id: string): Promise<void> {
+    await this.changeCard({ action: 'open-card', id })
+  }
+
   public async closeCard(): Promise<void> {
     await this.changeCard({ action: 'close-card' }, true)
   }
