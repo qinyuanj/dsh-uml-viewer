@@ -7,6 +7,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -14,10 +15,14 @@ fn fixtures() -> PathBuf {
 
 /// Run the `scene` role in process and return the frame it wrote.
 fn frame(args: &[&str]) -> String {
+    static SERIAL: AtomicUsize = AtomicUsize::new(0);
     let shop = fixtures().join("shop");
+    // One file per call: tests run in parallel threads, and two calls with the
+    // same arguments would otherwise write and remove each other's output.
     let out = std::env::temp_dir().join(format!(
-        "uml-frame-{}-{}.json",
+        "uml-frame-{}-{}-{}.json",
         std::process::id(),
+        SERIAL.fetch_add(1, Ordering::Relaxed),
         args.join("_")
             .chars()
             .filter(char::is_ascii_alphanumeric)
