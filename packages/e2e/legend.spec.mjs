@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
-import { producerFrame, same, toScreen } from './canvas.mjs'
+import { producerFrame, same, screenRect, toScreen } from './canvas.mjs'
 import { toggleFullscreen } from './lifecycle.mjs'
 
 /**
@@ -137,6 +137,25 @@ test('from 900px the legend is resident beside the diagram, and below it returns
   })
   expect(Math.abs(viewport.width - canvasBox.width)).toBeLessThanOrEqual(2)
   await lane.screenshot(panel, 't50-legend-docked')
+
+  // The overlay root stops above the strip, so even a docked card — which
+  // overlays the drawing (F28's open question, not this ticket's) — leaves the
+  // resident legend in view.
+  const frame = await producerFrame(panel, { root: lane.projects.shop, home: lane.home })
+  const item = frame.world.find(entry => entry.kind === 'class' && entry.shape !== 'oval')
+  expect(item, 'the frame has a class box').toBeTruthy()
+  const rect = screenRect(frame, item.rect)
+  await panel.canvas.dblclick({ position: { x: rect.x + 12, y: rect.y + 12 } })
+  const card = panel.panel.getByRole('dialog').first()
+  await expect(card).toBeVisible()
+  await expect.poll(async () => {
+    const box = await card.boundingBox()
+    return Math.round(box.y + box.height - legendBox.y)
+  }, { message: 'the docked card ends where the legend strip begins' }).toBeLessThanOrEqual(2)
+  await expect(region).toBeVisible()
+  await panel.page.keyboard.press('Escape')
+  await expect(card).toHaveCount(0)
+  await expect(region).toBeVisible()
 
   // Below 900px the resident legend withdraws into the popover again.
   await toggleFullscreen(panel, false)

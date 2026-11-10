@@ -235,6 +235,10 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     }
   }
   let overlays: OverlayController | null = null
+  /** The overlay root's insets; assigned once the sections exist. */
+  let placeOverlays: () => void = () => {}
+  /** Whether the legend's strip was part of those insets last time. */
+  let legendVisible: boolean | null = null
   /** A refusal from the element menu, re-rendered on a language switch. */
   let reported: string | (() => string) | null = null
   /** The frame the overlays last refreshed for; search/status updates reuse it. */
@@ -288,6 +292,13 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     // The legend's rows are the frame's, worded in the resident's language
     // (#50); a docked legend shows them without being opened.
     legend?.render(state.frame)
+    // The first frame makes a resident legend visible: its strip leaves the
+    // drawable area, so the overlay root has to stop above it.
+    const visible = legend !== null && !legend.element.hidden
+    if (visible !== legendVisible) {
+      legendVisible = visible
+      placeOverlays()
+    }
   }
   const controller = new PanelController({
     canvas,
@@ -341,8 +352,9 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   // The overlays cover the drawable canvas alone: below the top bar, above the
   // status bar, and above a resident legend's strip (#50), so neither a drawer
   // nor the card covers a bar or the legend.
-  const placeOverlays = (): void => {
+  placeOverlays = (): void => {
     panelElement.style.setProperty?.('--dsh-uml-toolbar-height', `${topBar?.element.offsetHeight ?? 0}px`)
+    // A hidden legend (narrow and closed, or before the first frame) is 0 high.
     const legendHeight = legend?.element.offsetHeight ?? 0
     panelElement.style.setProperty?.('--dsh-uml-statusbar-height', `${(statusBar?.element.offsetHeight ?? 0) + legendHeight}px`)
   }
