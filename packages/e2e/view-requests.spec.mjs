@@ -4,6 +4,7 @@ import path from 'node:path'
 import { launchViewerLane } from './lane.mjs'
 import { producerFrame, toScreen } from './canvas.mjs'
 import { exposeTarget } from './gestures.mjs'
+import { chooseContext, listedContexts, newProposal, switcherButton } from './switcher.mjs'
 import { makeViewCompanion } from './view-companion.mjs'
 import { VIEW_POLICY } from './view-policy.mjs'
 
@@ -43,7 +44,7 @@ function targetPoint(frame, id) {
   return toScreen(frame, target.rect.x + target.rect.w / 2, target.rect.y + 10)
 }
 
-/** Fresh producer frame with `id` clickable beside the inspector (pans only if covered). */
+/** Fresh producer frame with `id` on the exposed canvas. */
 async function exposed(panel, options, id) {
   return (await exposeTarget(panel, async () => {
     const frame = await producerFrame(panel, options)
@@ -95,12 +96,16 @@ test('Hide after a failed refresh still regenerates the IR, then displays; the d
   } finally { await lane.close() }
 })
 
-test('choosing a proposal tells the companion; 新建提案 sends a timestamp name; all in click order', async ({ browser }) => {
+test('choosing a proposal in the switcher tells the companion; 新建提案 sends a timestamp name; all in click order', async ({ browser }) => {
   const { lane, companion } = await launch(browser)
   try {
     const a = await lane.openPanel('deep')
-    const inspector = a.panel.getByRole('complementary', { name: '检查器' })
-    await inspector.getByRole('button', { name: 'Review plan', exact: true }).click()
+    // The inspector is gone (#47): the top bar's switcher is the only list.
+    await expect(a.panel.getByRole('complementary')).toHaveCount(0)
+    await expect(switcherButton(a)).toHaveText(/Source diagram/)
+    await chooseContext(a, 'Review plan')
+    await expect(switcherButton(a)).toHaveText(/Review plan/)
+    await expect(a.summary).toHaveAttribute('data-view', 'proposal')
     await expect(a.summary).toHaveAttribute('data-context', 'proposal')
     await expect(a.summary).toContainText('Discussion: Review plan.')
     await expect(a.page.getByText('Discussing the chosen diagram.', { exact: true }).last()).toBeVisible()
@@ -122,7 +127,7 @@ test('choosing a proposal tells the companion; 新建提案 sends a timestamp na
     expect(item(hidden, ':api')).toBeUndefined()
     const source = await producerFrame(a, { root, home: lane.home })
     expect(item(source, ':api'), 'proposal omit leaves the source class visible').toBeTruthy()
-    await inspector.getByRole('button', { name: '新建提案', exact: true }).click()
+    await newProposal(a)
     const request = a.page.getByText(/^UML viewer panel request:\n\{:op :new-proposal :name "\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}" :request "[0-9a-f]{32}"\}$/).last()
     await expect(request).toBeVisible()
     const name = /:name "([^"]+)"/.exec(await request.innerText())[1]
@@ -133,16 +138,18 @@ test('choosing a proposal tells the companion; 新建提案 sends a timestamp na
     expect(created.context).toBe('p-review')
     expect(created.proposalId).toBe(':p-e2e-1')
     expect(await fs.readFile(path.join(root, 'policy.edn'), 'utf8')).toContain(`{:id :p-e2e-1 :name "${name}" :layers []}`)
-    await expect(inspector.getByRole('button', { name, exact: true })).toBeVisible()
+    await expect.poll(() => listedContexts(a)).toEqual(['Source diagram', 'Review plan', name])
     // Creation preserves discussion context; choosing the actual new row changes it.
     await expect(a.summary).toContainText('Discussion: Review plan.')
-    await inspector.getByRole('button', { name, exact: true }).click()
+    await chooseContext(a, name)
     await expect(a.summary).toContainText(`Discussion: ${name}.`)
     await expect.poll(() => companion.contexts.at(-1)).toBe('p-e2e-1')
     const unchanged = await fs.readFile(path.join(root, 'policy.edn'))
-    await inspector.locator('.dsh-uml-proposals button').first().click()
+    await chooseContext(a, 'Source diagram')
     await expect(a.page.getByText('UML viewer panel request:\n{:op :context :context {:context :real}}', { exact: true }).last()).toBeVisible()
     await expect(a.summary).toHaveAttribute('data-context', 'real')
+    await expect(a.summary).toHaveAttribute('data-view', 'source')
+    await expect(a.summary).toHaveAttribute('data-depth', 'root')
     await expect.poll(() => companion.contexts.at(-1)).toBe('real')
     expect(await fs.readFile(path.join(root, 'policy.edn'))).toEqual(unchanged)
     await expect(composer(a)).toHaveText('Proposal draft 草稿')
