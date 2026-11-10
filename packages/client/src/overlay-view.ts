@@ -1,12 +1,26 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import type { CardItem, FrameColor } from '@dsh-uml-viewer/contracts'
-import { OverlayController, type OverlaySnapshot, type SourceWindow } from './overlays.js'
+import type { SourceModel } from '@dsh-uml-viewer/contracts'
+import { OverlayController, type OverlaySnapshot } from './overlays.js'
 import { resolveTheme, type Theme } from './theme.js'
 import { ENGLISH_TEXT, type PanelText } from './locale.js'
 
 /** The controller's panel text; English when a caller supplies none. */
 function textOf(controller: OverlayController): PanelText {
   return (controller as Partial<OverlayController>).text ?? ENGLISH_TEXT
+}
+
+/**
+ * The drawer swaps its view in place (card ⇄ source, #49); the button that
+ * swapped it is gone, so focus would fall to the page and Esc/P would no
+ * longer reach the panel. A view that mounts while focus is lost takes it.
+ */
+function useKeepFocus(ref: { current: HTMLElement | null }): void {
+  useEffect(() => {
+    const element = ref.current
+    const active = element?.ownerDocument.activeElement
+    if (element && (!active || active === element.ownerDocument.body)) element.focus({ preventScroll: true })
+  }, [])
 }
 
 /** Map the Rust-provided semantic role through the Canvas palette too. */
@@ -19,10 +33,14 @@ export const OVERLAY_STYLE = `
 .dsh-uml-overlay-root button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--dsw-alias-border-l2); border-radius: 4px; padding: 4px 8px; text-align: left; cursor: pointer; }
 .dsh-uml-overlay-root button:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-uml-overlay-root button:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 1px; }
-.dsh-uml-window { pointer-events: auto; position: absolute; box-sizing: border-box; display: flex; flex-direction: column; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-layer-2); overflow: hidden; resize: both; min-width: 220px; min-height: 150px; max-width: 100%; max-height: 96%; }
+/* The drawer (#49): the class card or one source window, rising over the
+   lower half of the canvas so the diagram stays visible above it. From 900px
+   of panel width (layout.ts) it docks on the right beside the diagram. A
+   narrow drawer scrolls sideways; the resident's column plan is unchanged. */
+.dsh-uml-drawer { pointer-events: auto; position: absolute; left: 0; right: 0; bottom: 0; height: 50%; z-index: 2; box-sizing: border-box; display: flex; flex-direction: column; border-top: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-2); box-shadow: var(--dsw-shadow-lv2, 0 -4px 16px rgb(0 0 0 / 16%)); overflow: hidden; }
+.dsh-uml-viewer-panel[data-layout=docked] .dsh-uml-drawer { top: 0; left: auto; height: auto; width: clamp(420px, 42%, 680px); border-top: 0; border-left: 1px solid var(--dsw-alias-border-l2); }
 .dsh-uml-window-header { flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-3); }
-.dsh-uml-window-header strong { flex: 1; overflow-wrap: anywhere; font-size: 13px; }
-.dsh-uml-card { left: 12px; top: 40px; width: 650px; height: 700px; max-width: calc(100% - 12px); }
+.dsh-uml-window-header strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
 .dsh-uml-card-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; position: relative; }
 .dsh-uml-card-plan { position: relative; min-width: 560px; font: 12px/18px "UML Viewer Sarasa", monospace; }
 .dsh-uml-card-row { position: absolute; left: 0; right: 0; overflow: hidden; }
@@ -33,7 +51,6 @@ export const OVERLAY_STYLE = `
 .dsh-uml-card-text { overflow: hidden; }
 .dsh-uml-card-bar { position: absolute; bottom: 0; height: 3px; background: var(--dsw-alias-border-l2); }
 .dsh-uml-card-bar span { display: block; height: 100%; }
-.dsh-uml-source { left: 24px; top: 24px; width: 760px; height: 620px; }
 .dsh-uml-source-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; font: 13px/20px "UML Viewer Sarasa", monospace; }
 .dsh-uml-source-line { display: flex; min-width: max-content; height: 20px; white-space: pre; }
 .dsh-uml-source-line[data-marked=true] { background: var(--dsw-alias-state-business-tertiary); }
@@ -79,6 +96,7 @@ export function ClassCard({ state, controller, theme = resolveTheme(document.bod
   const nativeScrolling = useRef(false)
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [width, setWidth] = useState(624)
+  useKeepFocus(scrollRef)
   useEffect(() => {
     const element = scrollRef.current
     if (!element || !model) return
@@ -113,7 +131,7 @@ export function ClassCard({ state, controller, theme = resolveTheme(document.bod
     }
   }, [controller, model?.id])
   if (!model) return null
-  return h('section', { className: 'dsh-uml-window dsh-uml-card', role: 'dialog', 'aria-label': textOf(controller).t('card.label', { title: model.title }) },
+  return h('section', { className: 'dsh-uml-drawer dsh-uml-card', role: 'dialog', 'aria-label': textOf(controller).t('card.label', { title: model.title }) },
     h('header', { className: 'dsh-uml-window-header' }, h('strong', null, model.title),
       h('button', { type: 'button', 'aria-label': textOf(controller).t('card.close'), onClick: () => { void controller.closeCard() } }, '×')),
     h('div', { className: 'dsh-uml-card-scroll', ref: scrollRef, tabIndex: 0,
@@ -167,9 +185,14 @@ export function sourceJumpOffset(rows: readonly { number: number }[], line: numb
   return Math.max(0, (index < 0 ? 0 : index) * SOURCE_ROW_HEIGHT - viewHeight / 4)
 }
 
-export function SourceView({ window, controller, index }: { window: SourceWindow; controller: OverlayController; index: number }): unknown {
+/**
+ * The drawer's source window: it replaces the card it was opened from, and
+ * `back` (a card to return to) adds the button that shows the card again.
+ */
+export function SourceView({ model, controller, back }: { model: SourceModel; controller: OverlayController; back: boolean }): unknown {
   const scrollRef = useRef<HTMLElement | null>(null)
-  const model = window.model
+  const text = textOf(controller)
+  useKeepFocus(scrollRef)
   const [view, setView] = useState<{ top: number; height: number }>({
     top: sourceJumpOffset(model.rows, model.line, SOURCE_DEFAULT_VIEW), height: SOURCE_DEFAULT_VIEW })
   useEffect(() => {
@@ -180,11 +203,14 @@ export function SourceView({ window, controller, index }: { window: SourceWindow
     setView({ top: element.scrollTop, height: element.clientHeight })
   }, [model])
   const rows = sourceRowWindow(model.rows.length, view.top, view.height)
-  return h('section', { className: 'dsh-uml-window dsh-uml-source', role: 'dialog',
-    'aria-label': textOf(controller).t('source.label', { title: model.title }), style: { left: index * 16, top: 16 + index * 16, zIndex: index + 2, maxWidth: `calc(100% - ${index * 16}px)` } },
-    h('header', { className: 'dsh-uml-window-header' }, h('strong', null, model.title),
-      h('button', { type: 'button', 'aria-label': textOf(controller).t('source.close'), onClick: () => controller.closeSource(window.serial) }, '×')),
-    h('div', { className: 'dsh-uml-source-scroll', ref: scrollRef, 'data-source-rows': model.rows.length,
+  return h('section', { className: 'dsh-uml-drawer dsh-uml-source', role: 'dialog',
+    'aria-label': text.t('source.label', { title: model.title }) },
+    h('header', { className: 'dsh-uml-window-header' },
+      back ? h('button', { type: 'button', 'aria-label': text.t('source.back'), title: text.t('source.back'),
+        onClick: () => controller.backToCard() }, '‹') : null,
+      h('strong', null, model.title),
+      h('button', { type: 'button', 'aria-label': text.t('source.close'), onClick: () => { void controller.closeDrawer() } }, '×')),
+    h('div', { className: 'dsh-uml-source-scroll', ref: scrollRef, tabIndex: 0, 'data-source-rows': model.rows.length,
       onScroll: (event: { currentTarget: HTMLElement }) => {
         const element = event.currentTarget
         setView({ top: element.scrollTop, height: element.clientHeight })
@@ -216,7 +242,9 @@ export function Overlays({ controller }: { controller: OverlayController }): unk
   const [, setLanguage] = useState(textOf(controller).language)
   useEffect(() => textOf(controller).subscribe(() => setLanguage(textOf(controller).language)), [controller])
   return h('div', { className: 'dsh-uml-overlay-root', ref: root },
-    h(ClassCard, { state, controller, theme }),
-    ...state.sources.map((window, index) => h(SourceView, { key: window.serial, window, controller, index })),
+    // One drawer: a source shows in the card's place, never beside it (#49).
+    state.drawer === 'source' && state.source
+      ? h(SourceView, { key: 'source', model: state.source, controller, back: state.card !== null })
+      : h(ClassCard, { key: 'card', state, controller, theme }),
     state.failure ? h('div', { role: 'status', className: 'dsh-uml-overlay-failure' }, state.failure) : null)
 }
