@@ -27,6 +27,7 @@ import { MORE_MENU_STYLE } from './more-menu.js'
 import { STATUSBAR_STYLE, mountStatusBar, type StatusBar } from './statusbar.js'
 import { TOPBAR_STYLE, mountTopBar, type TopBar } from './topbar.js'
 import { ACTION_BAR_STYLE, elementSelection, mountActionBar, type ActionBar } from './action-bar.js'
+import { observeLayout } from './layout.js'
 
 export const TAB_ID = 'dsh-uml-viewer'
 export const TAB_KIND = 'dsh-uml-viewer'
@@ -277,6 +278,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     reported = state.kind === 'refused' || state.kind === 'failed' ? state.reason : null
     statusBar?.setStatus(state.statusCode)
     statusBar?.setMessage(reported)
+    statusBar?.setRequests(state.requests)
     topBar?.render(state)
     actionBar?.render(elementSelection(controller.selected, frame))
   }
@@ -314,6 +316,13 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   })
   options.views?.attach(options.sessionId, overlays)
   options.onOverlays?.(overlays)
+  // Esc closes the class card / source drawer before it goes back (#49).
+  controller.setDrawer({
+    open: () => overlays?.drawerOpen === true,
+    close: () => { void overlays?.closeDrawer() },
+  })
+  // The container's width picks the drawer or the docked card (#49).
+  const stopLayout = observeLayout(panelElement)
   /** **P**: one dispatch, through the overlays so a card reply in flight cannot
    * repopulate the card after the tree resets. */
   const namespaceTree = (): void => {
@@ -346,13 +355,23 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     statusBar?.setMessage(kept)
   })
   // Keyboard input belongs to this panel; never capture the chat composer.
-  // **P** from the overlay windows (outside the canvas host) also returns to
-  // the tree; keys inside the host are handled once by `onKeyDown` below.
+  // **P** and **Esc** from the overlays (the drawer, outside the canvas host)
+  // work as on the canvas; keys inside the host are handled once by
+  // `onKeyDown` below.
   const onPanelKey = (event: KeyboardEvent): void => {
     if (event.isComposing || event.keyCode === 229 || host.contains?.(event.target as Node)) return
-    if (event.key.toLowerCase() !== 'p' || event.ctrlKey || event.metaKey || event.altKey) return
+    if (event.ctrlKey || event.metaKey || event.altKey) return
     const target = event.target as HTMLElement
     if (target.matches?.('input,textarea,select,[contenteditable=""],[contenteditable=true]')) return
+    if (event.key === 'Escape') {
+      // The same chain as on the canvas; the keyboard returns to the canvas,
+      // since the drawer it was in may be gone.
+      event.preventDefault()
+      controller.escape()
+      focusCanvas()
+      return
+    }
+    if (event.key.toLowerCase() !== 'p') return
     if (controller.current.search.active) return
     event.preventDefault()
     namespaceTree()
@@ -435,6 +454,8 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
       }
     }
     observer?.disconnect()
+    stopLayout()
+    controller.setDrawer(null)
     if (overlays) options.views?.detach(options.sessionId, overlays)
     overlays?.dispose()
     overlays = null

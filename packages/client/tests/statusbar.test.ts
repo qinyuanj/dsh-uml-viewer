@@ -52,6 +52,67 @@ describe('the panel status bar (#46)', () => {
     h.bar.dispose()
   })
 
+  // #51: the bar shows the current request, localized.
+  it('shows the request that changed last, and on a fresh list the oldest unfinished one', () => {
+    const h = harness()
+    const request = (): Element => h.bar.element.children[1] as unknown as Element
+    expect(request().hidden).toBe(true)
+    const crap = { id: 'a', op: 'refresh-crap', target: { id: ':core.order', kind: 'class' }, state: 'queued', reason: null, exitCode: null } as const
+    h.bar.setRequests([crap])
+    expect(request().textContent).toBe('Refresh CRAP :core.order: Queued')
+    expect(request().hidden).toBe(false)
+    expect(h.bar.element.dataset.request).toBe('queued')
+    // A refusal right after the click is what the user needs to see, even
+    // while an earlier request still waits.
+    const failed = { id: 'b', op: 'refresh-mutate', target: null, state: 'failed', reason: 'mutate failed', exitCode: 2 } as const
+    h.bar.setRequests([crap, failed])
+    expect(request().textContent).toBe('Differential mutation: Failed — mutate failed (exit code 2)')
+    expect(h.bar.element.dataset.request).toBe('failed')
+    // The same list again (a re-push) keeps the line.
+    h.bar.setRequests([crap, failed])
+    expect(request().textContent).toBe('Differential mutation: Failed — mutate failed (exit code 2)')
+    const context = { id: 'c', op: 'context', target: null, state: 'done', reason: null, exitCode: null } as const
+    h.bar.setRequests([crap, failed, context])
+    expect(request().textContent).toBe('Switch discussion context: Done')
+    // A stream opened again (a page refresh) has no history: the oldest
+    // unfinished request is the current one, else the newest.
+    const fresh = harness()
+    const line = (): Element => fresh.bar.element.children[1] as unknown as Element
+    fresh.bar.setRequests([failed, crap, context])
+    expect(line().textContent).toBe('Refresh CRAP :core.order: Queued')
+    fresh.bar.setRequests([])
+    expect(line().hidden).toBe(true)
+    fresh.bar.setRequests([failed, context])
+    expect(line().textContent).toBe('Switch discussion context: Done')
+    h.bar.dispose()
+    fresh.bar.dispose()
+  })
+
+  it('says a refusal once when the request status already carries its reason', () => {
+    const h = harness()
+    const request = (): Element => h.bar.element.children[1] as unknown as Element
+    h.bar.setMessage('session is archived')
+    h.bar.setRequests([{ id: 'a', op: 'refresh-crap', target: null, state: 'failed', reason: 'session is archived', exitCode: null }])
+    expect(h.line().hidden).toBe(true)
+    expect(request().textContent).toBe('Refresh CRAP: Failed — session is archived')
+    // A refusal the request status does not carry is still the panel's own line.
+    h.bar.setMessage('network down')
+    expect(h.line().textContent).toBe('network down')
+    h.bar.dispose()
+  })
+
+  it('words the request line in Chinese with the glossary terms', () => {
+    const doc = makeDocument()
+    const host = new Element('div', doc)
+    const bar = mountStatusBar(host as unknown as HTMLElement,
+      { text: { language: 'zh', t: (key, params) => translate('zh', key, params), subscribe: () => () => {} } })
+    bar.setRequests([{ id: 'a', op: 'omit', target: { id: ':api', kind: 'class' }, state: 'queued', reason: null, exitCode: null }])
+    expect((bar.element.children[1] as unknown as Element).textContent).toBe('隐藏 :api：已排队')
+    bar.setRequests([{ id: 'b', op: 'refresh-crap', target: null, state: 'failed', reason: '会话已归档', exitCode: null }])
+    expect((bar.element.children[1] as unknown as Element).textContent).toBe('刷新 CRAP：失败——会话已归档')
+    bar.dispose()
+  })
+
   it('removes its element on dispose', () => {
     const h = harness()
     h.bar.dispose()
