@@ -190,6 +190,22 @@ fn error(seq: &Json, message: impl Into<String>) -> Json {
     event("error", seq, json!({"message": message.into()}))
 }
 
+/// The breadcrumb path the panel draws: each level's component id (null for
+/// the source diagram's root) and name (#45).
+fn crumbs_json(state: &scene::ViewState) -> Json {
+    Json::Array(
+        scene::events::breadcrumbs(state)
+            .iter()
+            .map(|crumb| {
+                json!({
+                    "id": crumb.id.as_ref().map_or(Json::Null, |id| Json::String(edn_text(id))),
+                    "name": crumb.name,
+                })
+            })
+            .collect(),
+    )
+}
+
 /// A saved view whose diagram was not there when the session opened
 /// waiting: the first display of that diagram restores it, and until then
 /// `save` answers it unchanged, so closing the panel early loses nothing.
@@ -236,11 +252,12 @@ impl Resident {
             return error(seq, "no session: send open first");
         };
         session.canvas(Canvas::Fit, dims);
+        let hint = session.hint();
         let built = frame::frame::build(
             session.state(),
             self.width,
             self.height,
-            session.hint(),
+            hint.as_deref(),
             session.status(),
         );
         // The panel needs the optional bounded hover metadata (#26) to reproduce
@@ -368,7 +385,22 @@ impl Resident {
                 }
             }
             "back" => {
-                self.session()?.act(Action::Back, &dims);
+                let session = self.session()?;
+                match action.get("target") {
+                    None => {
+                        session.act(Action::Back, &dims);
+                    }
+                    // The source diagram's root has no component id.
+                    Some(Json::Null) => session.back_to(None)?,
+                    Some(Json::String(_)) => {
+                        session.back_to(Some(edn_field(action, "target")?))?;
+                    }
+                    Some(other) => {
+                        return Err(format!(
+                            "target must be a breadcrumb id or null, not {other}"
+                        ));
+                    }
+                }
             }
             "namespace-tree" => {
                 self.session()?.act(Action::NamespaceTree, &dims);
@@ -437,11 +469,21 @@ impl Resident {
                 self.session()?.act(Action::Declutter, &dims);
             }
             "save" => {
-                let saved = match &self.pending {
-                    Some(pending) => pending.state.clone(),
-                    None => self.session()?.saved_state(),
-                };
-                return Ok(vec![event("state", seq, json!({"state": saved}))]);
+                // The pending snapshot stands in for the view until its
+                // diagram is displayed; the breadcrumbs and status are the
+                // live session's either way.
+                let pending = self.pending.as_ref().map(|pending| pending.state.clone());
+                let session = self.session()?;
+                let saved = pending.unwrap_or_else(|| session.saved_state());
+                return Ok(vec![event(
+                    "state",
+                    seq,
+                    json!({
+                        "state": saved,
+                        "breadcrumbs": crumbs_json(session.state()),
+                        "status": session.status_code().map_or(Json::Null, |code| code.to_json()),
+                    }),
+                )]);
             }
             "quit" => {
                 self.quit = true;

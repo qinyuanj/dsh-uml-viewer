@@ -85,11 +85,52 @@ pub struct Outcome {
     pub context: Option<Value>,
 }
 
+/// The canvas status as a code the panel localizes (#45). A frame still
+/// carries the resident's own text until #46 moves the status bar out of the
+/// canvas, so the two spellings exist side by side.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StatusCode {
+    /// The empty canvas waits for its first `display`.
+    WaitingDisplay,
+    /// The diagram file the session names is not there.
+    MissingFile { path: String },
+}
+
+impl StatusCode {
+    /// The code the panel stream carries.
+    pub fn code(&self) -> &'static str {
+        match self {
+            StatusCode::WaitingDisplay => "waiting-display",
+            StatusCode::MissingFile { .. } => "missing-file",
+        }
+    }
+
+    /// The state event's `status`: the code plus the parameters it needs.
+    pub fn to_json(&self) -> serde_json::Value {
+        match self {
+            StatusCode::WaitingDisplay => serde_json::json!({"code": self.code()}),
+            StatusCode::MissingFile { path } => {
+                serde_json::json!({"code": self.code(), "path": path})
+            }
+        }
+    }
+
+    /// The resident's own text for the canvas, in the single string table
+    /// that is still Chinese-only (#44 localizes it).
+    fn text(&self) -> String {
+        match self {
+            StatusCode::WaitingDisplay => strings::WAITING_DISPLAY.to_owned(),
+            StatusCode::MissingFile { path } => strings::missing_file(path),
+        }
+    }
+}
+
 pub struct Session {
     state: ViewState,
     project_root: PathBuf,
     diagram: PathBuf,
-    hint: Option<String>,
+    /// The canvas hint's status (a missing diagram); its text is `hint()`.
+    hint: Option<StatusCode>,
     status: Option<String>,
     /// When the IR and metrics stamps were last polled; `None` is due.
     last_poll: Option<Instant>,
@@ -136,7 +177,7 @@ impl Session {
                     revision: 1,
                     ..ViewState::default()
                 };
-                self.hint = Some(strings::missing_file(&path));
+                self.hint = Some(StatusCode::MissingFile { path: path.clone() });
                 return Ok(());
             }
             Err(error) => return Err(format!("cannot read {path}: {error}")),
@@ -192,7 +233,9 @@ impl Session {
         }
         let path_text = self.diagram.to_string_lossy().into_owned();
         let Ok(mtime) = watch::mtime(&self.diagram) else {
-            self.hint = Some(strings::missing_file(&path_text));
+            self.hint = Some(StatusCode::MissingFile {
+                path: path_text.clone(),
+            });
             return;
         };
         let (snapshots, stamp) = metrics::snapshot(&self.project_root);
@@ -201,7 +244,9 @@ impl Session {
             return;
         }
         let Ok(text) = std::fs::read_to_string(&self.diagram) else {
-            self.hint = Some(strings::missing_file(&path_text));
+            self.hint = Some(StatusCode::MissingFile {
+                path: path_text.clone(),
+            });
             return;
         };
         let (next, reloaded, rejected) =
@@ -255,6 +300,21 @@ impl Session {
             Action::OpenCard(hit) => events::open_detail(state, hit.as_ref()),
         };
         outcome
+    }
+
+    /// Return to the breadcrumb level `target` names (`None` is the source
+    /// diagram's root); an id no level of the current path carries is refused
+    /// instead of moving one level.
+    pub fn back_to(&mut self, target: Option<Value>) -> Result<(), String> {
+        let next = events::back_to(&self.state, target.as_ref()).ok_or_else(|| {
+            let label = target.as_ref().map_or_else(
+                || "null".to_owned(),
+                |id| edn::encode(id).unwrap_or_default(),
+            );
+            format!("no breadcrumb level {label} in this view")
+        })?;
+        self.state = next;
+        Ok(())
     }
 
     /// A wheel over the panel's class card (#27): the shared scroll model
@@ -318,9 +378,18 @@ impl Session {
         &self.diagram
     }
 
-    /// The canvas hint (a missing diagram), if any.
-    pub fn hint(&self) -> Option<&str> {
-        self.hint.as_deref()
+    /// The canvas hint (a missing diagram) as the frame still draws it.
+    pub fn hint(&self) -> Option<String> {
+        self.hint.as_ref().map(StatusCode::text)
+    }
+
+    /// The canvas status as the code the panel localizes.
+    pub fn status_code(&self) -> Option<StatusCode> {
+        if self.state.waiting {
+            Some(StatusCode::WaitingDisplay)
+        } else {
+            self.hint.clone()
+        }
     }
 
     /// The status line, if any.

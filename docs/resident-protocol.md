@@ -62,7 +62,7 @@ An event:
 | `frame` | after every action that changes the view; after a hot reload (`seq` null) | `frame`: a scene frame, version 1, including the optional bounded `hover` metadata (`docs/scene-frame.md`) the panel needs for local hover |
 | `search` | answers `search` | `query`, `results`: `[{id, name, ns, label}]`, sorted by namespace then id |
 | `context` | answers `context`, before its `frame` | `context`: a [discussion context](#discussion-context) |
-| `state` | answers `save` | `state`: a [session state](#session-state) |
+| `state` | answers `save` | `state`: a [session state](#session-state); `breadcrumbs`: the tree path ([breadcrumbs and status codes](#breadcrumbs-and-status-codes-45-additive-version-1)); `status`: the canvas status code, or null |
 | `inspector` | answers `inspector` | `inspector`: the [inspector model](#inspector) (#27) |
 | `card` | answers `card` | `card`: the open [class card](#class-card) (#27) |
 | `source` | answers `open-source` | `source`: the [opened source](#source-window) (#27) |
@@ -82,7 +82,7 @@ An `error` changes nothing; the session keeps running.
 | `display` | `path` | `frame` | show this diagram (what `uml_display` asks for): relative to the project or absolute. The same diagram keeps the view; another one is fitted. Ends the waiting canvas. |
 | `reload` | — | `frame` | check the diagram and quality snapshots now instead of at the next poll |
 | `drill-in` | `id` (EDN) or `at` (world point) | `frame` | enter a component: a namespace, a proposal package or a nested group. With `at`, what is there is entered when it is drillable, else nothing changes. |
-| `back` | — | `frame` | leave one level (close an open proposal layer, else shorten the focus) |
+| `back` | `target?` (a breadcrumb id, or null for the source diagram's root) | `frame` | leave one level, or return to the level `target` names ([breadcrumbs and status codes](#breadcrumbs-and-status-codes-45-additive-version-1)); an id no level of the current path carries is an `error` |
 | `namespace-tree` | — | `frame` | **P**: the source diagram's namespace tree |
 | `select` | `at` (world point, or `null`) | `frame` | select what is at the point; `null` clears. The frame then carries the 依赖链高亮 and 关系淡化 of the selection. |
 | `search` | `query` | `search` | search class names and namespaces (ASCII case-insensitive substring); a blank query has no results. The view does not change. |
@@ -112,6 +112,51 @@ relation its `viaIds` and dependency tooltip `rows`, per 精简依赖标记 its
 triangle and rows. The resident derives it from the scene; the client renders it
 verbatim and, when the field is absent or `complete: false`, falls back to the
 relation's own endpoints and no tooltip.
+
+## Breadcrumbs and status codes (#45, additive version 1)
+
+The panel's top bar draws the tree path it is looking at; the panel's own
+labels localize, but the levels are data. `save` answers with them beside the
+[session state](#session-state), so they arrive after every action that
+changes the view (the panel saves after each frame). The lines below abridge
+the state object:
+
+```jsonl
+{"version":1,"seq":9,"event":"state","state":{"schema":"dsh-uml-viewer/session-state",...},"breadcrumbs":[{"id":null,"name":"Shop"},{"id":":core","name":"core"},{"id":":core.order","name":"order"}],"status":null}
+{"version":1,"seq":10,"event":"state","state":{"schema":"dsh-uml-viewer/session-state",...},"breadcrumbs":[{"id":":p-shop","name":"2026-10-24 10:00:00"},{"id":":proposal.domain","name":"Domain"}],"status":null}
+{"version":1,"seq":11,"event":"state","state":{...},"breadcrumbs":[],"status":{"code":"missing-file","path":"/project/diagram.edn"}}
+```
+
+`breadcrumbs` is the path from the tree root to the current component, root
+first, and is `[]` before any diagram is loaded. Each level's `id` is the
+component it shows, in the same canonical EDN text the frames use; `name` is
+the name the tree gives it — the diagram title, a namespace segment, the
+proposal's name, a layer's label or a nested group's label. The source
+diagram's root has no component, so its `id` is `null`. A proposal's path
+starts at the proposal (`id` is the proposal id) and continues through the
+layers and nested groups that contain the shown layer. The path always names
+what the canvas is showing: a layer the document no longer has stops the path
+at the proposal rather than naming a level nothing displays.
+
+`back` without `target` leaves one level, as it always did. With `target` it
+returns straight to the level whose `id` is that value, at any depth: `null`
+is the source diagram's root, and a proposal level is named by its own id.
+The target must be on the current path; anything else is an `error` and the
+view stays as it is. Naming the level already shown is not a move — no camera,
+selection or fit change.
+
+`status` is the canvas status as a code, `null` when there is nothing to say:
+
+| code | parameters | meaning |
+|---|---|---|
+| `waiting-display` | — | the empty canvas waits for its first `display` |
+| `missing-file` | `path` | the diagram file this session names is not there |
+
+The panel localizes the code from its own language files, so the code is an
+enum with exactly the parameters its text needs: an unknown code is a broken
+resident, not a message to show. Frames still carry the resident's own hint
+text for now (#46 moves it out of the canvas); a resident that predates #45
+sends neither field, and the panel then shows no path and no status.
 
 ## Overlay message examples (#27, additive version 1)
 
