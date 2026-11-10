@@ -308,6 +308,24 @@ in `packages/e2e/requests.spec.mjs` use the existing isolated lane and a
 scripted model with scratch-project Node quality overrides (no Cargo); they
 require a separately available existing native binary.
 
+### Request status (#51, ADR 0015)
+
+`packages/host/src/request-status.ts` keeps each session's panel requests in
+process memory (DSH restarting forgets them; at most 64 per session, finished
+ones dropped first). `PanelRequests` records each admission outcome: an
+admitted request is `queued`, an admitted context switch is `done`, and a
+refused one is `failed` with the admission reason. A hide or new proposal is
+named by its grant id, the one `uml_ir({request})` presents; any other request
+by its admitted message's `requestId`. The panel stream carries the whole list
+as `{kind: 'request-status', requests: [{id, op, target, state, reason,
+exitCode}]}` (`packages/contracts/src/request-status.ts`). It is sent once
+after the opening events and again after each change, so a reopened tab or a
+refreshed page sees the unfinished entries again. A session's list never
+reaches another session's stream. The status bar (`statusbar.ts`) shows the
+entry that changed last; with no history it shows the oldest unfinished entry,
+else the newest. `RequestStatuses.record` replaces an entry with the same id,
+which is the seam for the later transitions (#52) and dismissal (#53).
+
 ## Contracts and follow-on seams
 
 `packages/contracts/src/tools.ts` owns JSON-only request/result contracts and
