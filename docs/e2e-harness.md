@@ -358,6 +358,10 @@ default twice.
   lane option) shows the waiting canvas and puts the localized
   `waiting-display` text in the status bar, with `data-status` on the
   summary; no chip of text is painted into the canvas.
+- Both bars resolve the host's own `--dsw-alias-*` tokens: their computed
+  background equals the token's resolved colour in the light theme and in
+  the dark theme, so a host theme switch repaints them and neither carries
+  a raw colour of its own.
 
 The summary is an accessibility surface. It is visually clipped but is a
 `role="status"` with class `uml-viewer-summary`, `data-kind` (`frame` or a

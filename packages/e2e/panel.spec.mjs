@@ -99,6 +99,30 @@ test('lays out the top bar, the canvas and the status bar in the narrow sidebar 
     await panel.page.keyboard.press('Tab')
     expect((await focused(panel))?.className).toContain('dsh-uml-viewer-more')
 
+    // Both bars paint with the host's own theme tokens, so a light/dark switch
+    // repaints them with the host, and neither is a raw colour of its own.
+    const tokenBackground = token => panel.page.evaluate(name => {
+      const probe = document.createElement('div')
+      probe.style.background = `var(${name})`
+      document.body.appendChild(probe)
+      const value = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return value
+    }, token)
+    for (const dark of [false, true]) {
+      await panel.page.evaluate(mode => document.body.toggleAttribute('data-ds-dark-theme', mode), dark)
+      const mode = dark ? 'dark' : 'light'
+      const [bar, status, token] = await Promise.all([
+        topBar(panel).evaluate(element => getComputedStyle(element).backgroundColor),
+        statusBar(panel).evaluate(element => getComputedStyle(element).backgroundColor),
+        tokenBackground('--dsw-alias-bg-layer-2'),
+      ])
+      expect(bar, `top bar background in the ${mode} theme`).toBe(token)
+      expect(status, `status bar background in the ${mode} theme`).toBe(token)
+      expect(bar, `top bar surface in the ${mode} theme`).not.toBe('rgba(0, 0, 0, 0)')
+    }
+    await panel.page.evaluate(() => document.body.removeAttribute('data-ds-dark-theme'))
+
     // 「更多」 carries Fit view (with its shortcut) and the Remove arrows toggle;
     // the element menu's rule holds here too: `role="menu"` only while open.
     const menu = topBar(panel).locator('.dsh-uml-viewer-more-menu')

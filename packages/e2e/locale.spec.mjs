@@ -46,7 +46,14 @@ test('panel DOM text and accessible names follow a DSH language switch without r
     const shop = await lane.openPanel('shop')
     const at = await classPoint(shop, lane, lane.projects.shop)
     await switchLanguage(shop.page, '中文')
+    // The search button is the top bar's control now (#46); its box exists
+    // while it is open, and both names follow the language.
+    const searchButton = shop.panel.getByRole('button', { name: '搜索类（Ctrl+F）' })
+    await expect(searchButton).toBeVisible()
+    await searchButton.click()
     await expect(shop.panel.getByRole('searchbox', { name: '搜索类' })).toBeVisible()
+    await shop.page.keyboard.press('Escape')
+    await expect(shop.panel.getByRole('searchbox')).toHaveCount(0)
     await expect(shop.canvas).toHaveAttribute('aria-label', 'UML 图画布')
     await expect(shop.summary).toContainText('讨论上下文：源码图')
     await expect(elementMenu(shop)).toHaveAttribute('aria-label', '元素请求')
@@ -67,7 +74,12 @@ test('panel DOM text and accessible names follow a DSH language switch without r
     await switchLanguage(shop.page, 'English')
     // The same mount: still the shop frame, relabelled in place.
     await expect(shop.summary).toHaveAttribute('data-kind', 'frame')
+    const searchButtonEn = shop.panel.getByRole('button', { name: 'Search classes (Ctrl+F)' })
+    await expect(searchButtonEn).toBeVisible()
+    await searchButtonEn.click()
     await expect(shop.panel.getByRole('searchbox', { name: 'Search classes' })).toBeVisible()
+    await shop.page.keyboard.press('Escape')
+    await expect(shop.panel.getByRole('searchbox')).toHaveCount(0)
     await expect(shop.canvas).toHaveAttribute('aria-label', 'UML diagram canvas')
     await expect(shop.summary).toContainText('Discussion: source diagram')
     await expect(elementMenu(shop)).toHaveAttribute('aria-label', 'Element requests')
