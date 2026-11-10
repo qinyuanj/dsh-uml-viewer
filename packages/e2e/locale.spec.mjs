@@ -1,22 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { producerFrame, screenRect, toScreen } from './canvas.mjs'
 import { launchViewerLane } from './lane.mjs'
-
-/**
- * Switch the DSH language the way a user does: Settings → General → Language.
- * Settings lives in the sidebar's account menu ("Account menu"/"账号菜单");
- * the General page ("General"/"通用设置") holds the Language row, whose
- * selector is the menu button next to the "Language"/"语言" title.
- */
-async function switchLanguage(page, label) {
-  await page.getByRole('button', { name: /^(Account menu|账号菜单)$/ }).first().click()
-  await page.locator('[role^="menuitem"]').filter({ hasText: /^(Settings|设置)/ }).first().click()
-  await page.getByText(/^(General|通用设置)$/).first().click()
-  const row = page.getByText(/^(Language|语言)$/).first().locator('xpath=ancestor::*[.//button[@aria-haspopup="menu"]][1]')
-  await row.locator('button[aria-haspopup="menu"]').click()
-  await page.locator('[role^="menuitem"]').filter({ hasText: new RegExp(`^${label}$`) }).first().click()
-  await page.keyboard.press('Escape')
-}
+import { switchLanguage } from './locale-switch.mjs'
 
 // The top bar's 「更多」 menu and the status bar are the panel's own DOM (#46),
 // so they follow the language too.

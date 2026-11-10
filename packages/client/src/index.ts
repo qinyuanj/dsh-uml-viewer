@@ -39,13 +39,19 @@ const REMOTE_NAMESPACE = 'umlViewer'
 const STYLE = `${TOPBAR_STYLE}${MORE_MENU_STYLE}${STATUSBAR_STYLE}${REQUEST_MENU_STYLE}${ACTION_BAR_STYLE}${LEGEND_STYLE}
 /* The three sections (#46): the top bar, the canvas, the status bar. The
    overlay root covers the canvas alone, so a drawer never hides either bar. */
-.dsh-uml-viewer-panel { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; width: 100%; }
+.dsh-uml-viewer-panel { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; width: 100%; --dsh-uml-dock-width: clamp(420px, 42%, 680px); }
 .dsh-uml-viewer-canvas-host { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
-/* The canvas row (#50): the canvas and, from 900px, the legend's reserved
-   strip below it. A resident legend takes room from this row, so it never
-   covers a class. */
-.dsh-uml-viewer-canvas-row { position: relative; display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
-.dsh-uml-viewer-canvas-area { position: relative; display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
+/* The canvas row (#50): the drawing stage and, from 900px, the legend's
+   reserved strip below it. A resident legend takes room from this row, so it
+   never covers a class. */
+.dsh-uml-viewer-canvas-row { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; min-width: 0; }
+/* The stage is a flex row (#49 F28): a docked drawer reserves its width as the
+   rightmost stage item, so the canvas — and the resident's viewport — shrinks
+   beside the card instead of the card covering the drawing. */
+.dsh-uml-viewer-canvas-stage { position: relative; display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
+.dsh-uml-viewer-canvas-area { position: relative; display: flex; flex: 1 1 auto; flex-shrink: 1; min-height: 0; min-width: 0; }
+.dsh-uml-viewer-dock-space { flex: 0 0 0; min-width: 0; }
+.dsh-uml-viewer-panel[data-layout=docked]:has(.dsh-uml-drawer) .dsh-uml-viewer-dock-space { flex-basis: var(--dsh-uml-dock-width); }
 .dsh-uml-viewer-panel canvas { display: block; width: 100%; height: 100%; outline: none; }
 .dsh-uml-viewer-panel > .dsh-uml-overlay-root {
   top: var(--dsh-uml-toolbar-height, 0px); bottom: var(--dsh-uml-statusbar-height, 0px);
@@ -330,17 +336,39 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   canvasRow.className = 'dsh-uml-viewer-canvas-row'
   topBar = mountTopBar(host, {
     controller, text, onDone: focusCanvas, context: switcherActions,
-    // 「更多」 carries the legend's entry (#50), which opens the popover.
+    // 「更多」 carries the legend's entry (#50) while it is a popover; a
+    // resident legend has nothing to open (F45).
     moreEntries: () => (legend ? legendEntries(legend, text) : []),
   })
+  const canvasStage = document.createElement('div')
+  canvasStage.className = 'dsh-uml-viewer-canvas-stage'
+  // The docked card's reserved column (#49 F28): zero width until a drawer is
+  // open at >=900px, when CSS gives it the card's width and the canvas shrinks.
+  const dockSpace = document.createElement('div')
+  dockSpace.className = 'dsh-uml-viewer-dock-space'
+  dockSpace.setAttribute('aria-hidden', 'true')
+  canvasStage.append(canvasArea, dockSpace)
   legend = mountLegend(canvasRow, { text, onDone: focusCanvas })
-  canvasRow.append(canvasArea, legend.element)
+  canvasRow.append(canvasStage, legend.element)
   host.appendChild(canvasRow)
   statusBar = mountStatusBar(host, {
     text,
-    // #53: dismissing a finished request is the host's list; every panel of
-    // this session sees the new one when it is pushed back.
-    onDismiss: id => { void controller.send({ action: 'dismiss-request', id }) },
+    // #53/F36: dismissing a finished request is the host's list; every panel
+    // of this session sees the new one when it is pushed back. A refusal is
+    // surfaced on the bar instead of being silently discarded.
+    onDismiss: id => {
+      void controller.send({ action: 'dismiss-request', id }).then(ack => {
+        if (ack === null || ack.accepted) {
+          statusBar?.setMessage(null)
+          return
+        }
+        const reason = ack.reason ?? text.t('request.refused')
+        statusBar?.setMessage(() => text.t('request.dismiss.refused', { reason }))
+      }, error => {
+        const reason = error instanceof Error ? error.message : String(error)
+        statusBar?.setMessage(() => text.t('request.dismiss.refused', { reason }))
+      })
+    },
   })
   const disposeQualityMenu = mountQualityMenu(host, canvas, {
     frame: () => controller.current.frame,
@@ -440,7 +468,11 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   }
   const resize = host.ownerDocument.defaultView?.ResizeObserver
   const observer = resize ? new resize(() => onResize()) : null
+  // Observe the canvas area itself: opening the docked card changes its width
+  // without changing the panel's, and the resident must be told the new
+  // viewport so it refits the diagram beside the card (F28).
   observer?.observe(host)
+  observer?.observe(canvasArea)
   const onPointerDown = (event: PointerEvent): void => {
     if (event.button !== undefined && event.button !== 0) return
     canvas.focus({ preventScroll: true })

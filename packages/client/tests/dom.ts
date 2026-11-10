@@ -45,5 +45,23 @@ export class Element extends EventTarget {
   descendants(): Element[] { return this.children.flatMap(child => [child, ...child.descendants()]) }
 }
 export function makeDocument() {
-  return { activeElement: null as Element | null, defaultView: {}, createElement(tag: string): Element { return new Element(tag, this) } }
+  const listeners = new Map<string, Set<(event: Event) => void>>()
+  return {
+    activeElement: null as Element | null,
+    defaultView: {},
+    createElement(tag: string): Element { return new Element(tag, this) },
+    addEventListener(type: string, listener: (event: Event) => void): void {
+      const registered = listeners.get(type) ?? new Set()
+      registered.add(listener)
+      listeners.set(type, registered)
+    },
+    removeEventListener(type: string, listener: (event: Event) => void): void {
+      listeners.get(type)?.delete(listener)
+    },
+    /** Enough of a document-level bubble for outside-click and Esc tests. */
+    dispatchEvent(event: Event): boolean {
+      for (const listener of [...(listeners.get(event.type) ?? [])]) listener(event)
+      return true
+    },
+  }
 }

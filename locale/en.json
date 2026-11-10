@@ -57,6 +57,7 @@
     "tool.exitCode": "Exit code",
     "tool.targets": "Targets",
     "tool.targets.all": "the whole business scope",
+    "tool.targets.scoped": "the configured target scope",
     "tool.output": "Output",
     "tool.noOutput": "No output",
     "tool.ir.ok": "IR written",
@@ -95,6 +96,7 @@
     "request.more.label": "Show the other {count} requests",
     "request.queue": "Request queue",
     "request.dismiss": "Dismiss {line}",
+    "request.dismiss.refused": "Could not dismiss the request: {reason}",
     "legend.title": "Legend",
     "legend.close": "Close legend"
   }

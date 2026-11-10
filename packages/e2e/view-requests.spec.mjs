@@ -87,7 +87,6 @@ test('Hide after a failed refresh still regenerates the IR, then displays; the d
     // #52: the companion's uml_ir and the display it followed completed the
     // hide, and the bar says so.
     await expect(statusBar(a)).toContainText('Hide :api: Done')
-    await expect(statusBar(a)).toHaveAttribute('data-request', 'done')
     expect(companion.edits).toHaveLength(1)
     preserved(companion.edits[0])
     expect(await fs.readFile(path.join(lane.projects.deep, 'policy.edn'), 'utf8'))

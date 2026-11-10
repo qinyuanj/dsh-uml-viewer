@@ -146,9 +146,19 @@ function qualityRow(tool: ToolName, props: ToolViewProps, text: PanelText): Tool
   if (typeof record.exitCode === 'number') {
     details.push({ label: text.t('tool.exitCode'), value: String(record.exitCode) })
   }
+  // Prefer the files the call actually dispatched. `crapScope` records an
+  // override for a configured quality operation (#54 F2): without explicit
+  // names in the tool view, say neither that the whole business scope ran nor
+  // that nothing was dispatched. A mutate/dry call with neither has no truthful
+  // target line to show.
   const targets = targetsOf(props.block)
-  if (targets.length > 0) details.push({ label: text.t('tool.targets'), value: targets.join('\n') })
-  else if (tool !== 'uml_mutate') details.push({ label: text.t('tool.targets'), value: text.t('tool.targets.all') })
+  const scoped = record.crapScope === 'targets'
+  const wholeTree = record.crapScope === 'whole-tree' || tool === 'uml_dry'
+  const targetLine = targets.length > 0 ? targets.join('\n')
+    : scoped ? text.t('tool.targets.scoped')
+      : wholeTree ? text.t('tool.targets.all')
+        : null
+  if (targetLine !== null) details.push({ label: text.t('tool.targets'), value: targetLine })
   return {
     state: record.validResult ? 'ok' : 'invalid',
     status: text.t(record.validResult ? 'tool.valid' : 'tool.invalid'),
@@ -260,19 +270,21 @@ export class PanelViews {
   }
 
   /**
-   * 「在面板中查看」: open this session's UML tab, then locate `target`.
-   * @param sessionId the session the call belongs to; unknown opens nothing.
+   * 「在面板中查看」: open this session's UML tab unconditionally, then locate
+   * `target` when the tool view's session scope and the display both supply it
+   * (#54 F1). A missing `sessionId` gates only `locate`; the button may never
+   * be a no-op.
+   * @param sessionId the session the call belongs to, when the slot supplies it.
    * @param target the element the display answered, or null to only open the tab.
    */
   public viewInPanel(sessionId: string | undefined, target: string | null): void {
-    if (sessionId === undefined) return
     try {
       this.openTab()
     } catch {
       // A host that cannot open the tab still shows the conversation; the
       // click's own outcome is the row's, not an exception in it.
     }
-    if (target === null) return
+    if (target === null || sessionId === undefined) return
     if (this.ready.has(sessionId)) void this.locate(sessionId, target)
     else this.waiting.set(sessionId, target)
   }
@@ -386,9 +398,10 @@ export function registerToolViews(ctx: ToolClientContext, views: PanelViews): ()
   }
   const stopStyles = installToolViewStyles()
   for (const tool of TOOL_NAMES) {
+    const view = makeToolView(tool, views, text)
     own(ctx.slots.inject('tool.call.toolview', () => ctx.slots.register(
       { name: 'tool.call.toolview', key: tool },
-      props => makeToolView(tool, views, text)(props),
+      view,
     )))
   }
   return () => {
@@ -400,7 +413,7 @@ export function registerToolViews(ctx: ToolClientContext, views: PanelViews): ()
 /** Text keys the rows read, so a locale file that drops one fails the language test. */
 export const TOOL_TEXT_KEYS: readonly TextKey[] = Object.freeze([
   'tool.valid', 'tool.invalid', 'tool.running', 'tool.reason', 'tool.exitCode', 'tool.targets',
-  'tool.targets.all', 'tool.output', 'tool.noOutput', 'tool.ir.ok', 'tool.ir.failed',
+  'tool.targets.all', 'tool.targets.scoped', 'tool.output', 'tool.noOutput', 'tool.ir.ok', 'tool.ir.failed',
   'tool.display.ok', 'tool.display.failed', 'tool.display.diagram', 'tool.display.latest',
   'tool.display.view', 'tool.label',
 ])

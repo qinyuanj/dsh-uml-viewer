@@ -57,6 +57,7 @@
     "tool.exitCode": "退出码",
     "tool.targets": "目标",
     "tool.targets.all": "整个业务范围",
+    "tool.targets.scoped": "配置的目标范围",
     "tool.output": "输出",
     "tool.noOutput": "没有输出",
     "tool.ir.ok": "IR 已生成",
@@ -95,6 +96,7 @@
     "request.more.label": "查看其余 {count} 条请求",
     "request.queue": "请求队列",
     "request.dismiss": "消除：{line}",
+    "request.dismiss.refused": "无法消除请求：{reason}",
     "legend.title": "图例",
     "legend.close": "关闭图例"
   }

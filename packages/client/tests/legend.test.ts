@@ -74,7 +74,18 @@ describe('the panel legend (#50)', () => {
     const { legend, root, row } = harness()
     legend.render(frame)
     legend.render(chinese)
+    expect(root.dataset.mode).toBe('popover')
     expect(row('relation').children[1]!.textContent).toBe('关系连线：灰绿实线，头部形状表示关系种类')
+  })
+
+  it('keeps the DOM when a new frame carries the same legend content (F55)', () => {
+    const { legend, row } = harness()
+    legend.render(frame)
+    const before = row('relation')
+    legend.render({ ...frame, legend: JSON.parse(JSON.stringify(frame.legend)) })
+    expect(row('relation')).toBe(before)
+    legend.render(chinese)
+    expect(row('relation')).not.toBe(before)
   })
 
   it('is a popover from 更多 when narrow, and resident from the docked layout', () => {
@@ -113,19 +124,21 @@ describe('the panel legend (#50)', () => {
     expect(legend.element.hidden).toBe(true)
   })
 
-  it('offers the 更多 entry the top bar adds', () => {
+  it('offers the 更多 entry only while the legend is a popover (F45)', () => {
     const { legend } = harness()
+    expect(legend.isResident()).toBe(false)
     const entries = legendEntries(legend, ENGLISH_TEXT)
     expect(entries.map(entry => entry.id)).toEqual(['legend'])
     expect(entries[0]!.label()).toBe('Legend')
-    legend.setLayout('drawer')
     entries[0]!.run()
     expect(legend.isOpen()).toBe(true)
-    // While it is resident the entry has nothing to open.
     legend.close()
     legend.setLayout('docked')
-    entries[0]!.run()
+    expect(legend.isResident()).toBe(true)
+    expect(legendEntries(legend, ENGLISH_TEXT)).toEqual([])
     expect(legend.isOpen()).toBe(false)
+    legend.setLayout('drawer')
+    expect(legendEntries(legend, ENGLISH_TEXT).map(entry => entry.id)).toEqual(['legend'])
   })
 
   it('shows nothing before the first frame', () => {

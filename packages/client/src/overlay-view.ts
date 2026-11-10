@@ -38,7 +38,7 @@ export const OVERLAY_STYLE = `
    of panel width (layout.ts) it docks on the right beside the diagram. A
    narrow drawer scrolls sideways; the resident's column plan is unchanged. */
 .dsh-uml-drawer { pointer-events: auto; position: absolute; left: 0; right: 0; bottom: 0; height: 50%; z-index: 2; box-sizing: border-box; display: flex; flex-direction: column; border-top: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-2); box-shadow: var(--dsw-shadow-lv2, 0 -4px 16px rgb(0 0 0 / 16%)); overflow: hidden; }
-.dsh-uml-viewer-panel[data-layout=docked] .dsh-uml-drawer { top: 0; left: auto; height: auto; width: clamp(420px, 42%, 680px); border-top: 0; border-left: 1px solid var(--dsw-alias-border-l2); }
+.dsh-uml-viewer-panel[data-layout=docked] .dsh-uml-drawer { top: 0; left: auto; height: auto; width: var(--dsh-uml-dock-width, clamp(420px, 42%, 680px)); border-top: 0; border-left: 1px solid var(--dsw-alias-border-l2); }
 .dsh-uml-window-header { flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-3); }
 .dsh-uml-window-header strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
 .dsh-uml-card-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; position: relative; }

@@ -9,8 +9,9 @@
  * sits in: below 900px of *container* width the legend is a popover opened from
  * 「更多」 (`more-menu.ts`), and from 900px it is resident. A resident legend
  * takes a strip of the canvas row below the diagram, so the canvas — and the
- * resident's viewport — shrink with it and the legend never covers a class
- * (follow-up F28: a docked panel must not be an overlay on the drawing). Below
+ * resident's viewport — shrink with it and the legend never covers a class.
+ * The docked card likewise reserves a right-hand column from the drawing stage
+ * (F28). Below
  * the diagram the strip keeps the drawing's full width, which a side column
  * would take from it; the overlay root stops above it (index.ts), so a docked
  * drawer never covers it either.
@@ -82,6 +83,8 @@ export interface Legend {
   render(frame: SceneFrame | null): void
   /** What `layout.ts` measured: a popover when narrow, resident from 900px. */
   setLayout(layout: PanelLayout): void
+  /** True when the legend has its own reserved strip (F45). */
+  isResident(): boolean
   /** The 「更多」 entry: open the popover (narrow), nothing when it is resident. */
   show(): void
   open(): void
@@ -122,6 +125,10 @@ export function mountLegend(host: HTMLElement, options: LegendOptions = {}): Leg
   let open = false
   let dimAlpha = 70
   let frame: SceneFrame | null = null
+  // The frame's legend is pure data. Compare its content, not the object
+  // identity: a status publish with an equivalent legend should not rebuild
+  // ~11 rows of DOM (F55).
+  let legendSignature = ''
 
   const mark = (sample: LegendSample, theme: Theme): HTMLElement => {
     const holder = doc.createElement('span')
@@ -267,10 +274,13 @@ export function mountLegend(host: HTMLElement, options: LegendOptions = {}): Leg
   return {
     element,
     render(next) {
-      // Rows are the frame's, and only its language or the dim alpha changes
-      // them; a status publish that keeps the same frame repaints nothing.
-      const changed = (next?.legend ?? null) !== (frame?.legend ?? null)
+      // Rows are the frame's, and only their content, language or the dim
+      // alpha changes them; a new frame object with the same legend repaints
+      // nothing (F55).
+      const signature = next === null ? '' : JSON.stringify(next.legend)
+      const changed = signature !== legendSignature
         || (next?.style.dimAlpha ?? dimAlpha) !== dimAlpha
+      legendSignature = signature
       frame = next
       if (changed) paint()
       else apply()
@@ -280,6 +290,7 @@ export function mountLegend(host: HTMLElement, options: LegendOptions = {}): Leg
       layout = next
       apply()
     },
+    isResident: () => layout === 'docked',
     show() {
       if (layout === 'docked') return
       open = true
@@ -301,8 +312,9 @@ export function mountLegend(host: HTMLElement, options: LegendOptions = {}): Leg
   }
 }
 
-/** The 「更多」 entry that opens the legend; the panel adds it via `moreEntries`. */
+/** The 「更多」 entry that opens the legend; a resident legend needs none (F45). */
 export function legendEntries(legend: Legend, text: PanelText): MoreMenuEntry[] {
+  if (legend.isResident()) return []
   return [
     {
       id: 'legend',

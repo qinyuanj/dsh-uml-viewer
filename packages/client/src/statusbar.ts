@@ -11,8 +11,11 @@
  * dismisses them, which is a panel action the host answers by dropping the
  * entry from the session's list.
  *
- * The text comes from the locale files, so a DSH language switch relabels the
- * bar in place (#42). The host's UI primitives are never loaded (ADR 0013).
+ * Only the short, visible status line is a live region (F35). The openable
+ * queue is a sibling of that region, so a screen reader is not asked to
+ * re-announce every item on each state change. The text comes from the locale
+ * files, so a DSH language switch relabels the bar in place (#42). The host's
+ * UI primitives are never loaded (ADR 0013).
  */
 import type { RequestStatusEntry, SessionStatus } from '@dsh-uml-viewer/contracts'
 import { ENGLISH_TEXT, type PanelText } from './locale.js'
@@ -30,6 +33,12 @@ export const STATUSBAR_STYLE = `
 }
 .dsh-uml-viewer-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-uml-viewer-status-text[hidden] { display: none; }
+/* Only the short line is announced. The queue list is a sibling, not inside
+   this live region, so opening/updating it does not re-read the whole list. */
+.dsh-uml-viewer-statusbar-live {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
 .dsh-uml-viewer-statusbar[data-tone="error"] .dsh-uml-viewer-status-text { color: var(--dsw-alias-state-error-primary); }
 .dsh-uml-viewer-request { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-uml-viewer-request[hidden] { display: none; }
@@ -48,7 +57,7 @@ export const STATUSBAR_STYLE = `
   position: absolute; left: 4px; right: 4px; bottom: 100%; z-index: 50; max-height: 180px;
   overflow-x: hidden; overflow-y: auto; box-sizing: border-box; padding: 4px; margin-bottom: 2px;
   border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-2); box-shadow: 0 4px 12px rgb(0 0 0 / 18%);
+  background: var(--dsw-alias-bg-layer-2); box-shadow: var(--dsw-shadow-lv2, 0 4px 12px rgb(0 0 0 / 18%));
 }
 .dsh-uml-viewer-request-item {
   display: flex; align-items: center; gap: 6px; padding: 1px 2px; white-space: nowrap;
@@ -125,6 +134,23 @@ export function requestText(text: PanelText, entry: RequestStatusEntry): string 
     : text.t('request.failure.exitCode', { line, reason: entry.reason, code: String(entry.exitCode) })
 }
 
+let statusBarCounter = 0
+
+/** Walk both real DOM parents and the client tests' lightweight element tree. */
+function parentNode(node: EventTarget | null): Node | null {
+  const element = node as (Node & { parent?: Node | null }) | null
+  return element?.parentNode ?? element?.parent ?? null
+}
+
+function within(node: EventTarget | null, root: HTMLElement): boolean {
+  let current = node as Node | null
+  while (current !== null) {
+    if (current === root) return true
+    current = parentNode(current)
+  }
+  return false
+}
+
 /**
  * Attach the status bar to its section of the panel.
  * @param host the section's parent.
@@ -136,8 +162,7 @@ export function mountStatusBar(host: HTMLElement, options: StatusBarOptions = {}
   const doc = host.ownerDocument
   const element = doc.createElement('div')
   element.className = 'dsh-uml-viewer-statusbar'
-  element.setAttribute('role', 'status')
-  element.setAttribute('aria-live', 'polite')
+  element.setAttribute('role', 'group')
   const line = doc.createElement('span')
   line.className = 'dsh-uml-viewer-status-text'
   element.appendChild(line)
@@ -148,7 +173,15 @@ export function mountStatusBar(host: HTMLElement, options: StatusBarOptions = {}
   more.type = 'button'
   more.className = 'dsh-uml-viewer-request-more'
   more.hidden = true
+  const listId = `dsh-uml-viewer-request-list-${++statusBarCounter}`
+  more.setAttribute('aria-controls', listId)
   element.appendChild(more)
+  const live = doc.createElement('span')
+  live.className = 'dsh-uml-viewer-statusbar-live'
+  live.setAttribute('role', 'status')
+  live.setAttribute('aria-live', 'polite')
+  live.setAttribute('aria-atomic', 'true')
+  element.appendChild(live)
   let code: SessionStatus | null = null
   let message: string | (() => string) | null = null
   let requests: readonly RequestStatusEntry[] = []
@@ -182,6 +215,9 @@ export function mountStatusBar(host: HTMLElement, options: StatusBarOptions = {}
     }
   }
   const renderList = (): void => {
+    // A list that can no longer be opened is closed for good: a later second
+    // request must not make it silently reappear (F36).
+    if (visible().length < 2) opened = false
     if (!opened || visible().length < 2) {
       list?.remove()
       list = null
@@ -191,6 +227,7 @@ export function mountStatusBar(host: HTMLElement, options: StatusBarOptions = {}
     if (!list) {
       list = doc.createElement('div')
       list.className = 'dsh-uml-viewer-request-list'
+      list.setAttribute('id', listId)
       list.setAttribute('role', 'list')
     }
     list.setAttribute('aria-label', text.t('request.queue'))
@@ -201,13 +238,13 @@ export function mountStatusBar(host: HTMLElement, options: StatusBarOptions = {}
       item.setAttribute('role', 'listitem')
       item.dataset.id = entry.id
       item.dataset.state = entry.state
-      const said = requestText(text, entry)
+      const requestLine = requestText(text, entry)
       const body = doc.createElement('span')
       body.className = 'dsh-uml-viewer-request-item-text'
-      body.textContent = said
+      body.textContent = requestLine
       // The reason of a refused request is long: the whole line stays readable
       // on hover even when the bar is narrow.
-      body.setAttribute('title', said)
+      body.setAttribute('title', requestLine)
       item.appendChild(body)
       // Only a failure waits for the user; a completed one fades on its own.
       if (entry.state === 'failed' && options.onDismiss) {
@@ -215,8 +252,8 @@ export function mountStatusBar(host: HTMLElement, options: StatusBarOptions = {}
         dismiss.type = 'button'
         dismiss.className = 'dsh-uml-viewer-request-dismiss'
         dismiss.textContent = '\u00d7'
-        dismiss.setAttribute('aria-label', text.t('request.dismiss', { line: said }))
-        dismiss.setAttribute('title', text.t('request.dismiss', { line: said }))
+        dismiss.setAttribute('aria-label', text.t('request.dismiss', { line: requestLine }))
+        dismiss.setAttribute('title', text.t('request.dismiss', { line: requestLine }))
         dismiss.addEventListener('click', event => {
           event.preventDefault()
           options.onDismiss?.(entry.id)
@@ -232,22 +269,22 @@ export function mountStatusBar(host: HTMLElement, options: StatusBarOptions = {}
   const render = (): void => {
     request.textContent = current ? requestText(text, current) : ''
     request.hidden = current === null
+    // `data-state` is a CSS hook for the failed color, not an e2e oracle.
     request.dataset.state = current?.state ?? ''
-    element.dataset.request = current?.state ?? ''
     const waiting = visible().length - 1
     more.hidden = waiting < 1
     more.textContent = text.t('request.more', { count: String(Math.max(waiting, 0)) })
     more.setAttribute('aria-label', text.t('request.more.label', { count: String(Math.max(waiting, 0)) }))
-    element.dataset.requestCount = String(visible().length)
-    const said = typeof message === 'function' ? message() : message
+    const statusMessage = typeof message === 'function' ? message() : message
     // A refused click is reported by the element menu and, with the same
     // reason, by its failed request status: the bar says it once.
-    const reason = said !== null && current?.state === 'failed' && current.reason === said ? null : said
+    const reason = statusMessage !== null && current?.state === 'failed' && current.reason === statusMessage ? null : statusMessage
     const value = reason ?? statusCodeText(text, code)
     line.textContent = value
     // The bar is the panel's third section and always there (#46); only its
     // text comes and goes.
     line.hidden = value === ''
+    live.textContent = [request.hidden ? '' : request.textContent, value].filter(part => part !== '').join('. ')
     element.dataset.code = code?.code ?? ''
     element.dataset.tone = reason ? 'error' : code === null ? 'none' : 'info'
     renderList()
@@ -300,6 +337,21 @@ export function mountStatusBar(host: HTMLElement, options: StatusBarOptions = {}
     opened = !opened
     renderList()
   })
+  const onOutside = (event: Event): void => {
+    if (!opened || within(event.target, element)) return
+    opened = false
+    renderList()
+  }
+  const onKey = (event: Event): void => {
+    if (!opened || (event as KeyboardEvent).isComposing || (event as KeyboardEvent).key !== 'Escape') return
+    event.preventDefault()
+    event.stopPropagation()
+    opened = false
+    renderList()
+    more.focus()
+  }
+  doc.addEventListener?.('pointerdown', onOutside, true)
+  doc.addEventListener?.('keydown', onKey, true)
   label()
   render()
   const unsubscribe = text.subscribe(() => {
@@ -323,6 +375,8 @@ export function mountStatusBar(host: HTMLElement, options: StatusBarOptions = {}
     },
     dispose() {
       unsubscribe()
+      doc.removeEventListener?.('pointerdown', onOutside, true)
+      doc.removeEventListener?.('keydown', onKey, true)
       for (const id of [...fadeTimers.keys()]) clearTimer(id)
       list?.remove()
       list = null

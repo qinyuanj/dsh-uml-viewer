@@ -81,9 +81,25 @@ describe('the quality results (#54)', () => {
     ])
   })
 
-  it('names the whole business scope when a call dispatched no targets', () => {
-    const row = toolRow('uml_dry', result(quality({ operation: 'dry', tool: 'dryer' })), en, () => {})
-    expect(row.details).toContainEqual({ label: 'Targets', value: 'the whole business scope' })
+  it('names the whole business scope only when that scope was dispatched', () => {
+    const dry = toolRow('uml_dry', result(quality({ operation: 'dry', tool: 'dryer' })), en, () => {})
+    expect(dry.details).toContainEqual({ label: 'Targets', value: 'the whole business scope' })
+    const crap = toolRow('uml_crap', result(quality({ operation: 'crap', tool: 'crapper', crapScope: 'whole-tree' })), en, () => {})
+    expect(crap.details).toContainEqual({ label: 'Targets', value: 'the whole business scope' })
+  })
+
+  it('does not claim the whole business scope for a configured target override (#54 F2)', () => {
+    const scoped = quality({ operation: 'crap', tool: 'crapper', crapScope: 'targets' })
+    const row = toolRow('uml_crap', result(scoped), en, () => {})
+    expect(row.details).toContainEqual({ label: 'Targets', value: 'the configured target scope' })
+    expect(row.details).not.toContainEqual({ label: 'Targets', value: 'the whole business scope' })
+    const named = toolRow('uml_crap', result(scoped, { targets: ['src/price.ts'] }), en, () => {})
+    expect(named.details).toContainEqual({ label: 'Targets', value: 'src/price.ts' })
+  })
+
+  it('drops the target line for a mutation that dispatched no targets', () => {
+    const row = toolRow('uml_mutate', result(quality()), en, () => {})
+    expect(row.details).toEqual([{ label: 'Exit code', value: '0' }])
   })
 
   it('shows a running call as pending rather than as a blank result', () => {
@@ -173,6 +189,8 @@ describe('the tool rows follow the DSH language (#54)', () => {
     const invalid = toolRow('uml_dry', result(quality({ validResult: false, reason: 'duplicate' })), zh, () => {})
     expect(invalid.status).toBe('无效')
     expect(invalid.details[0]).toEqual({ label: '原因', value: 'duplicate' })
+    const scoped = toolRow('uml_crap', result(quality({ operation: 'crap', crapScope: 'targets' })), zh, () => {})
+    expect(scoped.details).toContainEqual({ label: '目标', value: '配置的目标范围' })
     const shown = toolRow('uml_display', result(display({ target: { id: ':core', kind: 'class' } })), zh, () => {})
     expect(shown.status).toBe('已展示')
     expect(shown.summary).toBe('图：diagram.edn')
@@ -232,6 +250,18 @@ describe('「在面板中查看」 opens the panel and locates once it can take 
     views.shown('session-a')
     views.viewInPanel('session-a', null)
     expect(opened).toBe(1)
+    expect(overlays.sent).toEqual([])
+  })
+
+  it('opens the tab even when the tool view has no session id (#54 F1)', () => {
+    let opened = 0
+    const views = new PanelViews(() => { opened += 1 })
+    const overlays = fakeOverlays()
+    views.attach('session-a', asOverlays(overlays))
+    views.shown('session-a')
+    views.viewInPanel(undefined, ':core')
+    views.viewInPanel(undefined, null)
+    expect(opened).toBe(2)
     expect(overlays.sent).toEqual([])
   })
 

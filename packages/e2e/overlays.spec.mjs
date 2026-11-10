@@ -266,21 +266,34 @@ test('from 900px of panel width the class card docks on the right beside the dia
   await narrowSidebar(panel)
   await expect(panel.panel).toHaveAttribute('data-layout', 'drawer')
   const dialog = await openCatalog(panel)
-  // The host's fullscreen form widens the same tab; nothing remounts.
+  // The host's fullscreen form widens the same tab; nothing remounts. A ~960px
+  // viewport is F28's hard case: the reserved card column must not cover any
+  // class or relation in the smaller drawing area.
   await toggleFullscreen(panel, true)
   await expect.poll(() => panel.panel.evaluate(element => element.clientWidth)).toBeGreaterThanOrEqual(900)
+  await panel.page.setViewportSize({ width: 960, height: 1000 })
+  await expect.poll(() => panel.panel.evaluate(element => element.clientWidth)).toBeGreaterThanOrEqual(900)
+  expect(await panel.panel.evaluate(element => element.clientWidth), 'the panel is about 960px wide').toBeLessThanOrEqual(1000)
   await expect(panel.panel).toHaveAttribute('data-layout', 'docked')
   await expect(dialog).toBeVisible()
   await expect(drawers(panel)).toHaveCount(1)
-  const area = await panel.panel.locator('.dsh-uml-viewer-canvas-area').boundingBox()
   await expect.poll(async () => {
     const box = await dialog.boundingBox()
-    return [Math.round(box.x + box.width - (area.x + area.width)), Math.round(box.y - area.y), Math.round(box.height - area.height)]
-  }, { message: 'the docked card runs down the right edge of the canvas' }).toEqual([0, 0, 0])
+    const canvas = await panel.panel.locator('.dsh-uml-viewer-canvas-area').boundingBox()
+    const backingWidth = await panel.canvas.evaluate(element => element.width / (window.devicePixelRatio || 1))
+    // The card starts where the drawing ends, occupies the same vertical strip,
+    // and the resident's frame has been refitted to the smaller CSS viewport.
+    return Math.round(box.x - (canvas.x + canvas.width)) === 0
+      && Math.round(box.y - canvas.y) === 0
+      && Math.round(box.height - canvas.height) === 0
+      && Math.abs(backingWidth - canvas.width) <= 2
+  }, { message: 'the docked card is reserved space and the diagram is refitted beside it' }).toBe(true)
+  const area = await panel.panel.locator('.dsh-uml-viewer-canvas-area').boundingBox()
   const docked = await dialog.boundingBox()
-  expect(docked.width, 'the diagram keeps the larger share beside the card').toBeLessThan(area.width / 2)
+  expect(area.x + area.width, 'no class or edge is under the card').toBeLessThanOrEqual(docked.x + 1)
+  expect(area.width, 'the diagram keeps the larger share beside the card').toBeGreaterThan(docked.width)
   expect(docked.width, 'the docked column keeps a readable minimum').toBeGreaterThanOrEqual(419)
-  await lane.screenshot(panel, 't49-docked')
+  await lane.screenshot(panel, 't49-docked-960')
 
   // Below 900px the card is the bottom drawer again.
   await toggleFullscreen(panel, false)

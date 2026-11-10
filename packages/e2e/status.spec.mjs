@@ -61,7 +61,6 @@ test('a request the companion completes is done; one its turn leaves unfinished 
     // The companion ends its turn without an IR or a display: the request the
     // turn consumed did not finish, so it fails with that reason.
     await clickRefresh(a, frame, ':core')
-    await expect(statusBar(a)).toHaveAttribute('data-request', 'failed')
     await expect(statusBar(a)).toContainText('Refresh CRAP :core: Failed — the companion ended this turn without completing the display')
     await lane.screenshot(a, 't52-turn-ended')
 
@@ -69,16 +68,13 @@ test('a request the companion completes is done; one its turn leaves unfinished 
     const again = await producerFrame(a, { root: lane.projects.deep, home: lane.home })
     await clickRefresh(a, again, ':core')
     await expect(statusBar(a)).toContainText('Refresh CRAP :core: Done')
-    await expect(statusBar(a)).toHaveAttribute('data-request', 'done')
 
     // A page refresh: the host still holds this session's list, so the failure
     // and the completed request both come back. Unseen by the new page, the
     // failure is the current entry again (#53's rule), the completed one waits
     // behind it.
     a = await lane.reopenPanel(a)
-    await expect(statusBar(a)).toHaveAttribute('data-request', 'failed')
     await expect(statusBar(a)).toContainText('Refresh CRAP :core: Failed — the companion ended this turn without completing the display')
-    await expect(statusBar(a)).toHaveAttribute('data-request-count', '2')
     await expect(a.panel.getByRole('button', { name: 'Show the other 1 requests' })).toHaveText('1 more')
     expect(a.problems).toEqual([])
     await lane.screenshot(a, 't52-status-after-refresh')

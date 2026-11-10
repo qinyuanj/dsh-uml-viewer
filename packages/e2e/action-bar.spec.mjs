@@ -217,11 +217,14 @@ test('the status bar’s request queue opens above the bar, not behind it', asyn
     expect(core, 'the deep root draws the core component').toBeTruthy()
     await lane.point(deep, center(frame, core))
     await expect(bar).toBeVisible()
-    // Two requests from the bar: the second waits behind the first.
-    for (const count of ['1', '2']) {
-      await bar.getByRole('button', { name: 'Refresh CRAP', exact: true }).click()
-      await expect(status).toHaveAttribute('data-request-count', count)
-    }
+    // Two requests from the bar: the second waits behind the first. The
+    // visible "N more" button is the user-facing queue count (hard standard #4).
+    await bar.getByRole('button', { name: 'Refresh CRAP', exact: true }).click()
+    // The visible request line may already be "Failed" once the acknowledging
+    // companion ends its turn; either way the first click produced its line.
+    await expect(status.locator('.dsh-uml-viewer-request')).toContainText('Refresh CRAP :core:')
+    await expect(more).toBeHidden()
+    await bar.getByRole('button', { name: 'Refresh CRAP', exact: true }).click()
     await expect(more).toHaveText('1 more')
     await more.click()
     await expect(list).toBeVisible()

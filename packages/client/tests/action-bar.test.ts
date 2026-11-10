@@ -33,6 +33,11 @@ describe('the selection the action bar is for (#48)', () => {
       .toEqual({ kind: 'foreign', id: ':serde', name: 'serde' })
   })
 
+  it('marks a child row as a member whose id has no class card of its own (F49)', () => {
+    expect(elementSelection('{:kind :child :id :core.order.price :parent :core.order}', core))
+      .toEqual({ kind: 'class', id: ':core.order.price', name: 'price', member: true })
+  })
+
   it('treats a proposal layer as a component and the view frame itself as no element', () => {
     expect(elementSelection('{:kind :package :id :proposal.domain}', golden('proposal')))
       .toEqual({ kind: 'component', id: ':proposal.domain', name: 'Domain' })
@@ -103,6 +108,14 @@ describe('the selection action bar (#48)', () => {
     expect(labels(h)).toEqual(['Open class card', 'Refresh CRAP', 'Differential mutation', 'Hide', 'More requests'])
     h.named('Open class card').fire('click')
     expect(h.cards).toEqual([':core.order'])
+    h.bar.dispose()
+  })
+
+  it('never offers an unresolvable class card for a member row (F49)', () => {
+    const h = harness()
+    h.show({ kind: 'class', id: ':core.order.price', name: 'price', member: true })
+    expect(labels(h)).toEqual(['Refresh CRAP', 'Differential mutation', 'Hide', 'More requests'])
+    expect(h.cards).toEqual([])
     h.bar.dispose()
   })
 

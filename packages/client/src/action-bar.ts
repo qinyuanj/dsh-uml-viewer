@@ -58,9 +58,9 @@ export const ACTION_BAR_STYLE = `
    right edge of it from 900px; the bar keeps clear of it, so neither surface
    hides the other's rows or its scrollbar. Only an open drawer is in the DOM. */
 .dsh-uml-viewer-panel:has(.dsh-uml-drawer) .dsh-uml-viewer-action-bar { bottom: calc(50% + 8px); }
-.dsh-uml-viewer-panel[data-layout="docked"]:has(.dsh-uml-drawer) .dsh-uml-viewer-action-bar {
-  bottom: 8px; max-width: calc(100% - clamp(420px, 42%, 680px) - 24px);
-}
+/* A docked card already reserved its column from the canvas area (F28), so the
+   bar simply keeps the bottom edge of the space that is left. */
+.dsh-uml-viewer-panel[data-layout="docked"]:has(.dsh-uml-drawer) .dsh-uml-viewer-action-bar { bottom: 8px; }
 `
 
 /** What the bar offers depends on the kind of element selected. */
@@ -70,6 +70,8 @@ export interface ElementSelection {
   id: string
   /** The name the element is drawn with. */
   name: string
+  /** A member row: the id has no class card of its own (#48 F49). */
+  member?: boolean
 }
 
 /** One keyword value of a flat EDN hit map, such as `:id` in `{:kind :class :id :core}`. */
@@ -101,14 +103,17 @@ export function elementSelection(selected: string | null, frame: SceneFrame | nu
     return { kind: 'component', id, name: item.text ?? localName(id) }
   }
   if (kind !== ':class' && kind !== ':child') return null
+  const member = kind === ':child'
   // A child row is drawn inside its parent's box, not as a box of its own.
-  const shown = frame.world.some(entry => entry.kind === 'class' && entry.id === (kind === ':child' ? keyword(selected, 'parent') : id))
+  const shown = frame.world.some(entry => entry.kind === 'class' && entry.id === (member ? keyword(selected, 'parent') : id))
   if (!shown) return null
   const box = frame.world.find(entry => entry.kind === 'class' && entry.id === id)
   const label = frame.world.find(entry => entry.kind === 'text' && entry.owner === id && entry.line === 'name')
   const name = (label?.kind === 'text' ? label.text : null) ?? localName(id)
   if (box?.kind === 'class' && box.shape === 'oval') return { kind: 'foreign', id, name }
-  return { kind: /:drill\?\s+true\b/.test(selected) ? 'component' : 'class', id, name }
+  // A member id cannot resolve a class card or a drill-in; keep the requests
+  // that name the member, but never offer the parent-only actions (F49).
+  return { kind: !member && /:drill\?\s+true\b/.test(selected) ? 'component' : 'class', id, name, ...(member ? { member: true } : {}) }
 }
 
 export interface ActionBarOptions {
@@ -189,7 +194,9 @@ export function mountActionBar(host: HTMLElement, options: ActionBarOptions): Ac
     name.setAttribute('title', id)
     // A foreign package is not the project's code: nothing to measure or hide.
     if (kind === 'foreign') return
-    buttons.appendChild(kind === 'class'
+    // A member-row id has no class card or component to drill into. Hide the
+    // unresolvable action rather than making it a silent no-op (F49).
+    if (!selection.member) buttons.appendChild(kind === 'class'
       ? button(text.t('actionBar.openCard'), () => { void options.openCard(id) })
       : button(text.t('actionBar.drillIn'), () => { void options.send({ action: 'drill-in', id }).catch(() => {}) }))
     for (const entry of ELEMENT_REQUESTS) {
@@ -250,7 +257,8 @@ export function mountActionBar(host: HTMLElement, options: ActionBarOptions): Ac
     element: bar,
     render(next) {
       // A frame republishes the same selection; only a change rebuilds the bar.
-      if (next?.id === selection?.id && next?.kind === selection?.kind && next?.name === selection?.name) return
+      if (next?.id === selection?.id && next?.kind === selection?.kind
+        && next?.name === selection?.name && next?.member === selection?.member) return
       selection = next
       render()
     },

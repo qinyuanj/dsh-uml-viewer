@@ -72,7 +72,6 @@ test('validResult false stops the request before IR/display and reports why', as
     // the exit code the version-1 record reported.
     const bar = a.panel.locator('.dsh-uml-viewer-statusbar')
     await expect(bar).toContainText('Refresh CRAP :api: Failed — the quality run reported validResult false (exit code 1)')
-    await expect(bar).toHaveAttribute('data-request', 'failed')
     await expect(a.page.getByText('Stopped refresh-crap: quality returned validResult false; no IR or display.', { exact: true }).last()).toBeVisible()
     const requests = lane.mock.requests.slice(before).map(r => JSON.parse(r.body))
     // Only the failed quality call follows the visible request: no IR, no display.

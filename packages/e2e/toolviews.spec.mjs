@@ -5,6 +5,7 @@ import { test, expect } from '@playwright/test'
 import { producerFrame, toScreen } from './canvas.mjs'
 import { launchViewerLane } from './lane.mjs'
 import { closeTab } from './lifecycle.mjs'
+import { switchLanguage } from './locale-switch.mjs'
 
 /**
  * #54: the five `uml_*` tools read as their outcome in the conversation, and
@@ -15,7 +16,7 @@ import { closeTab } from './lifecycle.mjs'
  * The quality operations are a Node fixture declared in the scratch project, so
  * a run costs no Cargo work; IR, resident and display are the real binary's.
  */
-async function qualityFixture(projects) {
+async function qualityFixture(projects, crapScope = 'whole-tree') {
   for (const root of Object.values(projects)) {
     await fs.writeFile(path.join(root, 'quality-fixture.mjs'), `
 import fs from 'node:fs'
@@ -23,16 +24,18 @@ const operation = process.argv[2]
 fs.appendFileSync('quality-calls.jsonl', JSON.stringify({operation, args: process.argv.slice(3)})+'\\n')
 process.stderr.write('fixture quality snapshot accepted\\n')
 `)
-    await fs.writeFile(path.join(root, 'uml-quality.json'), declared(process.execPath, root))
+    await fs.writeFile(path.join(root, 'uml-quality.json'), declared(process.execPath, root, crapScope))
   }
 }
 
-/** Both operations declared: a valid quality run. */
-function declared(node, root) {
+/** Both operations declared: a valid quality run, with an optional target CRAP scope. */
+function declared(node, root, crapScope = 'whole-tree') {
   return JSON.stringify({
     version: 1,
     operations: {
-      crap: { argv: [node, path.join(root, 'quality-fixture.mjs'), 'crap'], forwardArgs: 'none', validResultExitCodes: [0], scope: 'whole-tree' },
+      crap: crapScope === 'targets'
+        ? { argv: [node, path.join(root, 'quality-fixture.mjs'), 'crap'], forwardArgs: 'append', validResultExitCodes: [0], scope: 'targets' }
+        : { argv: [node, path.join(root, 'quality-fixture.mjs'), 'crap'], forwardArgs: 'none', validResultExitCodes: [0], scope: 'whole-tree' },
       mutate: { argv: [node, path.join(root, 'quality-fixture.mjs'), 'mutate'], forwardArgs: 'append', validResultExitCodes: [0] },
     },
   })
@@ -110,6 +113,18 @@ function qualityCompanion() {
   }
 }
 
+/** A configured CRAP operation with `scope: targets` and no named files. */
+function scopedQualityCompanion() {
+  const prompt = 'Check the configured CRAP target scope'
+  return request => {
+    if (!request.tools?.length) return { text: 'Isolated UML session' }
+    const messages = request.messages ?? []
+    if (lastUserText(messages) !== prompt) return bootstrap(messages)
+    if (!since(messages, prompt).done('uml_crap')) return { tool: { name: 'uml_crap', input: {} } }
+    return { text: 'Checked the configured CRAP target scope.' }
+  }
+}
+
 /**
  * The lane bootstrap, then a companion that answers one panel request with
  * quality → IR → display. The panel request names `:core`, so the display it
@@ -156,17 +171,6 @@ async function clickRefresh(panel, frame, id, label) {
   await panel.panel.getByRole('menu', { name: 'Element requests' }).getByRole('menuitem', { name: label, exact: true }).click()
 }
 
-/** Settings → General → Language, the way a user switches the DSH language. */
-async function switchLanguage(page, label) {
-  await page.getByRole('button', { name: /^(Account menu|账号菜单)$/ }).first().click()
-  await page.locator('[role^="menuitem"]').filter({ hasText: /^(Settings|设置)/ }).first().click()
-  await page.getByText(/^(General|通用设置)$/).first().click()
-  const row = page.getByText(/^(Language|语言)$/).first().locator('xpath=ancestor::*[.//button[@aria-haspopup="menu"]][1]')
-  await row.locator('button[aria-haspopup="menu"]').click()
-  await page.locator('[role^="menuitem"]').filter({ hasText: new RegExp(`^${label}$`) }).first().click()
-  await page.keyboard.press('Escape')
-}
-
 test('quality tool results show validity, reason and targets, in the DSH language (#54)', async ({ browser }) => {
   const companion = qualityCompanion()
   const lane = await launchViewerLane(browser, { prepareProjects: companion.prepare, reply: companion.reply })
@@ -189,6 +193,24 @@ test('quality tool results show validity, reason and targets, in the DSH languag
     await expect(deep.page.getByText('原因', { exact: true }).last()).toBeVisible()
     await expect(deep.page.getByText('退出码', { exact: true }).last()).toBeVisible()
     await expect(deep.page.getByText('operations must declare crap and mutate', { exact: true }).last()).toBeVisible()
+    expect(deep.problems).toEqual([])
+  } finally {
+    await lane.close()
+  }
+})
+
+test('a configured target CRAP scope is not described as the whole business scope (#54 F2)', async ({ browser }) => {
+  const lane = await launchViewerLane(browser, {
+    prepareProjects: projects => qualityFixture(projects, 'targets'),
+    reply: scopedQualityCompanion(),
+  })
+  try {
+    const deep = await lane.openPanel('deep')
+    await lane.sendPrompt(deep, 'Check the configured CRAP target scope')
+    await expect(deep.page.getByText('Checked the configured CRAP target scope.', { exact: true }).last()).toBeVisible()
+    await expandSteps(deep.page)
+    await expect(deep.page.getByText('the configured target scope', { exact: true }).last()).toBeVisible()
+    await expect(deep.page.getByText('the whole business scope', { exact: true })).toHaveCount(0)
     expect(deep.problems).toEqual([])
   } finally {
     await lane.close()
