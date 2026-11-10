@@ -19,14 +19,6 @@ export const OVERLAY_STYLE = `
 .dsh-uml-overlay-root button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--dsw-alias-border-l2); border-radius: 4px; padding: 4px 8px; text-align: left; cursor: pointer; }
 .dsh-uml-overlay-root button:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-uml-overlay-root button:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 1px; }
-.dsh-uml-inspector { pointer-events: auto; position: absolute; right: 0; top: 0; bottom: 0; width: 230px; max-width: 46%; box-sizing: border-box; background: var(--dsw-alias-bg-layer-3); border-left: 1px solid var(--dsw-alias-border-l2); padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
-.dsh-uml-inspector h2 { font: inherit; font-weight: 600; margin: 0; }
-.dsh-uml-proposals { display: flex; flex-direction: column; gap: 4px; max-height: 35%; overflow: auto; flex-shrink: 0; }
-.dsh-uml-proposals button[aria-pressed=true] { background: var(--dsw-alias-interactive-bg-active); border-color: var(--dsw-alias-state-business-primary); }
-.dsh-uml-summary-lines { overflow: auto; min-height: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.dsh-uml-summary-lines p { margin: 0 0 8px; }
-.dsh-uml-summary-segments { display: flex; flex-wrap: wrap; gap: 2px 8px; margin-bottom: 8px; }
-.dsh-uml-summary-segments span { white-space: nowrap; }
 .dsh-uml-window { pointer-events: auto; position: absolute; box-sizing: border-box; display: flex; flex-direction: column; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-layer-2); overflow: hidden; resize: both; min-width: 220px; min-height: 150px; max-width: 100%; max-height: 96%; }
 .dsh-uml-window-header { flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-3); }
 .dsh-uml-window-header strong { flex: 1; overflow-wrap: anywhere; font-size: 13px; }
@@ -52,31 +44,8 @@ export const OVERLAY_STYLE = `
 .dsh-uml-source-line [data-token=string] { color: var(--dsw-alias-state-warn-primary); }
 .dsh-uml-source-line [data-token=comment] { color: var(--dsw-alias-label-tertiary); }
 .dsh-uml-overlay-failure { pointer-events: auto; position: absolute; bottom: 8px; left: 12px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-state-error-primary); }
-@media (max-width: 600px) { .dsh-uml-inspector { width: 180px; padding: 8px; } .dsh-uml-card,.dsh-uml-source { left: 0; max-width: 100%; } }
+@media (max-width: 600px) { .dsh-uml-card,.dsh-uml-source { left: 0; max-width: 100%; } }
 `
-
-/** The inspector's new-proposal control, `frame::strings::NEW_PROPOSAL`. */
-const NEW_PROPOSAL = '新建提案'
-
-export function Inspector({ state, controller, theme = resolveTheme(document.body) }: { state: OverlaySnapshot; controller: OverlayController; theme?: Theme }): unknown {
-  const model = state.inspector
-  if (!model) return null
-  return h('aside', { className: 'dsh-uml-inspector', 'aria-label': model.labels.inspector },
-    h('h2', null, model.labels.inspector),
-    h('div', { className: 'dsh-uml-proposals' }, ...model.entries.map((entry, index) => h('div', { key: entry.id ?? 'source' },
-      index === 1 ? h('div', { style: { color: 'var(--dsw-alias-label-tertiary)' } }, model.labels.proposals) : null,
-      h('button', { type: 'button', 'aria-pressed': entry.active, style: { width: '100%' },
-        onClick: () => { void controller.choose(entry.id) } }, entry.label)))),
-    // strings::NEW_PROPOSAL; the companion adds the proposal to the policy.
-    h('button', { type: 'button', onClick: () => { void controller.newProposal(new Date()) } }, NEW_PROPOSAL),
-    h('button', { type: 'button', onClick: () => { void controller.namespaceTree() } }, model.labels.pHint),
-    h('button', { type: 'button', onClick: () => { void controller.declutter() } }, model.declutterLabel),
-    h('div', { className: 'dsh-uml-summary-lines', 'data-summary-kind': model.summary.kind }, ...model.summary.lines.map((line, index) =>
-      line.type === 'label'
-        ? h('p', { key: index, style: { color: roleStyle(line.color, theme) } }, line.text)
-        : h('div', { key: index, className: 'dsh-uml-summary-segments', style: { color: roleStyle(line.color, theme) } },
-          ...line.parts.map((part, n) => h('span', { key: n }, part))))))
-}
 
 function CardRow({ item, id, controller, theme }: { item: CardItem; id: string; controller: OverlayController; theme: Theme }): unknown {
   const contents = [
@@ -247,7 +216,7 @@ export function Overlays({ controller }: { controller: OverlayController }): unk
   const [, setLanguage] = useState(textOf(controller).language)
   useEffect(() => textOf(controller).subscribe(() => setLanguage(textOf(controller).language)), [controller])
   return h('div', { className: 'dsh-uml-overlay-root', ref: root },
-    h(Inspector, { state, controller, theme }), h(ClassCard, { state, controller, theme }),
+    h(ClassCard, { state, controller, theme }),
     ...state.sources.map((window, index) => h(SourceView, { key: window.serial, window, controller, index })),
     state.failure ? h('div', { role: 'status', className: 'dsh-uml-overlay-failure' }, state.failure) : null)
 }

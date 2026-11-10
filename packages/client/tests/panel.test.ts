@@ -349,8 +349,10 @@ describe('session-bound panel stream', () => {
     h.emit({ kind: 'frame', seq: 2, frame: drilled })
     h.emit({ kind: 'state', state: stateWith(null), breadcrumbs: [
       { id: null, name: 'Shop' }, { id: ':core', name: 'core' },
-    ], status: null })
+    ], status: null, proposals: [{ id: ':p-shop', name: 'Shop split' }] })
     await settle(() => h.controller.current.breadcrumbs.length === 2, 'the drilled path')
+    // #47: the switcher's list rides on the same event.
+    expect(h.controller.current.proposals).toEqual([{ id: ':p-shop', name: 'Shop split' }])
     expect(h.controller.current.frame!.chrome).toEqual([])
     expect(h.controller.key('Escape')).toBe(true)
     await settle(() => h.actions.some(entry => entry.action.action === 'back'), 'escape goes back')
@@ -364,9 +366,9 @@ describe('session-bound panel stream', () => {
     expect(h.controller.current.view).toBe('source')
     h.emit({ kind: 'state', state: stateWith(null, ':p-shop'), breadcrumbs: [
       { id: null, name: 'Shop' }, { id: ':core', name: 'core' },
-    ], status: null })
+    ], status: null, proposals: [] })
     await settle(() => h.controller.current.view === 'proposal', 'the proposal view')
-    h.emit({ kind: 'state', state: stateWith(null), breadcrumbs: [{ id: null, name: 'Shop' }], status: null })
+    h.emit({ kind: 'state', state: stateWith(null), breadcrumbs: [{ id: null, name: 'Shop' }], status: null, proposals: [] })
     await settle(() => h.controller.current.view === 'source', 'back to the source view')
     h.controller.close()
   })

@@ -1,13 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { CardModel, InspectorModel, PanelAck, PanelAction, SourceModel } from '@dsh-uml-viewer/contracts'
+import type { CardModel, PanelAck, PanelAction, SourceModel } from '@dsh-uml-viewer/contracts'
 import { OverlayController } from '../src/overlays.js'
 
-const inspector: InspectorModel = {
-  entries: [{ id: null, label: 'Shop', active: true }, { id: ':plan', label: 'Proposal', active: false }],
-  summary: { kind: 'class', lines: [{ type: 'segments', parts: ['Crap μ 4.0', 'max 8.0', 'σ 1.5'], color: { role: 'accent' } }] },
-  declutterLabel: '精简：无', detail: ':order', selected: '{:kind :class :id :order}',
-  labels: { inspector: '检查器', proposals: '提案', pHint: 'P：返回命名空间树' },
-}
 const card: CardModel = { id: ':order', title: 'order', items: [], contentHeight: 1000, viewHeight: 700, maxScroll: 300, scroll: 0 }
 const source: SourceModel = { file: 'src/order.rs', title: 'src/order.rs:82', line: 82, lang: 'rust', rows: [
   { number: 82, text: '\tpub fn target()', display: '  pub fn target()', marked: true, tokens: [{ text: 'pub', kind: 'keyword' }] },
@@ -15,17 +9,17 @@ const source: SourceModel = { file: 'src/order.rs', title: 'src/order.rs:82', li
 
 function harness() {
   const actions: PanelAction[] = []
-  let model = inspector
+  // The resident answers `card: null` once no card is open (#47).
+  let open = true
   const controller = new OverlayController(async action => {
     actions.push(action)
-    if (action.action === 'inspector') return { accepted: true, reason: null, inspector: model }
-    if (action.action === 'card') return { accepted: true, reason: null, card }
+    if (action.action === 'card') return { accepted: true, reason: null, card: open ? card : null }
     if (action.action === 'open-source') {
       if (action.member === 'absent') return { accepted: false, reason: 'Source not found' }
       const file = action.id === ':second' ? 'src/second.rs' : source.file
       return { accepted: true, reason: null, source: { ...source, file } }
     }
-    if (action.action === 'close-card') model = { ...inspector, detail: null }
+    if (action.action === 'close-card') open = false
     return { accepted: true, reason: null }
   })
   return { controller, actions }
@@ -53,13 +47,11 @@ function deferred() {
 }
 
 const ok = (extra: Partial<PanelAck> = {}): PanelAck => ({ accepted: true, reason: null, ...extra })
-const closedInspector: InspectorModel = { ...inspector, detail: null }
 const other: SourceModel = { ...source, file: 'src/other.rs', title: 'src/other.rs:1' }
 
 /** Open a card through a full refresh so the deferred controller holds one. */
 async function withCard(d: ReturnType<typeof deferred>) {
   void d.controller.refresh()
-  await d.reply('inspector', ok({ inspector }))
   await d.reply('card', ok({ card }))
   expect(d.controller.current.card).toBe(card)
 }
@@ -77,7 +69,7 @@ describe('panel overlays: stale replies', () => {
     await d.flush()
     expect(d.controller.current.card).toBeNull()
     await d.reply('close-card', ok())
-    await d.reply('inspector', ok({ inspector: closedInspector }))
+    await d.reply('card', ok({ card: null }))
     expect(d.controller.current.card).toBeNull()
     expect(d.pending).toEqual([])
   })
@@ -97,20 +89,18 @@ describe('panel overlays: stale replies', () => {
     const d = deferred()
     await withCard(d)
     void d.controller.refresh()
-    await d.reply('inspector', ok({ inspector }))
     const frameCard = d.take('card')
     void d.controller.closeCard()
     frameCard.resolve(ok({ card }))
     await d.flush()
     expect(d.controller.current.card).toBeNull()
     await d.reply('close-card', ok())
-    await d.reply('inspector', ok({ inspector: closedInspector }))
+    await d.reply('card', ok({ card: null }))
     expect(d.controller.current).toMatchObject({ card: null, failure: null })
 
     const again = deferred()
     await withCard(again)
     void again.controller.refresh()
-    await again.reply('inspector', ok({ inspector }))
     const refused = again.take('card')
     void again.controller.closeCard()
     refused.resolve({ accepted: false, reason: 'card gone' })
@@ -123,11 +113,10 @@ describe('panel overlays: stale replies', () => {
     await withCard(d)
     void d.controller.closeCard()
     void d.controller.refresh()
-    await d.reply('inspector', ok({ inspector }))
     expect(d.pending.map(entry => entry.action.action)).toEqual(['close-card'])
     expect(d.controller.current.card).toBeNull()
     await d.reply('close-card', ok())
-    await d.reply('inspector', ok({ inspector: closedInspector }))
+    await d.reply('card', ok({ card: null }))
     expect(d.controller.current.card).toBeNull()
   })
 
@@ -137,10 +126,8 @@ describe('panel overlays: stale replies', () => {
     void d.controller.openCardAt([2, 2])
     await d.reply('open-card', ok())
     // The older ack refreshes, but the newer open still owns the card fetch.
-    await d.reply('inspector', ok({ inspector }))
     expect(d.pending.map(entry => entry.action.action)).toEqual(['open-card'])
     await d.reply('open-card', ok())
-    await d.reply('inspector', ok({ inspector }))
     const second = { ...card, id: ':second' }
     await d.reply('card', ok({ card: second }))
     expect(d.controller.current.card).toBe(second)
@@ -249,12 +236,11 @@ describe('panel overlays: stale replies', () => {
 })
 
 describe('panel overlays', () => {
-  it('shows the supplied summaries and card without deriving quality text or scroll', async () => {
+  it('asks for the card directly and shows it without deriving quality text or scroll (#47)', async () => {
     const { controller, actions } = harness()
     await controller.refresh()
-    expect(controller.current.inspector).toBe(inspector)
     expect(controller.current.card).toBe(card)
-    expect(actions).toEqual([{ action: 'inspector' }, { action: 'card', width: 624, viewHeight: 700 }])
+    expect(actions).toEqual([{ action: 'card', width: 624, viewHeight: 700 }])
     controller.setCardGeometry({ width: 900, viewHeight: 500 })
     await controller.scrollCard(4)
     expect(actions.slice(-2)).toEqual([
@@ -270,6 +256,15 @@ describe('panel overlays', () => {
     expect(actions).toContainEqual({ action: 'scroll-card', delta: 4, viewHeight: 700 })
     await controller.scrollCard(-1)
     expect(actions).toContainEqual({ action: 'scroll-card', delta: -1, viewHeight: 700 })
+  })
+
+  it('clears the card when the resident answers that none is open (#47)', async () => {
+    const d = deferred()
+    await withCard(d)
+    void d.controller.refresh()
+    await d.reply('card', ok({ card: null }))
+    expect(d.controller.current).toMatchObject({ card: null, failure: null })
+    expect(d.pending).toEqual([])
   })
 
   it('double clicks, closes, chooses proposals and returns via P through the resident', async () => {

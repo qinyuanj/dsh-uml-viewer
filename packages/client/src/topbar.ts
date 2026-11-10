@@ -1,7 +1,6 @@
 /**
- * The panel's top bar (#46, ADR 0015): the breadcrumb path, the discussion
- * context's name (#45 read-only here; #47 turns it into the switcher), the
- * search button with its box and result list, and the 「更多」 menu. It is the
+ * The panel's top bar (#46, ADR 0015): the breadcrumb path, the discussion-
+ * context switcher (#47, `context-switcher.ts`), the search button with its box and result list, and the 「更多」 menu. It is the
  * first section of the three-part skeleton; `statusbar.ts` is the last and the
  * canvas sits between them. `index.ts` only wires the three together.
  *
@@ -9,14 +8,14 @@
  * never loaded (ADR 0013). Every string comes from the locale files, so a DSH
  * language switch relabels the bar in place (#42).
  *
- * Later tickets edit this file alone for the top bar: #47 replaces the context
- * label with the discussion-context switcher, #50 adds its legend entry through
- * `moreEntries`.
+ * Later tickets edit this file alone for the top bar: #50 adds its legend
+ * entry through `moreEntries`.
  */
-import type { BreadcrumbLevel, DiscussionContext } from '@dsh-uml-viewer/contracts'
+import { defaultProposalName, type BreadcrumbLevel } from '@dsh-uml-viewer/contracts'
 import type { PanelController, PanelStatus } from './panel.js'
 import { ENGLISH_TEXT, type PanelText } from './locale.js'
 import { mountMoreMenu, moreMenuEntries, type MoreMenuEntry } from './more-menu.js'
+import { mountContextSwitcher, SWITCHER_STYLE, type SwitcherActions } from './context-switcher.js'
 
 export const TOPBAR_STYLE = `
 .dsh-uml-viewer-topbar {
@@ -39,11 +38,6 @@ export const TOPBAR_STYLE = `
 }
 .dsh-uml-viewer-topbar button:disabled { opacity: 0.45; cursor: default; background: transparent; }
 .dsh-uml-viewer-spacer { flex: 1 1 auto; }
-.dsh-uml-viewer-context {
-  flex: 0 1 auto; min-width: 0; max-width: 40%; padding: 3px 4px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--dsw-alias-label-secondary);
-}
 .dsh-uml-viewer-crumbs { flex: 1 1 auto; min-width: 0; }
 .dsh-uml-viewer-crumbs ol {
   display: flex; align-items: center; gap: 2px; min-width: 0; margin: 0; padding: 0; list-style: none;
@@ -75,7 +69,7 @@ export const TOPBAR_STYLE = `
 .dsh-uml-viewer-results button[aria-selected="true"] { background: var(--dsw-alias-interactive-bg-active); }
 .dsh-uml-viewer-results button:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-uml-viewer-empty { padding: 6px 8px; color: var(--dsw-alias-label-tertiary); }
-`
+${SWITCHER_STYLE}`
 
 export interface TopBarOptions {
   controller: PanelController
@@ -84,6 +78,12 @@ export interface TopBarOptions {
   onDone?: () => void
   /** Entries later tickets add to the More menu (#50's legend). */
   moreEntries?: () => readonly MoreMenuEntry[]
+  /**
+   * What the discussion-context switcher does (#47). `index.ts` routes these
+   * through the overlay controller; without them the panel controller sends
+   * the same actions itself.
+   */
+  context?: SwitcherActions
 }
 
 export interface TopBar {
@@ -117,8 +117,15 @@ export function mountTopBar(host: HTMLElement, options: TopBarOptions): TopBar {
   crumbs.className = 'dsh-uml-viewer-crumbs'
   const spacer = doc.createElement('span')
   spacer.className = 'dsh-uml-viewer-spacer'
-  const contextLine = doc.createElement('span')
-  contextLine.className = 'dsh-uml-viewer-context'
+  const switcher = mountContextSwitcher(doc, {
+    text,
+    actions: options.context ?? {
+      choose: proposalId => { void controller.send({ action: 'context', proposalId }) },
+      namespaceTree: () => { void controller.namespaceTree() },
+      newProposal: () => { void controller.send({ action: 'new-proposal', name: defaultProposalName(new Date()) }) },
+    },
+    onDone: () => options.onDone?.(),
+  })
   const searchButton = doc.createElement('button')
   searchButton.type = 'button'
   searchButton.className = 'dsh-uml-viewer-search-open'
@@ -138,7 +145,7 @@ export function mountTopBar(host: HTMLElement, options: TopBarOptions): TopBar {
   const moreButton = doc.createElement('button')
   moreButton.type = 'button'
   moreButton.className = 'dsh-uml-viewer-more'
-  bar.append(crumbs, spacer, contextLine, searchButton, search, moreButton)
+  bar.append(crumbs, spacer, switcher.element, searchButton, search, moreButton)
   host.appendChild(bar)
 
   const more = mountMoreMenu(bar, moreButton, {
@@ -185,15 +192,6 @@ export function mountTopBar(host: HTMLElement, options: TopBarOptions): TopBar {
     })
     crumbs.replaceChildren(list)
   }
-  const renderContext = (context: DiscussionContext | null): void => {
-    const name = context?.kind === 'proposal'
-      ? context.name ?? context.proposalId ?? text.t('summary.proposal')
-      : text.t('summary.source')
-    contextLine.dataset.kind = context?.kind ?? 'real'
-    contextLine.textContent = name
-    contextLine.title = name
-    contextLine.setAttribute('aria-label', text.t('context.label', { name }))
-  }
   const renderSearch = (status: PanelStatus): void => {
     searchButton.setAttribute('aria-expanded', String(status.search.active))
     search.hidden = !status.search.active
@@ -227,7 +225,7 @@ export function mountTopBar(host: HTMLElement, options: TopBarOptions): TopBar {
   }
   const render = (status: PanelStatus): void => {
     renderCrumbs(status.breadcrumbs)
-    renderContext(status.context)
+    switcher.render({ context: status.context, proposals: status.proposals })
     renderSearch(status)
   }
   const focusSearch = (): void => {
@@ -264,7 +262,7 @@ export function mountTopBar(host: HTMLElement, options: TopBarOptions): TopBar {
     lastResults = ''
     const current = controller.current
     renderCrumbs(current.breadcrumbs)
-    renderContext(current.context)
+    switcher.render({ context: current.context, proposals: current.proposals })
     renderSearch(current)
   })
   return {
@@ -272,13 +270,15 @@ export function mountTopBar(host: HTMLElement, options: TopBarOptions): TopBar {
     render,
     openSearch,
     focusSearch,
-    owns: target => target === input,
+    // The search box and the switcher handle their own keys (#47).
+    owns: target => target === input || (target !== null && switcher.element.contains?.(target as Node) === true),
     dispose() {
       unsubscribe()
       searchButton.removeEventListener('click', onSearchButton)
       input.removeEventListener('keydown', onSearchKey)
       input.removeEventListener('input', onSearchInput)
       more.dispose()
+      switcher.dispose()
       bar.remove()
     },
   }

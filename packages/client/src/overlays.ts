@@ -1,5 +1,7 @@
 /**
- * The panel overlays (#27): inspector, class card and source windows.
+ * The panel overlays (#27): class card and source windows. The inspector was
+ * deleted in #47; the discussion-context switcher (`context-switcher.ts`)
+ * replaced its proposal list and still acts through `choose`/`newProposal`.
  *
  * This controller owns *panel* state only: which model the resident last
  * sent, which source windows are open and in which order. Every text, count,
@@ -9,7 +11,7 @@
  * Replies arrive asynchronously, so every request carries the freshness it was
  * issued under and a reply (or refusal) that has gone stale is dropped:
  *
- * - `generation`: each inspector refresh supersedes the previous one.
+ * - `generation`: each card refresh supersedes the previous one.
  * - `cardEpoch`: every card-affecting user action (open, close, scroll,
  *   context, P, declutter, locate) invalidates card replies already in flight,
  *   so a pending scroll or refresh cannot repopulate a closed card.
@@ -22,7 +24,7 @@
  *   newer request has already reported success or failure, so a late refusal
  *   cannot overwrite a fresher outcome.
  */
-import type { CardModel, InspectorModel, PanelAck, PanelAction, SourceModel } from '@dsh-uml-viewer/contracts'
+import type { CardModel, PanelAck, PanelAction, SourceModel } from '@dsh-uml-viewer/contracts'
 import { defaultProposalName } from '@dsh-uml-viewer/contracts'
 import { ENGLISH_TEXT, type PanelText } from './locale.js'
 
@@ -32,7 +34,6 @@ export interface SourceWindow {
 }
 
 export interface OverlaySnapshot {
-  inspector: InspectorModel | null
   card: CardModel | null
   sources: readonly SourceWindow[]
   /** The last refused overlay action, shown in the panel's status line. */
@@ -45,7 +46,6 @@ export type Send = (action: PanelAction) => Promise<PanelAck | null>
 export interface CardGeometry { width: number; viewHeight: number }
 
 export class OverlayController {
-  private inspector: InspectorModel | null = null
   private card: CardModel | null = null
   private sources: SourceWindow[] = []
   private failure: string | null = null
@@ -73,7 +73,7 @@ export class OverlayController {
   public constructor(private readonly send: Send, public readonly text: PanelText = ENGLISH_TEXT) {}
 
   public get current(): OverlaySnapshot {
-    return { inspector: this.inspector, card: this.card, sources: this.sources, failure: this.failure }
+    return { card: this.card, sources: this.sources, failure: this.failure }
   }
 
   public subscribe(listener: () => void): () => void {
@@ -127,34 +127,30 @@ export class OverlayController {
     return ack
   }
 
-  /** Pull the inspector, and the card when one is open, after a view change. */
+  /** Pull the open class card after a view change; none open clears it. */
   public async refresh(): Promise<void> {
     if (this.closed) return
     await this.load(++this.intent)
   }
 
+  /**
+   * Ask the resident for the card directly (#47): it answers `null` when no
+   * card is open, which clears the one shown here.
+   */
   private async load(intent: number): Promise<void> {
     const generation = ++this.generation
     const epoch = this.cardEpoch
-    const live = () => !this.closed && generation === this.generation
-    const ack = await this.request({ action: 'inspector' }, live, intent)
-    if (!ack?.accepted || !ack.inspector) return
-    this.inspector = ack.inspector
-    this.succeed(intent)
-    this.publish()
-    const cardLive = () => live() && epoch === this.cardEpoch && this.cardActions === 0
+    const cardLive = () => !this.closed && generation === this.generation && epoch === this.cardEpoch
+      && this.cardActions === 0
     if (!cardLive()) return
-    if (ack.inspector.detail === null) {
-      if (this.card === null) return
-      this.card = null
-      this.publish()
-      return
-    }
     const request = ++this.cardRequest
     const current = () => cardLive() && request === this.cardRequest
-    const card = await this.request({ action: 'card', ...this.geometry }, current, intent)
-    if (!card?.accepted || !current()) return
-    this.card = card.card ?? null
+    const ack = await this.request({ action: 'card', ...this.geometry }, current, intent)
+    if (!ack?.accepted || !current()) return
+    this.succeed(intent)
+    const card = ack.card ?? null
+    if (card === null && this.card === null) return
+    this.card = card
     this.publish()
   }
 

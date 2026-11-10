@@ -28,46 +28,6 @@ function text(tree: Element): string {
   return tree.children.map(v => typeof v === 'object' ? text(v) : String(v)).join('')
 }
 const theme = () => resolveTheme(fakeCanvas({ tokens: DARK_TOKENS, dark: true }))
-const labels = { inspector: '检查器', proposals: '提案', pHint: 'P：返回命名空间树' }
-
-it('renders supplied inspector summary lines and proposal choices with host tokens', () => {
-  const choose = vi.fn(), namespaceTree = vi.fn()
-  const tree = elements().Inspector!({ theme: theme(), controller: { choose, namespaceTree }, state: { inspector: {
-    labels, declutterLabel: '精简：无',
-    entries: [{ id: null, label: 'Shop', active: false }, { id: ':plan', label: 'Plan', active: true }],
-    summary: { kind: 'class', lines: [
-      { type: 'segments', parts: ['Crap μ 4.0', 'max 8.0'], color: { role: 'accent' } },
-      { type: 'label', text: '无数据', color: { role: 'no-data' } },
-    ] },
-  } } })
-  expect(tree.props['aria-label']).toBe('检查器')
-  expect(text(tree)).toContain('Crap μ 4.0max 8.0无数据')
-  const plan = all(tree, e => e.type === 'button' && text(e) === 'Plan')[0]!
-  expect(plan.props['aria-pressed']).toBe(true)
-  plan.props.onClick()
-  expect(choose).toHaveBeenCalledWith(':plan')
-  all(tree, e => e.type === 'button' && text(e) === labels.pHint)[0]!.props.onClick()
-  expect(namespaceTree).toHaveBeenCalled()
-  // 无数据 is the fixed no-data red from the shared resolver, not a host error token.
-  expect(all(tree, e => e.type === 'p')[0]!.props.style.color).toBe(DARK_HUES.noData)
-  expect(all(tree, e => e.props.className === 'dsh-uml-summary-segments')[0]!.props.style.color).toBe('#e8c448')
-})
-
-it('offers 新建提案 below the proposals; a click asks for a timestamp-named proposal (#29)', () => {
-  const newProposal = vi.fn()
-  const tree = elements().Inspector!({ theme: theme(), controller: { choose: vi.fn(), namespaceTree: vi.fn(), newProposal }, state: { inspector: {
-    labels, declutterLabel: '精简：无',
-    entries: [{ id: null, label: 'Shop', active: true }],
-    summary: { kind: 'empty', lines: [] },
-  } } })
-  const button = all(tree, e => e.type === 'button' && text(e) === '新建提案')
-  expect(button).toHaveLength(1)
-  button[0]!.props.onClick()
-  expect(newProposal).toHaveBeenCalledTimes(1)
-  // The name is left to the controller, which reads the local clock.
-  expect(Object.prototype.toString.call(newProposal.mock.calls[0]![0])).toBe('[object Date]')
-})
-
 it('renders producer rows and sends member/module/relationship activations through the controller', () => {
   const openSource = vi.fn(), locate = vi.fn(), closeCard = vi.fn()
   const item = { kind: 'stats', y: 134, h: 18, text: '+ target()', color: { role: 'ink' }, titleFont: false,

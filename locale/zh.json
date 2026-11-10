@@ -63,6 +63,11 @@
     "breadcrumbs.label": "面包屑路径",
     "breadcrumb.go": "前往 {name}",
     "status.waitingDisplay": "等待 :display 命令加载图示…",
-    "status.missingFile": "找不到 IR 文件：{path}"
+    "status.missingFile": "找不到 IR 文件：{path}",
+    "switcher.label": "讨论上下文",
+    "switcher.title": "讨论上下文：{name}。选择要讨论的图",
+    "switcher.source": "源码图",
+    "switcher.proposals": "提案",
+    "switcher.newProposal": "新建提案"
   }
 }

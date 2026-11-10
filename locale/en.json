@@ -63,6 +63,11 @@
     "breadcrumbs.label": "Breadcrumb path",
     "breadcrumb.go": "Go to {name}",
     "status.waitingDisplay": "Waiting for :display to load the diagram…",
-    "status.missingFile": "The IR file is not there: {path}"
+    "status.missingFile": "The IR file is not there: {path}",
+    "switcher.label": "Discussion contexts",
+    "switcher.title": "Discussion context: {name}. Choose the diagram to discuss",
+    "switcher.source": "Source diagram",
+    "switcher.proposals": "Proposals",
+    "switcher.newProposal": "New proposal"
   }
 }

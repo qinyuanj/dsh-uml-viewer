@@ -26,6 +26,7 @@ import { PanelViews, registerToolViews } from './tool-views.js'
 import { MORE_MENU_STYLE } from './more-menu.js'
 import { STATUSBAR_STYLE, mountStatusBar, type StatusBar } from './statusbar.js'
 import { TOPBAR_STYLE, mountTopBar, type TopBar } from './topbar.js'
+import { returnToSourceTree, type SwitcherActions } from './context-switcher.js'
 
 export const TAB_ID = 'dsh-uml-viewer'
 export const TAB_KIND = 'dsh-uml-viewer'
@@ -171,7 +172,7 @@ export interface MountOptions {
   tabId?: string
   /** The host tab's `bindCommands`: the tab refresh command reloads the diagram. */
   bindCommands?: (commands: TabCommands) => () => void
-  /** Receives this mount's overlay controller (inspector, card, sources). */
+  /** Receives this mount's overlay controller (card, sources). */
   onOverlays?: (controller: OverlayController | null) => void
 }
 
@@ -234,7 +235,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   let lastOwner: PanelOwner | null = null
   const renderStatus = (state: PanelStatus): void => {
     const frame = state.frame
-    // A new view frame refreshes the inspector/card; a search or status
+    // A new view frame refreshes the card; a search or status
     // publish that keeps the same frame does not re-request them.
     if (state.kind === 'live' && frame && overlays && frame !== overlayFrame) {
       overlayFrame = frame
@@ -286,7 +287,17 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     onStatus: renderStatus,
   })
   // The three sections, in reading order: the top bar, the canvas, the status bar.
-  topBar = mountTopBar(host, { controller, text, onDone: focusCanvas })
+  // The discussion-context switcher (#47) acts through the overlays, so a card
+  // reply in flight cannot repopulate the card after the view switches.
+  const switcherActions: SwitcherActions = {
+    choose: proposalId => { void overlays?.choose(proposalId) },
+    namespaceTree: () => {
+      if (overlays) void overlays.namespaceTree()
+      else void controller.namespaceTree()
+    },
+    newProposal: () => { void overlays?.newProposal(new Date()) },
+  }
+  topBar = mountTopBar(host, { controller, text, onDone: focusCanvas, context: switcherActions })
   host.appendChild(canvasArea)
   statusBar = mountStatusBar(host, { text })
   const disposeQualityMenu = mountQualityMenu(host, canvas, {
@@ -301,12 +312,9 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   overlays = new OverlayController(action => controller.send(action), text)
   options.views?.attach(options.sessionId, overlays)
   options.onOverlays?.(overlays)
-  /** **P**: one dispatch, through the overlays so a card reply in flight cannot
-   * repopulate the card after the tree resets. */
-  const namespaceTree = (): void => {
-    if (overlays) void overlays.namespaceTree()
-    else void controller.namespaceTree()
-  }
+  /** **P** (#47): the same as choosing the source diagram in the switcher —
+   * back to the namespace tree's root, leaving a proposal under discussion. */
+  const namespaceTree = (): void => returnToSourceTree(controller.current.context, switcherActions)
   // Closing the host tab is the explicit close; while this body is mounted the
   // controller closes its live holder (the stream ends without a withdrawal).
   const tabId = options.tabId
