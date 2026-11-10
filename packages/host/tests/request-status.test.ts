@@ -32,3 +32,28 @@ it('replaces an entry with the same id in place and tells only that session’s 
   statuses.record('s', entry('c', 'queued'))
   expect(seen).toHaveLength(3)
 })
+
+// #53: the user dismisses a finished entry; an unfinished one stays, because
+// it is still in the session's queue.
+it('dismisses a finished entry for every listener of its session, and nothing else', () => {
+  const statuses = new RequestStatuses()
+  const seen: string[][] = []
+  statuses.subscribe('s', list => seen.push(list.map(item => `${item.id}:${item.state}`)))
+  statuses.record('s', entry('a', 'failed'))
+  statuses.record('s', entry('b', 'queued'))
+  statuses.record('s', entry('c', 'done'))
+  statuses.record('t', entry('a', 'failed'))
+  expect(statuses.dismiss('s', 'a')).toBe(true)
+  expect(seen.at(-1)).toEqual(['b:queued', 'c:done'])
+  expect(statuses.dismiss('s', 'c')).toBe(true)
+  expect(seen.at(-1)).toEqual(['b:queued'])
+  const told = seen.length
+  // Unfinished, unknown, already gone or another session's: nothing changes.
+  expect(statuses.dismiss('s', 'b')).toBe(false)
+  expect(statuses.dismiss('s', 'zz')).toBe(false)
+  expect(statuses.dismiss('s', 'a')).toBe(false)
+  expect(statuses.dismiss('u', 'a')).toBe(false)
+  expect(seen).toHaveLength(told)
+  expect(statuses.list('s').map(item => item.id)).toEqual(['b'])
+  expect(statuses.list('t').map(item => item.id)).toEqual(['a'])
+})

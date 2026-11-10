@@ -299,7 +299,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     onStatus: renderStatus,
   })
   // The three sections, in reading order: the top bar, the canvas, the status
-  // bar. The canvas row holds the legend's column beside the canvas (#50).
+  // bar. The canvas row holds the canvas and the legend's reserved strip (#50).
   const canvasRow = document.createElement('div')
   canvasRow.className = 'dsh-uml-viewer-canvas-row'
   topBar = mountTopBar(host, {
@@ -310,7 +310,12 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   legend = mountLegend(canvasRow, { text, onDone: focusCanvas })
   canvasRow.append(canvasArea, legend.element)
   host.appendChild(canvasRow)
-  statusBar = mountStatusBar(host, { text })
+  statusBar = mountStatusBar(host, {
+    text,
+    // #53: dismissing a finished request is the host's list; every panel of
+    // this session sees the new one when it is pushed back.
+    onDismiss: id => { void controller.send({ action: 'dismiss-request', id }) },
+  })
   const disposeQualityMenu = mountQualityMenu(host, canvas, {
     frame: () => controller.current.frame,
     send: action => controller.send(action),

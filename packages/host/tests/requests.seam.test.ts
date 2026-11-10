@@ -424,3 +424,37 @@ it('keeps every resident event while request-status updates interleave with them
   await until(() => panel.events.filter(event => event.kind === 'search').length === 3)
   expect(panel.events.flatMap(event => event.kind === 'search' ? [event.query] : [])).toEqual(['a', 'b', 'c'])
 })
+
+// #53: a failed entry stays until the user dismisses it; the dismissal is a
+// panel action the host answers by dropping the entry for every panel of the
+// session, including one opened after a page refresh.
+it('drops a dismissed failure for every panel of the session and keeps it gone after a refresh', async () => {
+  const s = await setup()
+  const a = await s.open('session-a')
+  const twin = await s.open('session-a')
+  const b = await s.open('session-b')
+  await s.request('session-a', 'refresh-crap', ':api')
+  await s.request('session-a', 'refresh-mutate', ':nowhere')
+  await s.request('session-b', 'refresh-mutate', ':nowhere')
+  const [admitted, failed] = await a.status(list => list.length === 2)
+  expect(failed).toMatchObject({ state: 'failed' })
+  const dismiss = (session: string, id: unknown) => s.viewer().action(s.agents[session]!, { action: 'dismiss-request', id })
+  expect(await dismiss('session-a', failed!.id)).toEqual({ accepted: true, reason: null })
+  expect(await a.status(list => list.length === 1)).toEqual([admitted])
+  expect(await twin.status(list => list.length === 1)).toEqual([admitted])
+  // A page refresh: the new stream never sees the dismissed entry.
+  await a.close()
+  const reopened = await s.open('session-a')
+  expect(await reopened.status(() => true)).toEqual([admitted])
+  // Another session's failure is not this session's to dismiss, and the
+  // dismissal never reaches a resident.
+  const [other] = await b.status(list => list.length === 1)
+  expect(await dismiss('session-a', other!.id)).toEqual({ accepted: false, reason: expect.stringMatching(/no finished request/) })
+  expect(b.statuses().at(-1)).toEqual([other])
+  expect((await s.actions('session-a')).some(entry => entry.action === 'dismiss-request')).toBe(false)
+  // A queued request is still in the session's queue: it cannot be dismissed.
+  expect(await dismiss('session-a', admitted!.id)).toEqual({ accepted: false, reason: expect.stringMatching(/no finished request/) })
+  // A malformed id is refused by the contract before anything else.
+  expect(await dismiss('session-a', 'not an id')).toEqual({ accepted: false, reason: expect.stringMatching(/id/) })
+  expect(reopened.statuses().at(-1)).toEqual([admitted])
+})
