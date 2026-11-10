@@ -88,7 +88,7 @@ The dark palette below is the reference palette (`frame::theme::rgba`), the colo
 |---|---|---|
 | `canvas` | canvas; interior of open arrowheads | `#161c20` |
 | `panel` | card and source window background | `#1a2428` |
-| `sidebar` | inspector | `#121618` |
+| `sidebar` | sidebar surface; the inspector that drew it was deleted (#47) | `#121618` |
 | `line` | hairlines, popup frame, bar tracks | `#2a3d36` |
 | `ink` | primary text; filled diamond | `#ecece4` |
 | `muted` | stereotypes, levels, popup rows | `#9db8a8` |
@@ -114,7 +114,7 @@ The dark palette below is the reference palette (`frame::theme::rgba`), the colo
 | `indicator` | 精简依赖标记 without violations | `#9db8a8` |
 | `port-fill` / `port-fill-marked` | 依赖端口 fill / when selected | `#2a3834` / `#4a604e` |
 | `port-outline` / `port-link` | port frame / its arrow to the class | muted |
-| `button-hover` / `button-active` | inspector buttons | `#364c42` / `#425a4c` |
+| `button-hover` / `button-active` | sidebar buttons; the inspector that used them was deleted (#47) | `#364c42` / `#425a4c` |
 | `source-bg` / `source-ink` / `source-gutter-bg` / `source-gutter` / `source-selection` / `source-comment` / `source-string` / `source-keyword` | 源码窗口 | panel / ink / sidebar / muted / `#263646` / `#788c82` / `#e6a06e` / `#7aa2f7` |
 
 The ramps: for grade `g ≤ 5` mix the red end into the midpoint by `g/5`,
@@ -223,20 +223,18 @@ serialized metadata. Exceeding any bound yields `"complete": false` with empty
 arrays rather than silent truncation; without the field the client highlights by
 the relation's own endpoints and shows no dependency tooltip.
 
-## Shared inspector summaries
+## Deleted: shared inspector summaries
 
-The window-free `frame::inspector` API also supplies `class_summary(&detail::Model)`
-and `package_summary(&scene, &id)`. Each returns display-ordered `SummaryLine`s:
-`Label { text, color }` or `Segments { parts, color }`. Colors are semantic roles;
-metric segments wrap only between complete statistics. These functions own
-identity/member text, quality formatting, no-data lines and the current view's
-package class count. Native and panel adapters only render the supplied lines.
+`frame::inspector` and its `class_summary`/`package_summary` `SummaryLine`s
+were deleted with the inspector in #47 (ADR 0015). The class card
+(`frame::detail`) carries the class's quality figures; the discussion context's
+proposal list comes from `frame::discussion` on the `state` event.
 
 ## Chrome items (viewport points)
 
 Chrome left the frame with #46 (ADR 0015): the diagram's title, the proposal
 banner, the return line, the canvas status line and the centred hint are the
-panel's own DOM now — the breadcrumb path, the discussion-context name and the
+panel's own DOM now — the breadcrumb path, the discussion-context switcher and the
 status bar. A frame that carries one of those five kinds is a resident the
 panel cannot draw, and the validator rejects it. The only kind left is the
 popup that follows the pointer, so a view without a pointer over something

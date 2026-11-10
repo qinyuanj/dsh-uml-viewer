@@ -205,14 +205,15 @@ a successful quality result with `validResult: true`.
   adds the id to the current proposal's `:omit`, or to policy `:omit` on the
   real diagram.
 - Component titles paint **on top of** crossing arrows.
-- The viewer UI is Chinese (one string table, `crates/frame/src/strings.rs`);
-  metric and tool names stay English. The inspector (检查器) lists the
-  **real diagram** (源码图, the namespace tree) above
-  **Proposals**. Click the real row to return to the tree; click a proposal
-  to show it (marked as not in the code). Either click makes that diagram
-  the discussion context (the panel tells the agent). A new proposal is a
-  request to the agent, named with a timestamp by default; the agent edits
-  the policy in place. **Declutter** cycles Declutter arrows / Remove arrows / Declutter
+- Panel DOM text is Chinese or English from `locale/*.json`; resident-laid
+  rows come from `crates/frame/src/strings.rs`. Metric and tool names stay
+  English. The top bar's discussion-context switcher lists the **real
+  diagram** (源码图, the namespace tree) and then each **Proposal**; pick a
+  row to show it and make it the discussion context (the panel tells the
+  agent in the conversation). Its last row, **新建提案**, is a request to the
+  agent, named with a timestamp by default; the agent edits the policy in
+  place. **P** returns to the source diagram's tree root. The inspector that
+  used to list all this was deleted (#47). **Declutter** cycles Declutter arrows / Remove arrows / Declutter
   elements / Declutter classes / Declutter none. **Remove arrows** hides
   the lines and puts a triangle on the top (incoming) and bottom
   (outgoing) of each box, **including nested classes** as well as their
@@ -343,7 +344,7 @@ tree's namespace root. `src/model.ts` becomes `bookwriter.model`
 | `:hierarchical` | Namespace tree (default when `:packages` is omitted) |
 | `:order` | Order of **existing** top-level ns segments, not new component names |
 | `:levels` | Groups of those segments, **inner (higher-level) first**. Same group = same rank |
-| `:proposals` | Named groupings of real segments; **not** instantiated in source. Inspector **源码图** (real diagram) row returns to the ns tree |
+| `:proposals` | Named groupings of real segments; **not** instantiated in source. The switcher's **源码图** (real diagram) row returns to the ns tree; **P** does the same |
 | `:omit` | On a proposal or the policy: nses (and their children) left off the diagram |
 | `:edge-kinds` | Override parser kind for `[from to]` (usually `:association`) |
 | `:omit-edges` | Drop `[from to]` |
@@ -414,11 +415,12 @@ and `:proposals` is set, rank follows the first proposal's component order.
 Those names are not namespaces. Each item is `{:id :name :layers [...] :omit [...]}`
 (`:layers` here are named components; `:omit` keeps listed nses off
 **Unassigned**). The as-is diagram stays the ns tree.
-The inspector lists the real diagram (the namespace tree) just above
-**Proposals**; click it to return to the tree. Click a proposal to show it
-(canvas marked **PROPOSAL — not instantiated in code**). Either click
-makes that diagram the context of discussion (in the panel the agent is
-told). **新建提案** (New Proposal) asks the agent to add an empty proposal
+The top bar's discussion-context switcher lists the real diagram (the
+namespace tree) and then **Proposals**; pick the source diagram to return to
+the tree (**P** does the same), or a proposal to show it (canvas marked
+**PROPOSAL — not instantiated in code**). Either pick makes that diagram the
+context of discussion (in the panel the agent is told). **新建提案** (New
+Proposal), the switcher's last row, asks the agent to add an empty proposal
 named with a timestamp; renaming or deleting a proposal is also a request
 to the agent, which edits the policy in place. Double-click a ns box to drill; **←** at the
 top returns to the proposal.
@@ -761,6 +763,6 @@ not special-case languages in the class card.
 
 Drawing happens only in the panel (`packages/client`). Neither the scene
 core (`crates/scene`) nor the window-free viewer model (`crates/frame`: draw
-commands, theme roles, LOD, class card, inspector, source window, strings,
+commands, theme roles, LOD, class card, source window, discussion, strings,
 view snapshots, watch) links a window or GUI stack. The scene frame
 the viewer panel draws is `uml-viewer scene --frame` (`docs/scene-frame.md`).

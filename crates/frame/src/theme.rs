@@ -30,7 +30,7 @@ pub enum Role {
     Canvas,
     /// Panels: the card and source window background, card stripes.
     Panel,
-    /// The inspector sidebar.
+    /// The sidebar surface (the inspector that drew it was deleted, #47).
     Sidebar,
     /// Hairlines: popup frames, separators, bar tracks.
     Line,
@@ -88,7 +88,7 @@ pub enum Role {
     PortFillMarked,
     PortOutline,
     PortLink,
-    // Inspector buttons.
+    // Sidebar buttons; the inspector that used them was deleted (#47).
     ButtonHover,
     ButtonActive,
     // Source window.

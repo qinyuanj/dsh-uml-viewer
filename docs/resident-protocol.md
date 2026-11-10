@@ -62,9 +62,8 @@ An event:
 | `frame` | after every action that changes the view; after a hot reload (`seq` null) | `frame`: a scene frame, version 1, including the optional bounded `hover` metadata (`docs/scene-frame.md`) the panel needs for local hover |
 | `search` | answers `search` | `query`, `results`: `[{id, name, ns, label}]`, sorted by namespace then id |
 | `context` | answers `context`, before its `frame` | `context`: a [discussion context](#discussion-context) |
-| `state` | answers `save` | `state`: a [session state](#session-state); `breadcrumbs`: the tree path ([breadcrumbs and status codes](#breadcrumbs-and-status-codes-45-additive-version-1)); `status`: the canvas status code, or null |
-| `inspector` | answers `inspector` | `inspector`: the [inspector model](#inspector) (#27) |
-| `card` | answers `card` | `card`: the open [class card](#class-card) (#27) |
+| `state` | answers `save` | `state`: a [session state](#session-state); `breadcrumbs`: the tree path ([breadcrumbs, status codes and proposals](#breadcrumbs-status-codes-and-proposals-45-47-additive-version-1)); `status`: the canvas status code, or null; `proposals`: the shown diagram's proposal list for the discussion-context switcher (#47) |
+| `card` | answers `card` | `card`: the open [class card](#class-card) (#27), or `null` when none is open (#47) |
 | `source` | answers `open-source` | `source`: the [opened source](#source-window) (#27) |
 | `quality-target` | answers `quality-target` | `target`: the [resolved quality target](#quality-target) (#28) |
 | `ack` | answers `camera` and `quit` | — |
@@ -82,20 +81,19 @@ An `error` changes nothing; the session keeps running.
 | `display` | `path` | `frame` | show this diagram (what `uml_display` asks for): relative to the project or absolute. The same diagram keeps the view; another one is fitted. Ends the waiting canvas. |
 | `reload` | — | `frame` | check the diagram and quality snapshots now instead of at the next poll |
 | `drill-in` | `id` (EDN) or `at` (world point) | `frame` | enter a component: a namespace, a proposal package or a nested group. With `at`, what is there is entered when it is drillable, else nothing changes. |
-| `back` | `target?` (a breadcrumb id, or null for the source diagram's root) | `frame` | leave one level, or return to the level `target` names ([breadcrumbs and status codes](#breadcrumbs-and-status-codes-45-additive-version-1)); an id no level of the current path carries is an `error` |
+| `back` | `target?` (a breadcrumb id, or null for the source diagram's root) | `frame` | leave one level, or return to the level `target` names ([breadcrumbs, status codes and proposals](#breadcrumbs-status-codes-and-proposals-45-47-additive-version-1)); an id no level of the current path carries is an `error` |
 | `namespace-tree` | — | `frame` | **P**: the source diagram's namespace tree |
 | `select` | `at` (world point, or `null`) | `frame` | select what is at the point; `null` clears. The frame then carries the 依赖链高亮 and 关系淡化 of the selection. |
 | `search` | `query` | `search` | search class names and namespaces (ASCII case-insensitive substring); a blank query has no results. The view does not change. |
 | `locate` | `id` (EDN) | `frame` | go to a search result: enter its namespace or proposal layer, select it, open its card and centre it |
 | `context` | `proposalId` (EDN, or `null` for the source diagram) | `context`, then `frame` | the user chose the 讨论上下文; the view switches to that diagram. The host turns the `context` event into the panel request. |
-| `declutter` | `mode?` | `frame` | the arrow mode: `full`, `arrows`, `triangles`, `elements` or `classes`. A named mode is set (the panel's 「更多」 menu names `triangles`/`full`, #46); with none the resident cycles as the inspector's button did. An unknown mode is an `error` and changes nothing |
+| `declutter` | `mode?` | `frame` | the arrow mode: `full`, `arrows`, `triangles`, `elements` or `classes`. A named mode is set (the panel's 「更多」 menu names `triangles`/`full`, #46); with none without one the resident cycles the modes. An unknown mode is an `error` and changes nothing |
 | `save` | — | `state` | the session state to persist |
 | `quit` | — | `ack` | end the session (exit 0), like closing stdin |
-| `inspector` | — | `inspector` | the diagram/proposal list and the selected element's summary (#27) |
 | `card` | `width?`, `viewHeight?` (points) | `card` | the open class card's paint plan; `width` is the card content width (native default 624, floor 560), `viewHeight` the card viewport its scroll clamps against (default 700). No open card is an `error`. |
 | `open-card` | `id` (EDN) or `at` (world point) | `frame` | **double-click**: a namespace or proposal layer is entered, a class is selected and its card opens (`scene::events::on_double_press`). With `id` the class's card opens without moving the view. |
 | `close-card` | — | `frame` | close the class card; the selection stays |
-| `scroll-card` | `delta` (wheel notches), `viewHeight` | `frame` | a wheel over the card: `frame::inspector::scroll` owns the 48-point step and both clamps |
+| `scroll-card` | `delta` (wheel notches), `viewHeight` | `frame` | a wheel over the card: `frame::detail::scroll_card` owns the 48-point step and both clamps |
 | `quality-target` | `id` (canonical EDN text) | `quality-target` | resolve the class or component to source files from the CURRENT loaded session document and shown proposal, without changing view or discussion state. Unknown, foreign, omitted or sourceless targets are an `error`; a partial or empty success is never returned. |
 | `language` | `language` (a locale tag) | `frame` | the DSH language the panel passes (#44); the resident re-lays the frame out in it and answers with that frame, so every watching panel redraws its 无数据 markers and asks again for an open class card. The latest one wins: DSH has one language for every panel. Before `open` it is remembered and answered with an `ack`. |
 | `open-source` | `id` (EDN), `member?` | `source` | open the class's source: the whole module, or one member's declaration line. The resident reads the file from the session project; an unknown class, file, language or member, or a source over the [source window limits](#source-window-limits), is an `error`. |
@@ -146,6 +144,13 @@ The target must be on the current path; anything else is an `error` and the
 view stays as it is. Naming the level already shown is not a move — no camera,
 selection or fit change.
 
+`proposals` (#47) is the shown diagram's proposal list for the panel's
+discussion-context switcher, in the document's order: `[{id, name}]`, each id
+in the same canonical EDN text as the frames and the breadcrumbs, `name` the
+proposal's authored `:name`. It is `[]` for a diagram with no proposals, a
+diagram not loaded yet, and a resident that predates #47. Choosing one is the
+existing `context` action; 新建提案 is the existing `new-proposal` panel request.
+
 `status` is the canvas status as a code, `null` when there is nothing to say:
 
 | code | parameters | meaning |
@@ -168,14 +173,14 @@ by the contracts suite. The compact event examples below show empty item arrays
 for space; real card/source events carry all rows.
 
 ```jsonl
-{"version":1,"seq":1,"action":"inspector"}
 {"version":1,"seq":2,"action":"open-card","at":[120,200]}
 {"version":1,"seq":3,"action":"card","width":624,"viewHeight":700}
 {"version":1,"seq":4,"action":"scroll-card","delta":4,"viewHeight":700}
 {"version":1,"seq":5,"action":"close-card"}
 {"version":1,"seq":6,"action":"open-source","id":":catalog","member":"target"}
-{"version":1,"seq":1,"event":"inspector","inspector":{"entries":[{"id":null,"label":"Shop","active":true}],"summary":{"kind":"empty","lines":[{"type":"label","text":"单击类或命名空间查看摘要。","color":{"role":"muted"}}]},"declutterLabel":"精简：无","detail":null,"selected":null,"labels":{"inspector":"检查器","proposals":"提案","pHint":"P：返回命名空间树"}}}
 {"version":1,"seq":3,"event":"card","card":{"id":":catalog","title":"Catalog","contentHeight":32,"viewHeight":700,"scroll":0,"maxScroll":0,"items":[]}}
+{"version":1,"seq":7,"action":"card"}
+{"version":1,"seq":7,"event":"card","card":null}
 {"version":1,"seq":6,"event":"source","source":{"file":"D:/project/src/catalog.ts","title":"src/catalog.ts:82","line":82,"lang":"typescript","rows":[]}}
 ```
 
@@ -185,23 +190,16 @@ with an `error`; no source text is read and view/discussion/card state stays
 unchanged. The class id/member are the only client inputs; clients cannot supply
 an arbitrary filename to this action.
 
-## Inspector
+## Deleted: inspector
 
-`{"event": "inspector", "inspector": {...}}` is `frame::inspector` serialized
-(#27). The panel renders it; it does not compute any of it.
-
-| key | type | meaning |
-|---|---|---|
-| `entries` | `[{id, label, active}]` | the source diagram (`id` null) then each proposal, in display order; `active` is the current discussion context. Choosing one is the `context` action; **P** is `namespace-tree`. |
-| `summary` | `{kind, lines}` | `kind` is `class`, `package` or `empty`. `lines` are `class_summary` / `package_summary` output: `{type: "label", text, color}` or `{type: "segments", parts, color}`; segments wrap only between whole statistics. `empty` carries the no-selection help (or the select-a-class hint) as one muted label. |
-| `declutterLabel` | string | the arrow-mode control's label |
-| `detail` | string \| null | the class whose card is open (EDN) |
-| `selected` | string \| null | the selected hit (EDN) |
-| `labels` | `{inspector, proposals, pHint}` | the sidebar's UI copy, from `frame::strings` |
-
-Summary text, member text, class counts, CRAP/mutation figures and the version's
-`no-data` line are the shared model's; a class with no quality data keeps its red
-line in the `no-data` role.
+The `inspector` action and event were deleted in #47. Its proposal list became
+the panel's discussion-context switcher and now rides on the `state` event
+([below](#breadcrumbs-status-codes-and-proposals-45-47-additive-version-1));
+its summary line (the selected class or component's name, package, level, CRAP,
+mutation counts and members) was deleted, not moved: the class card already
+carries the class's quality figures, and a second copy elsewhere would have to
+stay equal to it (ADR 0015). A resident that still sends `inspector` is
+ignored by the panel; one that does not know the action answers `error`.
 
 ## Language (#44)
 
@@ -291,12 +289,13 @@ stops at the cap instead of buffering without limit, the session writes one
 `error` event with that reason and exits 1, and the panel reports a stopped
 resident. Both directions of the transport are therefore bounded.
 
-The host's Remote action returns `inspector`, `card` or `source` as an optional
-field on that action's `PanelAck` (`{accepted, reason, ...payload}`), validated by
+The host's Remote action returns `card` or `source` as an optional field on
+that action's `PanelAck` (`{accepted, reason, ...payload}`), validated by
 contracts. It does not broadcast these payloads to the panel watch streams:
 opening source in one panel must not create a window in another panel of the
 same session. View mutations still return and broadcast the existing `frame`
-event. Panels request a fresh inspector/card model after a new frame.
+event. Panels request a fresh card after a new frame; `card` with none open answers
+`card: null`, which clears the card the panel shows (#47).
 
 A panel's watch stream is not the session's lifetime. Ending one — the gateway
 aborting the method signal and returning the iterator on a client unload, a
