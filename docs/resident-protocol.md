@@ -76,7 +76,7 @@ An `error` changes nothing; the session keeps running.
 
 | action | fields | answer | effect |
 |---|---|---|---|
-| `open` | `viewport?` `{width, height}`, `diagram?`, `state?`, `waiting?`, `language?` | `frame` | open the session. The diagram is `diagram` (relative to the project), else the state's `diagram`, else the project default (`diagram.edn`, `examples/<project>.edn`, any example). With `state` the saved view and discussion context are restored; otherwise the diagram is fitted to the viewport. `waiting: true` shows the empty waiting canvas until `display`, except that a `state` naming a displayed `diagram` restores that view (a reopened session, a restarted DSH). When that diagram does not exist yet the canvas waits, `save` answers the saved state unchanged, and the first `display` of the same diagram restores the view instead of fitting it. A missing diagram opens with the canvas hint; an unreadable IR is an `error`. Another `open` replaces the session. `language` is the [language](#language) the panel passes (#44). |
+| `open` | `viewport?` `{width, height}`, `diagram?`, `state?`, `waiting?`, `language?` | `frame` | open the session. The diagram is `diagram` (relative to the project), else the state's `diagram`, else the project default (`diagram.edn`, `examples/<project>.edn`, any example). With `state` the saved view and discussion context are restored; otherwise the diagram is fitted to the viewport. `waiting: true` shows the empty waiting canvas until `display`, except that a `state` naming a displayed `diagram` restores that view (a reopened session, a restarted DSH). When that diagram does not exist yet the canvas waits, `save` answers the saved state unchanged, and the first `display` of the same diagram restores the view instead of fitting it. A missing diagram opens with the `missing-file` status code; an unreadable IR is an `error`. Another `open` replaces the session. `language` is the [language](#language) the panel passes (#44). |
 | `viewport` | `viewport` `{width, height}` (points) | `frame` | the client's canvas size; a pending fit uses it |
 | `camera` | `x`, `y`, `zoom` | `ack` | the client panned or zoomed locally: the frame's `camera` (top-left world point and zoom) the client now shows. Saved with the state; no frame is sent back. |
 | `display` | `path` | `frame` | show this diagram (what `uml_display` asks for): relative to the project or absolute. The same diagram keeps the view; another one is fitted. Ends the waiting canvas. |
@@ -88,7 +88,7 @@ An `error` changes nothing; the session keeps running.
 | `search` | `query` | `search` | search class names and namespaces (ASCII case-insensitive substring); a blank query has no results. The view does not change. |
 | `locate` | `id` (EDN) | `frame` | go to a search result: enter its namespace or proposal layer, select it, open its card and centre it |
 | `context` | `proposalId` (EDN, or `null` for the source diagram) | `context`, then `frame` | the user chose the 讨论上下文; the view switches to that diagram. The host turns the `context` event into the panel request. |
-| `declutter` | — | `frame` | cycle the arrow mode |
+| `declutter` | `mode?` | `frame` | the arrow mode: `full`, `arrows`, `triangles`, `elements` or `classes`. A named mode is set (the panel's 「更多」 menu names `triangles`/`full`, #46); with none the resident cycles as the inspector's button did. An unknown mode is an `error` and changes nothing |
 | `save` | — | `state` | the session state to persist |
 | `quit` | — | `ack` | end the session (exit 0), like closing stdin |
 | `inspector` | — | `inspector` | the diagram/proposal list and the selected element's summary (#27) |
@@ -155,9 +155,10 @@ selection or fit change.
 
 The panel localizes the code from its own language files, so the code is an
 enum with exactly the parameters its text needs: an unknown code is a broken
-resident, not a message to show. Frames still carry the resident's own hint
-text for now (#46 moves it out of the canvas); a resident that predates #45
-sends neither field, and the panel then shows no path and no status.
+resident, not a message to show. The frame no longer carries that text at all
+(#46): the status bar draws it, and a view's chrome is the hover popup alone
+(`docs/scene-frame.md`). A resident that predates #45 sends neither field, and
+the panel then shows no path and no status.
 
 ## Overlay message examples (#27, additive version 1)
 

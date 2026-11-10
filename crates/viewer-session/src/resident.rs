@@ -260,15 +260,7 @@ impl Resident {
             return error(seq, "no session: send open first");
         };
         session.canvas(Canvas::Fit, dims);
-        let hint = session.hint();
-        let built = frame::frame::build(
-            session.state(),
-            self.width,
-            self.height,
-            hint.as_deref(),
-            session.status(),
-            self.language,
-        );
+        let built = frame::frame::build(session.state(), self.width, self.height, self.language);
         // The panel needs the optional bounded hover metadata (#26) to reproduce
         // the window's dependency tooltip and bundled-edge (`via-ids`) warming;
         // both are derived from the scene here, never inferred by the client.
@@ -478,7 +470,16 @@ impl Resident {
                 ]);
             }
             "declutter" => {
-                self.session()?.act(Action::Declutter, &dims);
+                // The panel's Remove arrows toggle names the mode it wants
+                // (#46); without one the resident cycles as it always did.
+                let mode = match action.get("mode") {
+                    None => None,
+                    Some(Json::String(name)) => Some(Value::keyword(name)),
+                    Some(other) => {
+                        return Err(format!("mode must be a declutter mode, not {other}"));
+                    }
+                };
+                self.session()?.act(Action::Declutter(mode), &dims);
             }
             "save" => {
                 // The pending snapshot stands in for the view until its

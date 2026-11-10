@@ -35,7 +35,23 @@ describe('scene frame validation', () => {
     expect(root.style.dimAlpha).toBe(70)
     expect(root.world.length).toBeGreaterThan(0)
     expect(root.edges.length).toBeGreaterThan(0)
-    expect(root.chrome.length).toBeGreaterThan(0)
+    // Chrome left the frame with #46: a view has none, the hover popup alone
+    // is left (the `root-hover-frames` golden carries one).
+    expect(root.chrome).toEqual([])
+  })
+
+  it('carries the hover popup as the frame\'s only chrome', () => {
+    const hovered = validateSceneFrame(golden('root-hover-frames.frame.json'))
+    expect(hovered.chrome.map(item => item.kind)).toEqual(['popup'])
+  })
+
+  it('rejects the five chrome kinds that left the frame (#46)', () => {
+    const frame = golden('root.frame.json') as Record<string, unknown>
+    for (const kind of ['title', 'proposal-banner', 'back', 'status', 'hint']) {
+      const item = kind === 'popup' ? {} : { kind, text: 'x', at: [12, 8], ink: { role: 'muted' } }
+      expect(() => validateSceneFrame({ ...frame, chrome: [item] }), kind)
+        .toThrow(/unknown chrome kind/)
+    }
   })
 
   it('knows every world item kind the producer emits', () => {
@@ -106,7 +122,7 @@ describe('scene frame validation', () => {
         widths: { band: 2, rule: 1, dot: 1, portLink: 1.3, dash: 6, dashGap: 4 },
         radius: { class: 4, package: 8, port: 3, rowWash: 2 }, dimAlpha: 70,
         lodZoom: { frames: 0.15, full: 0.4 }, minTextPx: 5, edgeDecimatePx: 8 },
-      world: [], edges: [], chrome: [{ kind: 'hint', text: 'No diagram yet', ink: { role: 'muted' } }],
+      world: [], edges: [], chrome: [],
     })
     expect(parsed.waiting).toBe(true)
   })

@@ -6,20 +6,6 @@
   },
   "chrome": [
     {
-      "at": [
-        12.0,
-        8.0
-      ],
-      "ink": {
-        "role": "muted"
-      },
-      "kind": "title",
-      "plate": {
-        "role": "chrome-plate"
-      },
-      "text": "Shop"
-    },
-    {
       "border": {
         "role": "line"
       },

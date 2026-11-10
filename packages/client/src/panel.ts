@@ -10,8 +10,8 @@
  * never changes the frame itself. The local camera math mirrors `scene::events` (on_wheel,
  * on_scroll, zoom_at, fit) so the panel behaves like the egui window.
  */
-import type { BreadcrumbLevel, DiscussionContext, PanelAck, PanelAction, PanelEvent, PanelOwner, SceneFrame,
-  SearchResult, SessionStatus } from '@dsh-uml-viewer/contracts'
+import type { BreadcrumbLevel, DeclutterMode, DiscussionContext, PanelAck, PanelAction, PanelEvent, PanelOwner,
+  SceneFrame, SearchResult, SessionStatus } from '@dsh-uml-viewer/contracts'
 import { hitTest, paintFrame } from './paint.js'
 import { hoverAt, sameHover, showsPopup, withHover, type HoverHit } from './hover.js'
 import { cssToWorld, screenToWorld, viewTransform } from './fit.js'
@@ -83,10 +83,9 @@ export interface KeyModifiers { control?: boolean; shift?: boolean }
 
 type Listener = () => void
 
-/** `scene::events`: one wheel notch, the pan unit and the chrome top strip. */
+/** `scene::events`: one wheel notch and the pan unit. */
 export const ZOOM_STEP = 1.1
 const SCROLL_UNIT = 48
-const CHROME_INSET = 36
 // scene::compose::bounds inflates content by 16 world units; size then
 // reserves another 40 around it. Fit must use that scene extent, not ink.
 const SCENE_BOUNDS_INSET = 16
@@ -344,13 +343,9 @@ export class PanelController {
     if (world) void this.send({ action: 'select', at: world })
   }
 
-  /** Double-click: the back hotspot goes back, otherwise drill into what is there. */
+  /** Double-click: drill into what is at the point (the canvas has no hotspot, #46). */
   public doubleClick(x: number, y: number): void {
     if (this.status.search.active) return
-    if (this.hasBack() && x < 320 && y < 44) {
-      void this.back()
-      return
-    }
     const world = this.world(x, y)
     // The resident's own hit test decides whether this is drillable; a class
     // card (double-click on a leaf class) is #25's surface.
@@ -434,7 +429,11 @@ export class PanelController {
     this.updateCamera({ ...camera, ...(horizontal ? { x: value } : { y: value }) })
   }
 
-  /** Ctrl+0: fit the whole scene into the usable canvas, like `scene::events::fit`. */
+  /**
+   * Ctrl+0 and the More menu's Fit view: the whole scene in the canvas, like
+   * `scene::events::fit`. The canvas is the frame's whole viewport (#46): the
+   * top bar and the status bar are DOM outside it, so nothing is reserved.
+   */
   public fit(): void {
     if (!this.frame || !this.viewport) return
     const bounds = this.sceneBounds()
@@ -445,11 +444,11 @@ export class PanelController {
     const y0 = Math.min(0, bounds.y0 - margin)
     const w = Math.max(1, bounds.x1 + margin - x0)
     const h = Math.max(1, bounds.y1 + margin - y0)
-    const usable = Math.max(1, vh - CHROME_INSET)
+    const usable = Math.max(1, vh)
     const zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.min(vw / w, usable / h, 1)))
     this.updateCamera({
       x: x0 + w / 2 - vw / (2 * zoom),
-      y: y0 + h / 2 - usable / (2 * zoom) - CHROME_INSET / zoom,
+      y: y0 + h / 2 - usable / (2 * zoom),
       zoom,
     })
   }
@@ -460,8 +459,9 @@ export class PanelController {
     return world && this.frame ? hitTest(this.frame, world) : null
   }
 
+  /** Whether the view is below the tree's root: the breadcrumb path says so (#45). */
   private hasBack(): boolean {
-    return this.frame?.chrome.some(item => item.kind === 'back') ?? false
+    return this.status.breadcrumbs.length > 1
   }
 
   public async back(): Promise<PanelAck | null> {
@@ -474,6 +474,22 @@ export class PanelController {
    */
   public async backTo(target: string | null): Promise<PanelAck | null> {
     return this.send({ action: 'back', target })
+  }
+
+  /**
+   * The More menu's Remove arrows toggle (#46): name the declutter mode instead
+   * of cycling to it. The mode comes back on the next `state` event.
+   */
+  public async setDeclutter(mode: DeclutterMode): Promise<void> {
+    const ack = await this.send({ action: 'declutter', mode })
+    if (!ack?.accepted) return
+    try {
+      // The mode comes back on the next `state` event; a failed save only
+      // means the menu shows the old one until the next frame saves anyway.
+      await this.send({ action: 'save' })
+    } catch {
+      // The next frame's save reports the resident's real mode.
+    }
   }
 
   /** **P**: return to the source diagram's namespace tree. */

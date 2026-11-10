@@ -192,9 +192,58 @@ fn a_selected_port_marks_itself_at_reading_zoom() {
 }
 
 #[test]
-fn a_proposal_names_itself_on_the_banner() {
+fn a_proposal_view_draws_the_same_way_without_a_banner() {
     golden(
         "proposal",
         &["--extra", "{:proposal true :proposal-id :p-shop}"],
+    );
+}
+
+/// Chrome left the frame (#46, ADR 0015): the title, the proposal banner, the
+/// return line, the status line and the centred hint are the panel's DOM now
+/// (breadcrumbs, status bar). A view has no chrome at all, and the pointer's
+/// hover popup is the only chrome kind left.
+#[test]
+fn the_frame_carries_no_canvas_chrome() {
+    let chrome = |text: &str| -> Vec<serde_json::Value> {
+        let frame: serde_json::Value = serde_json::from_str(text).unwrap();
+        frame["chrome"].as_array().unwrap().clone()
+    };
+    for text in [
+        frame(&["--lang", "zh"]),
+        frame(&["--focus", "[:core]", "--lang", "zh"]),
+        frame(&[
+            "--extra",
+            "{:proposal true :proposal-id :p-shop}",
+            "--lang",
+            "zh",
+        ]),
+    ] {
+        assert_eq!(
+            Vec::<serde_json::Value>::new(),
+            chrome(&text),
+            "a view has no canvas chrome"
+        );
+    }
+    let hovered = frame(&[
+        "--zoom",
+        "0.3",
+        "--camera",
+        "-200,-100",
+        "--hover",
+        "{:kind :class :id :core}",
+        "--pointer",
+        "300,240",
+        "--lang",
+        "zh",
+    ]);
+    let kinds: Vec<String> = chrome(&hovered)
+        .iter()
+        .map(|item| item["kind"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(
+        vec!["popup".to_owned()],
+        kinds,
+        "only the hover popup is chrome"
     );
 }

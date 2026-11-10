@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import type { PanelAction, PanelEvent, SceneFrame } from '@dsh-uml-viewer/contracts'
+import type { PanelAction, PanelEvent, SceneFrame, SessionState } from '@dsh-uml-viewer/contracts'
 import { PanelController, type PanelRemoteApi, type PanelStatus } from '../src/panel.js'
 import { screenToWorld, viewTransform, worldToScreen } from '../src/fit.js'
 import { fakeCanvas, FakeMutationObserver } from './fakes.js'
@@ -85,6 +85,15 @@ function harness(initial: PanelEvent[] = []): Harness {
       done = true
       waiting?.({ done: true, value: undefined })
     },
+  }
+}
+
+/** A session state as the resident persists it; only `declutter` matters here. */
+function stateWith(declutter: string | null): SessionState {
+  return {
+    schema: 'dsh-uml-viewer/session-state', version: 1, diagram: null, context: null,
+    focus: [], proposalId: null, openLayer: null, declutter,
+    camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null,
   }
 }
 
@@ -299,7 +308,9 @@ describe('session-bound panel stream', () => {
     // compose::bounds' 16-unit inflation and compose::size's 40-unit margin.
     const outer = frame.world.find(item => item.kind === 'package')!
     const rect = { x: 56, y: 56, w: 824, h: 180 }
-    const fitted = { x: 0, y: -543.3415765069552, zoom: 0.6912393162393162 }
+    // The resident's fit for that viewport: the canvas is the whole view, with
+    // no 36pt strip reserved for the frame's old title line (#46).
+    const fitted = { x: 0, y: -517.3013910355487, zoom: 0.6912393162393162 }
     const initial: SceneFrame = { ...frame, viewport: { width: 647, height: 917 },
       camera: fitted, world: [{ ...outer, bounds: rect, rect }], edges: [] }
     const h = harness([{ kind: 'frame', seq: 1, frame: initial }])
@@ -332,10 +343,15 @@ describe('session-bound panel stream', () => {
     expect(drill.action.at![0]).toBeCloseTo(rect.x + rect.w / 2, 6)
     expect(drill.action.at![1]).toBeCloseTo(rect.y + rect.h / 2, 6)
 
-    // A drilled frame has the back chrome; Escape goes back one level.
-    const drilled: SceneFrame = { ...frame, chrome: [...frame.chrome, { kind: 'back', text: '< back', at: [12, 8], ink: { role: 'accent' }, plate: { role: 'chrome-plate' } }] }
+    // Below the root the state's breadcrumb path has more than one level (#45),
+    // which is what Escape reads; the frame itself carries no back chrome (#46).
+    const drilled: SceneFrame = { ...frame }
     h.emit({ kind: 'frame', seq: 2, frame: drilled })
-    await settle(() => h.controller.current.frame === drilled, 'the drilled frame')
+    h.emit({ kind: 'state', state: stateWith(null), breadcrumbs: [
+      { id: null, name: 'Shop' }, { id: ':core', name: 'core' },
+    ], status: null })
+    await settle(() => h.controller.current.breadcrumbs.length === 2, 'the drilled path')
+    expect(h.controller.current.frame!.chrome).toEqual([])
     expect(h.controller.key('Escape')).toBe(true)
     await settle(() => h.actions.some(entry => entry.action.action === 'back'), 'escape goes back')
 

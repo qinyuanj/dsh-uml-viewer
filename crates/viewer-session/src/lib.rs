@@ -21,7 +21,7 @@ use edn::Value;
 use scene::document::{self, ViewState};
 use scene::events::{self, Dims};
 
-use frame::{inspector, strings, watch};
+use frame::{inspector, watch};
 
 pub mod display;
 pub mod metrics;
@@ -62,7 +62,9 @@ pub enum Canvas {
 pub enum Action {
     /// Choose the source diagram (`None`) or a proposal as the discussion.
     Choose(Option<Value>),
-    Declutter,
+    /// Cycle the declutter mode, or set it when one is named (#46: the panel's
+    /// Remove arrows toggle names `:triangles` / `:full`).
+    Declutter(Option<Value>),
     CloseCard,
     /// Enter a search result: its namespace, selection, card and centre.
     Locate(Value),
@@ -85,9 +87,9 @@ pub struct Outcome {
     pub context: Option<Value>,
 }
 
-/// The canvas status as a code the panel localizes (#45). A frame still
-/// carries the resident's own text until #46 moves the status bar out of the
-/// canvas, so the two spellings exist side by side.
+/// The canvas status as a code the panel localizes (#45): the resident names
+/// the state, the panel's language files own the text. The frame no longer
+/// carries a hint at all (#46, ADR 0015); this code is the only spelling.
 #[derive(Debug, Clone, PartialEq)]
 pub enum StatusCode {
     /// The empty canvas waits for its first `display`.
@@ -114,24 +116,14 @@ impl StatusCode {
             }
         }
     }
-
-    /// The resident's own text for the canvas hint the frame still draws, in
-    /// the chrome string table (#46 takes that chrome out of the frame).
-    fn text(&self) -> String {
-        match self {
-            StatusCode::WaitingDisplay => strings::WAITING_DISPLAY.to_owned(),
-            StatusCode::MissingFile { path } => strings::missing_file(path),
-        }
-    }
 }
 
 pub struct Session {
     state: ViewState,
     project_root: PathBuf,
     diagram: PathBuf,
-    /// The canvas hint's status (a missing diagram); its text is `hint()`.
-    hint: Option<StatusCode>,
-    status: Option<String>,
+    /// The canvas status (a missing diagram); the panel localizes its code.
+    canvas_status: Option<StatusCode>,
     /// When the IR and metrics stamps were last polled; `None` is due.
     last_poll: Option<Instant>,
     force_refresh: bool,
@@ -141,14 +133,14 @@ pub struct Session {
 
 impl Session {
     /// Open the first view of `diagram` in `project_root`. Only an
-    /// unreadable IR is an error; a missing diagram opens with the hint.
+    /// unreadable IR is an error; a missing diagram opens with the canvas
+    /// status saying so.
     pub fn open(project_root: PathBuf, diagram: PathBuf, start: Start) -> Result<Session, String> {
         let mut session = Session {
             state: ViewState::default(),
             project_root,
             diagram,
-            hint: None,
-            status: None,
+            canvas_status: None,
             last_poll: None,
             force_refresh: false,
             loaded_digest: None,
@@ -177,7 +169,7 @@ impl Session {
                     revision: 1,
                     ..ViewState::default()
                 };
-                self.hint = Some(StatusCode::MissingFile { path: path.clone() });
+                self.canvas_status = Some(StatusCode::MissingFile { path: path.clone() });
                 return Ok(());
             }
             Err(error) => return Err(format!("cannot read {path}: {error}")),
@@ -233,7 +225,7 @@ impl Session {
         }
         let path_text = self.diagram.to_string_lossy().into_owned();
         let Ok(mtime) = watch::mtime(&self.diagram) else {
-            self.hint = Some(StatusCode::MissingFile {
+            self.canvas_status = Some(StatusCode::MissingFile {
                 path: path_text.clone(),
             });
             return;
@@ -244,7 +236,7 @@ impl Session {
             return;
         }
         let Ok(text) = std::fs::read_to_string(&self.diagram) else {
-            self.hint = Some(StatusCode::MissingFile {
+            self.canvas_status = Some(StatusCode::MissingFile {
                 path: path_text.clone(),
             });
             return;
@@ -257,7 +249,7 @@ impl Session {
             self.loaded_digest = Some(display::digest(&text));
         }
         if next.document.is_some() {
-            self.hint = None;
+            self.canvas_status = None;
         }
         self.state = next;
     }
@@ -290,7 +282,10 @@ impl Session {
                 outcome.context = Some(choice.context);
                 next
             }
-            Action::Declutter => events::cycle_declutter(state),
+            Action::Declutter(mode) => match mode.as_ref() {
+                Some(mode) => events::set_declutter(state, mode),
+                None => events::cycle_declutter(state),
+            },
             Action::CloseCard => events::close_detail(state),
             Action::Locate(id) => events::locate(state, &id, dims),
             Action::Drill(id) => events::drill(state, &id),
@@ -337,7 +332,7 @@ impl Session {
             self.diagram = PathBuf::from(path);
         }
         if path_changed {
-            self.hint = None;
+            self.canvas_status = None;
         }
     }
 
@@ -378,23 +373,14 @@ impl Session {
         &self.diagram
     }
 
-    /// The canvas hint (a missing diagram) as the frame still draws it.
-    pub fn hint(&self) -> Option<String> {
-        self.hint.as_ref().map(StatusCode::text)
-    }
-
-    /// The canvas status as the code the panel localizes.
+    /// The canvas status as the code the panel localizes (#45): the empty
+    /// canvas waiting for its first display, or the missing diagram file.
     pub fn status_code(&self) -> Option<StatusCode> {
         if self.state.waiting {
             Some(StatusCode::WaitingDisplay)
         } else {
-            self.hint.clone()
+            self.canvas_status.clone()
         }
-    }
-
-    /// The status line, if any.
-    pub fn status(&self) -> Option<&str> {
-        self.status.as_deref()
     }
 }
 

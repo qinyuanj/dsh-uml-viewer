@@ -258,12 +258,13 @@ describe('Canvas 2D namespace tree', () => {
     expect(canvas.recording.ops.length).toBeGreaterThan(0)
   })
 
-  it('renders the waiting frame as a hint on the themed canvas', () => {
+  it('leaves the waiting canvas empty: its status is the panel\'s DOM text (#46)', () => {
     const frame = { ...golden('root.frame.json'), waiting: true, world: [], edges: [], chrome: [] } as SceneFrame
     const canvas = fakeCanvas({ tokens: LIGHT_TOKENS })
     paintFrame(frame, canvas)
-    const drawn = canvas.recording.ops.filter(op => op.op === 'fillText')
-    expect(drawn).toHaveLength(1)
-    expect(drawn[0]!.text).toMatch(/uml_display/)
+    // No hint is painted into the frame any more; the canvas is only themed,
+    // and the status bar carries the localized waiting/status text.
+    expect(canvas.recording.ops.filter(op => op.op === 'fillText')).toHaveLength(0)
+    expect(canvas.recording.ops.find(op => op.op === 'fillRect')!.fillStyle).toBe('#ffffff')
   })
 })

@@ -1,8 +1,8 @@
 # Scene frame, version 1
 
 The **scene frame** is one view of the diagram, fully drawable: every box,
-badge, port, relation and chrome line with its text, geometry, LOD tier,
-highlight state and color **role**. The `frame` crate (`crates/frame`)
+badge, port and relation, and the pointer's hover popup, with its text,
+geometry, LOD tier, highlight state and color **role**. The `frame` crate (`crates/frame`)
 builds it from a `scene::ViewState` as typed draw lists (`frame::Layers`,
 `frame::frame::chrome`); the viewer panel (dsh-uml-viewer#21–#27), the only
 renderer since the egui window was deleted (#30), receives the JSON written
@@ -56,7 +56,7 @@ not carry the optional `hover` capability below; `--hover-metadata` adds it to a
 | `style` | object | fonts, widths, radii and thresholds below |
 | `world` | item[] | scene-space items, painted in order (packages first, then each class with its badges, text and ports) |
 | `edges` | edge[] | relation strokes, arrowheads and indicators, painted after `world` |
-| `chrome` | item[] | viewport-space items, painted last, in order |
+| `chrome` | item[] | viewport-space items, painted last: the hover popup, or nothing (#46) |
 | `hover` | object | optional bounded hover metadata (see Hover metadata); absent from the goldens |
 
 ### `style`
@@ -65,7 +65,7 @@ not carry the optional `hover` capability below; `--hover-metadata` adds it to a
 |---|---|---|
 | `fonts.canvas` | 16 | class, member and package text (scaled by zoom) |
 | `fonts.level` / `marker` / `badge` / `port` | 11 / 12 / 9 / 10 | level number, α/I, C/M letter, port label (scaled) |
-| `fonts.chrome` | 18 | chrome text (not scaled) |
+| `fonts.chrome` | 18 | the hover popup's rows (not scaled) |
 | `widths.band` / `rule` / `dot` / `portLink` | 2 / 1 / 1 / 1.3 | stroke widths in points, never scaled by zoom |
 | `widths.dash` / `dashGap` | 6 / 4 | dashed outline of an unmeasured frame |
 | `radius.class` / `package` / `port` / `rowWash` | 4 / 8 / 3 / 2 | corner radii in world units (dropped under 2 screen px) |
@@ -91,13 +91,13 @@ The dark palette below is the reference palette (`frame::theme::rgba`), the colo
 | `sidebar` | inspector | `#121618` |
 | `line` | hairlines, popup frame, bar tracks | `#2a3d36` |
 | `ink` | primary text; filled diamond | `#ecece4` |
-| `muted` | stereotypes, levels, hints, title, status | `#9db8a8` |
-| `accent` | package titles, CRAP lines, banner, return line, card headings | `#e8c448` |
+| `muted` | stereotypes, levels, popup rows | `#9db8a8` |
+| `accent` | package titles, CRAP lines, card headings | `#e8c448` |
 | `marker` | α/I, C/M letters, bright card figures | `#ffffff` |
 | `selected` | outline of the selected box or port | `#ffffff` |
 | `good` | no survived/uncovered mutants | `#5fb58a` |
 | `danger` | destructive control under the pointer | `#ff4030` |
-| `chrome-plate` | behind chrome text | canvas, alpha 235 |
+| `chrome-plate` | behind lifted text; no frame item uses it since the canvas chrome left (#46) | canvas, alpha 235 |
 | `popup` | dependency hover popup | `#121618`, alpha 240 |
 | `row-wash` / `row-bar` | marked row wash / its left rule | gold, alpha 32 / gold |
 | `quality-fill` *(grade)* | class box and dot fill (质量色) | red→mid→green ramp; unmeasured `#243430` |
@@ -234,9 +234,14 @@ package class count. Native and panel adapters only render the supplied lines.
 
 ## Chrome items (viewport points)
 
+Chrome left the frame with #46 (ADR 0015): the diagram's title, the proposal
+banner, the return line, the canvas status line and the centred hint are the
+panel's own DOM now — the breadcrumb path, the discussion-context name and the
+status bar. A frame that carries one of those five kinds is a resident the
+panel cannot draw, and the validator rejects it. The only kind left is the
+popup that follows the pointer, so a view without a pointer over something
+with rows carries no chrome at all.
+
 | kind | fields | drawing |
 |---|---|---|
-| `title` / `proposal-banner` / `back` | `text at ink plate` | text at `at`, size `fonts.chrome`, on a `plate` rect expanded 6 x 2 pt, radius 3 |
-| `status` | `text at ink plate(null)` | bottom-left status line |
-| `hint` | `text ink` | centred on the viewport |
 | `popup` | `rect fill border rows[{text violating ink}]` | radius 4, inside 1 pt `border`; row `i` top-anchored at `rect.x + 8, rect.y + 8 + 20·i`, size `fonts.chrome` |

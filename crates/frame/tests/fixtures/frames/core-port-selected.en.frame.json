@@ -4,22 +4,7 @@
     "y": 40.0,
     "zoom": 0.6
   },
-  "chrome": [
-    {
-      "at": [
-        12.0,
-        8.0
-      ],
-      "ink": {
-        "role": "accent"
-      },
-      "kind": "back",
-      "plate": {
-        "role": "chrome-plate"
-      },
-      "text": "< 返回 · core"
-    }
-  ],
+  "chrome": [],
   "edges": [
     {
       "dimmed": false,

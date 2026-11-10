@@ -235,7 +235,7 @@ fn execute(opts: &Options) -> Result<(), String> {
     }
     state.hover = opts.hover.clone();
     state.pointer = opts.pointer;
-    let frame = crate::frame::build(&state, opts.width, opts.height, None, None, opts.lang);
+    let frame = crate::frame::build(&state, opts.width, opts.height, opts.lang);
     // The goldens are written without the optional capability; --hover-metadata
     // adds the same field the resident sends.
     let json = if opts.hover_metadata {

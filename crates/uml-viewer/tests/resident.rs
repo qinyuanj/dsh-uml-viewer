@@ -154,12 +154,14 @@ fn items<'a>(frame: &'a Value, kind: &str) -> Vec<&'a Value> {
         .collect()
 }
 
-fn chrome_texts(frame: &Value) -> Vec<String> {
+/// The frame's chrome kinds (#46: a view carries none; only the pointer's
+/// hover popup is chrome, and these tests never point).
+fn chrome_kinds(frame: &Value) -> Vec<String> {
     frame["frame"]["chrome"]
         .as_array()
         .unwrap()
         .iter()
-        .filter_map(|i| i["text"].as_str().map(str::to_owned))
+        .filter_map(|i| i["kind"].as_str().map(str::to_owned))
         .collect()
 }
 
@@ -180,7 +182,10 @@ fn open_answers_the_fitted_namespace_tree_of_the_project_diagram() {
         json!({"width": 1220.0, "height": 884.0}),
         frame["frame"]["viewport"]
     );
-    assert!(chrome_texts(&frame).contains(&"Shop".to_owned()));
+    // The diagram title is the top bar's breadcrumb now, not frame chrome (#46).
+    assert_eq!(Vec::<String>::new(), chrome_kinds(&frame));
+    let state = resident.ask(2, json!({"action": "save"}), "state");
+    assert_eq!(json!("Shop"), state["breadcrumbs"][0]["name"]);
     resident.finish();
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -193,7 +198,10 @@ fn drill_in_enters_a_component_and_back_returns_to_the_namespace_tree() {
     let ids = classes(&frame);
     assert!(ids.contains(&":core.order".to_owned()), "{ids:?}");
     assert!(!ids.contains(&":api".to_owned()), "{ids:?}");
-    assert!(chrome_texts(&frame).contains(&"< 返回 · core".to_owned()));
+    // The return line left the frame (#46); the path it named is the state's.
+    assert_eq!(Vec::<String>::new(), chrome_kinds(&frame));
+    let state = resident.ask(9, json!({"action": "save"}), "state");
+    assert_eq!(json!("core"), state["breadcrumbs"][1]["name"]);
     let frame = resident.ask(3, json!({"action": "back"}), "frame");
     assert!(classes(&frame).contains(&":api".to_owned()));
     resident.finish();
@@ -210,6 +218,46 @@ fn centre_of(frame: &Value, id: &str) -> [f64; 2] {
     let r = &class["rect"];
     let n = |k: &str| r[k].as_f64().unwrap();
     [n("x") + n("w") / 2.0, n("y") + n("h") / 2.0]
+}
+
+#[test]
+fn the_declutter_action_sets_the_mode_the_panel_names() {
+    let dir = project("declutter mode");
+    let mut resident = opened(&dir);
+    // The More menu's Remove arrows toggle names the mode (#46): 移除箭头
+    // draws compact indicators instead of arrows, and `save` reports the mode.
+    let frame = resident.ask(
+        2,
+        json!({"action": "declutter", "mode": "triangles"}),
+        "frame",
+    );
+    let edges = frame["frame"]["edges"].as_array().unwrap();
+    assert!(!edges.is_empty(), "{frame}");
+    assert!(
+        edges.iter().all(|edge| edge["kind"] == "indicator"),
+        "移除箭头 draws indicators, not strokes: {edges:?}"
+    );
+    let saved = resident.ask(3, json!({"action": "save"}), "state");
+    assert_eq!(json!(":triangles"), saved["state"]["declutter"]);
+    // Naming the mode again is not a cycle: it stays where it was put.
+    let again = resident.ask(
+        4,
+        json!({"action": "declutter", "mode": "triangles"}),
+        "frame",
+    );
+    assert!(
+        again["frame"]["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|edge| edge["kind"] == "indicator")
+    );
+    // No mode still cycles, as the inspector's button did.
+    resident.ask(5, json!({"action": "declutter"}), "frame");
+    let cycled = resident.ask(6, json!({"action": "save"}), "state");
+    assert_eq!(json!(":elements"), cycled["state"]["declutter"]);
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -562,7 +610,7 @@ fn a_view_saved_before_any_display_reopens_waiting() {
 #[test]
 fn an_edited_diagram_hot_reloads_into_an_unprompted_frame() {
     let dir = project("reload");
-    let resident = opened(&dir);
+    let mut resident = opened(&dir);
     let text = std::fs::read_to_string(dir.join("diagram.edn"))
         .unwrap()
         .replace(":title \"Shop\"", ":title \"Shop v2\"");
@@ -576,7 +624,10 @@ fn an_edited_diagram_hot_reloads_into_an_unprompted_frame() {
         .unwrap();
     let frame = resident.expect("frame");
     assert_eq!(Value::Null, frame["seq"], "a reload answers no action");
-    assert!(chrome_texts(&frame).contains(&"Shop v2".to_owned()));
+    // The new title shows up in the top bar's path, not in frame chrome (#46).
+    assert_eq!(Vec::<String>::new(), chrome_kinds(&frame));
+    let state = resident.ask(9, json!({"action": "save"}), "state");
+    assert_eq!(json!("Shop v2"), state["breadcrumbs"][0]["name"]);
     resident.finish();
     let _ = std::fs::remove_dir_all(dir);
 }

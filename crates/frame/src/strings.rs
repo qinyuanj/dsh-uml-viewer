@@ -6,10 +6,11 @@
 //! The text the resident lays out for the panel (#44, ADR 0015) — the class
 //! card, the class box's 无数据 and the source error — comes in Chinese and
 //! English through [`Lang::text`]; any other language falls back to English.
-//! The remaining constants are the inspector's and the canvas chrome's, which
-//! the panel redesign removes; they stay Chinese until then. The window's
-//! glyph-coverage probe and F3 performance line left with the standalone
-//! window (dsh-uml-viewer#30).
+//! The remaining constants are the inspector's, which #47 removes; they stay
+//! Chinese until then. The canvas chrome (title, proposal banner, return line,
+//! status, hint) left with #46, whose text lives in the panel's locale files.
+//! The window's glyph-coverage probe and F3 performance line left with the
+//! standalone window (dsh-uml-viewer#30).
 
 /// The language the resident lays text out in. The panel passes the DSH
 /// language; only Chinese and English are shipped and the rest read English.
@@ -164,8 +165,6 @@ pub const PACKAGE_UNCOVERED: &str = "   %d uncovered";
 pub const NO_DATA: &str = ZH.no_data;
 pub const SELECT_CLASS: &str = "单击类或命名空间查看摘要；双击打开详情卡片。";
 pub const REGEN: &str = "重新生成 IR";
-pub const BACK: &str = "< 返回";
-pub const PROPOSAL_BANNER: &str = "提案（未在源码中实例化）";
 pub const PERFORMANCE: &str = "性能：%d FPS · 帧耗时 %.2f ms";
 pub const HELP: &str = "单击类或命名空间查看摘要。
 双击类打开详情卡片。
@@ -197,12 +196,4 @@ pub fn declutter_label(mode: &str) -> &'static str {
         .iter()
         .find(|(m, _)| *m == mode)
         .map_or(DECLUTTER, |(_, label)| label)
-}
-
-/// Empty canvas while a `--backend herdr` launch waits for mail (#139; the
-/// mailbox itself is #142).
-pub const WAITING_DISPLAY: &str = "等待 :display 命令加载图示…";
-/// The diagram file named on the command line does not exist.
-pub fn missing_file(path: &str) -> String {
-    format!("找不到 IR 文件：{path}")
 }

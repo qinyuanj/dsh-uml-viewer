@@ -1,25 +1,10 @@
 {
   "camera": {
     "x": -339.77047294391264,
-    "y": -132.0,
+    "y": -114.0,
     "zoom": 1.0
   },
-  "chrome": [
-    {
-      "at": [
-        12.0,
-        8.0
-      ],
-      "ink": {
-        "role": "accent"
-      },
-      "kind": "proposal-banner",
-      "plate": {
-        "role": "chrome-plate"
-      },
-      "text": "提案（未在源码中实例化） · 2026-10-24 10:00:00"
-    }
-  ],
+  "chrome": [],
   "edges": [
     {
       "dimmed": false,

@@ -227,28 +227,13 @@ export interface IndicatorEdge {
 
 export type FrameEdge = StrokeEdge | HeadEdge | IndicatorEdge
 
-export interface ChromeLine {
-  kind: 'title' | 'proposal-banner' | 'back'
-  text: string
-  at: FramePoint
-  ink: FrameColor
-  plate: FrameColor
-}
-
-export interface ChromeStatus {
-  kind: 'status'
-  text: string
-  at: FramePoint
-  ink: FrameColor
-  plate: null
-}
-
-export interface ChromeHint {
-  kind: 'hint'
-  text: string
-  ink: FrameColor
-}
-
+/**
+ * The frame's chrome, version 1 after #46: only the pointer's hover popup. The
+ * title, the proposal banner, the return line, the status line and the centred
+ * hint left the frame with ADR 0015 — the panel draws them as DOM (top bar,
+ * status bar) — so a frame that still carries one of those kinds is a broken
+ * resident, not a frame to draw.
+ */
 export interface ChromePopup {
   kind: 'popup'
   rect: FrameRect
@@ -257,7 +242,10 @@ export interface ChromePopup {
   rows: readonly { text: string; violating: boolean; ink: FrameColor }[]
 }
 
-export type ChromeItem = ChromeLine | ChromeStatus | ChromeHint | ChromePopup
+export type ChromeItem = ChromePopup
+
+/** The chrome kinds a frame may carry: the hover popup alone (#46). */
+export const CHROME_KINDS: readonly ChromeItem['kind'][] = ['popup']
 
 export interface FrameStyle {
   fonts: { canvas: number; level: number; marker: number; badge: number; port: number; chrome: number }
@@ -515,18 +503,7 @@ function edge(value: unknown, label: string): FrameEdge {
 function chrome(value: unknown, label: string): ChromeItem {
   const source = record(value, label)
   const kind = str(source.kind, `${label}.kind`)
-  const ink = () => color(source.ink, `${label}.ink`)
   switch (kind) {
-    case 'title':
-    case 'proposal-banner':
-    case 'back':
-      return { kind, text: str(source.text, `${label}.text`), at: point(source.at, `${label}.at`),
-        ink: ink(), plate: color(source.plate, `${label}.plate`) }
-    case 'status':
-      if (source.plate !== null && source.plate !== undefined) at(`${label}.plate`, 'must be null')
-      return { kind, text: str(source.text, `${label}.text`), at: point(source.at, `${label}.at`), ink: ink(), plate: null }
-    case 'hint':
-      return { kind, text: str(source.text, `${label}.text`), ink: ink() }
     case 'popup':
       return { kind, rect: rect(source.rect, `${label}.rect`), fill: color(source.fill, `${label}.fill`),
         border: color(source.border, `${label}.border`),
@@ -537,7 +514,9 @@ function chrome(value: unknown, label: string): ChromeItem {
             ink: color(entry.ink, `${label}.rows[${index}].ink`) }
         }) }
     default:
-      return { ...source, kind } as ChromeItem
+      // The five canvas kinds left the frame with #46; a frame that carries
+      // one is a resident the panel cannot draw, so say so instead of drawing it.
+      return at(`${label}.kind`, `unknown chrome kind ${JSON.stringify(kind)}; the hover popup is the only one`)
   }
 }
 

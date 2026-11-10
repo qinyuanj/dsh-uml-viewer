@@ -12,7 +12,9 @@ const waitingFrame = {
   waiting: true,
   world: [],
   edges: [],
-  chrome: [{ kind: 'hint', text: 'No diagram yet', ink: { role: 'muted' } }],
+  // Chrome left the frame with #46: the waiting canvas is empty, its status is
+  // the state event's code.
+  chrome: [],
 }
 
 function write(payload) {

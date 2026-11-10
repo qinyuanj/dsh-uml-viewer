@@ -54,7 +54,7 @@ fn with(extra: impl FnOnce(&mut Dims)) -> Dims {
 }
 
 #[test]
-fn enters_nested_namespaces_and_returns_with_back_escape_and_hotspot() {
+fn enters_nested_namespaces_and_returns_with_back_and_escape() {
     let mut s = tree();
     s.cam_x = 10.0;
     s.cam_y = 20.0;
@@ -72,7 +72,9 @@ fn enters_nested_namespaces_and_returns_with_back_escape_and_hotspot() {
         a.focus,
         events::on_key(&b, Some(&Value::String("escape".into())), &dims()).focus
     );
-    assert_eq!(Vec::<Value>::new(), events::on_press(&a, 20.0, 20.0).focus);
+    // The canvas has no back hotspot any more (#46): a press in the old
+    // 320x44 corner keeps the level; the top bar's crumbs and Escape go back.
+    assert_eq!(b.focus, events::on_press(&b, 20.0, 20.0).focus);
     assert_eq!(s.focus, events::back(&s).focus);
     assert_eq!(10.0, s.cam_x);
 }
@@ -290,7 +292,11 @@ fn opens_existing_proposal_packages_and_nested_groups_then_returns() {
         )
         .is_none()
     );
-    assert!(get(&events::on_press(&layer, 20.0, 20.0).extra, "open-layer").is_none());
+    // The old back hotspot is gone (#46): pressing there keeps the layer open.
+    assert_eq!(
+        Some(&kw("proposal.core")),
+        get(&events::on_press(&layer, 20.0, 20.0).extra, "open-layer")
+    );
     let real = events::show_proposal(&group, None);
     assert!(get(&real.extra, "proposal-id").is_none());
     assert_eq!(Some(&Value::Bool(false)), get(&real.extra, "proposal"));
@@ -315,6 +321,32 @@ fn opens_existing_proposal_packages_and_nested_groups_then_returns() {
         local_name(get(&c.extra, "declutter").unwrap())
             .unwrap_or_default()
             .to_owned()
+    );
+    // The More menu's Remove arrows toggle names the mode it wants (#46);
+    // an unknown mode leaves the view as it is.
+    assert_eq!(
+        "triangles",
+        local_name(
+            get(
+                &events::set_declutter(&s, &kw("triangles")).extra,
+                "declutter"
+            )
+            .unwrap()
+        )
+        .unwrap_or_default()
+        .to_owned()
+    );
+    assert_eq!(
+        "full",
+        local_name(get(&events::set_declutter(&s, &kw("full")).extra, "declutter").unwrap())
+            .unwrap_or_default()
+            .to_owned()
+    );
+    let unknown = events::set_declutter(&events::cycle_declutter(&s), &kw("sideways"));
+    assert_eq!(
+        Some(&kw("arrows")),
+        get(&unknown.extra, "declutter"),
+        "an unknown mode leaves the mode alone"
     );
 }
 
@@ -507,8 +539,9 @@ fn fits_the_whole_diagram_left_of_the_sidebar_with_control_zero() {
         &with(|d| d.control = true),
     );
     assert!((f.zoom - 0.5).abs() < 1e-12);
-    // The centre sits mid-way below the chrome inset: 36 + 864/2.
-    let (mx, my) = events::world_xy(&f, 610.0, 468.0);
+    // The canvas is the whole viewport (#46): the centre of the view is the
+    // centre of the scene, with no strip reserved for a title.
+    let (mx, my) = events::world_xy(&f, 610.0, 450.0);
     assert!((mx - 1220.0).abs() < 1e-9 && (my - 450.0).abs() < 1e-9);
     s.scene.assoc(
         Value::keyword("size"),
@@ -516,7 +549,7 @@ fn fits_the_whole_diagram_left_of_the_sidebar_with_control_zero() {
     );
     let small = events::fit(&s, &dims());
     assert!((small.zoom - 1.0).abs() < 1e-12);
-    let (sx, sy) = events::world_xy(&small, 610.0, 468.0);
+    let (sx, sy) = events::world_xy(&small, 610.0, 450.0);
     assert!((sx - 100.0).abs() < 1e-9 && (sy - 100.0).abs() < 1e-9);
 }
 
@@ -692,16 +725,24 @@ fn search_results_refresh_on_document_replacement_and_stale_targets_are_rejected
 }
 
 #[test]
-fn fit_keeps_the_scene_below_the_chrome_line() {
+fn fit_centres_the_scene_in_the_whole_canvas() {
     let mut s = tree();
     s.scene.assoc(
         Value::keyword("size"),
         parse("{:w 2440 :h 1800 :min-x 0 :min-y 0}").unwrap(),
     );
-    let f = events::fit(&s, &dims());
-    // The scene top sits at or below the screen inset the scope line uses.
-    let (_, top) = events::world_xy(&f, 0.0, events::CHROME_INSET);
-    assert!(top <= 1e-9, "scene top drawn above the chrome inset: {top}");
+    let dims = dims();
+    let f = events::fit(&s, &dims);
+    // The frame's title and scope line live in the panel's DOM now (#46), so
+    // fit uses the viewport's full height: the scene is centred, not pushed
+    // below a chrome strip, and the bottom still fits.
+    let (_, top) = events::world_xy(&f, 0.0, 0.0);
+    // `Dims::vh`: no view height in this test, so the window's 900 points.
     let (_, bottom) = events::world_xy(&f, 0.0, 900.0);
+    assert!(
+        (top + bottom - 1800.0).abs() <= 1e-6,
+        "scene not centred: {top}..{bottom}"
+    );
+    assert!(top <= 1e-9, "scene top cut off: {top}");
     assert!(bottom >= 1800.0 - 1e-9, "scene bottom cut off: {bottom}");
 }

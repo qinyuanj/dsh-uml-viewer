@@ -268,13 +268,14 @@ describe('foreign-package ellipses', () => {
     const frame = golden('root.frame.json')
     const item = find(frame, i => i.kind === 'class' && i.shape === 'oval', 'oval')
     const [fill, stroke] = painted(paintAlone(frame, item))
-    // rect (168,916,80,44): centre (601.6535, 818.8976), radii (33.3858, 18.3622).
+    // rect (168,916,80,44) at the golden's own fit (#46: zoom 106/122,
+    // camera -483.0859728506787,0): centre (601.2992, 816.1339), radii (34.8031, 19.1417).
     for (const p of [fill!, stroke!]) {
       const e = p.path.find(op => op.op === 'ellipse')!
-      expect(e.args![0]).toBeCloseTo(601.6535433070867, 9)
-      expect(e.args![1]).toBeCloseTo(818.8976377952756, 9)
-      expect(e.args![2]).toBeCloseTo(33.38582677165354, 9)
-      expect(e.args![3]).toBeCloseTo(18.362204724409448, 9)
+      expect(e.args![0]).toBeCloseTo(601.2992125984251, 9)
+      expect(e.args![1]).toBeCloseTo(816.1338582677165, 9)
+      expect(e.args![2]).toBeCloseTo(34.803149606299215, 9)
+      expect(e.args![3]).toBeCloseTo(19.141732283464567, 9)
     }
     expect(fill!.op.fillStyle).toBe('#472c18')
     // egui draws the oval branch before the missing check: never dashed.

@@ -223,6 +223,18 @@ pub fn cycle_declutter(s: &ViewState) -> ViewState {
     rebuild(n)
 }
 
+/// Set the declutter mode directly (#46): the panel's More menu names the mode
+/// its Remove arrows toggle wants instead of cycling to it. An unknown mode
+/// leaves the view as it is.
+pub fn set_declutter(s: &ViewState, mode: &Value) -> ViewState {
+    if !H::declutter_modes().iter().any(|known| known == mode) {
+        return s.clone();
+    }
+    let mut n = s.clone();
+    n.extra.assoc(Value::keyword("declutter"), mode.clone());
+    rebuild(n)
+}
+
 /// Enter a namespace, a proposal package or a nested proposal group.
 pub fn drill(s: &ViewState, id: &Value) -> ViewState {
     let mut n = s.clone();
@@ -568,11 +580,10 @@ fn anchor(dims: &Dims, s: &ViewState) -> (f64, f64) {
     (dims.vw() / 2.0, dims.vh() / 2.0)
 }
 
-/// Screen points at the top of the canvas kept for the title or scope line.
-pub const CHROME_INSET: f64 = 36.0;
-
-/// Fit the whole scene into the usable canvas, centred; small diagrams stay
-/// at 100% instead of being magnified.
+/// Fit the whole scene into the canvas, centred; small diagrams stay at 100%
+/// instead of being magnified. The canvas is the frame's whole viewport: the
+/// title and the scope line left the scene for the panel's top bar (#46, ADR
+/// 0015), so nothing reserves height any more.
 pub fn fit(s: &ViewState, dims: &Dims) -> ViewState {
     let mut n = s.clone();
     n.fit_pending = false;
@@ -598,12 +609,10 @@ pub fn fit(s: &ViewState, dims: &Dims) -> ViewState {
         - y0)
         .max(1.0);
     let vw = dims.vw();
-    let vh = dims.vh();
-    // The scope line owns the top strip: the scene centres below it.
-    let usable = (vh - CHROME_INSET).max(1.0);
-    n.zoom = clamp_zoom((vw / w).min(usable / h).min(1.0));
+    let vh = dims.vh().max(1.0);
+    n.zoom = clamp_zoom((vw / w).min(vh / h).min(1.0));
     n.cam_x = x0 + w / 2.0 - vw / (2.0 * n.zoom);
-    n.cam_y = y0 + h / 2.0 - usable / (2.0 * n.zoom) - CHROME_INSET / n.zoom;
+    n.cam_y = y0 + h / 2.0 - vh / (2.0 * n.zoom);
     n
 }
 
@@ -812,15 +821,7 @@ pub fn on_leave(s: &ViewState) -> ViewState {
     n
 }
 
-fn on_back_hotspot(s: &ViewState, x: f64, y: f64) -> bool {
-    let layer = get(&s.extra, "open-layer").is_some_and(|l| !matches!(l, Value::Nil));
-    (layer || !s.focus.is_empty()) && y < 44.0 && x < 320.0
-}
-
 pub fn on_press(s: &ViewState, x: f64, y: f64) -> ViewState {
-    if on_back_hotspot(s, x, y) {
-        return back(s);
-    }
     let (wx, wy) = world_xy(s, x, y);
     let hit_value = hit::at(&s.scene, wx, wy);
     match hit_value
@@ -837,9 +838,6 @@ pub fn on_press(s: &ViewState, x: f64, y: f64) -> ViewState {
 /// Left-button lifecycle: a press on a class/child/port/triangle clicks;
 /// elsewhere it arms a pan drag past the threshold.
 pub fn on_left_press(s: &ViewState, x: f64, y: f64) -> ViewState {
-    if on_back_hotspot(s, x, y) {
-        return back(s);
-    }
     let (wx, wy) = world_xy(s, x, y);
     let hit_value = hit::at(&s.scene, wx, wy);
     let grabs = matches!(
@@ -897,9 +895,6 @@ pub fn on_release(s: &ViewState, _x: f64, _y: f64) -> ViewState {
 }
 
 pub fn on_double_press(s: &ViewState, x: f64, y: f64) -> ViewState {
-    if on_back_hotspot(s, x, y) {
-        return back(s);
-    }
     let (wx, wy) = world_xy(s, x, y);
     let hit_value = hit::at(&s.scene, wx, wy);
     if let Some(layer) = layer_id(hit_value.as_ref()) {

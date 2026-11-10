@@ -119,7 +119,8 @@ describe('panel Remote descriptors', () => {
       { action: 'camera', x: 1, y: 2, zoom: 0.5 },
       { action: 'display', path: 'diagram.edn' },
       { action: 'reload' }, { action: 'back' }, { action: 'back', target: ':core' }, { action: 'back', target: null },
-      { action: 'namespace-tree' }, { action: 'declutter' }, { action: 'save' },
+      { action: 'namespace-tree' }, { action: 'declutter' }, { action: 'declutter', mode: 'triangles' },
+      { action: 'declutter', mode: 'full' }, { action: 'save' },
       { action: 'drill-in', id: ':core' }, { action: 'drill-in', at: [1, 2] },
       { action: 'select', at: null }, { action: 'select', at: [3, 4] },
       { action: 'search', query: 'graph' }, { action: 'locate', id: ':ir.graph' },
@@ -136,6 +137,10 @@ describe('panel Remote descriptors', () => {
     expect(() => parsePanelAction({ action: 'back', target: {} })).toThrow(/target/)
     expect(() => parsePanelAction({ action: 'language' })).toThrow(/language/)
     expect(() => parsePanelAction({ action: 'language', language: 'en\n' })).toThrow(/language/)
+    // The More menu names a declutter mode (#46); a mode the resident does not
+    // know is a broken panel, not a request to send.
+    expect(() => parsePanelAction({ action: 'declutter', mode: 'sideways' })).toThrow(/declutter mode/)
+    expect(() => parsePanelAction({ action: 'declutter', mode: 3 })).toThrow(/mode/)
   })
 
   it('names the packaged Sarasa face the client loads', () => {

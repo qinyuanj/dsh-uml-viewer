@@ -33,11 +33,23 @@ export type PanelEvent =
   | { kind: 'refused'; reason: string }
   | { kind: 'failed'; reason: string }
 
+/**
+ * The declutter modes the resident knows (#46), from `scene::hierarchy`. The
+ * More menu names one instead of cycling to it.
+ */
+export type DeclutterMode = 'full' | 'arrows' | 'triangles' | 'elements' | 'classes'
+
+/** Every declutter mode, in the resident's cycle order. */
+export const DECLUTTER_MODES: readonly DeclutterMode[] = ['full', 'arrows', 'triangles', 'elements', 'classes']
+
 export type PanelAction =
   | { action: 'viewport'; viewport: { width: number; height: number } }
   | { action: 'camera'; x: number; y: number; zoom: number }
   | { action: 'display'; path?: string }
-  | { action: 'reload' } | { action: 'namespace-tree' } | { action: 'declutter' } | { action: 'save' }
+  | { action: 'reload' } | { action: 'namespace-tree' } | { action: 'save' }
+  // #46: the More menu's Remove arrows toggle names the declutter mode it
+  // wants; no mode cycles as the inspector's button did.
+  | { action: 'declutter'; mode?: DeclutterMode }
   // #45: a breadcrumb click names the level to return to; no target is one
   // level up, and `null` is the source diagram's root.
   | { action: 'back'; target?: string | null }
@@ -252,8 +264,14 @@ export function parsePanelAction(value: unknown, label = 'panel action'): PanelA
         const path = source.path === undefined ? undefined : normalizeRelativePath('path', source.path)
         return path === undefined ? { action } : { action, path }
       }
-      case 'reload': case 'namespace-tree': case 'declutter': case 'save':
+      case 'reload': case 'namespace-tree': case 'save':
         return { action }
+      case 'declutter': {
+        if (source.mode === undefined || source.mode === null) return { action }
+        const mode = str(source.mode, `${label}.mode`)
+        if (!(DECLUTTER_MODES as readonly string[]).includes(mode)) at(`${label}.mode`, `unknown declutter mode ${JSON.stringify(mode)}`)
+        return { action, mode: mode as DeclutterMode }
+      }
       case 'back': {
         const target = source.target === undefined ? undefined
           : source.target === null ? null : str(source.target, `${label}.target`)
