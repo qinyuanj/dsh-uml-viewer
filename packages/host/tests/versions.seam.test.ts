@@ -216,11 +216,8 @@ async function clientPlugin(h: Awaited<ReturnType<typeof host>>, session: string
 async function mountedPanel(h: Awaited<ReturnType<typeof host>>, session: string, doc: ReturnType<typeof makeDocument>,
   tab?: { ctx: ClientContext; tabId: string }) {
   const { project, agent } = await h.preparePanel(session)
-  // The real overlay controller asks for the inspector; give the fixture a valid model.
-  await writeFile(path.join(project, 'resident.json'), JSON.stringify({ framePath: goldenFrame, inspector: {
-    entries: [{ id: null, label: 'Shop', active: true }], summary: { kind: 'class', lines: [] },
-    declutterLabel: 'none', detail: null, selected: null, labels: { inspector: 'Inspector', proposals: 'Proposals', pHint: 'P' },
-  } }))
+  // The real overlay controller asks for the card; with none open the fixture answers null.
+  await writeFile(path.join(project, 'resident.json'), JSON.stringify({ framePath: goldenFrame }))
   const viewer = h.ctx.get('umlViewer') as unknown as ViewerService
   const api = {
     watchOwned(_sessionId: string, owner: PanelOwner, language?: string) {

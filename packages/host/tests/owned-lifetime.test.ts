@@ -127,7 +127,7 @@ it('a late action from a withdrawn panel neither stops the resident nor cancels 
   await stream.return!()
   expect(h.pool.graces.size).toBe(1)
   await h.viewer.action(h.agent, { action: 'save' })
-  await h.viewer.action(h.agent, { action: 'inspector' })
+  await h.viewer.action(h.agent, { action: 'card' })
   expect(h.requests).not.toContain('quit')
   expect(h.pool.connections.get('session')).toBe(h.connection)
   expect(h.connection.refs).toBe(0)

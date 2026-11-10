@@ -17,16 +17,17 @@ export function panelEvent(event: ResidentEvent): PanelEvent | null {
     case 'context':
       return { kind: 'context', context: event.context }
     case 'state':
-      // #45: the breadcrumb path and the localized status code ride along;
-      // the persisted session state is passed through untouched.
-      return { kind: 'state', state: event.state, breadcrumbs: event.breadcrumbs, status: event.status }
+      // #45: the breadcrumb path and the localized status code ride along,
+      // #47: so does the switcher's proposal list; the persisted session state
+      // is passed through untouched.
+      return { kind: 'state', state: event.state, breadcrumbs: event.breadcrumbs, status: event.status,
+        proposals: event.proposals }
     case 'search':
       return { kind: 'search', query: event.query, results: event.results }
-    // #27: inspector/card/source are answers to one panel's action and travel
+    // #27: card/source are answers to one panel's action and travel
     // on that action's ack, never into every watching panel's stream. #28's
     // quality-target is the same kind of private answer: the host asked for it
     // through a quiet request and queues the message itself.
-    case 'inspector':
     case 'card':
     case 'source':
     case 'quality-target':
@@ -146,8 +147,7 @@ export class ViewerService {
       if (event.event === 'error') return { accepted: false, reason: event.message }
       const ack: PanelAck = { accepted: true, reason: null }
       // The overlay models ride on the ack of the action that asked for them.
-      if (event.event === 'inspector') ack.inspector = event.inspector
-      else if (event.event === 'card') ack.card = event.card
+      if (event.event === 'card') ack.card = event.card
       else if (event.event === 'source') ack.source = event.source
       return ack
     } catch (error) {
