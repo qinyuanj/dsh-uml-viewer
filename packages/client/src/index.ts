@@ -301,7 +301,12 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   }
   topBar = mountTopBar(host, { controller, text, onDone: focusCanvas, context: switcherActions })
   host.appendChild(canvasArea)
-  statusBar = mountStatusBar(host, { text })
+  statusBar = mountStatusBar(host, {
+    text,
+    // #53: dismissing a finished request is the host's list; every panel of
+    // this session sees the new one when it is pushed back.
+    onDismiss: id => { void controller.send({ action: 'dismiss-request', id }) },
+  })
   const disposeQualityMenu = mountQualityMenu(host, canvas, {
     frame: () => controller.current.frame,
     send: action => controller.send(action),

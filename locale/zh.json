@@ -84,6 +84,10 @@
     "request.line": "{op} {target}：{state}",
     "request.line.untargeted": "{op}：{state}",
     "request.failure": "{line}——{reason}",
-    "request.failure.exitCode": "{line}——{reason}（退出码 {code}）"
+    "request.failure.exitCode": "{line}——{reason}（退出码 {code}）",
+    "request.more": "还有 {count} 条",
+    "request.more.label": "查看其余 {count} 条请求",
+    "request.queue": "请求队列",
+    "request.dismiss": "消除：{line}"
   }
 }

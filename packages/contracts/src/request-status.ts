@@ -53,6 +53,20 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], label: s
 }
 
 /**
+ * Validate a request-status id: what an entry carries and what a dismissal
+ * (#53) names.
+ * @param value the id.
+ * @param label the field name used in failure messages.
+ * @returns the same id.
+ */
+export function parseRequestStatusId(value: unknown, label = 'request id'): string {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value)) {
+    fail(label, 'must be 1–128 ASCII letters, digits, underscores or hyphens')
+  }
+  return value
+}
+
+/**
  * Validate one entry.
  * @param value the entry.
  * @param label the field name used in failure messages.
@@ -61,9 +75,7 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], label: s
 export function validateRequestStatusEntry(value: unknown, label = 'request status'): RequestStatusEntry {
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail(label, 'must be an object')
   const source = value as Record<string, unknown>
-  if (typeof source.id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(source.id)) {
-    fail(`${label}.id`, 'must be 1–128 ASCII letters, digits, underscores or hyphens')
-  }
+  const id = parseRequestStatusId(source.id, `${label}.id`)
   const op = oneOf(source.op, REQUEST_OPS, `${label}.op`)
   const target = parseElementTarget(source.target ?? null, `${label}.target`)
   const state = oneOf(source.state, REQUEST_STATES, `${label}.state`)
@@ -75,7 +87,7 @@ export function validateRequestStatusEntry(value: unknown, label = 'request stat
   if (exitCode !== null && (typeof exitCode !== 'number' || !Number.isInteger(exitCode))) {
     fail(`${label}.exitCode`, 'must be an integer or null')
   }
-  return { id: source.id, op, target, state, reason, exitCode }
+  return { id, op, target, state, reason, exitCode }
 }
 
 /**

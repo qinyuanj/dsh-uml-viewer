@@ -170,6 +170,15 @@ export class ViewerService {
         if (request.action === 'context') return await this.requests.context(agent, request.proposalId)
         throw new Error('view request expected')
       }
+      // #53: dismissing a finished request is the host's own list; it never
+      // reaches the resident. Every panel of the session gets the new list.
+      if (action.action === 'dismiss-request') {
+        const request = parsePanelAction(action)
+        if (request.action !== 'dismiss-request') throw new Error('dismiss-request expected')
+        return this.statuses.dismiss(agent.session.id, request.id)
+          ? { accepted: true, reason: null }
+          : { accepted: false, reason: `no finished request ${request.id} in this session` }
+      }
       const { event } = await this.sessions.refresh(agent, signal ?? new AbortController().signal, action as unknown as { action: string })
       if (event.event === 'error') return { accepted: false, reason: event.message }
       const ack: PanelAck = { accepted: true, reason: null }

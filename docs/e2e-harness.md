@@ -58,6 +58,15 @@ dependency tooltip rows, and the overview class-name popup clearing on leave.
 The producer oracle accepts `hover`, `pointer` and `--hover-metadata`, so tooltip
 expectations come from Rust; no frames are injected.
 
+`queue.spec.mjs` (#53) drives the request queue in the status bar: three
+admitted refreshes show the current entry and 「还有 N 条」, the button opens
+the queue in list order, a refused refresh stays as a failed entry past the
+ten-second fade, and its dismissal shrinks the list, adds no message to the
+conversation and survives a page refresh (the host dropped the entry). Its
+scripted companion only acknowledges, so every admitted request stays queued;
+the completed fade needs the transitions of #52 and is covered in
+`packages/client/tests/statusbar.test.ts`.
+
 `toolviews.spec.mjs` covers the conversation side (#54): a finished turn keeps
 its steps collapsed, so the spec opens the turn and its tool group the way a
 user does, then reads the quality rows (validity, the refusal's reason, the

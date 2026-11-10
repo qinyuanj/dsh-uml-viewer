@@ -84,6 +84,10 @@
     "request.line": "{op} {target}: {state}",
     "request.line.untargeted": "{op}: {state}",
     "request.failure": "{line} — {reason}",
-    "request.failure.exitCode": "{line} — {reason} (exit code {code})"
+    "request.failure.exitCode": "{line} — {reason} (exit code {code})",
+    "request.more": "{count} more",
+    "request.more.label": "Show the other {count} requests",
+    "request.queue": "Request queue",
+    "request.dismiss": "Dismiss {line}"
   }
 }
