@@ -6,7 +6,7 @@ use crate::geom;
 use crate::hierarchy as H;
 use crate::hit;
 use edn::Value;
-use edn::record::{drop_keys, get, local_name, name, num};
+use edn::record::{drop_keys, flag, get, local_name, name, num, seq};
 
 /// Canvas geometry for camera math: window size, usable view width and the
 /// optional pointer/control/shift modifiers.
@@ -262,6 +262,247 @@ pub fn back(s: &ViewState) -> ViewState {
         n.focus = s.focus[..s.focus.len() - 1].to_vec();
     }
     navigate(n)
+}
+
+/// One level of the current tree path: the tree root first, the component the
+/// view shows last. The panel draws them as its breadcrumbs (#45).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Crumb {
+    /// The component this level shows; `None` is the source diagram's root,
+    /// which is the whole project.
+    pub id: Option<Value>,
+    /// The level's name, as the tree shows it.
+    pub name: String,
+    /// What the level's view is; how returning to it is applied.
+    pub view: CrumbView,
+}
+
+/// The navigation state one breadcrumb level restores.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CrumbView {
+    /// The source namespace tree, `depth` segments into the focus.
+    Source { depth: usize },
+    /// The proposal view with this layer open (`None` is its root).
+    Proposal { layer: Option<Value> },
+}
+
+/// The path from the tree root to the current component, in the same branch
+/// [`document::compile_view`] renders. Empty before a diagram is loaded.
+pub fn breadcrumbs(s: &ViewState) -> Vec<Crumb> {
+    let Some(doc) = &s.document else {
+        return Vec::new();
+    };
+    let root = Crumb {
+        id: None,
+        name: document_title(doc),
+        view: CrumbView::Source { depth: 0 },
+    };
+    if !flag(doc, "hierarchical") {
+        return vec![root];
+    }
+    let proposals = H::named_proposals(doc);
+    let pid = document::active_proposal_id(&proposals, &s.extra);
+    let layer = get(&s.extra, "open-layer")
+        .filter(|l| !matches!(l, Value::Nil))
+        .cloned();
+    if let Some(pid) = pid.filter(|_| s.focus.is_empty()) {
+        if let Some(layer) = layer {
+            return proposal_path(s, doc, &proposals, &pid, &layer);
+        }
+        if !proposals.is_empty() {
+            return vec![proposal_level(&proposals, &pid)];
+        }
+    }
+    let mut out = vec![root];
+    let mut path = String::new();
+    for (i, segment) in s.focus.iter().enumerate() {
+        let segment = name(segment);
+        if path.is_empty() {
+            path.clone_from(&segment);
+        } else {
+            path.push('.');
+            path.push_str(&segment);
+        }
+        out.push(Crumb {
+            id: Some(Value::keyword(&path)),
+            name: segment,
+            view: CrumbView::Source { depth: i + 1 },
+        });
+    }
+    out
+}
+
+/// Return to the level `target` names — a breadcrumb id, or `None` for the
+/// source diagram's root. `None` when the current path carries no such level;
+/// the level already shown is not a move.
+pub fn back_to(s: &ViewState, target: Option<&Value>) -> Option<ViewState> {
+    let crumbs = breadcrumbs(s);
+    let index = crumbs
+        .iter()
+        .position(|crumb| crumb.id.as_ref() == target)?;
+    if index + 1 == crumbs.len() {
+        return Some(s.clone());
+    }
+    let mut n = s.clone();
+    match &crumbs[index].view {
+        CrumbView::Source { depth } => {
+            n.focus = s.focus[..(*depth).min(s.focus.len())].to_vec();
+            n.extra = drop_keys(&n.extra, &["open-layer"]);
+        }
+        CrumbView::Proposal { layer } => {
+            n.focus = Vec::new();
+            n.extra = match layer {
+                Some(layer) => {
+                    let mut extra = n.extra.clone();
+                    extra.assoc(Value::keyword("open-layer"), layer.clone());
+                    extra
+                }
+                None => drop_keys(&n.extra, &["open-layer"]),
+            };
+        }
+    }
+    Some(navigate(n))
+}
+
+fn document_title(doc: &Value) -> String {
+    match get(doc, "title") {
+        Some(Value::String(title)) => title.clone(),
+        Some(other) => name(other),
+        None => "UML".to_owned(),
+    }
+}
+
+/// The proposal view itself: the tree root of a discussion in a proposal.
+fn proposal_level(proposals: &[Value], pid: &Value) -> Crumb {
+    let named = proposals.iter().find(|p| get(p, "id") == Some(pid));
+    Crumb {
+        id: Some(pid.clone()),
+        name: named.map_or_else(|| name(pid), proposal_name),
+        view: CrumbView::Proposal { layer: None },
+    }
+}
+
+fn proposal_name(proposal: &Value) -> String {
+    match get(proposal, "name") {
+        Some(Value::String(text)) if !text.is_empty() => text.clone(),
+        Some(other) => name(other),
+        None => get(proposal, "id").map_or_else(String::new, name),
+    }
+}
+
+/// A layer's box id in the proposal view: `:proposal.<layer>`.
+fn layer_box_id(layer: &Value) -> Value {
+    Value::keyword(&format!(
+        "proposal.{}",
+        local_name(get(layer, "id").unwrap_or(&Value::Nil)).unwrap_or_default()
+    ))
+}
+
+fn layer_crumb(layer: &Value) -> Crumb {
+    let id = layer_box_id(layer);
+    Crumb {
+        id: Some(id.clone()),
+        name: declared_name(layer),
+        view: CrumbView::Proposal { layer: Some(id) },
+    }
+}
+
+/// A layer's or a nested group's name: its declared label, else its id.
+fn declared_name(node: &Value) -> String {
+    match get(node, "label") {
+        Some(Value::String(text)) if !text.is_empty() => text.clone(),
+        Some(other) => name(other),
+        None => local_name(get(node, "id").unwrap_or(&Value::Nil))
+            .unwrap_or_default()
+            .to_owned(),
+    }
+}
+
+/// The path from the tree root through the proposal's layers to the open
+/// layer: a declared layer package, or a nested group below one.
+fn proposal_path(
+    s: &ViewState,
+    doc: &Value,
+    proposals: &[Value],
+    pid: &Value,
+    layer: &Value,
+) -> Vec<Crumb> {
+    let root = proposal_level(proposals, pid);
+    let Some(proposal) = H::chosen(doc, Some(pid)).0 else {
+        return vec![root];
+    };
+    let layers = seq(get(&proposal, "layers")).to_vec();
+    // A nested group keeps every level above it.
+    for declared in &layers {
+        if let Some(path) = group_path(get(declared, "nses"), layer) {
+            let mut out = vec![root, layer_crumb(declared)];
+            for group in path {
+                let id = get(&group, "id").cloned();
+                out.push(Crumb {
+                    id: id.clone(),
+                    name: declared_name(&group),
+                    view: CrumbView::Proposal { layer: id },
+                });
+            }
+            return out;
+        }
+    }
+    let open = local_name(layer).unwrap_or_default().to_owned();
+    if let Some(declared) = layers
+        .iter()
+        .find(|declared| local_name(&layer_box_id(declared)) == Some(open.as_str()))
+    {
+        return vec![root, layer_crumb(declared)];
+    }
+    // A package the proposal view generates (`:proposal.unassigned`) is a
+    // level too, and the canvas is what names it. A layer the document no
+    // longer declares is not: the canvas falls back to the proposal root, so
+    // the path stops there instead of naming a level nothing shows.
+    match open_layer_name(&s.scene, layer) {
+        Some(name) => vec![
+            root,
+            Crumb {
+                id: Some(layer.clone()),
+                name,
+                view: CrumbView::Proposal {
+                    layer: Some(layer.clone()),
+                },
+            },
+        ],
+        None => vec![root],
+    }
+}
+
+/// The name the scene gives the open proposal layer's package, if it shows it.
+fn open_layer_name(scene: &Value, layer: &Value) -> Option<String> {
+    seq(get(scene, "packages"))
+        .iter()
+        .find(|package| get(package, "id") == Some(layer))
+        .and_then(|package| match get(package, "label") {
+            Some(Value::String(text)) => Some(text.clone()),
+            _ => None,
+        })
+}
+
+/// The declared groups from the outermost one containing `target` down to it.
+fn group_path(nses: Option<&Value>, target: &Value) -> Option<Vec<Value>> {
+    for node in seq(nses) {
+        if !matches!(node, Value::Map(_)) {
+            continue;
+        }
+        if same_id(get(node, "id"), target) {
+            return Some(vec![node.clone()]);
+        }
+        if let Some(mut below) = group_path(get(node, "nses"), target) {
+            below.insert(0, node.clone());
+            return Some(below);
+        }
+    }
+    None
+}
+
+fn same_id(candidate: Option<&Value>, want: &Value) -> bool {
+    candidate.and_then(local_name) == local_name(want)
 }
 
 pub fn zoom_of(s: &ViewState) -> f64 {
@@ -854,3 +1095,6 @@ pub fn close_detail(s: &ViewState) -> ViewState {
     n.detail_id = None;
     n
 }
+
+#[cfg(test)]
+mod tests;
