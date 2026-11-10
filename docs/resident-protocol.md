@@ -392,7 +392,7 @@ the host also compares `loadedDiagram` with the current file bytes.
 | `loadedDiagram` | `{version: 1, sha256: string}` \| null \| absent | additive fingerprint metadata: lowercase SHA-256 of the exact UTF-8 buffer accepted by the resident parser; `null` before any display, absent from older residents |
 | `context` | object \| null | the [discussion context](#discussion-context) |
 | `focus` | string[] | the namespace path drilled into (EDN keywords) |
-| `proposalId` | string \| null | the proposal shown (EDN) |
+| `proposalId` | string \| null | the proposal shown (EDN): set exactly while the canvas shows a proposal layer and dropped when the view returns to the source tree (`namespace-tree`). The panel reads it as the view summary's flag (#46), so a proposal that is displayed from a source discussion reads as a proposal view until **P**. |
 | `openLayer` | string \| null | the open proposal layer (EDN) |
 | `declutter` | string \| null | the arrow mode (EDN keyword) |
 | `camera` | `{x, y, zoom}` | as in the scene frame |
