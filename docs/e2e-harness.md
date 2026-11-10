@@ -552,7 +552,10 @@ project data before either install or plugin load. It returns:
 
 `panel.before` is the summary text after display; use it to assert that another
 session was untouched. Add new assertions to `*.spec.mjs`; set
-`UML_VIEWER_E2E_SCRATCH` for an alternate scratch root. Failure captures land in
+`UML_VIEWER_E2E_SCRATCH` for an alternate scratch root. On a host with a flaky
+registry, set `UML_VIEWER_E2E_COREPACK_SEED` to a known-good Corepack home (for
+example `~/.cache/node/corepack`); each lane copies it into its fresh
+`COREPACK_HOME` before the plugin install. Failure captures land in
 the run home (`<project>-failure.txt` and `.png`), and the Playwright trace in
 `.scratch/e2e/results/`.
 
