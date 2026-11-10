@@ -363,6 +363,20 @@ typed Remote, `prompt.ts` the companion prompt section that lives exactly as
 long as that session's panel stream, and `state.ts` the persisted per-session
 view state under the plugin home.
 
+## Panel language (#42, ADR 0015)
+
+Every DOM label and accessible name in the panel comes from the `panel` section
+of `locale/en.json` and `locale/zh.json`; no client source hard-codes them.
+`packages/client/src/locale.ts` reads the active language from DSH's
+`ctx.locale` (`getLocale().active`): any `zh-*` id is Chinese, every other id
+falls back to English. A switch relabels the open panel in place through
+`PanelText.subscribe`; the tab is not reopened. New DOM text adds one key to
+both files (a unit test keeps their key sets and `{placeholders}` equal), reads
+it with `text.t(key, params)` and relabels on `subscribe`. Chinese copy uses
+the GLOSSARY's interface terms (源码图, 提案, 隐藏, 类卡片, 源码窗口). Text the
+resident lays out (card rows, 「无数据」, hover rows) is chosen by the Rust
+string tables instead (#44).
+
 ## Manifests and verification
 
 DSH reads `package.json`'s `dsh.bundle.patch`, runtime export and `engines.dsh`.

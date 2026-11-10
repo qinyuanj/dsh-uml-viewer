@@ -10,7 +10,7 @@ let lane
 test.beforeAll(async ({ browser }) => { lane = await launchViewerLane(browser) })
 test.afterAll(async () => { await lane?.close() })
 
-const card = panel => panel.panel.getByRole('dialog', { name: '类卡片 Catalog', exact: true })
+const card = panel => panel.panel.getByRole('dialog', { name: 'Class card Catalog', exact: true })
 const sources = panel => panel.panel.locator('.dsh-uml-source[role="dialog"]')
 
 async function openCatalog(panel) {
@@ -76,7 +76,7 @@ test('inspector follows class selection, switches proposal, and P returns to the
   await expect(summary).toHaveAttribute('data-summary-kind', 'class')
   await expect(summary).toContainText('Catalog')
   await expect(summary).toContainText('无数据')
-  await card(panel).getByRole('button', { name: '关闭类卡片' }).click()
+  await card(panel).getByRole('button', { name: 'Close class card' }).click()
   await expect(card(panel)).toHaveCount(0)
 
   const proposal = inspector.getByRole('button', { name: 'Inspector proposal', exact: true })
@@ -140,7 +140,7 @@ test('class card wheel steps clamp at both ends, keep inspector visible, and res
   await lane.screenshot(panel, 't27-card')
   expect(wide.width).toBeGreaterThan(narrowWidth)
   if (wide.width >= 560) expect(wide.horizontal).toBe(0)
-  await dialog.getByRole('button', { name: '关闭类卡片' }).click()
+  await dialog.getByRole('button', { name: 'Close class card' }).click()
   await expect(dialog).toHaveCount(0)
   expect(panel.problems).toEqual([])
 })
@@ -152,7 +152,7 @@ test('module source, exact member line, native copy, same-file reuse and indepen
   await dialog.locator('[data-card-module]').click()
   await expect(sources(panel)).toHaveCount(1)
   const source = sources(panel).first()
-  await expect(source).toHaveAttribute('aria-label', /源码窗口 .*catalog\.ts$/)
+  await expect(source).toHaveAttribute('aria-label', /Source window .*catalog\.ts$/)
   // The whole 84-line model fits inside one bounded DOM window (overscan included).
   await expect(source.locator('.dsh-uml-source-scroll')).toHaveAttribute('data-source-rows', '84')
   await expect(source.locator('[data-source-line]')).toHaveCount(84)
@@ -190,19 +190,19 @@ test('module source, exact member line, native copy, same-file reuse and indepen
 
   // The relationship row performs resident Locate and opens the other card.
   await clickRow(dialog.locator('[data-rel=":companion"]').first())
-  const otherCard = panel.panel.getByRole('dialog', { name: '类卡片 Companion', exact: true })
+  const otherCard = panel.panel.getByRole('dialog', { name: 'Class card Companion', exact: true })
   await expect(otherCard).toBeVisible()
   await clickRow(otherCard.locator('[data-card-module]'))
   await expect(sources(panel)).toHaveCount(2)
   await lane.screenshot(panel, 't27-source-windows')
   const second = sources(panel).filter({ has: panel.page.locator('[data-source-line="1"] code', { hasText: 'second file' }) })
   await expect(second).toHaveAttribute('aria-label', /companion\.ts$/)
-  await second.getByRole('button', { name: '关闭源码窗口' }).click()
+  await second.getByRole('button', { name: 'Close source window' }).click()
   await expect(sources(panel)).toHaveCount(1)
   await expect(sources(panel).first().locator(`[data-source-line="${TARGET_LINE}"][data-marked=true]`)).toBeInViewport()
-  await sources(panel).first().getByRole('button', { name: '关闭源码窗口' }).click()
+  await sources(panel).first().getByRole('button', { name: 'Close source window' }).click()
   await expect(sources(panel)).toHaveCount(0)
-  await otherCard.getByRole('button', { name: '关闭类卡片' }).click()
+  await otherCard.getByRole('button', { name: 'Close class card' }).click()
   await expect(otherCard).toHaveCount(0)
   expect(panel.problems).toEqual([])
 })

@@ -22,6 +22,7 @@ import { paintFrame } from './paint.js'
 import { cssToWorld } from './fit.js'
 import { DECLUTTER_STYLE, mountDeclutterControl } from './declutter.js'
 import { REQUEST_MENU_STYLE, mountQualityMenu } from './requests.js'
+import { panelText, type PanelText } from './locale.js'
 
 export const TAB_ID = 'dsh-uml-viewer'
 export const TAB_KIND = 'dsh-uml-viewer'
@@ -194,7 +195,6 @@ function summaryLine(): HTMLElement {
   const line = document.createElement('div')
   line.className = 'dsh-uml-viewer-summary'
   line.setAttribute('role', 'status')
-  line.setAttribute('aria-label', 'UML panel summary')
   line.dataset.kind = 'connecting'
   return line
 }
@@ -210,11 +210,15 @@ function statusLine(): HTMLElement {
 function button(label: string, title: string, onClick: () => void): HTMLButtonElement {
   const element = document.createElement('button')
   element.type = 'button'
+  labelButton(element, label, title)
+  element.addEventListener('click', onClick)
+  return element
+}
+
+function labelButton(element: HTMLButtonElement, label: string, title: string): void {
   element.textContent = label
   element.title = title
   element.setAttribute('aria-label', title)
-  element.addEventListener('click', onClick)
-  return element
 }
 
 export interface MountOptions {
@@ -237,10 +241,10 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   // the panel element itself names the session and surface.
   const panelElement = host.closest?.<HTMLElement>('.dsh-uml-viewer-panel') ?? host
   panelElement.dataset.sessionId = options.sessionId
+  const text: PanelText = panelText(name => options.ctx.get(name))
   const canvas = document.createElement('canvas')
   canvas.style.touchAction = 'none'
   canvas.tabIndex = 0
-  canvas.setAttribute('aria-label', 'UML diagram canvas')
   const summary = summaryLine()
   const status = statusLine()
   const toolbar = document.createElement('div')
@@ -249,103 +253,122 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   search.className = 'dsh-uml-viewer-search'
   const input = document.createElement('input')
   input.type = 'search'
-  input.placeholder = 'Search (Ctrl+F)'
-  input.setAttribute('aria-label', 'Search classes')
   input.autocomplete = 'off'
   const results = document.createElement('ul')
   results.className = 'dsh-uml-viewer-results'
   results.setAttribute('role', 'listbox')
-  results.setAttribute('aria-label', 'Search results')
   results.hidden = true
+  /** The static labels; a DSH language switch reapplies them in place. */
+  const labelStatic = (): void => {
+    canvas.setAttribute('aria-label', text.t('canvas.label'))
+    summary.setAttribute('aria-label', text.t('summary.label'))
+    input.placeholder = text.t('search.placeholder')
+    input.setAttribute('aria-label', text.t('search.label'))
+    results.setAttribute('aria-label', text.t('search.results'))
+  }
   search.append(input, results)
   const spacer = document.createElement('span')
   spacer.className = 'dsh-uml-viewer-spacer'
   host.append(toolbar, summary, canvas, status)
+  labelStatic()
   const api = await mountRemote(options.ctx)
   if (!api) {
-    status.textContent = 'The viewer panel needs the Web Remote gateway.'
+    status.textContent = text.t('gateway.missing')
     status.style.display = ''
-    return () => { host.replaceChildren() }
+    const stop = text.subscribe(() => { labelStatic(); status.textContent = text.t('gateway.missing') })
+    return () => { stop(); host.replaceChildren() }
   }
   let overlays: OverlayController | null = null
   let lastResults = ''
+  /** A refusal from the element menu, re-rendered on a language switch. */
+  let reported: string | (() => string) | null = null
+  const showReport = (): void => {
+    const reason = typeof reported === 'function' ? reported() : reported
+    status.textContent = reason ?? ''
+    status.style.display = reason ? '' : 'none'
+  }
   /** The frame the overlays last refreshed for; search/status updates reuse it. */
   let overlayFrame: SceneFrame | null = null
   /** The holder this mount last opened; a withdrawn tab is closed by it. */
   let lastOwner: PanelOwner | null = null
+  const renderStatus = (state: PanelStatus): void => {
+    const frame = state.frame
+    // A new view frame refreshes the inspector/card; a search or status
+    // publish that keeps the same frame does not re-request them.
+    if (state.kind === 'live' && frame && overlays && frame !== overlayFrame) {
+      overlayFrame = frame
+      void overlays.refresh()
+    }
+    summary.dataset.kind = frame ? 'frame' : state.kind
+    summary.dataset.context = state.context?.kind ?? 'real'
+    summary.dataset.search = state.search.active ? 'active' : 'closed'
+    summary.dataset.results = String(state.search.results.length)
+    if (frame) {
+      const heading = frame.chrome.find(item => item.kind === 'title')
+      const title = (heading && 'text' in heading ? heading.text : null) ?? text.t('summary.untitled')
+      const proposal = frame.chrome.find(item => item.kind === 'proposal-banner')
+      const view = proposal && 'text' in proposal ? 'proposal' : 'source'
+      summary.dataset.view = view
+      summary.dataset.depth = frame.chrome.some(item => item.kind === 'back') ? 'drilled' : 'root'
+      const selected = frame.world.find(item => 'selected' in item && item.selected)
+      summary.dataset.selected = selected && 'id' in selected ? selected.id : ''
+      summary.dataset.chain = String(frame.edges.filter(item => item.kind === 'stroke' && item.stroke.role === 'dependency-chain').length)
+      summary.dataset.dimmed = String(frame.world.filter(item => item.dimmed).length)
+      const discussion = state.context?.kind === 'proposal' ? state.context.name ?? state.context.proposalId ?? '' : text.t('summary.source')
+      const camera = frame.camera
+      summary.textContent = text.t('summary.frame', {
+        title, discussion, view: text.t(view === 'proposal' ? 'summary.proposal' : 'summary.source'),
+        camera: `${camera.x.toFixed(3)}, ${camera.y.toFixed(3)}, ${camera.zoom.toFixed(3)}`,
+      })
+    } else {
+      summary.textContent = text.t('summary.state', { state: text.t(`state.${state.kind}` as const) })
+    }
+    reported = state.kind === 'refused' || state.kind === 'failed' ? state.reason : null
+    showReport()
+    back.disabled = !frame?.chrome.some(item => item.kind === 'back')
+    if (document.activeElement !== input && input.value !== state.search.query) input.value = state.search.query
+    const signature = JSON.stringify([state.search.active, state.search.results, state.search.selection])
+    if (signature !== lastResults) {
+      lastResults = signature
+      results.replaceChildren()
+      results.hidden = !state.search.active
+      if (state.search.active && state.search.query.trim() && state.search.results.length === 0) {
+        const empty = document.createElement('li')
+        empty.className = 'dsh-uml-viewer-empty'
+        empty.textContent = text.t('search.empty')
+        results.appendChild(empty)
+      }
+      state.search.results.forEach((result, index) => {
+        const row = document.createElement('li')
+        const choice = document.createElement('button')
+        choice.type = 'button'
+        choice.setAttribute('role', 'option')
+        choice.setAttribute('aria-selected', String(index === state.search.selection))
+        choice.textContent = result.label
+        choice.addEventListener('click', () => {
+          controller.moveSearch(index - controller.current.search.selection)
+          controller.activateSearch()
+          canvas.focus({ preventScroll: true })
+        })
+        row.appendChild(choice)
+        results.appendChild(row)
+      })
+    }
+  }
   const controller = new PanelController({
     canvas,
     api,
     owner: () => (lastOwner = { pageId: pageId(host.ownerDocument), holderId: crypto.randomUUID() }),
     paint: (frame, target) => paintFrame(frame, target),
-    onStatus: (state: PanelStatus) => {
-      const frame = state.frame
-      // A new view frame refreshes the inspector/card; a search or status
-      // publish that keeps the same frame does not re-request them.
-      if (state.kind === 'live' && frame && overlays && frame !== overlayFrame) {
-        overlayFrame = frame
-        void overlays.refresh()
-      }
-      summary.dataset.kind = frame ? 'frame' : state.kind
-      summary.dataset.context = state.context?.kind ?? 'real'
-      summary.dataset.search = state.search.active ? 'active' : 'closed'
-      summary.dataset.results = String(state.search.results.length)
-      if (frame) {
-        const heading = frame.chrome.find(item => item.kind === 'title')
-        const title = heading && 'text' in heading ? heading.text : 'Untitled diagram'
-        const proposal = frame.chrome.find(item => item.kind === 'proposal-banner')
-        summary.dataset.view = proposal && 'text' in proposal ? 'proposal' : 'source'
-        summary.dataset.depth = frame.chrome.some(item => item.kind === 'back') ? 'drilled' : 'root'
-        const selected = frame.world.find(item => 'selected' in item && item.selected)
-        summary.dataset.selected = selected && 'id' in selected ? selected.id : ''
-        summary.dataset.chain = String(frame.edges.filter(item => item.kind === 'stroke' && item.stroke.role === 'dependency-chain').length)
-        summary.dataset.dimmed = String(frame.world.filter(item => item.dimmed).length)
-        const discussion = state.context?.kind === 'proposal' ? state.context.name ?? state.context.proposalId : 'source diagram'
-        const camera = frame.camera
-        summary.textContent = `Diagram: ${title}. Discussion: ${discussion}. View: ${proposal && 'text' in proposal ? 'proposal diagram' : 'source diagram'}. Camera: ${camera.x.toFixed(3)}, ${camera.y.toFixed(3)}, ${camera.zoom.toFixed(3)}.`
-      } else {
-        summary.textContent = `UML panel: ${state.kind}.`
-      }
-      const reason = state.kind === 'refused' || state.kind === 'failed' ? state.reason : null
-      status.textContent = reason ?? ''
-      status.style.display = reason ? '' : 'none'
-      back.disabled = !frame?.chrome.some(item => item.kind === 'back')
-      if (document.activeElement !== input && input.value !== state.search.query) input.value = state.search.query
-      const signature = JSON.stringify([state.search.active, state.search.results, state.search.selection])
-      if (signature !== lastResults) {
-        lastResults = signature
-        results.replaceChildren()
-        results.hidden = !state.search.active
-        if (state.search.active && state.search.query.trim() && state.search.results.length === 0) {
-          const empty = document.createElement('li')
-          empty.className = 'dsh-uml-viewer-empty'
-          empty.textContent = 'No matches'
-          results.appendChild(empty)
-        }
-        state.search.results.forEach((result, index) => {
-          const row = document.createElement('li')
-          const choice = document.createElement('button')
-          choice.type = 'button'
-          choice.setAttribute('role', 'option')
-          choice.setAttribute('aria-selected', String(index === state.search.selection))
-          choice.textContent = result.label
-          choice.addEventListener('click', () => {
-            controller.moveSearch(index - controller.current.search.selection)
-            controller.activateSearch()
-            canvas.focus({ preventScroll: true })
-          })
-          row.appendChild(choice)
-          results.appendChild(row)
-        })
-      }
-    },
+    onStatus: renderStatus,
   })
   const disposeQualityMenu = mountQualityMenu(host, canvas, {
     frame: () => controller.current.frame,
     send: action => controller.send(action),
-    report(reason) { status.textContent = reason ?? ''; status.style.display = reason ? '' : 'none' },
+    report(reason) { reported = reason; showReport() },
+    text,
   })
-  overlays = new OverlayController(action => controller.send(action))
+  overlays = new OverlayController(action => controller.send(action), text)
   options.onOverlays?.(overlays)
   /** **P** and the toolbar's tree button: one dispatch, through the overlays so
    * a card reply in flight cannot repopulate the card after the tree resets. */
@@ -353,7 +376,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     if (overlays) void overlays.namespaceTree()
     else void controller.namespaceTree()
   }
-  const back = button('‹ Back', 'Back (Esc)', () => {
+  const back = button(text.t('back.label'), text.t('back.title'), () => {
     void controller.back()
     canvas.focus({ preventScroll: true })
   })
@@ -363,7 +386,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     canvas.focus({ preventScroll: true })
   })
   toolbar.append(back, tree, search)
-  const disposeDeclutter = mountDeclutterControl(toolbar, controller)
+  const disposeDeclutter = mountDeclutterControl(toolbar, controller, text)
   toolbar.append(spacer)
   // Closing the host tab is the explicit close; while this body is mounted the
   // controller closes its live holder (the stream ends without a withdrawal).
@@ -379,6 +402,17 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   }
   placeOverlays()
   const unsubscribe = controller.subscribe(() => { /* state is published to React through overlays */ })
+  // A DSH language switch relabels this mount in place; the tab stays open.
+  const unsubscribeText = text.subscribe(() => {
+    labelStatic()
+    labelButton(back, text.t('back.label'), text.t('back.title'))
+    lastResults = ''
+    // Keep an element-menu refusal; the status publish would otherwise clear it.
+    const kept = reported
+    renderStatus(controller.current)
+    reported = kept
+    showReport()
+  })
   // Keyboard input belongs to this panel; never capture the chat composer.
   // **P** from the overlay windows (outside the canvas host) also returns to
   // the tree; keys inside the host are handled once by `onKeyDown` below.
@@ -492,6 +526,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     if (panelElement !== host) panelElement.removeEventListener('keydown', onPanelKey)
     disposeDeclutter()
     disposeQualityMenu()
+    unsubscribeText()
     unsubscribe()
     canvas.removeEventListener('pointerdown', onPointerDown)
     canvas.removeEventListener('pointermove', onPointerMove)
@@ -579,12 +614,13 @@ function registerPanels(ctx: ClientContext): void {
     const own = (result: unknown): void => {
       if (typeof result === 'function') disposers.push(result as () => void)
     }
+    const text = panelText(name => ctx.get(name))
     own(tabs.register({
       id: TAB_ID,
       kind: TAB_KIND,
-      title: () => 'UML',
+      title: () => text.t('tab.title'),
       keepMounted: true,
-      guide: [{ id: TAB_ID, order: GUIDE_ORDER, title: () => 'UML', description: () => 'The session project’s namespace tree and quality' }],
+      guide: [{ id: TAB_ID, order: GUIDE_ORDER, title: () => text.t('tab.title'), description: () => text.t('guide.description') }],
     }))
     own(ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register(
       { name: 'sidebar.right.pane.tab', key: TAB_ID },
@@ -592,7 +628,7 @@ function registerPanels(ctx: ClientContext): void {
     )))
     own(ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register(
       { name: 'sidebar.right.pane.tab.title', key: TAB_ID },
-      () => createElement('span', null, 'UML'),
+      () => createElement('span', null, text.t('tab.title')),
     )))
     if (typeof tabs.register !== 'function') return
     return () => { for (const dispose of disposers) dispose() }

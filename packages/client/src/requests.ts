@@ -2,6 +2,7 @@ import type { PanelAck, PanelAction, QualityRequestOp, SceneFrame } from '@dsh-u
 import { QUALITY_REQUESTS } from '@dsh-uml-viewer/contracts'
 import { cssToWorld } from './fit.js'
 import { hitTest } from './paint.js'
+import { ENGLISH_TEXT, type PanelText, type TextKey } from './locale.js'
 
 export const REQUEST_MENU_STYLE = `
 .dsh-uml-quality-menu { position: absolute; z-index: 40; max-width: 100%; padding: 4px;
@@ -16,10 +17,10 @@ export const REQUEST_MENU_STYLE = `
   background: var(--dsw-alias-interactive-bg-hover); outline: 1px solid var(--dsw-focus-ring-color); }
 `
 
-const LABELS: Record<QualityRequestOp, string> = {
-  'refresh-crap': 'Refresh CRAP',
-  'refresh-mutate': 'Differential mutation',
-  'refresh-mutate-all': 'Full mutation (--mutate-all)',
+const LABELS: Record<QualityRequestOp, TextKey> = {
+  'refresh-crap': 'menu.refreshCrap',
+  'refresh-mutate': 'menu.refreshMutate',
+  'refresh-mutate-all': 'menu.refreshMutateAll',
 }
 
 /**
@@ -31,11 +32,13 @@ const LABELS: Record<QualityRequestOp, string> = {
 export function mountQualityMenu(host: HTMLElement, canvas: HTMLCanvasElement, options: {
   frame(): SceneFrame | null
   send(action: PanelAction): Promise<PanelAck | null>
-  report(reason: string | null): void
+  /** A thunk is the panel's own text, re-read in the current language. */
+  report(reason: string | (() => string) | null): void
+  text?: PanelText
 }): () => void {
+  const text = options.text ?? ENGLISH_TEXT
   const menu = document.createElement('div')
   menu.className = 'dsh-uml-quality-menu'
-  menu.setAttribute('aria-label', 'Element requests')
   // `role="menu"` only while open. The host's shortcut service treats any
   // `[role="menu"]` in the document as an open modal, even a `hidden` one, and
   // a modal blocks every command that does not admit it (the tab refresh is one).
@@ -48,28 +51,32 @@ export function mountQualityMenu(host: HTMLElement, canvas: HTMLCanvasElement, o
     target = null
   }
   // The three quality refreshes (#28), then Hide (#29): each sends the bound id only.
-  const entries: [string, (id: string) => PanelAction][] = [
-    ...QUALITY_REQUESTS.map((op): [string, (id: string) => PanelAction] => [LABELS[op], id => ({ action: 'quality-request', request: op, id })]),
-    ['Hide', id => ({ action: 'omit', id })],
+  const entries: [TextKey, (id: string) => PanelAction][] = [
+    ...QUALITY_REQUESTS.map((op): [TextKey, (id: string) => PanelAction] => [LABELS[op], id => ({ action: 'quality-request', request: op, id })]),
+    ['menu.hide', id => ({ action: 'omit', id })],
   ]
+  const labels: (() => void)[] = [() => menu.setAttribute('aria-label', text.t('menu.label'))]
   for (const [label, action] of entries) {
     const button = document.createElement('button')
     button.type = 'button'
     button.setAttribute('role', 'menuitem')
-    button.textContent = label
+    labels.push(() => { button.textContent = text.t(label) })
     button.addEventListener('click', () => {
       const id = target
       hide()
       if (id === null) return
       options.report(null)
       void options.send(action(id)).then(ack => {
-        if (!disposed && ack && !ack.accepted) options.report(ack.reason ?? 'The request was not accepted.')
+        if (!disposed && ack && !ack.accepted) options.report(ack.reason ?? (() => text.t('request.refused')))
       }, error => {
         if (!disposed) options.report(error instanceof Error ? error.message : String(error))
       })
     })
     menu.appendChild(button)
   }
+  const relabel = (): void => { for (const label of labels) label() }
+  relabel()
+  const unsubscribe = text.subscribe(relabel)
   host.appendChild(menu)
   const open = (event: MouseEvent): void => {
     event.preventDefault()
@@ -105,6 +112,7 @@ export function mountQualityMenu(host: HTMLElement, canvas: HTMLCanvasElement, o
   host.addEventListener('keydown', key, true)
   return () => {
     disposed = true
+    unsubscribe()
     canvas.removeEventListener('contextmenu', open)
     host.removeEventListener('pointerdown', dismiss)
     host.removeEventListener('keydown', key, true)

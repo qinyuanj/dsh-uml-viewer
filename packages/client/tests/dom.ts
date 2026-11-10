@@ -26,6 +26,8 @@ export class Element extends EventTarget {
   replaceChildren(...elements: Element[]): void { this.children = []; this.append(...elements) }
   remove(): void { if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this); this.parent = null }
   setAttribute(key: string, value: string): void { this.attributes[key] = value }
+  removeAttribute(key: string): void { delete this.attributes[key] }
+  hasAttribute(key: string): boolean { return key in this.attributes }
   focus(): void { this.ownerDocument.activeElement = this }
   blur(): void { this.ownerDocument.activeElement = null }
   fire(type: string, props: Record<string, unknown> = {}): Event {

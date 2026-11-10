@@ -175,7 +175,7 @@ describe('mounted panel quality menu (#28)', () => {
     draft.focus()
     const event = canvas.fire('contextmenu', { offsetX: 400, offsetY: 300 })
     expect(event.defaultPrevented).toBe(true)
-    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    const menu = host.descendants().find(el => el.className.includes('dsh-uml-quality-menu'))!
     expect(menu).toBeDefined()
     expect(menu.children.map(el => el.textContent)).toEqual(['Refresh CRAP', 'Differential mutation', 'Full mutation (--mutate-all)', 'Hide'])
     const id = golden.world[0]!.kind === 'package' ? golden.world[0]!.id : ':core'
@@ -200,7 +200,7 @@ describe('mounted panel quality menu (#28)', () => {
     draft.value = 'my unfinished draft'
     draft.focus()
     canvas.fire('contextmenu', { offsetX: 400, offsetY: 300 })
-    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    const menu = host.descendants().find(el => el.className.includes('dsh-uml-quality-menu'))!
     const id = golden.world[0]!.kind === 'package' ? golden.world[0]!.id : ':core'
     menu.children[3]!.fire('click')
     await settled()
@@ -224,7 +224,7 @@ describe('mounted panel quality menu (#28)', () => {
           bounds: { x: 200, y: 10, w: 40, h: 18 }, dimmed: false },
       ] as SceneFrame['world'] }
     await emit({ kind: 'frame', seq: 2, frame })
-    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    const menu = host.descendants().find(el => el.className.includes('dsh-uml-quality-menu'))!
     canvas.fire('contextmenu', { offsetX: 50, offsetY: 25 })
     expect(menu.hidden).toBe(true)
     canvas.fire('contextmenu', { offsetX: 210, offsetY: 15 })
@@ -235,13 +235,52 @@ describe('mounted panel quality menu (#28)', () => {
   it('does not open a menu on blank canvas and closes with Escape', async () => {
     const { host, canvas } = await mount()
     canvas.fire('contextmenu', { offsetX: 400, offsetY: 300 })
-    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    const menu = host.descendants().find(el => el.className.includes('dsh-uml-quality-menu'))!
     expect(menu.hidden).toBe(false)
     host.fire('keydown', { key: 'Escape' })
     expect(menu.hidden).toBe(true)
     canvas.fire('contextmenu', { offsetX: 6000, offsetY: 6000 })
     expect(menu.hidden).toBe(true)
     expect(actions.filter(a => a.action === 'quality-request')).toEqual([])
+  })
+})
+
+describe('mounted panel language (#42)', () => {
+  /** DSH's `ctx.locale` face: the active id and a change subscription. */
+  function dshLocale(active: string) {
+    const listeners = new Set<() => void>()
+    return {
+      getLocale: () => ({ active, locales: [], revision: 0 }),
+      subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn) } },
+      switch(next: string) { active = next; for (const fn of [...listeners]) fn() },
+    }
+  }
+
+  it('labels DOM text and accessible names in the DSH language and follows a switch without remounting', async () => {
+    const locale = dshLocale('zh-CN')
+    const localized = { get: (name: string) => name === 'locale' ? locale : ctx.get(name) } as unknown as ClientContext
+    const doc = makeDocument()
+    vi.stubGlobal('document', doc)
+    const host = new Element('host', doc)
+    dispose = await mountPanel(host as unknown as HTMLElement, { sessionId: 'session', ctx: localized })
+    await emit({ kind: 'frame', seq: 1, frame: { ...golden, viewport: { width: 800, height: 600 }, camera: { x: 200, y: 200, zoom: 1 },
+      world: [{ ...golden.world[0]!, bounds: { x: 0, y: 0, w: 4000, h: 4000 } }] } })
+    const menu = host.descendants().find(el => el.className.includes('dsh-uml-quality-menu'))!
+    const input = host.find('input')
+    const canvas = host.find('canvas')
+    expect(menu.children.map(el => el.textContent)).toEqual(['刷新 CRAP', '差量 mutation', '全量 mutation（--mutate-all）', '隐藏'])
+    expect(menu.attributes['aria-label']).toBe('元素请求')
+    expect(input.attributes['aria-label']).toBe('搜索类')
+    expect(canvas.attributes['aria-label']).toBe('UML 图画布')
+
+    locale.switch('en')
+    expect(menu.children.map(el => el.textContent)).toEqual(['Refresh CRAP', 'Differential mutation', 'Full mutation (--mutate-all)', 'Hide'])
+    expect(menu.attributes['aria-label']).toBe('Element requests')
+    expect(input.attributes['aria-label']).toBe('Search classes')
+    expect(canvas.attributes['aria-label']).toBe('UML diagram canvas')
+
+    locale.switch('fr')
+    expect(input.attributes['aria-label']).toBe('Search classes')
   })
 })
 
