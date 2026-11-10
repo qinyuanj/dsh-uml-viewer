@@ -167,8 +167,16 @@ export class OverlayController {
     this.cardEpoch += 1
     this.cardActions += 1
     this.nativeOffset = null
+    // The drawer shows one view (#49): a card action takes it back from the
+    // source — a double-click on another class must not leave a stale source
+    // in place — and a source reply still in flight must not bring one back.
+    this.sourceRequest = intent
+    const hadSource = this.source !== null
+    this.source = null
     if (close && this.card !== null) {
       this.card = null
+      this.publish()
+    } else if (hadSource) {
       this.publish()
     }
     let ack: PanelAck | null

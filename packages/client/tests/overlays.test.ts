@@ -297,6 +297,33 @@ describe('panel overlays', () => {
     expect(controller.current).toMatchObject({ drawer: 'card', source: null, card })
   })
 
+  it('shows the new card when a card opens while the drawer shows a source', async () => {
+    const d = deferred()
+    await withCard(d)
+    void d.controller.openSource(':order', 'target')
+    await d.reply('open-source', ok({ source }), ':order')
+    expect(d.controller.current.drawer).toBe('source')
+
+    void d.controller.openCardAt([12, 34])
+    await d.reply('open-card', ok())
+    await d.reply('inspector', ok({ inspector }))
+    const second = { ...card, id: ':second' }
+    await d.reply('card', ok({ card: second }))
+    // The double-click on another class owns the drawer; no stale source stays.
+    expect(d.controller.current).toMatchObject({ drawer: 'card', source: null, card: second })
+  })
+
+  it('drops a source reply still in flight when another card action takes the drawer', async () => {
+    const d = deferred()
+    await withCard(d)
+    void d.controller.openSource(':order', 'target')
+    const stale = d.take('open-source', ':order')
+    void d.controller.namespaceTree()
+    stale.resolve(ok({ source }))
+    await d.flush()
+    expect(d.controller.current.source).toBeNull()
+  })
+
   it('closes the whole drawer, the source and its card together', async () => {
     const { controller, actions } = harness()
     await controller.refresh()
