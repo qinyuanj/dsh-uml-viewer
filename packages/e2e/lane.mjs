@@ -6,6 +6,7 @@ import { startMockLlm } from './mock-llm.mjs'
 import { makeProjects } from './projects.mjs'
 import { isolateScratch } from './scratch-scope.mjs'
 import { chooseWorkspace } from './workspace.mjs'
+import { recordActions } from './lifecycle.mjs'
 
 /**
  * Reusable #22–#29 browser lane: one scratch host/mock model, one browser
@@ -95,7 +96,8 @@ export async function launchViewerLane(browser, options = {}) {
     const page = await context.newPage()
     pages.push(page)
     const problems = []
-    records.set(page, { number: records.size + 1, problems, transportProblems: [] })
+    // Attached before the page loads, so the Remote carrier is seen from its start.
+    records.set(page, { number: records.size + 1, problems, transportProblems: [], sent: recordActions(page) })
     page.on('pageerror', error => problems.push(error.message))
     page.on('console', message => { if (message.type() === 'error') records.get(page).transportProblems.push(`console: ${message.text()}`) })
     page.on('requestfailed', request => records.get(page).transportProblems.push(`request: ${request.method()} ${request.url().split('?')[0]} ${request.failure()?.errorText}`))
@@ -138,7 +140,7 @@ export async function launchViewerLane(browser, options = {}) {
     const sessionId = await page.locator('[data-conversation-session]:visible').first().getAttribute('data-conversation-session')
     if (!sessionId) throw new Error('the DSH conversation exposes no session id')
     expect(problems).toEqual([])
-    return { page, ...opened, sessionId, before: await opened.summary.innerText(), problems }
+    return { page, ...opened, sessionId, before: await opened.summary.innerText(), problems, sent: records.get(page)?.sent ?? [] }
   }
 
   async function openPanel(project, options = {}) {
@@ -220,6 +222,12 @@ export async function launchViewerLane(browser, options = {}) {
     return result(page, problems, opened)
   }
 
+  /** Open the UML tab again in the same page, e.g. after the user closed it. */
+  async function reopenTab(panel) {
+    const opened = await openSidebar(panel.page)
+    return result(panel.page, panel.problems, opened)
+  }
+
   /** Stop the isolated host, boot it on the same home, and reopen that session. */
   async function restart(panel) {
     const sessionId = panel.sessionId
@@ -290,7 +298,7 @@ export async function launchViewerLane(browser, options = {}) {
 
   return {
     home, get host() { return host }, mock, projects, packages,
-    openPanel, reopenPanel, restart, pan, wheel, point, sendPrompt, screenshot, close, uninstall,
+    openPanel, reopenPanel, reopenTab, restart, pan, wheel, point, sendPrompt, screenshot, close, uninstall,
     installPlatform: file => installed.installPlatform(file),
     // The isolated host's own stdout/stderr, redacted and bounded. Activation
     // warnings and errors reach it and never the page, the session or the DOM.

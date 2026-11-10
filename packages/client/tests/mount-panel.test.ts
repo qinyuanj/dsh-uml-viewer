@@ -85,7 +85,7 @@ describe('mounted resident lifetime (#32 D13)', () => {
     await settled()
     expect(connection.refs).toBe(1)
     let second: (() => void) | undefined
-    const mountAgain = () => mountPanel(new Element('host', doc) as unknown as HTMLElement, { sessionId: 'session', ctx, main: true })
+    const mountAgain = () => mountPanel(new Element('host', doc) as unknown as HTMLElement, { sessionId: 'session', ctx })
     if (order === 'overlap') { second = await mountAgain(); await settled(); expect(connection.refs).toBe(2) }
     first()
     await settled()

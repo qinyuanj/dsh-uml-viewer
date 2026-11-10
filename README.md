@@ -27,10 +27,10 @@ dsh plugin --profile web remove dsh-uml-viewer @dsh-uml-viewer/win32-x64
 Use the matching platform archive. The plugin pins its packaged binary under
 `<DSH_HOME>/dsh-uml-viewer/<version>/` (atomic, hash-verified copy) and records
 the current version in `current.json`; an open panel keeps its version across a
-plugin update. Unmounting, moving or hot-reloading the panel is not a close:
-the resident waits a short bounded window for the same page to re-attach. The
-panel's **Close viewer** button is the close, and **Open viewer** then runs the
-new version. A new page runs the new version when no other open page still uses
+plugin update. Collapsing the sidebar, switching fullscreen, moving or hot-reloading the
+panel is not a close: the resident waits a short bounded window for the same
+page to re-attach. Closing the UML tab is the close, and opening the tab again
+then runs the new version. A new page runs the new version when no other open page still uses
 that session; otherwise it shares the running one (see
 `docs/plugin-development.md`; browser behavior is not yet run-verified). Only an
 unused version directory is removed. Uninstall
@@ -229,7 +229,9 @@ a successful quality result with `validResult: true`.
   rectangles that are not classes (components/layers, interfaces, enumerations,
   package banners) are italic. Foreign libraries listed in policy are ovals
   outside the components.
-- The panel can expand from the sidebar into the main area and back.
+- The panel uses the right sidebar's own fullscreen for a full-width view.
+  Closing the UML tab stops its resident; the tab's refresh command and **R**
+  reload the diagram.
 - Scroll to pan vertically; Shift-scroll (or left/right arrows) for
   horizontal; Ctrl+scroll zooms at the cursor. Pan can follow arrows that
   bow past the origin.

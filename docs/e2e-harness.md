@@ -147,7 +147,8 @@ remains unsupported. The host and document keep running throughout.
 The case requires the exact old resident PID, process creation identity,
 executable path and lease to survive; its canvas pixels and camera state must
 survive remount and another canvas gesture must work. It verifies both installed
-executables with `--version`, then clicks **Close viewer / Open viewer**, requires
+executables with `--version`, then closes the UML tab with the host's page
+close command and reopens it, requires
 a new PID on 1.0.1 and checks that the 1.0.0 lease and directory disappear.
 Windows write access to the mapped old executable must fail before the update.
 The platform CLI installation is bounded at 20 seconds, and the whole
@@ -361,8 +362,16 @@ golden.
 real double-click drill-in, an in-browser painted dependency-port assertion,
 selection with dependency-chain highlighting and dimming, Escape/back, P,
 Ctrl+F, CJK typing/paste, same-name namespace disambiguation and Down/Enter
-locate. It also expands the sidebar to the root-scoped `main` page, asserts
-its original session id, and returns to the conversation.
+locate.
+
+`lifecycle.spec.mjs` (#43) drives the host tab lifecycle through the host's
+own controls: the page refresh command (Ctrl+Alt+R on Web) and **R** each send
+`reload`; collapsing the right sidebar and toggling fullscreen keep the same
+resident process and the same view; the page close command (Ctrl+Alt+W) runs
+the UML tab's close handler and the resident exits at once; reopening the tab
+restores the view and, for `ledger`, the proposal discussion context. It also
+asserts the panel has no `Expand`, `Conversation` or `Close viewer` button.
+Residents are observed through `/proc`, so the spec runs on Linux only.
 
 `session.spec.mjs` replaces the session/restore scenarios: navigate, select,
 zoom and pan; reload the Web client and compare its restored summary; then

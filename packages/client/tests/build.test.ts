@@ -55,10 +55,12 @@ function clientContext(): {
   slots: { name: string; descriptor: SlotDescriptor; component: (props: Record<string, unknown>) => unknown }[]
   tabs: Record<string, unknown>[]
   services: string[]
+  closeHandlers: { kind: string; handler: (sessionId: string, tab: Record<string, unknown>) => void }[]
 } {
   const slots: { name: string; descriptor: SlotDescriptor; component: (props: Record<string, unknown>) => unknown }[] = []
   const tabs: Record<string, unknown>[] = []
   const services: string[] = []
+  const closeHandlers: { kind: string; handler: (sessionId: string, tab: Record<string, unknown>) => void }[] = []
   const ctx: Record<string, unknown> = {
     slots: {
       register(descriptor: SlotDescriptor, component: (props: Record<string, unknown>) => unknown) {
@@ -76,6 +78,12 @@ function clientContext(): {
         return () => undefined
       },
     },
+    sidebarRight: {
+      registerCloseHandler(kind: string, handler: (sessionId: string, tab: Record<string, unknown>) => void) {
+        closeHandlers.push({ kind, handler })
+        return () => undefined
+      },
+    },
     effect(callback: () => unknown) { callback() },
     inject(names: readonly string[], callback: (value: unknown) => unknown) {
       services.push(...names)
@@ -83,7 +91,7 @@ function clientContext(): {
     },
     get: () => undefined,
   }
-  return { ctx, slots, tabs, services }
+  return { ctx, slots, tabs, services, closeHandlers }
 }
 
 describe('built client bundle', () => {
@@ -135,10 +143,13 @@ describe('built client bundle', () => {
       expect.objectContaining({ id: 'dsh-uml-viewer', kind: 'dsh-uml-viewer' }),
     ])
     const names = harness.slots.map(entry => entry.name)
-    expect(names).toEqual(['sidebar.right.pane.tab', 'sidebar.right.pane.tab.title', 'main'])
+    // The full-width form is the host's fullscreen: no `main` page of its own (#43).
+    expect(names).toEqual(['sidebar.right.pane.tab', 'sidebar.right.pane.tab.title'])
     for (const entry of harness.slots) expect(entry.descriptor.key).toBe('dsh-uml-viewer')
     // Every registration went through a slot/service injection that exists.
-    expect(harness.services).toEqual(['sidebarRightTabs', 'sidebar.right.pane.tab', 'sidebar.right.pane.tab.title', 'main'])
+    expect(harness.services).toEqual(['sidebarRightTabs', 'sidebar.right.pane.tab', 'sidebar.right.pane.tab.title', 'sidebarRight'])
+    // Closing the UML tab is the explicit close: one handler for the tab's kind.
+    expect(harness.closeHandlers.map(entry => entry.kind)).toEqual(['dsh-uml-viewer'])
 
     // The pane component is a real component: React is asked for the panel element,
     // and the element it builds carries the panel class the stylesheet targets.
