@@ -19,6 +19,7 @@ import { parseElementId } from './tools.js'
 import { parseProposalName } from './view-requests.js'
 import type { RequestStatusEntry } from './request-status.js'
 import { validateRequestStatusList } from './request-status.js'
+import { parseRequestStatusId } from './request-status.js'
 
 /** The Remote namespace the panel mounts. */
 export const REMOTE_SERVICE = 'umlViewer'
@@ -80,6 +81,9 @@ export type PanelAction =
   | { action: 'new-proposal'; name?: string }
   // #44: DSH switched language; the resident lays its text out again.
   | { action: 'language'; language: string }
+  // #53: the user dismissed a finished request; the host drops it from the
+  // session's request-status list and every panel of the session follows.
+  | { action: 'dismiss-request'; id: string }
 
 /** Presentation ownership, scoped by the Remote's authoritative agent lookup. */
 export interface PanelOwner {
@@ -330,6 +334,8 @@ export function parsePanelAction(value: unknown, label = 'panel action'): PanelA
         if (language === null) at(`${label}.language`, 'must be a locale tag')
         return { action, language: language! }
       }
+      case 'dismiss-request':
+        return { action, id: parseRequestStatusId(source.id, `${label}.id`) }
       case 'quality-request':
         return { action, request: parseQualityRequestOp(source.request, `${label}.request`),
           id: parseElementId(source.id, `${label}.id`) }
