@@ -405,7 +405,10 @@ it('fails a refused hide, context switch or proposal with the admission reason',
   await s.act('session-a', { action: 'new-proposal', name: 'Next' })
   await until(() => statuses(panel.events).at(-1)?.length === 3)
   expect(statuses(panel.events).at(-1)).toEqual([
-    { id: expect.any(String), op: 'omit', target: null, state: 'failed', reason: expect.stringMatching(/foreign library/), exitCode: null },
+    // #52 F26: the element the browser clicked is named even though the hide
+    // was refused; a context switch or proposal names none.
+    { id: expect.any(String), op: 'omit', target: { id: ':serde', kind: 'class' }, state: 'failed',
+      reason: expect.stringMatching(/foreign library/), exitCode: null },
     { id: expect.any(String), op: 'context', target: null, state: 'failed', reason: 'unknown proposal :gone', exitCode: null },
     { id: expect.any(String), op: 'new-proposal', target: null, state: 'failed', reason: 'session is archived', exitCode: null },
   ])
