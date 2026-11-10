@@ -123,6 +123,9 @@ export class PanelController {
   /** Last mode reported by the resident's existing `state` event. */
   private mode = 'full'
   public get declutterMode(): string { return this.mode }
+  /** The selected hit (EDN) from the same `state` event; the action bar (#48) reads it. */
+  private selectedHit: string | null = null
+  public get selected(): string | null { return this.selectedHit }
   // Pending pointer gesture, in screen pixels.
   private drag: { x: number; y: number; moved: boolean } | null = null
   /** Last pointer position: the zoom anchor, like `Dims.pointer`. */
@@ -161,7 +164,8 @@ export class PanelController {
     const abort = new AbortController()
     this.abort = abort
     // A new binding starts with nothing said: the first frame's `save` brings
-    // this session's breadcrumbs and status.
+    // this session's breadcrumbs, status and selection.
+    this.selectedHit = null
     this.publish({ kind: 'connecting', reason: null, actions: [], frame: this.frame, context: null,
       search: EMPTY_SEARCH, breadcrumbs: [], statusCode: null, view: 'source' })
     this.observeTheme()
@@ -588,6 +592,7 @@ export class PanelController {
         return
       case 'state':
         this.mode = event.state.declutter?.replace(/^:/, '') ?? 'full'
+        this.selectedHit = event.state.selected
         this.publish({ ...this.status, breadcrumbs: event.breadcrumbs, statusCode: event.status,
           view: event.state.proposalId ? 'proposal' : 'source' })
         return

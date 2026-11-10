@@ -26,13 +26,14 @@ import { PanelViews, registerToolViews } from './tool-views.js'
 import { MORE_MENU_STYLE } from './more-menu.js'
 import { STATUSBAR_STYLE, mountStatusBar, type StatusBar } from './statusbar.js'
 import { TOPBAR_STYLE, mountTopBar, type TopBar } from './topbar.js'
+import { ACTION_BAR_STYLE, elementSelection, mountActionBar, type ActionBar } from './action-bar.js'
 
 export const TAB_ID = 'dsh-uml-viewer'
 export const TAB_KIND = 'dsh-uml-viewer'
 export const GUIDE_ORDER = 30
 const REMOTE_NAMESPACE = 'umlViewer'
 
-const STYLE = `${TOPBAR_STYLE}${MORE_MENU_STYLE}${STATUSBAR_STYLE}${REQUEST_MENU_STYLE}
+const STYLE = `${TOPBAR_STYLE}${MORE_MENU_STYLE}${STATUSBAR_STYLE}${REQUEST_MENU_STYLE}${ACTION_BAR_STYLE}
 /* The three sections (#46): the top bar, the canvas, the status bar. The
    overlay root covers the canvas alone, so a drawer never hides either bar. */
 .dsh-uml-viewer-panel { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; width: 100%; }
@@ -226,6 +227,8 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     }
   }
   let overlays: OverlayController | null = null
+  /** The selection action bar (#48), over the bottom of the canvas area. */
+  let actionBar: ActionBar | null = null
   /** A refusal from the element menu, re-rendered on a language switch. */
   let reported: string | (() => string) | null = null
   /** The frame the overlays last refreshed for; search/status updates reuse it. */
@@ -275,6 +278,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     statusBar?.setStatus(state.statusCode)
     statusBar?.setMessage(reported)
     topBar?.render(state)
+    actionBar?.render(elementSelection(controller.selected, frame))
   }
   const controller = new PanelController({
     canvas,
@@ -299,6 +303,15 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     text,
   })
   overlays = new OverlayController(action => controller.send(action), text)
+  actionBar = mountActionBar(canvasArea, {
+    text,
+    send: action => controller.send(action),
+    openCard: id => overlays?.openCard(id),
+    report(reason) {
+      reported = reason
+      statusBar?.setMessage(reason)
+    },
+  })
   options.views?.attach(options.sessionId, overlays)
   options.onOverlays?.(overlays)
   /** **P**: one dispatch, through the overlays so a card reply in flight cannot
@@ -428,6 +441,8 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     options.onOverlays?.(null)
     if (panelElement !== host) panelElement.removeEventListener('keydown', onPanelKey)
     disposeQualityMenu()
+    actionBar?.dispose()
+    actionBar = null
     disposeSections()
     unsubscribeText()
     unsubscribe()
