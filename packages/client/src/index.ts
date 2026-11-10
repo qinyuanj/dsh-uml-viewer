@@ -321,6 +321,8 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   const controller = new PanelController({
     canvas,
     api,
+    // The resident words its own text (#44); this is the language it reads.
+    language: () => text.language,
     owner: () => ({ pageId: pageId(host.ownerDocument), holderId: crypto.randomUUID() }),
     paint: (frame, target) => paintFrame(frame, target),
     onStatus: renderStatus,
@@ -384,6 +386,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   // A DSH language switch relabels this mount in place; the tab stays open.
   const unsubscribeText = text.subscribe(() => {
     labelStatic()
+    void controller.setLanguage(text.language)
     labelButton(back, text.t('back.label'), text.t('back.title'))
     lastResults = ''
     // Keep an element-menu refusal; the status publish would otherwise clear it.

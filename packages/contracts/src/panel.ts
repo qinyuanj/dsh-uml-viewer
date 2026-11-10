@@ -57,6 +57,8 @@ export type PanelAction =
   // session too; the companion edits the policy and regenerates the IR.
   | { action: 'omit'; id: string }
   | { action: 'new-proposal'; name?: string }
+  // #44: DSH switched language; the resident lays its text out again.
+  | { action: 'language'; language: string }
 
 /** Presentation ownership, scoped by the Remote's authoritative agent lookup. */
 export interface PanelOwner {
@@ -74,6 +76,22 @@ export function parsePanelOwner(value: unknown): PanelOwner {
     if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) throw new Error('panel owner ids must contain 1–128 ASCII letters, digits, underscores or hyphens')
   }
   return { pageId, holderId }
+}
+
+/**
+ * The DSH language a panel passes to its resident (#44): a locale tag such as
+ * `zh-CN` or `en`. The resident reads any Chinese tag as Chinese and the rest
+ * as English; the tag only has to be short and plain.
+ * @param value the tag, or nothing when an older panel passes none.
+ * @param label the field name used in failure messages.
+ * @returns the tag, or `null` for none.
+ */
+export function parsePanelLanguage(value: unknown, label = 'language'): string | null {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,35}$/.test(value)) {
+    throw new Error(`${label}: must be a locale tag of 1–35 ASCII letters, digits, underscores or hyphens`)
+  }
+  return value
 }
 
 /** One action's outcome; the events it caused arrive on the watch stream. */
@@ -271,6 +289,11 @@ export function parsePanelAction(value: unknown, label = 'panel action'): PanelA
         return { action, id: parseElementId(source.id, `${label}.id`) }
       case 'new-proposal':
         return source.name === undefined || source.name === null ? { action } : { action, name: parseProposalName(source.name) }
+      case 'language': {
+        const language = parsePanelLanguage(source.language, `${label}.language`)
+        if (language === null) at(`${label}.language`, 'must be a locale tag')
+        return { action, language: language! }
+      }
       case 'quality-request':
         return { action, request: parseQualityRequestOp(source.request, `${label}.request`),
           id: parseElementId(source.id, `${label}.id`) }
@@ -323,6 +346,15 @@ const agentId = (): RemoteCodec => ({
   typeSymbol: '@deepseek-ai/dsh-session/types#SessionId',
 })
 
+/**
+ * The DSH language the panel passes when it opens its owned stream (#44). The
+ * gateway calls the host method with the parameters in this order and the
+ * cancellation signal last: `watchOwned(agent, owner, language, signal)`.
+ */
+const language = (): RemoteParameter => ({
+  name: 'language', wire: 'language', source: 'json', codec: codec('PanelLanguage', value => parsePanelLanguage(value)),
+})
+
 /** One hand-written declaration of the panel's typed Remote. */
 export const REMOTE_DESCRIPTORS: readonly RemoteDescriptor[] = Object.freeze([
   ...(['watchOwned', 'closeOwned'] as const).map(method => ({
@@ -334,6 +366,7 @@ export const REMOTE_DESCRIPTORS: readonly RemoteDescriptor[] = Object.freeze([
     parameters: [
       { name: 'agent', wire: 'agentId', source: 'lookup' as const, lookup: 'agent', codec: agentId() },
       { name: 'owner', wire: 'owner', source: 'json' as const, codec: codec('PanelOwner', parsePanelOwner) },
+      ...(method === 'watchOwned' ? [language()] : []),
     ],
     result: method === 'watchOwned' ? codec('PanelEvent', value => parsePanelEvent(value)) : codec('PanelCloseAck', value => parseCloseAck(value)),
   })),

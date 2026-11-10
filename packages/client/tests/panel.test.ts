@@ -127,6 +127,34 @@ describe('session-bound panel stream', () => {
     expect(calls).toEqual(['watchOwned', 'watch session-a', 'close session-a'])
   })
 
+  it('opens the stream in the DSH language and sends it when the language switches (#44)', async () => {
+    const watched: string[] = []
+    const actions: PanelAction[] = []
+    const stream = () => ({ async *[Symbol.asyncIterator]() { yield { kind: 'ready', actions: [] } as PanelEvent
+      await new Promise<void>(() => {}) } })
+    const api: PanelRemoteApi = {
+      watch: stream,
+      watchOwned: (_sessionId, _owner, language) => { watched.push(language); return stream() },
+      async closeOwned() {},
+      async action(_sessionId, action) { actions.push(action); return { accepted: true, reason: null } },
+    }
+    let language = 'zh'
+    const controller = new PanelController({ canvas: fakeCanvas({ width: 800, height: 600 }), api, paint: () => {},
+      owner: () => ({ pageId: 'page', holderId: 'holder' }), language: () => language })
+    await controller.open('session-a')
+    await settle(() => watched.length === 1, 'the watch to open')
+    expect(watched).toEqual(['zh'])
+    expect(actions.filter(action => action.action === 'language')).toEqual([])
+
+    language = 'en'
+    await controller.setLanguage('en')
+    expect(actions.filter(action => action.action === 'language')).toEqual([{ action: 'language', language: 'en' }])
+    // Saying it twice sends nothing; the resident already draws English.
+    await controller.setLanguage('en')
+    expect(actions.filter(action => action.action === 'language')).toHaveLength(1)
+    await controller.close()
+  })
+
   it('waits for its watch to acquire ownership before sending viewport actions', async () => {
     const h = harness()
     await h.controller.open('session-a')

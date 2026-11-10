@@ -140,7 +140,7 @@ requests. Rects are `{x, y, w, h}`, points `[x, y]`, all in world units.
 | `band` | full | `owner from to stroke` | title band, width `widths.band` |
 | `rule` | full | `owner from to stroke` | member separator, width `widths.rule` |
 | `text` | name `frames`, else full | `owner line text x top slot size maxW italic bold center ink` | `line` is `name`, `stereo`, `crap`, `child`, …; draw at `px = round(slot * zoom)` (skip under `minTextPx`), vertically centred in `[top, top + slot]`; left at `x`, or centred on `x + maxW/2` when `center`; shrink to fit `maxW` counting bold `+0.05·px` and italic `+0.2·px`; bold is a second pass offset `0.05·px` |
-| `no-data` | full | `owner text right y size ink` | 无数据, right-aligned to `right` |
+| `no-data` | full | `owner text right y size ink` | the 无数据 marker ("No data" in English, #44), right-aligned to `right` |
 | `child-wash` | full | `owner rect marker{wash bar barWidth}` | marked member row: `rect` filled `wash` (radius `rowWash`), a `bar` rule `barWidth` (scaled) at its left |
 | `port-link` | full | `owner behind tip stroke` | line `behind → tip` at `widths.portLink`, open arrowhead of 10 screen px at ±20° |
 | `port` | full | `id owner rect text marked fill stroke strokeWidth ink` | 依赖端口: rect (`radius.port`), label centred at `fonts.port`, fitted to `rect.w - 6` |

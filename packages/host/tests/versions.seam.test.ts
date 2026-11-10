@@ -138,10 +138,10 @@ async function host(dshHome: string, packageRoot: string, wrappers = new Map<str
       watch(agent: Agent, signal: AbortSignal): AsyncIterable<PanelEvent>
       action(agent: Agent, action: unknown): Promise<{ accepted: boolean; reason: string | null }>
       close(agent: Agent): Promise<{ closed: boolean }>
-      watchOwned(agent: Agent, owner: PanelOwner, signal: AbortSignal): AsyncIterable<PanelEvent>
+      watchOwned(agent: Agent, owner: PanelOwner, language: string | null, signal: AbortSignal): AsyncIterable<PanelEvent>
       closeOwned(agent: Agent, owner: PanelOwner): Promise<{ closed: boolean }>
     }
-    const iterator = (owner ? viewer.watchOwned(agents[session]!, owner, controller.signal) : viewer.watch(agents[session]!, controller.signal))[Symbol.asyncIterator]()
+    const iterator = (owner ? viewer.watchOwned(agents[session]!, owner, null, controller.signal) : viewer.watch(agents[session]!, controller.signal))[Symbol.asyncIterator]()
     const ready = (await iterator.next()).value as PanelEvent
     expect(ready).toMatchObject({ kind: 'ready' })
     return {
@@ -177,10 +177,10 @@ async function mountedPanel(h: Awaited<ReturnType<typeof host>>, session: string
   } }))
   const viewer = h.ctx.get('umlViewer') as unknown as ViewerService
   const api = {
-    watchOwned(_sessionId: string, owner: PanelOwner) {
+    watchOwned(_sessionId: string, owner: PanelOwner, language?: string) {
       const abort = new AbortController()
       controllers.push(abort)
-      const stream = viewer.watchOwned(agent, owner, abort.signal)
+      const stream = viewer.watchOwned(agent, owner, language ?? null, abort.signal)
       return { [Symbol.asyncIterator]: () => stream[Symbol.asyncIterator](), end() { abort.abort() }, dispose() { abort.abort() } }
     },
     closeOwned: (_sessionId: string, owner: PanelOwner) => viewer.closeOwned(agent, owner),

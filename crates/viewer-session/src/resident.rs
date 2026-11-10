@@ -18,6 +18,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Instant;
 
 use edn::Value;
+use frame::strings::Lang;
 use scene::events::Dims;
 use serde_json::{Value as Json, json};
 
@@ -59,6 +60,8 @@ pub const ACTIONS: &[&str] = &[
     "open-source",
     // #28: the panel request targets the host queues (additive).
     "quality-target",
+    // #44: the language the resident lays text out in (additive).
+    "language",
 ];
 
 const USAGE: &str = "usage: uml-viewer resident [--project <dir>]";
@@ -199,13 +202,17 @@ struct Pending {
     state: Json,
 }
 
-/// The protocol state: the session once opened, and the client viewport.
+/// The protocol state: the session once opened, the client viewport and the
+/// language the panel last passed. The language belongs to the resident, not
+/// to the session: DSH has one language for every panel, and a saved view
+/// never records it.
 pub struct Resident {
     project: PathBuf,
     session: Option<Session>,
     pending: Option<Pending>,
     width: f64,
     height: f64,
+    language: Lang,
     quit: bool,
 }
 
@@ -217,6 +224,7 @@ impl Resident {
             pending: None,
             width: frame::cli::DEFAULT_WIDTH,
             height: frame::cli::DEFAULT_HEIGHT,
+            language: Lang::default(),
             quit: false,
         }
     }
@@ -242,6 +250,7 @@ impl Resident {
             self.height,
             session.hint(),
             session.status(),
+            self.language,
         );
         // The panel needs the optional bounded hover metadata (#26) to reproduce
         // the window's dependency tooltip and bundled-edge (`via-ids`) warming;
@@ -296,6 +305,9 @@ impl Resident {
                 // Validate both candidates before committing either: an
                 // invalid state/diagram must retain the current viewport,
                 // and an invalid viewport must retain the current session.
+                if action.get("language").is_some_and(|l| !l.is_null()) {
+                    self.language = Lang::from_tag(text(action, "language")?);
+                }
                 let (width, height) = self.viewport(action)?;
                 self.open(action)?;
                 self.width = width;
@@ -459,7 +471,8 @@ impl Resident {
             "card" => {
                 let width = optional_number(action, "width")?;
                 let view_height = optional_number(action, "viewHeight")?;
-                let card = overlays::card_json(self.session()?, width, view_height)?;
+                let language = self.language;
+                let card = overlays::card_json(self.session()?, width, view_height, language)?;
                 return Ok(vec![event("card", seq, json!({"card": card}))]);
             }
             "open-card" => {
@@ -505,7 +518,8 @@ impl Resident {
                     Some(Json::String(name)) => Some(name.as_str()),
                     Some(other) => return Err(format!("member must be a string, not {other}")),
                 };
-                let source = overlays::source_json(self.session()?, &id, member)?;
+                let language = self.language;
+                let source = overlays::source_json(self.session()?, &id, member, language)?;
                 return Ok(vec![event("source", seq, json!({"source": source}))]);
             }
             // #28: what this resident's loaded diagram shows for one panel
@@ -519,6 +533,15 @@ impl Resident {
                     seq,
                     json!({"target": target}),
                 )]);
+            }
+            // #44: the panel passes the DSH language; the latest one wins.
+            // The frame answers it, so every panel redraws its 无数据 markers
+            // and asks again for an open class card.
+            "language" => {
+                self.language = Lang::from_tag(text(action, "language")?);
+                if self.session.is_none() {
+                    return Ok(vec![event("ack", seq, json!({}))]);
+                }
             }
             other => return Err(format!("unknown action {other}")),
         }

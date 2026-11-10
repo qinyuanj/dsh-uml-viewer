@@ -65,11 +65,11 @@ describe('mounted resident lifetime (#32 D13)', () => {
     const aborts: AbortController[] = []
     const closes: string[] = []
     bridge = {
-      watchOwned(_sessionId: string, owner: { pageId: string; holderId: string }) {
+      watchOwned(_sessionId: string, owner: { pageId: string; holderId: string }, language: string) {
         owners.push(owner)
         const abort = new AbortController()
         aborts.push(abort)
-        const stream = viewer.watchOwned(agent, owner, abort.signal)[Symbol.asyncIterator]()
+        const stream = viewer.watchOwned(agent, owner, language, abort.signal)[Symbol.asyncIterator]()
         return { [Symbol.asyncIterator]: () => stream,
           // Pinned gateway: end() only half-closes the uplink; dispose() aborts
           // the generation and returns the iterator. close-first defers that.

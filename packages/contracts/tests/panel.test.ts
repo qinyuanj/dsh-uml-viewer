@@ -22,6 +22,7 @@ describe('panel Remote descriptors', () => {
     expect(watch.service).toBe(REMOTE_SERVICE)
     expect(watch.namespace).toBe(REMOTE_SERVICE)
     expect(watch.scope).toEqual({ context: 'agent', wire: 'agentId' })
+    // The legacy watch keeps its version-1 wire shape; the language rides on watchOwned (#44).
     expect(watch.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup']])
     expect(watch.parameters[0]!.codec.typeSymbol).toBe('@deepseek-ai/dsh-session/types#SessionId')
     expect(watch.cancellation).toEqual({ parameter: 'signal' })
@@ -55,9 +56,10 @@ describe('panel Remote descriptors', () => {
     expect(close.id).toBe('dsh-uml-viewer#umlViewer/closeOwned')
     expect(close.mode).toBeUndefined()
     expect(close.cancellation).toBeUndefined()
+    expect(watch.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup'], ['owner', 'json'], ['language', 'json']])
+    expect(close.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup'], ['owner', 'json']])
     for (const descriptor of [watch, close]) {
       expect(descriptor.scope).toEqual({ context: 'agent', wire: 'agentId' })
-      expect(descriptor.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup'], ['owner', 'json']])
       expect(descriptor.parameters[0]!.codec.typeSymbol).toBe('@deepseek-ai/dsh-session/types#SessionId')
       const owner = descriptor.parameters[1]!.codec.create()
       expect(owner.parse({ pageId: 'page-1', holderId: 'a_b-C' })).toEqual({ pageId: 'page-1', holderId: 'a_b-C' })
@@ -69,6 +71,23 @@ describe('panel Remote descriptors', () => {
       expect(owner.parse({ pageId: 'p', holderId: 'h', sessionId: 'other' })).toEqual({ pageId: 'p', holderId: 'h' })
     }
     expect(close.result.create().parse({ closed: false })).toEqual({ closed: false })
+  })
+
+  it('takes a locale tag, or nothing, as the watch language (#44)', () => {
+    for (const method of ['watchOwned']) {
+      const descriptor = UML_VIEWER_REMOTE.descriptors.find(entry => entry.method === method)!
+      const language = descriptor.parameters.find(parameter => parameter.wire === 'language')!.codec.create()
+      expect(language.parse('zh')).toBe('zh')
+      expect(language.parse('zh-CN')).toBe('zh-CN')
+      expect(language.parse('en')).toBe('en')
+      // An older panel passes none; the resident keeps its language.
+      expect(language.parse(undefined)).toBeNull()
+      expect(language.parse(null)).toBeNull()
+      expect(() => language.parse(7)).toThrow(/language/)
+      expect(() => language.parse('')).toThrow(/language/)
+      expect(() => language.parse('zh;rm -rf')).toThrow(/language/)
+      expect(() => language.parse('x'.repeat(36))).toThrow(/language/)
+    }
   })
 
   it('parses every event kind the panel receives, and rejects the rest', () => {
@@ -100,12 +119,15 @@ describe('panel Remote descriptors', () => {
       { action: 'select', at: null }, { action: 'select', at: [3, 4] },
       { action: 'search', query: 'graph' }, { action: 'locate', id: ':ir.graph' },
       { action: 'context', proposalId: null }, { action: 'context', proposalId: ':p-shop' },
+      { action: 'language', language: 'zh-CN' }, { action: 'language', language: 'en' },
     ]
     for (const action of actions) expect(parsePanelAction(action), action.action).toEqual(action)
     expect(() => parsePanelAction({ action: 'shell', argv: ['rm'] })).toThrow(/action/)
     expect(() => parsePanelAction({ action: 'display', path: '../escape.edn' })).toThrow(/relative/)
     expect(() => parsePanelAction({ action: 'viewport', viewport: { width: 'big', height: 1 } })).toThrow(/width/)
     expect(() => parsePanelAction({ action: 'search' })).toThrow(/query/)
+    expect(() => parsePanelAction({ action: 'language' })).toThrow(/language/)
+    expect(() => parsePanelAction({ action: 'language', language: 'en\n' })).toThrow(/language/)
   })
 
   it('names the packaged Sarasa face the client loads', () => {

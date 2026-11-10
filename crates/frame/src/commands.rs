@@ -11,7 +11,7 @@ use scene::highlight::Highlight;
 use scene::{Rect, vec2};
 
 use crate::lod::{self, Tier};
-use crate::strings;
+use crate::strings::{self, Lang};
 use crate::theme::{self, Role, RowMarker, fonts};
 
 // Text keeps the layout's 12px side padding; package titles also clear the
@@ -496,7 +496,13 @@ fn marked(view_hit: Option<&Value>, kind: &str, id: Option<&Value>) -> bool {
 }
 
 /// The class boxes, packages, badges and ports of one scene.
-pub fn commands(scene: &Value, selected: Option<&Value>, hover: Option<&Value>) -> Vec<Command> {
+/// The scene-space draw list; `lang` picks the 无数据 marker's text (#44).
+pub fn commands(
+    scene: &Value,
+    selected: Option<&Value>,
+    hover: Option<&Value>,
+    lang: Lang,
+) -> Vec<Command> {
     let h = Highlight::new(scene, selected, hover);
     let hover_id = h.hover.clone();
     let mut out = Vec::new();
@@ -820,7 +826,7 @@ pub fn commands(scene: &Value, selected: Option<&Value>, hover: Option<&Value>) 
         if no_data_label {
             class_commands.push(Command::NoData {
                 rect: r,
-                text: strings::NO_DATA.into(),
+                text: lang.text().no_data.into(),
                 right: r.right() - PAD,
                 y: r.bottom() - NO_DATA_STRIP - 2.0,
                 size: fonts::LEVEL as f64,

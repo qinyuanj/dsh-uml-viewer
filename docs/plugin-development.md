@@ -366,8 +366,10 @@ falls back to English. A switch relabels the open panel in place through
 both files (a unit test keeps their key sets and `{placeholders}` equal), reads
 it with `text.t(key, params)` and relabels on `subscribe`. Chinese copy uses
 the GLOSSARY's interface terms (源码图, 提案, 隐藏, 类卡片, 源码窗口). Text the
-resident lays out (card rows, 「无数据」, hover rows) is chosen by the Rust
-string tables instead (#44).
+resident lays out (card rows, 「无数据」, source errors) is chosen by the Rust
+string tables instead (#44): the panel passes `text.language` when it opens its
+stream and again on every switch, and `crates/frame/src/strings.rs` holds the
+Chinese and English tables behind `Lang`, with English for anything else.
 
 ## Manifests and verification
 

@@ -18,6 +18,7 @@ use edn::record::{get, local_name};
 use serde_json::{Value as Json, json};
 
 use frame::frame::role_json;
+use frame::strings::Lang;
 use frame::{detail, inspector, source, strings};
 
 use crate::Session;
@@ -287,11 +288,13 @@ fn item_json(item: &detail::Item) -> Json {
 /// The open class card as the native paint plan: rows with their cells, bars,
 /// swatches and roles in content space, plus the scroll model. `width` is the
 /// card's content width in points (the native default is 624, floor 560) and
-/// `viewHeight` the card viewport the scroll clamps against.
+/// `viewHeight` the card viewport the scroll clamps against. The rows are
+/// worded in `language` (#44).
 pub fn card_json(
     session: &Session,
     width: Option<f64>,
     view_height: Option<f64>,
+    language: Lang,
 ) -> Result<Json, String> {
     let state = session.state();
     let id = state
@@ -300,8 +303,8 @@ pub fn card_json(
         .ok_or_else(|| "no class card is open".to_owned())?;
     let model = detail::for_state(state, &id)
         .ok_or_else(|| format!("no class card for {}", edn_text(&id)))?;
-    let rows = detail::rows(&model);
-    let items = detail::view(&rows, width);
+    let rows = detail::rows(&model, language);
+    let items = detail::view(&rows, width, language);
     let view_h = view_height.filter(|h| *h > 0.0).unwrap_or(detail::HEIGHT);
     let max_scroll = detail::max_scroll(&rows, view_h);
     let title = get(&model.class, "name")
@@ -324,8 +327,14 @@ pub fn card_json(
 
 /// Open a source window on the class's module (`member` None) or on one
 /// member's declaration line. The file is read from the session project by
-/// `frame::source`, which owns the per-language declaration patterns.
-pub fn source_json(session: &Session, id: &Value, member: Option<&str>) -> Result<Json, String> {
+/// `frame::source`, which owns the per-language declaration patterns. A
+/// source that cannot be opened says so in `language`.
+pub fn source_json(
+    session: &Session,
+    id: &Value,
+    member: Option<&str>,
+    language: Lang,
+) -> Result<Json, String> {
     let state = session.state();
     let model = detail::for_state(state, id).ok_or_else(|| format!("no class {}", edn_text(id)))?;
     let ident = detail::member_ident(&model, member);
@@ -365,8 +374,12 @@ pub fn source_json(session: &Session, id: &Value, member: Option<&str>) -> Resul
     if let Some(reason) = refused.borrow_mut().take() {
         return Err(reason);
     }
-    let opened = opened
-        .ok_or_else(|| strings::SOURCE_NOT_OPENED.replace("%s", &opened_title(member, &model)))?;
+    let opened = opened.ok_or_else(|| {
+        language
+            .text()
+            .source_not_opened
+            .replace("%s", &opened_title(member, &model))
+    })?;
     let lang = opened.lang.clone().unwrap_or_default();
     check_text("file path", &opened.file, SOURCE_MAX_PATH_BYTES)?;
     check_text("title", &opened.title, SOURCE_MAX_PATH_BYTES)?;
