@@ -19,8 +19,6 @@
     "state.failed": "failed",
     "state.closed": "closed",
     "gateway.missing": "The viewer panel needs the Web Remote gateway.",
-    "back.label": "‹ Back",
-    "back.title": "Back (Esc)",
     "search.placeholder": "Search (Ctrl+F)",
     "search.label": "Search classes",
     "search.results": "Search results",
@@ -41,6 +39,10 @@
     "card.close": "Close class card",
     "card.member": "Member",
     "source.label": "Source window {title}",
-    "source.close": "Close source window"
+    "source.close": "Close source window",
+    "breadcrumbs.label": "Breadcrumb path",
+    "breadcrumb.go": "Go to {name}",
+    "status.waitingDisplay": "Waiting for :display to load the diagram…",
+    "status.missingFile": "The IR file is not there: {path}"
   }
 }

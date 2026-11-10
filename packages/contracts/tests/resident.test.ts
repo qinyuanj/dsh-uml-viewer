@@ -42,7 +42,8 @@ describe('resident protocol', () => {
       { version: 1, seq: 8, event: 'state', state: {
         schema: SESSION_STATE_SCHEMA, version: 1, diagram: 'D:/project/diagram.edn', context: { kind: 'real', edn: '{:context :real}' },
         focus: [':core'], proposalId: null, openLayer: null, declutter: null,
-        camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null } },
+        camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null },
+        breadcrumbs: [{ id: null, name: 'Shop' }, { id: ':core', name: 'core' }], status: null },
       { version: 1, seq: null, event: 'error', message: 'not an object' },
     ]
     for (const line of lines) expect(validateResidentEvent(line), JSON.stringify(line).slice(0, 40)).toEqual(line)
@@ -64,6 +65,32 @@ describe('resident protocol', () => {
     }
   })
 
+  it('carries the breadcrumb path and the localized status code on the state event (#45)', () => {
+    const state = { schema: SESSION_STATE_SCHEMA, version: 1, diagram: 'D:/project/diagram.edn', context: null,
+      focus: [], proposalId: null, openLayer: null, declutter: null,
+      camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null }
+    const breadcrumbs = [{ id: null, name: 'Shop' }, { id: ':core', name: 'core' }, { id: ':p-shop', name: 'Proposal' }]
+    const lines = [
+      { version: 1, seq: 9, event: 'state', state, breadcrumbs, status: { code: 'waiting-display' } },
+      { version: 1, seq: 10, event: 'state', state, breadcrumbs,
+        status: { code: 'missing-file', path: 'D:/project/diagram.edn' } },
+      { version: 1, seq: 11, event: 'state', state, breadcrumbs: [], status: null },
+    ]
+    for (const line of lines) expect(parseResidentLine(JSON.stringify(line))).toEqual(line)
+    // A resident from before #45 has neither field: the panel then shows no
+    // breadcrumbs and no status rather than failing the whole stream.
+    const legacy = { version: 1, seq: 12, event: 'state', state }
+    expect(validateResidentEvent(legacy)).toEqual({ ...legacy, breadcrumbs: [], status: null })
+    for (const value of ['Shop', [{ name: 'Shop' }], [{ id: 3, name: 'Shop' }], [{ id: null, name: '' }], [{}]]) {
+      expect(() => validateResidentEvent({ ...legacy, breadcrumbs: value }), JSON.stringify(value)).toThrow(/breadcrumbs/i)
+    }
+    // The code is an enum: the text is the panel's, so an unknown code is a
+    // broken resident, not a message to show.
+    for (const status of [{ code: 'lost' }, { code: 'missing-file' }, { code: 'waiting-display', path: 3 }, 'waiting-display']) {
+      expect(() => validateResidentEvent({ ...legacy, status }), JSON.stringify(status)).toThrow(/status/i)
+    }
+  })
+
   it('validates the persisted session state the panel restores', () => {
     const state = { schema: SESSION_STATE_SCHEMA, version: 1, diagram: null,
       context: { kind: 'real', edn: '{:context :real}' }, focus: [], proposalId: null, openLayer: null,
@@ -78,7 +105,7 @@ describe('resident protocol', () => {
     const state = { schema: SESSION_STATE_SCHEMA, version: 1, diagram: '/project/diagram.edn',
       loadedDiagram: { version: 1, sha256: 'a'.repeat(64) }, context: null, focus: [],
       proposalId: null, openLayer: null, declutter: null, camera: { x: 2, y: 3, zoom: 1 }, selected: null, detail: null }
-    const event = { version: 1, seq: 12, event: 'state', state }
+    const event = { version: 1, seq: 12, event: 'state', state, breadcrumbs: [], status: null }
     expect(parseResidentLine(JSON.stringify(event))).toEqual(event)
     expect(validateSessionState({ ...state, loadedDiagram: null }).loadedDiagram).toBeNull()
     for (const loadedDiagram of [{ version: 2, sha256: 'a'.repeat(64) }, { version: 1, sha256: 'a'.repeat(63) },

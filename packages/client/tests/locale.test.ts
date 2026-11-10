@@ -32,5 +32,10 @@ describe('panel language files (#42)', () => {
     expect(translate('zh', 'source.label', { title: 'a.ts' })).toBe('源码窗口 a.ts')
     expect(translate('zh', 'summary.source')).toBe('源码图')
     expect(translate('en', 'card.label', { title: 'Catalog' })).toBe('Class card Catalog')
+    // #45: the breadcrumb path and the canvas status codes.
+    expect(translate('zh', 'breadcrumbs.label')).toBe('面包屑路径')
+    expect(translate('zh', 'breadcrumb.go', { name: 'core' })).toBe('前往 core')
+    expect(translate('zh', 'status.missingFile', { path: 'diagram.edn' })).toBe('找不到 IR 文件：diagram.edn')
+    expect(translate('en', 'status.waitingDisplay')).toContain(':display')
   })
 })

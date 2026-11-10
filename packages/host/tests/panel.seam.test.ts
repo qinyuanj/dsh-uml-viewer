@@ -529,6 +529,24 @@ it('persists the panel view state per session and restores it when the panel reo
   await reopen.close()
 })
 
+it('forwards the state event’s breadcrumb path and status code to the panel (#45)', async () => {
+  const { stream, viewer, agents } = await setup()
+  const reader = stream('session-a')
+  // ready, then the frame the resident opened with.
+  await timeout(reader.next())
+  await timeout(reader.next())
+  expect(await viewer().action(agents['session-a']!, { action: 'save' })).toEqual({ accepted: true, reason: null })
+  const next = await timeout(reader.next())
+  expect(next.done).toBe(false)
+  expect(next.value).toEqual({
+    kind: 'state',
+    state: expect.objectContaining({ schema: 'dsh-uml-viewer/session-state', version: 1 }),
+    breadcrumbs: [{ id: null, name: 'Shop' }, { id: ':core', name: 'core' }],
+    status: { code: 'waiting-display' },
+  })
+  await reader.close()
+})
+
 it('persists the view as soon as a panel action changes it, not only when the panel closes', async () => {
   const { stream, viewer, agents, home, projects } = await setup()
   const reader = stream('session-a')

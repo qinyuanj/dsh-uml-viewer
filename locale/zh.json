@@ -19,8 +19,6 @@
     "state.failed": "失败",
     "state.closed": "已关闭",
     "gateway.missing": "viewer 面板需要 Web Remote 网关。",
-    "back.label": "‹ 返回",
-    "back.title": "返回（Esc）",
     "search.placeholder": "搜索（Ctrl+F）",
     "search.label": "搜索类",
     "search.results": "搜索结果",
@@ -41,6 +39,10 @@
     "card.close": "关闭类卡片",
     "card.member": "成员",
     "source.label": "源码窗口 {title}",
-    "source.close": "关闭源码窗口"
+    "source.close": "关闭源码窗口",
+    "breadcrumbs.label": "面包屑路径",
+    "breadcrumb.go": "前往 {name}",
+    "status.waitingDisplay": "等待 :display 命令加载图示…",
+    "status.missingFile": "找不到 IR 文件：{path}"
   }
 }

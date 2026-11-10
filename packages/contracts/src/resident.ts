@@ -27,6 +27,26 @@ export interface DiscussionContext {
 
 export interface SearchResult { id: string; name: string; ns: string; label: string }
 
+/** One level of the tree path the panel's top bar shows (#45). */
+export interface BreadcrumbLevel {
+  /** The component at this level; `null` is the source diagram's root. */
+  id: string | null
+  /** The level's name as the tree gives it: a title, a segment, a label. */
+  name: string
+}
+
+/**
+ * The canvas status as a code the panel localizes (#45): the resident names
+ * the state, the panel's language files own the text. A code carries exactly
+ * the parameters its text needs.
+ */
+export type SessionStatus =
+  | { code: 'waiting-display' }
+  | { code: 'missing-file'; path: string }
+
+/** The status codes this version knows; anything else is a broken resident. */
+export const STATUS_CODES: readonly SessionStatus['code'][] = ['waiting-display', 'missing-file']
+
 export interface SessionState {
   schema: typeof SESSION_STATE_SCHEMA
   version: typeof SESSION_STATE_VERSION
@@ -49,7 +69,8 @@ export type ResidentEvent =
   | { version: 1; seq: unknown; event: 'frame'; frame: SceneFrame }
   | { version: 1; seq: unknown; event: 'search'; query: string; results: SearchResult[] }
   | { version: 1; seq: unknown; event: 'context'; context: DiscussionContext }
-  | { version: 1; seq: unknown; event: 'state'; state: SessionState }
+  | { version: 1; seq: unknown; event: 'state'; state: SessionState
+      breadcrumbs: BreadcrumbLevel[]; status: SessionStatus | null }
   | { version: 1; seq: unknown; event: 'inspector'; inspector: InspectorModel }
   | { version: 1; seq: unknown; event: 'card'; card: CardModel }
   | { version: 1; seq: unknown; event: 'source'; source: SourceModel }
@@ -110,6 +131,59 @@ function loadedDiagram(value: unknown, label: string): { version: 1; sha256: str
   const sha256 = str(source.sha256, `${label}.sha256`)
   if (!/^[a-f0-9]{64}$/.test(sha256)) at(`${label}.sha256`, 'must be a lowercase SHA-256 hex digest')
   return { version: 1, sha256 }
+}
+
+/**
+ * Validate the breadcrumb path a state event carries (#45): root first, each
+ * level a component id (or null for the source diagram's root) and a name.
+ * @param value the event's `breadcrumbs` (absent from a resident before #45).
+ * @param label the document name used in failure messages.
+ * @returns the levels, root first.
+ */
+export function validateBreadcrumbs(value: unknown, label = 'breadcrumbs'): BreadcrumbLevel[] {
+  if (value === null || value === undefined) return []
+  try {
+    return list(value, label).map((entry, index) => {
+      const row = record(entry, `${label}[${index}]`)
+      if (row.id === undefined) at(`${label}[${index}].id`, 'must be an EDN id or null')
+      const id = row.id === null ? null : str(row.id, `${label}[${index}].id`)
+      const name = str(row.name, `${label}[${index}].name`)
+      if (!name) at(`${label}[${index}].name`, 'must not be empty')
+      return { id, name }
+    })
+  } catch (error) {
+    if (error instanceof Invalid) throw new Error(error.message)
+    throw error
+  }
+}
+
+/**
+ * Validate the canvas status code a state event carries (#45). The panel
+ * localizes the code, so an unknown one is a contract failure, not a message
+ * to show; its parameters are the ones that code declares.
+ * @param value the event's `status` (absent from a resident before #45).
+ * @param label the document name used in failure messages.
+ * @returns the code, or null when there is nothing to say.
+ */
+export function validateSessionStatus(value: unknown, label = 'status'): SessionStatus | null {
+  if (value === null || value === undefined) return null
+  try {
+    const source = record(value, label)
+    const code = str(source.code, `${label}.code`)
+    if (!(STATUS_CODES as readonly string[]).includes(code)) {
+      at(`${label}.code`, `unknown status code ${JSON.stringify(code)}`)
+    }
+    const allowed = code === 'missing-file' ? ['path'] : []
+    for (const key of Object.keys(source)) {
+      if (key !== 'code' && !allowed.includes(key)) at(`${label}.${key}`, `not a parameter of ${code}`)
+    }
+    return code === 'missing-file'
+      ? { code: 'missing-file', path: str(source.path, `${label}.path`) }
+      : { code: 'waiting-display' }
+  } catch (error) {
+    if (error instanceof Invalid) throw new Error(error.message)
+    throw error
+  }
 }
 
 /**
@@ -179,7 +253,11 @@ export function validateResidentEvent(value: unknown, label = 'resident event'):
       case 'context':
         return { version: RESIDENT_VERSION, seq, event, context: context(source.context, `${label}.context`) }
       case 'state':
-        return { version: RESIDENT_VERSION, seq, event, state: validateSessionState(source.state, `${label}.state`) }
+        // #45: the breadcrumb path and the status code ride on this event;
+        // the persisted session state keeps its own contract untouched.
+        return { version: RESIDENT_VERSION, seq, event, state: validateSessionState(source.state, `${label}.state`),
+          breadcrumbs: validateBreadcrumbs(source.breadcrumbs, `${label}.breadcrumbs`),
+          status: validateSessionStatus(source.status, `${label}.status`) }
       case 'inspector':
         return { version: RESIDENT_VERSION, seq, event, inspector: validateInspectorModel(source.inspector, `${label}.inspector`) }
       case 'card':

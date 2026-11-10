@@ -17,7 +17,9 @@ export function panelEvent(event: ResidentEvent): PanelEvent | null {
     case 'context':
       return { kind: 'context', context: event.context }
     case 'state':
-      return { kind: 'state', state: event.state }
+      // #45: the breadcrumb path and the localized status code ride along;
+      // the persisted session state is passed through untouched.
+      return { kind: 'state', state: event.state, breadcrumbs: event.breadcrumbs, status: event.status }
     case 'search':
       return { kind: 'search', query: event.query, results: event.results }
     // #27: inspector/card/source are answers to one panel's action and travel

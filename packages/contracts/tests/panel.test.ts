@@ -78,7 +78,11 @@ describe('panel Remote descriptors', () => {
       { kind: 'context', context: { kind: 'real', edn: '{:context :real}' } },
       { kind: 'context', context: { kind: 'proposal', proposalId: ':p-shop', name: 'P', edn: '{:context :proposal}' } },
       { kind: 'state', state: { schema: 'dsh-uml-viewer/session-state', version: 1, diagram: null, context: null,
-        focus: [], proposalId: null, openLayer: null, declutter: null, camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null } },
+        focus: [], proposalId: null, openLayer: null, declutter: null, camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null },
+        breadcrumbs: [{ id: null, name: 'Shop' }], status: null },
+      { kind: 'state', state: { schema: 'dsh-uml-viewer/session-state', version: 1, diagram: null, context: null,
+        focus: [':core'], proposalId: null, openLayer: null, declutter: null, camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null },
+        breadcrumbs: [{ id: null, name: 'Shop' }, { id: ':core', name: 'core' }], status: { code: 'missing-file', path: 'diagram.edn' } },
       { kind: 'search', query: 'a', results: [] },
       { kind: 'refused', reason: 'read-only sandbox' },
       { kind: 'failed', reason: 'resident exited 3' },
@@ -95,7 +99,8 @@ describe('panel Remote descriptors', () => {
       { action: 'viewport', viewport: { width: 800, height: 600 } },
       { action: 'camera', x: 1, y: 2, zoom: 0.5 },
       { action: 'display', path: 'diagram.edn' },
-      { action: 'reload' }, { action: 'back' }, { action: 'namespace-tree' }, { action: 'declutter' }, { action: 'save' },
+      { action: 'reload' }, { action: 'back' }, { action: 'back', target: ':core' }, { action: 'back', target: null },
+      { action: 'namespace-tree' }, { action: 'declutter' }, { action: 'save' },
       { action: 'drill-in', id: ':core' }, { action: 'drill-in', at: [1, 2] },
       { action: 'select', at: null }, { action: 'select', at: [3, 4] },
       { action: 'search', query: 'graph' }, { action: 'locate', id: ':ir.graph' },
@@ -106,6 +111,9 @@ describe('panel Remote descriptors', () => {
     expect(() => parsePanelAction({ action: 'display', path: '../escape.edn' })).toThrow(/relative/)
     expect(() => parsePanelAction({ action: 'viewport', viewport: { width: 'big', height: 1 } })).toThrow(/width/)
     expect(() => parsePanelAction({ action: 'search' })).toThrow(/query/)
+    // #45: a breadcrumb click names its level; anything else is not a target.
+    expect(() => parsePanelAction({ action: 'back', target: 7 })).toThrow(/target/)
+    expect(() => parsePanelAction({ action: 'back', target: {} })).toThrow(/target/)
   })
 
   it('names the packaged Sarasa face the client loads', () => {

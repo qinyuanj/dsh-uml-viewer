@@ -6,10 +6,10 @@
  * generator in this package). They are plain data with `create(): { parse }`
  * codecs, so the host and the browser bundle share one declaration.
  */
-import type { DiscussionContext, SearchResult, SessionState } from './resident.js'
+import type { BreadcrumbLevel, DiscussionContext, SearchResult, SessionState, SessionStatus } from './resident.js'
 import type { SceneFrame } from './scene-frame.js'
 import { validateSceneFrame } from './scene-frame.js'
-import { validateSessionState } from './resident.js'
+import { validateBreadcrumbs, validateSessionState, validateSessionStatus } from './resident.js'
 import { normalizeRelativePath } from './tools.js'
 import type { CardModel, InspectorModel, SourceModel } from './overlays.js'
 import { validateCardModel, validateInspectorModel, validateSourceModel } from './overlays.js'
@@ -27,7 +27,7 @@ export type PanelEvent =
   | { kind: 'ready'; actions: string[] }
   | { kind: 'frame'; seq: number | null; frame: SceneFrame }
   | { kind: 'context'; context: DiscussionContext }
-  | { kind: 'state'; state: SessionState }
+  | { kind: 'state'; state: SessionState; breadcrumbs: BreadcrumbLevel[]; status: SessionStatus | null }
   | { kind: 'search'; query: string; results: SearchResult[] }
   | { kind: 'refused'; reason: string }
   | { kind: 'failed'; reason: string }
@@ -36,7 +36,10 @@ export type PanelAction =
   | { action: 'viewport'; viewport: { width: number; height: number } }
   | { action: 'camera'; x: number; y: number; zoom: number }
   | { action: 'display'; path?: string }
-  | { action: 'reload' } | { action: 'back' } | { action: 'namespace-tree' } | { action: 'declutter' } | { action: 'save' }
+  | { action: 'reload' } | { action: 'namespace-tree' } | { action: 'declutter' } | { action: 'save' }
+  // #45: a breadcrumb click names the level to return to; no target is one
+  // level up, and `null` is the source diagram's root.
+  | { action: 'back'; target?: string | null }
   | { action: 'drill-in'; id?: string; at?: [number, number] }
   | { action: 'select'; at: [number, number] | null }
   | { action: 'search'; query: string }
@@ -185,7 +188,9 @@ export function parsePanelEvent(value: unknown, label = 'panel event'): PanelEve
         return { kind, context: parsed }
       }
       case 'state':
-        return { kind, state: validateSessionState(source.state, `${label}.state`) }
+        return { kind, state: validateSessionState(source.state, `${label}.state`),
+          breadcrumbs: validateBreadcrumbs(source.breadcrumbs, `${label}.breadcrumbs`),
+          status: validateSessionStatus(source.status, `${label}.status`) }
       case 'search':
         if (!Array.isArray(source.results)) at(`${label}.results`, 'must be an array')
         return { kind, query: str(source.query, `${label}.query`),
@@ -228,8 +233,13 @@ export function parsePanelAction(value: unknown, label = 'panel action'): PanelA
         const path = source.path === undefined ? undefined : normalizeRelativePath('path', source.path)
         return path === undefined ? { action } : { action, path }
       }
-      case 'reload': case 'back': case 'namespace-tree': case 'declutter': case 'save':
+      case 'reload': case 'namespace-tree': case 'declutter': case 'save':
         return { action }
+      case 'back': {
+        const target = source.target === undefined ? undefined
+          : source.target === null ? null : str(source.target, `${label}.target`)
+        return target === undefined ? { action } : { action, target }
+      }
       case 'drill-in': {
         const id = source.id === undefined || source.id === null ? undefined : str(source.id, `${label}.id`)
         const point = source.at === undefined || source.at === null ? undefined : pointOrNull(source.at, `${label}.at`)

@@ -10,7 +10,8 @@
  * never changes the frame itself. The local camera math mirrors `scene::events` (on_wheel,
  * on_scroll, zoom_at, fit) so the panel behaves like the egui window.
  */
-import type { DiscussionContext, PanelAck, PanelAction, PanelEvent, PanelOwner, SceneFrame, SearchResult } from '@dsh-uml-viewer/contracts'
+import type { BreadcrumbLevel, DiscussionContext, PanelAck, PanelAction, PanelEvent, PanelOwner, SceneFrame,
+  SearchResult, SessionStatus } from '@dsh-uml-viewer/contracts'
 import { hitTest, paintFrame } from './paint.js'
 import { hoverAt, sameHover, showsPopup, withHover, type HoverHit } from './hover.js'
 import { cssToWorld, screenToWorld, viewTransform } from './fit.js'
@@ -53,6 +54,16 @@ export interface PanelStatus {
   /** The discussion context carried by this session's stream. */
   context: DiscussionContext | null
   search: SearchState
+  /**
+   * The tree path from the resident's state event (#45), root first; the
+   * panel's top bar draws it. Empty until a diagram is loaded.
+   */
+  breadcrumbs: readonly BreadcrumbLevel[]
+  /**
+   * The canvas status code from the same event (#45). The panel localizes it;
+   * the code never carries text of its own.
+   */
+  statusCode: SessionStatus | null
 }
 
 export interface PanelDeps {
@@ -93,7 +104,8 @@ export class PanelController {
   private owner: PanelOwner | null = null
   private readonly makeOwner: (() => PanelOwner) | undefined
   private frame: SceneFrame | null = null
-  private status: PanelStatus = { kind: 'connecting', reason: null, actions: [], frame: null, context: null, search: EMPTY_SEARCH }
+  private status: PanelStatus = { kind: 'connecting', reason: null, actions: [], frame: null, context: null,
+    search: EMPTY_SEARCH, breadcrumbs: [], statusCode: null }
   private observer: MutationObserver | null = null
   private readonly listeners = new Set<Listener>()
   /** Last mode reported by the resident's existing `state` event. */
@@ -135,7 +147,10 @@ export class PanelController {
     this.sessionId = sessionId
     const abort = new AbortController()
     this.abort = abort
-    this.publish({ kind: 'connecting', reason: null, actions: [], frame: this.frame, context: null, search: EMPTY_SEARCH })
+    // A new binding starts with nothing said: the first frame's `save` brings
+    // this session's breadcrumbs and status.
+    this.publish({ kind: 'connecting', reason: null, actions: [], frame: this.frame, context: null,
+      search: EMPTY_SEARCH, breadcrumbs: [], statusCode: null })
     this.observeTheme()
     const size = await this.measureViewport()
     this.setViewport(size.width, size.height)
@@ -163,10 +178,14 @@ export class PanelController {
             this.stream = stream
           }
         }
-        if (!abort.signal.aborted) this.publish({ kind: 'closed', reason: null, actions: [], frame: this.frame, context: this.status.context, search: this.status.search })
+        if (!abort.signal.aborted) this.publish({ kind: 'closed', reason: null, actions: [], frame: this.frame,
+          context: this.status.context, search: this.status.search,
+          breadcrumbs: this.status.breadcrumbs, statusCode: this.status.statusCode })
       } catch (error) {
         if (abort.signal.aborted) return
-        this.publish({ kind: 'failed', reason: messageOf(error), actions: [], frame: this.frame, context: this.status.context, search: this.status.search })
+        this.publish({ kind: 'failed', reason: messageOf(error), actions: [], frame: this.frame,
+          context: this.status.context, search: this.status.search,
+          breadcrumbs: this.status.breadcrumbs, statusCode: this.status.statusCode })
       }
     })()
   }
@@ -182,7 +201,8 @@ export class PanelController {
     const sessionId = this.sessionId
     const owner = this.owner
     this.teardown()
-    this.publish({ kind: 'closed', reason: null, actions: [], frame: this.frame, context: this.status.context, search: EMPTY_SEARCH })
+    this.publish({ kind: 'closed', reason: null, actions: [], frame: this.frame, context: this.status.context,
+      search: EMPTY_SEARCH, breadcrumbs: this.status.breadcrumbs, statusCode: this.status.statusCode })
     return sessionId !== null ? this.sayClosed(sessionId, owner) : Promise.resolve()
   }
 
@@ -425,6 +445,14 @@ export class PanelController {
     return this.send({ action: 'back' })
   }
 
+  /**
+   * A breadcrumb click: return to the level whose id `target` is (`null` is
+   * the source diagram's root) instead of one level up.
+   */
+  public async backTo(target: string | null): Promise<PanelAck | null> {
+    return this.send({ action: 'back', target })
+  }
+
   /** **P**: return to the source diagram's namespace tree. */
   public async namespaceTree(): Promise<PanelAck | null> {
     return this.send({ action: 'namespace-tree' })
@@ -506,17 +534,21 @@ export class PanelController {
   private handle(event: PanelEvent, signal: AbortSignal): void {
     switch (event.kind) {
       case 'ready':
-        this.publish({ kind: 'live', reason: null, actions: event.actions, frame: this.frame, context: this.status.context, search: this.status.search })
+        this.publish({ kind: 'live', reason: null, actions: event.actions, frame: this.frame,
+          context: this.status.context, search: this.status.search,
+          breadcrumbs: this.status.breadcrumbs, statusCode: this.status.statusCode })
         // The panel names its viewport before the first frame can be laid out.
         if (this.viewport) void this.send({ action: 'viewport', viewport: this.viewport })
         return
       case 'state':
         this.mode = event.state.declutter?.replace(/^:/, '') ?? 'full'
-        this.publish(this.status)
+        this.publish({ ...this.status, breadcrumbs: event.breadcrumbs, statusCode: event.status })
         return
       case 'frame':
         this.frame = event.frame
-        this.publish({ kind: 'live', reason: null, actions: this.status.actions, frame: event.frame, context: this.status.context ?? { kind: 'real', edn: '{:context :real}' }, search: this.status.search })
+        this.publish({ kind: 'live', reason: null, actions: this.status.actions, frame: event.frame,
+          context: this.status.context ?? { kind: 'real', edn: '{:context :real}' }, search: this.status.search,
+          breadcrumbs: this.status.breadcrumbs, statusCode: this.status.statusCode })
         this.draw(event.frame)
         // Rebuilds and display can change the mode. Read actual resident state,
         // including a restored mode, instead of advancing a local click count.
@@ -532,10 +564,14 @@ export class PanelController {
         return
       }
       case 'refused':
-        this.publish({ kind: 'refused', reason: event.reason, actions: [], frame: this.frame, context: this.status.context, search: this.status.search })
+        this.publish({ kind: 'refused', reason: event.reason, actions: [], frame: this.frame,
+          context: this.status.context, search: this.status.search,
+          breadcrumbs: this.status.breadcrumbs, statusCode: this.status.statusCode })
         return
       case 'failed':
-        this.publish({ kind: 'failed', reason: event.reason, actions: [], frame: this.frame, context: this.status.context, search: this.status.search })
+        this.publish({ kind: 'failed', reason: event.reason, actions: [], frame: this.frame,
+          context: this.status.context, search: this.status.search,
+          breadcrumbs: this.status.breadcrumbs, statusCode: this.status.statusCode })
         return
       default:
         // state events are the host's own persistence traffic, not panel UI.

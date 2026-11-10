@@ -64,6 +64,9 @@ function handle(action) {
     case 'save':
       return answer(action.seq, {
         event: 'state',
+        // #45: the tree path and the localizable canvas status.
+        breadcrumbs: [{ id: null, name: 'Shop' }, { id: ':core', name: 'core' }],
+        status: { code: 'waiting-display' },
         state: {
           schema: 'dsh-uml-viewer/session-state', version: 1, diagram: config.diagram ?? null,
           context: discussionContext, focus: [':core'],

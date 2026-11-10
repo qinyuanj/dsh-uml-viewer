@@ -54,6 +54,18 @@ const STYLE = `${DECLUTTER_STYLE}${REQUEST_MENU_STYLE}
 }
 .dsh-uml-viewer-toolbar button:disabled { opacity: 0.45; cursor: default; background: transparent; }
 .dsh-uml-viewer-spacer { flex: 1 1 auto; }
+.dsh-uml-viewer-crumbs { flex: 0 1 auto; min-width: 0; }
+.dsh-uml-viewer-crumbs ol {
+  display: flex; align-items: center; gap: 2px; min-width: 0; margin: 0; padding: 0; list-style: none;
+}
+.dsh-uml-viewer-crumbs li { display: flex; align-items: center; min-width: 0; }
+.dsh-uml-viewer-crumbs li + li::before { content: '›'; padding: 0 1px; color: var(--dsw-alias-label-tertiary); }
+.dsh-uml-viewer-crumbs button, .dsh-uml-viewer-crumbs [aria-current="page"] {
+  max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dsh-uml-viewer-crumbs [aria-current="page"] {
+  padding: 3px 4px; color: var(--dsw-alias-label-primary);
+}
 .dsh-uml-viewer-search { position: relative; flex: 0 1 260px; min-width: 120px; }
 .dsh-uml-viewer-search input {
   box-sizing: border-box; width: 100%; border: 1px solid var(--dsw-alias-border-l2); border-radius: 4px;
@@ -84,6 +96,8 @@ const STYLE = `${DECLUTTER_STYLE}${REQUEST_MENU_STYLE}
   font: 12px/1.4 var(--dsw-font-family, system-ui); color: var(--dsw-alias-state-error-primary);
   pointer-events: none; white-space: pre-wrap;
 }
+/* The canvas status code is information; only a refusal is an error. */
+.dsh-uml-viewer-status[data-kind="canvas"] { color: var(--dsw-alias-label-secondary); }
 `
 
 export interface SlotRegistration {
@@ -258,6 +272,10 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   results.className = 'dsh-uml-viewer-results'
   results.setAttribute('role', 'listbox')
   results.hidden = true
+  // The top bar's breadcrumb path (#45): one button per level above the
+  // current one, the current level as text.
+  const crumbs = document.createElement('nav')
+  crumbs.className = 'dsh-uml-viewer-crumbs'
   /** The static labels; a DSH language switch reapplies them in place. */
   const labelStatic = (): void => {
     canvas.setAttribute('aria-label', text.t('canvas.label'))
@@ -265,6 +283,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     input.placeholder = text.t('search.placeholder')
     input.setAttribute('aria-label', text.t('search.label'))
     results.setAttribute('aria-label', text.t('search.results'))
+    crumbs.setAttribute('aria-label', text.t('breadcrumbs.label'))
   }
   search.append(input, results)
   const spacer = document.createElement('span')
@@ -280,17 +299,62 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   }
   let overlays: OverlayController | null = null
   let lastResults = ''
+  let lastCrumbs = ''
   /** A refusal from the element menu, re-rendered on a language switch. */
   let reported: string | (() => string) | null = null
-  const showReport = (): void => {
+  /** The localized text of a canvas status code (#45). */
+  const statusText = (code: PanelStatus['statusCode']): string => {
+    if (code === null) return ''
+    return code.code === 'missing-file'
+      ? text.t('status.missingFile', { path: code.path })
+      : text.t('status.waitingDisplay')
+  }
+  /**
+   * The status line: a refusal wins over the canvas status, because the user
+   * has to see why their click did nothing. Until #46 takes the status out of
+   * the canvas, the resident's own hint text is still drawn there too (#44
+   * localizes it); this line is where the code's text lives from now on.
+   */
+  const showStatus = (): void => {
     const reason = typeof reported === 'function' ? reported() : reported
-    status.textContent = reason ?? ''
-    status.style.display = reason ? '' : 'none'
+    const code = controller.current.statusCode
+    const line = reason ?? statusText(code)
+    status.textContent = line
+    status.dataset.kind = reason ? 'refusal' : code === null ? 'none' : 'canvas'
+    status.style.display = line ? '' : 'none'
   }
   /** The frame the overlays last refreshed for; search/status updates reuse it. */
   let overlayFrame: SceneFrame | null = null
   /** The holder this mount last opened; a withdrawn tab is closed by it. */
   let lastOwner: PanelOwner | null = null
+  /** Rebuild the path only when a level's id or name changed (or the language did). */
+  const renderBreadcrumbs = (levels: PanelStatus['breadcrumbs']): void => {
+    const signature = JSON.stringify(levels.map(level => [level.id, level.name]))
+    if (signature === lastCrumbs) return
+    lastCrumbs = signature
+    const list = document.createElement('ol')
+    levels.forEach((level, index) => {
+      const item = document.createElement('li')
+      if (index + 1 === levels.length) {
+        const current = document.createElement('span')
+        current.setAttribute('aria-current', 'page')
+        current.textContent = level.name
+        item.appendChild(current)
+      } else {
+        const choice = document.createElement('button')
+        choice.type = 'button'
+        choice.dataset.level = String(index)
+        labelButton(choice, level.name, text.t('breadcrumb.go', { name: level.name }))
+        choice.addEventListener('click', () => {
+          void controller.backTo(level.id)
+          canvas.focus({ preventScroll: true })
+        })
+        item.appendChild(choice)
+      }
+      list.appendChild(item)
+    })
+    crumbs.replaceChildren(list)
+  }
   const renderStatus = (state: PanelStatus): void => {
     const frame = state.frame
     // A new view frame refreshes the inspector/card; a search or status
@@ -301,6 +365,9 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     }
     summary.dataset.kind = frame ? 'frame' : state.kind
     summary.dataset.context = state.context?.kind ?? 'real'
+    summary.dataset.status = state.statusCode?.code ?? ''
+    summary.dataset.breadcrumbs = String(state.breadcrumbs.length)
+    renderBreadcrumbs(state.breadcrumbs)
     summary.dataset.search = state.search.active ? 'active' : 'closed'
     summary.dataset.results = String(state.search.results.length)
     if (frame) {
@@ -324,8 +391,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
       summary.textContent = text.t('summary.state', { state: text.t(`state.${state.kind}` as const) })
     }
     reported = state.kind === 'refused' || state.kind === 'failed' ? state.reason : null
-    showReport()
-    back.disabled = !frame?.chrome.some(item => item.kind === 'back')
+    showStatus()
     if (document.activeElement !== input && input.value !== state.search.query) input.value = state.search.query
     const signature = JSON.stringify([state.search.active, state.search.results, state.search.selection])
     if (signature !== lastResults) {
@@ -365,7 +431,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   const disposeQualityMenu = mountQualityMenu(host, canvas, {
     frame: () => controller.current.frame,
     send: action => controller.send(action),
-    report(reason) { reported = reason; showReport() },
+    report(reason) { reported = reason; showStatus() },
     text,
   })
   overlays = new OverlayController(action => controller.send(action), text)
@@ -376,16 +442,11 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     if (overlays) void overlays.namespaceTree()
     else void controller.namespaceTree()
   }
-  const back = button(text.t('back.label'), text.t('back.title'), () => {
-    void controller.back()
-    canvas.focus({ preventScroll: true })
-  })
-  back.disabled = true
   const tree = button('Namespace tree', 'Namespace tree (P)', () => {
     namespaceTree()
     canvas.focus({ preventScroll: true })
   })
-  toolbar.append(back, tree, search)
+  toolbar.append(crumbs, tree, search)
   const disposeDeclutter = mountDeclutterControl(toolbar, controller, text)
   toolbar.append(spacer)
   // Closing the host tab is the explicit close; while this body is mounted the
@@ -405,13 +466,14 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   // A DSH language switch relabels this mount in place; the tab stays open.
   const unsubscribeText = text.subscribe(() => {
     labelStatic()
-    labelButton(back, text.t('back.label'), text.t('back.title'))
     lastResults = ''
+    // The level names are the tree's, but the buttons' titles are ours.
+    lastCrumbs = ''
     // Keep an element-menu refusal; the status publish would otherwise clear it.
     const kept = reported
     renderStatus(controller.current)
     reported = kept
-    showReport()
+    showStatus()
   })
   // Keyboard input belongs to this panel; never capture the chat composer.
   // **P** from the overlay windows (outside the canvas host) also returns to
