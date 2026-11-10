@@ -195,3 +195,43 @@ test('keeps clear of the card drawer and the status line at narrow and docked wi
     expect(atlas.problems).toEqual([])
   } finally { await lane.close() }
 })
+
+/** A companion that only acknowledges: every admitted request stays queued (#53). */
+function acknowledging(request) {
+  if (!request.tools?.length) return null
+  const last = request.messages?.at(-1)
+  const text = (last?.content ?? []).find(part => part.type === 'text' && part.text?.startsWith('UML viewer panel request:'))?.text
+  if (!text) return null
+  return { text: `Acknowledged ${/:op :([a-z-]+)/.exec(text)?.[1]}.` }
+}
+
+test('the status bar’s request queue opens above the bar, not behind it', async ({ browser }) => {
+  const lane = await launchViewerLane(browser, { reply: acknowledging })
+  try {
+    const deep = await lane.openPanel('deep')
+    const bar = deep.panel.getByRole('toolbar', { name: 'Selection actions', exact: true })
+    const status = deep.panel.locator('.dsh-uml-viewer-statusbar')
+    const more = status.locator('.dsh-uml-viewer-request-more')
+    const list = status.locator('.dsh-uml-viewer-request-list')
+    const frame = await producerFrame(deep, { root: lane.projects.deep, home: lane.home })
+    const core = frame.world.find(item => item.kind === 'class' && item.id === ':core')
+    expect(core, 'the deep root draws the core component').toBeTruthy()
+    await lane.point(deep, center(frame, core))
+    await expect(bar).toBeVisible()
+    // Two requests from the bar: the second waits behind the first.
+    for (const count of ['1', '2']) {
+      await bar.getByRole('button', { name: 'Refresh CRAP', exact: true }).click()
+      await expect(status).toHaveAttribute('data-request-count', count)
+    }
+    await expect(more).toHaveText('1 more')
+    await more.click()
+    await expect(list).toBeVisible()
+    // The queue opens over the bar's own corner; it must paint above it.
+    const [barBox, listBox] = await Promise.all([bar.boundingBox(), list.boundingBox()])
+    expect(overlap(barBox, listBox), 'the queue opens where the bar is').toBe(true)
+    const z = locator => locator.evaluate(element => Number(getComputedStyle(element).zIndex))
+    expect(await z(list), 'the queue is not hidden behind the bar').toBeGreaterThan(await z(bar))
+    await lane.screenshot(deep, 't48-action-bar-queue-above')
+    expect(deep.problems).toEqual([])
+  } finally { await lane.close() }
+})
