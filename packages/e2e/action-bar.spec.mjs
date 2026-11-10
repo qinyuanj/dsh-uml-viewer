@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
 import { producerFrame, toScreen } from './canvas.mjs'
 import { exposeTarget } from './gestures.mjs'
+import { toggleFullscreen } from './lifecycle.mjs'
 import { calls, qualityFixture, qualityReply } from './quality-lane.mjs'
 
 /**
@@ -138,6 +139,59 @@ test('a class’s bar opens its card; a foreign package shows its name alone', a
     await expect(bar.locator('.dsh-uml-viewer-action-name')).toHaveText('react')
     await expect(bar.getByRole('button')).toHaveCount(0)
     await lane.screenshot(atlas, 't48-action-bar-foreign')
+    expect(atlas.problems).toEqual([])
+  } finally { await lane.close() }
+})
+
+/** Whether two boxes share any area: the bar must never sit on another surface. */
+function overlap(a, b) {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+}
+
+test('keeps clear of the card drawer and the status line at narrow and docked widths', async ({ browser }) => {
+  const lane = await launchViewerLane(browser)
+  try {
+    const atlas = await lane.openPanel('atlas')
+    const bar = atlas.panel.getByRole('toolbar', { name: 'Selection actions', exact: true })
+    const drawer = atlas.panel.locator('.dsh-uml-drawer')
+    const status = atlas.panel.locator('.dsh-uml-viewer-statusbar')
+    // The floating inspector covers the canvas's right edge; pan the target out
+    // from under it only when it is covered.
+    const { point } = await exposeTarget(atlas, async () => {
+      const frame = await producerFrame(atlas, { root: lane.projects.atlas, home: lane.home })
+      const item = frame.world.find(item => item.kind === 'class' && item.id === ':gateway')
+      expect(item, 'atlas draws the gateway class').toBeTruthy()
+      return { frame, item, point: center(frame, item) }
+    })
+    await lane.point(atlas, point)
+    await bar.getByRole('button', { name: 'Open class card', exact: true }).click()
+    await expect(atlas.panel.getByRole('dialog', { name: 'Class card Gateway', exact: true })).toBeVisible()
+    await expect(drawer).toHaveCount(1)
+
+    const clear = async (where, of) => {
+      const [barBox, other] = await Promise.all([bar.boundingBox(), of.boundingBox()])
+      expect(barBox, 'the bar stays on screen').not.toBeNull()
+      expect(other, `${where} has a box`).not.toBeNull()
+      expect(overlap(barBox, other), `the bar keeps its own space beside ${where}`).toBe(false)
+    }
+    // Narrow: the card is the bottom drawer, so the bar moves above it.
+    await expect(atlas.panel).toHaveAttribute('data-layout', 'drawer')
+    await expect(bar).toBeVisible()
+    await clear('the bottom drawer', drawer)
+    await clear('the status bar', status)
+    await lane.screenshot(atlas, 't48-action-bar-drawer-narrow')
+
+    // Docked: from 900px the card is a right column; even in a just-docked
+    // panel, where the column takes most of the width, the bar keeps left of it.
+    await toggleFullscreen(atlas, true)
+    await expect.poll(() => atlas.panel.evaluate(element => element.clientWidth)).toBeGreaterThanOrEqual(900)
+    await expect(atlas.panel).toHaveAttribute('data-layout', 'docked')
+    await atlas.page.setViewportSize({ width: 920, height: 900 })
+    await expect(atlas.panel).toHaveAttribute('data-layout', 'docked')
+    await expect(bar).toBeVisible()
+    await clear('the docked card', drawer)
+    await clear('the status bar', status)
+    await lane.screenshot(atlas, 't48-action-bar-drawer-docked')
     expect(atlas.problems).toEqual([])
   } finally { await lane.close() }
 })
