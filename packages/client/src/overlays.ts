@@ -1,8 +1,9 @@
 /**
- * The panel overlays (#27): inspector, class card and source windows.
+ * The panel overlays (#27): inspector, and the drawer (#49) that shows the
+ * class card or one source window.
  *
  * This controller owns *panel* state only: which model the resident last
- * sent, which source windows are open and in which order. Every text, count,
+ * sent, and whether the drawer shows the card or a source. Every text, count,
  * quality figure, card row and source line arrives in an ack payload produced
  * by the Rust models; nothing here recomputes them, and no file is read.
  *
@@ -14,10 +15,10 @@
  *   context, P, declutter, locate) invalidates card replies already in flight,
  *   so a pending scroll or refresh cannot repopulate a closed card.
  * - `cardRequest`: of the card fetches in flight, only the newest applies.
- * - Source windows are keyed by file: each class id's newest request is the
- *   only live one for that id, and closing a window invalidates replies for
- *   that file issued before the close. Other files' requests are unaffected,
- *   and a request issued after the close (an intentional reopen) stays live.
+ * - The drawer shows at most one source: only the newest open-source request
+ *   is live, and going back to the card or closing the drawer invalidates
+ *   source replies issued before it. A request issued after it (an
+ *   intentional reopen) stays live.
  * - `intent` orders every user/frame request; a failure is shown only when no
  *   newer request has already reported success or failure, so a late refusal
  *   cannot overwrite a fresher outcome.
@@ -26,15 +27,15 @@ import type { CardModel, InspectorModel, PanelAck, PanelAction, SourceModel } fr
 import { defaultProposalName } from '@dsh-uml-viewer/contracts'
 import { ENGLISH_TEXT, type PanelText } from './locale.js'
 
-export interface SourceWindow {
-  serial: number
-  model: SourceModel
-}
+/** What the drawer shows: a source replaces the card it was opened from. */
+export type DrawerView = 'card' | 'source'
 
 export interface OverlaySnapshot {
   inspector: InspectorModel | null
   card: CardModel | null
-  sources: readonly SourceWindow[]
+  /** The one source window; while it is set the drawer shows it, not the card. */
+  source: SourceModel | null
+  drawer: DrawerView | null
   /** The last refused overlay action, shown in the panel's status line. */
   failure: string | null
 }
@@ -47,9 +48,8 @@ export interface CardGeometry { width: number; viewHeight: number }
 export class OverlayController {
   private inspector: InspectorModel | null = null
   private card: CardModel | null = null
-  private sources: SourceWindow[] = []
+  private source: SourceModel | null = null
   private failure: string | null = null
-  private serial = 0
   private generation = 0
   private cardEpoch = 0
   private cardRequest = 0
@@ -57,12 +57,8 @@ export class OverlayController {
   private cardActions = 0
   private intent = 0
   private failureIntent = 0
-  /** Newest open-source intent per class id. */
-  private readonly sourceRequests = new Map<string, number>()
-  /** The file each class id last opened, learnt from a fresh reply. */
-  private readonly sourceFiles = new Map<string, string>()
-  /** Per file, the intent of its last applied open or close. */
-  private readonly fileIntents = new Map<string, number>()
+  /** The newest open-source intent; only its reply may fill the drawer. */
+  private sourceRequest = 0
   private closed = false
   private readonly listeners = new Set<() => void>()
   private geometry: CardGeometry = { width: 624, viewHeight: 700 }
@@ -73,7 +69,13 @@ export class OverlayController {
   public constructor(private readonly send: Send, public readonly text: PanelText = ENGLISH_TEXT) {}
 
   public get current(): OverlaySnapshot {
-    return { inspector: this.inspector, card: this.card, sources: this.sources, failure: this.failure }
+    const drawer = this.source !== null ? 'source' : this.card !== null ? 'card' : null
+    return { inspector: this.inspector, card: this.card, source: this.source, drawer, failure: this.failure }
+  }
+
+  /** Whether the drawer shows anything: Esc closes it before going back (#49). */
+  public get drawerOpen(): boolean {
+    return this.source !== null || this.card !== null
   }
 
   public subscribe(listener: () => void): () => void {
@@ -256,44 +258,36 @@ export class OverlayController {
   }
 
   /**
-   * Open a source window on a module (`member` undefined) or a member. The
-   * same file keeps one window, which moves to the new member (egui parity).
-   * Windows on other files stay open, including ones whose requests are still
-   * in flight.
+   * Show a module's (`member` undefined) or a member's source in the drawer,
+   * in place of the card; the drawer keeps one source, so a newer request
+   * replaces it rather than stacking a window.
    */
   public async openSource(id: string, member?: string): Promise<void> {
     if (this.closed) return
     const intent = ++this.intent
-    this.sourceRequests.set(id, intent)
-    const fresh = (file: string | undefined) => file === undefined || intent > (this.fileIntents.get(file) ?? 0)
-    const live = () => this.sourceRequests.get(id) === intent && fresh(this.sourceFiles.get(id))
+    this.sourceRequest = intent
+    const live = () => this.sourceRequest === intent
     const ack = await this.request({ action: 'open-source', id, ...(member === undefined ? {} : { member }) }, live, intent)
     const model = ack?.accepted ? ack.source : undefined
-    // The reply names its file: a close of that file, or a newer reply for it
-    // from another id, issued after this request makes this reply stale.
-    if (!model || !fresh(model.file)) return
-    this.sourceFiles.set(id, model.file)
-    this.fileIntents.set(model.file, intent)
-    const existing = this.sources.findIndex(window => window.model.file === model.file)
-    const serial = existing >= 0 ? this.sources[existing]!.serial : ++this.serial
-    if (existing >= 0) this.sources.splice(existing, 1)
-    this.sources.push({ serial, model })
+    if (!model) return
+    this.source = model
     this.succeed(intent)
     this.publish()
   }
 
-  public closeSource(serial: number): void {
+  /** The source's back button: the drawer shows the card again. */
+  public backToCard(): void {
     if (this.closed) return
-    const window = this.sources.find(window => window.serial === serial)
-    if (!window) return
-    this.fileIntents.set(window.model.file, ++this.intent)
-    this.sources = this.sources.filter(window => window.serial !== serial)
+    // A source reply still in flight would bring the source back.
+    this.sourceRequest = ++this.intent
+    if (this.source === null) return
+    this.source = null
     this.publish()
   }
 
-  /** Close the newest source window; the older ones stay. */
-  public closeNewestSource(): void {
-    const newest = this.sources[this.sources.length - 1]
-    if (newest) this.closeSource(newest.serial)
+  /** Close the drawer: the source and the card it came from go together. */
+  public async closeDrawer(): Promise<void> {
+    this.backToCard()
+    if (this.card !== null) await this.closeCard()
   }
 }

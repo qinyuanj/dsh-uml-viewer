@@ -43,6 +43,7 @@
     "card.member": "Member",
     "source.label": "Source window {title}",
     "source.close": "Close source window",
+    "source.back": "Back to class card",
     "tool.valid": "Valid",
     "tool.invalid": "Invalid",
     "tool.running": "Running",

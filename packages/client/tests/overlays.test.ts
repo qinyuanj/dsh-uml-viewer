@@ -163,68 +163,48 @@ describe('panel overlays: stale replies', () => {
     expect(d.controller.current.failure).toBe('resident gone')
   })
 
-  it('drops a same-file source reply after its window closes, but keeps a reopen', async () => {
+  it('drops a source reply that arrives after the drawer went back to the card, but keeps a reopen', async () => {
     const d = deferred()
+    await withCard(d)
     void d.controller.openSource(':order')
     await d.reply('open-source', ok({ source }), ':order')
-    const serial = d.controller.current.sources[0]!.serial
+    expect(d.controller.current.drawer).toBe('source')
     void d.controller.openSource(':order', 'target')
     const old = d.take('open-source', ':order')
-    d.controller.closeSource(serial)
+    d.controller.backToCard()
     old.resolve(ok({ source: { ...source, line: 7 } }))
     await d.flush()
-    expect(d.controller.current.sources).toEqual([])
+    expect(d.controller.current).toMatchObject({ source: null, drawer: 'card' })
 
-    // An intentional reopen after the close is live.
+    // An intentional reopen after going back is live.
     void d.controller.openSource(':order', 'again')
     await d.reply('open-source', ok({ source: { ...source, line: 5 } }), ':order')
-    expect(d.controller.current.sources.map(window => window.model.line)).toEqual([5])
-
-    // A request for the same file issued before a close, landing after the
-    // reopen's reply, neither reopens nor overwrites the reopened window.
-    void d.controller.openSource(':alias')
-    const before = d.take('open-source', ':alias')
-    d.controller.closeNewestSource()
-    void d.controller.openSource(':order', 'after')
-    await d.reply('open-source', ok({ source: { ...source, line: 9 } }), ':order')
-    before.resolve(ok({ source: { ...source, line: 1 } }))
-    await d.flush()
-    expect(d.controller.current.sources.map(window => window.model.line)).toEqual([9])
+    expect(d.controller.current.source?.line).toBe(5)
     expect(d.pending).toEqual([])
   })
 
-  it('drops a stale refusal for a closed source window', async () => {
+  it('shows only the newest source request, whichever reply lands first', async () => {
     const d = deferred()
+    void d.controller.openSource(':a')
+    void d.controller.openSource(':b')
+    const a = d.take('open-source', ':a')
+    await d.reply('open-source', ok({ source: other }), ':b')
+    a.resolve(ok({ source }))
+    await d.flush()
+    expect(d.controller.current.source).toBe(other)
+  })
+
+  it('drops a stale refusal for a source the drawer no longer shows', async () => {
+    const d = deferred()
+    await withCard(d)
     void d.controller.openSource(':order')
     await d.reply('open-source', ok({ source }), ':order')
     void d.controller.openSource(':order', 'absent')
     const refused = d.take('open-source', ':order')
-    d.controller.closeNewestSource()
+    d.controller.backToCard()
     refused.resolve({ accepted: false, reason: 'Source not found' })
     await d.flush()
-    expect(d.controller.current).toMatchObject({ sources: [], failure: null })
-  })
-
-  it('keeps coexisting files and their pending requests when another file closes', async () => {
-    const d = deferred()
-    void d.controller.openSource(':order')
-    await d.reply('open-source', ok({ source }), ':order')
-    const first = d.controller.current.sources[0]!.serial
-    void d.controller.openSource(':other')
-    const pendingOther = d.take('open-source', ':other')
-    d.controller.closeSource(first)
-    pendingOther.resolve(ok({ source: other }))
-    await d.flush()
-    expect(d.controller.current.sources.map(window => window.model.file)).toEqual(['src/other.rs'])
-    // An older reply from another id for the same file loses to a newer one.
-    void d.controller.openSource(':a')
-    void d.controller.openSource(':b')
-    const a = d.take('open-source', ':a')
-    await d.reply('open-source', ok({ source: { ...source, line: 2 } }), ':b')
-    a.resolve(ok({ source: { ...source, line: 1 } }))
-    await d.flush()
-    expect(d.controller.current.sources.map(window => [window.model.file, window.model.line]))
-      .toEqual([['src/other.rs', 82], ['src/order.rs', 2]])
+    expect(d.controller.current).toMatchObject({ source: null, drawer: 'card', failure: null })
   })
 
   it('ignores every reply and refusal after dispose', async () => {
@@ -243,7 +223,7 @@ describe('panel overlays: stale replies', () => {
     }
     await d.flush()
     expect(published).toBe(0)
-    expect(d.controller.current).toMatchObject({ sources: [], failure: null })
+    expect(d.controller.current).toMatchObject({ source: null, failure: null })
     expect(d.pending).toEqual([])
   })
 })
@@ -302,31 +282,40 @@ describe('panel overlays', () => {
     expect(controller.current.failure).toBe('no sessionController')
   })
 
-  it('reuses a source file window, keeps other files and closes only the chosen one', async () => {
+  it('shows one drawer: a member source replaces the card, and back returns to it', async () => {
     const { controller, actions } = harness()
+    expect(controller.current.drawer).toBeNull()
+    await controller.refresh()
+    expect(controller.current.drawer).toBe('card')
     await controller.openSource(':order', 'target')
-    const first = controller.current.sources[0]!.serial
-    expect(actions[0]).toEqual({ action: 'open-source', id: ':order', member: 'target' })
-    expect(controller.current.sources[0]?.model).toEqual(source)
+    expect(actions.at(-1)).toEqual({ action: 'open-source', id: ':order', member: 'target' })
+    expect(controller.current).toMatchObject({ drawer: 'source', card, source })
+    // Another source takes the same drawer; nothing stacks.
     await controller.openSource(':second')
-    expect(controller.current.sources).toHaveLength(2)
-    await controller.openSource(':order')
-    expect(controller.current.sources).toHaveLength(2)
-    expect(controller.current.sources[1]?.serial).toBe(first)
-    controller.closeSource(first)
-    expect(controller.current.sources.map(window => window.model.file)).toEqual(['src/second.rs'])
-    controller.closeNewestSource()
-    expect(controller.current.sources).toEqual([])
+    expect(controller.current.source?.file).toBe('src/second.rs')
+    controller.backToCard()
+    expect(controller.current).toMatchObject({ drawer: 'card', source: null, card })
   })
 
-  it('retains existing windows and reports a failed source request', async () => {
+  it('closes the whole drawer, the source and its card together', async () => {
+    const { controller, actions } = harness()
+    await controller.refresh()
+    await controller.openSource(':order', 'target')
+    expect(controller.drawerOpen).toBe(true)
+    await controller.closeDrawer()
+    expect(controller.current).toMatchObject({ drawer: null, source: null, card: null })
+    expect(controller.drawerOpen).toBe(false)
+    expect(actions).toContainEqual({ action: 'close-card' })
+  })
+
+  it('keeps the shown source and reports a failed source request', async () => {
     const { controller } = harness()
     await controller.openSource(':order')
     await controller.openSource(':order', 'absent')
     expect(controller.current.failure).toBe('Source not found')
-    expect(controller.current.sources).toHaveLength(1)
+    expect(controller.current.source).toEqual(source)
     controller.dispose()
     await controller.openSource(':second')
-    expect(controller.current.sources).toHaveLength(1)
+    expect(controller.current.source).toEqual(source)
   })
 })

@@ -88,6 +88,12 @@ export interface PanelDeps {
 
 export interface KeyModifiers { control?: boolean; shift?: boolean }
 
+/** The panel's drawer (#49), as the Esc chain sees it. */
+export interface DrawerHook {
+  open(): boolean
+  close(): void
+}
+
 type Listener = () => void
 
 /** `scene::events`: one wheel notch and the pan unit. */
@@ -129,6 +135,8 @@ export class PanelController {
   private pointer: { x: number; y: number } | null = null
   /** What the pointer hovers; painted over the resident's frame, never sent. */
   private hoverHit: HoverHit | null = null
+  /** The class card / source drawer; Esc closes it before going back. */
+  private drawer: DrawerHook | null = null
 
   public constructor(deps: PanelDeps) {
     this.canvas = deps.canvas
@@ -504,10 +512,17 @@ export class PanelController {
     return this.send({ action: 'namespace-tree' })
   }
 
-  /** Escape: close search, else back one level, else clear the selection. */
+  /** The drawer the Esc chain closes; null detaches it. */
+  public setDrawer(drawer: DrawerHook | null): void {
+    this.drawer = drawer
+  }
+
+  /** Escape: close search, else the drawer, else back one level, else clear the selection. */
   public escape(): void {
     if (this.status.search.active) {
       this.closeSearch()
+    } else if (this.drawer?.open()) {
+      this.drawer.close()
     } else if (this.hasBack()) {
       void this.back()
     } else {
