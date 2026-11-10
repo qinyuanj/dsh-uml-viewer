@@ -7,7 +7,7 @@ import { toggleFullscreen } from './lifecycle.mjs'
  * The diagram's legend (#50, ADR 0015): the rows are typeset by the resident
  * (#44's language table), the panel draws them as its own DOM, 「更多」 opens
  * them as a popover below 900px of panel width, and from 900px they are
- * resident beside the diagram — a reserved column, never an overlay on the
+ * resident below the diagram — a reserved strip, never an overlay on the
  * classes. A language switch rewords the rows with the next frame.
  */
 let lane

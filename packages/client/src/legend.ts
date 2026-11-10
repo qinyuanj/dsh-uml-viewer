@@ -93,7 +93,7 @@ export interface Legend {
 
 let counter = 0
 
-/** Attach the legend to the canvas row: the reserved column, or the popover. */
+/** Attach the legend to the canvas row: the reserved strip, or the popover. */
 export function mountLegend(host: HTMLElement, options: LegendOptions = {}): Legend {
   const text = options.text ?? ENGLISH_TEXT
   const doc = host.ownerDocument
