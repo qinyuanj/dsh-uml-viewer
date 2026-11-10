@@ -220,6 +220,31 @@ export class RequestStatuses {
     }
   }
 
+  /**
+   * The user dismissed an entry (#53): drop it and tell the session's
+   * listeners, so every panel of the session — and one opened later — stops
+   * showing it. Only a finished (`done` or `failed`) entry goes; an unfinished
+   * one is still the session's queue.
+   * @param sessionId the session whose panel dismissed it.
+   * @param id the entry's id.
+   * @returns whether an entry was dropped.
+   */
+  dismiss(sessionId: string, id: string): boolean {
+    const current = this.lists.get(sessionId) ?? []
+    const index = current.findIndex(item => item.id === id && (item.state === 'done' || item.state === 'failed'))
+    if (index < 0) return false
+    const next = current.filter((_, at) => at !== index)
+    this.lists.set(sessionId, next)
+    // The dismissed entry's correlations must not outlive it either.
+    const kept = new Set(next.map(item => item.id))
+    const prompts = this.prompts.get(sessionId)
+    if (prompts) for (const [prompt, entry] of prompts) if (!kept.has(entry)) prompts.delete(prompt)
+    const admitted = this.admitted.get(sessionId)
+    if (admitted) for (const entry of admitted.keys()) if (!kept.has(entry)) admitted.delete(entry)
+    for (const listener of this.listeners.get(sessionId) ?? []) listener(next)
+    return true
+  }
+
   /** The entry a transition acts on: the one `id` names exactly, else the head. */
   private pending(sessionId: string, id?: string): RequestStatusEntry | undefined {
     return id === undefined

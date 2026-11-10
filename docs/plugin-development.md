@@ -321,10 +321,25 @@ as `{kind: 'request-status', requests: [{id, op, target, state, reason,
 exitCode}]}` (`packages/contracts/src/request-status.ts`). It is sent once
 after the opening events and again after each change, so a reopened tab or a
 refreshed page sees the unfinished entries again. A session's list never
-reaches another session's stream. The status bar (`statusbar.ts`) shows the
-entry that changed last; with no history it shows the oldest unfinished entry,
-else the newest. `RequestStatuses.record` replaces an entry with the same id,
-which is the seam for the transitions below and for dismissal (#53).
+reaches another session's stream. `RequestStatuses.record` replaces an entry
+with the same id, which is the seam for the transitions below and for dismissal
+(#53).
+
+The status bar (`packages/client/src/statusbar.ts`) shows one current entry and
+how many wait behind it as 「还有 N 条」; the button opens the whole queue in
+list order (#53). The current entry is the list's own choice — an unseen
+failure, else the running head, else the oldest queued, else the newest — so a
+refreshed page and an open page agree. A completed entry fades on the client
+ten seconds after it finishes or as soon as the next request starts; a failed
+one stays until the user dismisses it. Dismissal is the `dismiss-request` panel
+action (`{action: 'dismiss-request', id}`), answered by
+`RequestStatuses.dismiss` in the host: only a finished entry goes, and the
+session's new list reaches every panel. The browser evidence is
+`packages/e2e/queue.spec.mjs`; the host seams are in
+`packages/host/tests/requests.seam.test.ts` and
+`packages/host/tests/request-status.seam.test.ts`, the standing rules in
+`packages/host/tests/request-status.test.ts` and the bar's own behaviour in
+`packages/client/tests/statusbar.test.ts`.
 
 #52 attributes the companion's work to those entries in FIFO order: the head
 of the list — the oldest entry still `queued` or `running` — is the request it

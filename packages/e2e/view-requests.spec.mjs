@@ -68,6 +68,19 @@ const composer = a => a.page.locator('[data-composer-input][contenteditable="tru
 /** The bottom status bar; its request line is the request status (#51). */
 const statusBar = a => a.panel.locator('.dsh-uml-viewer-statusbar')
 const finished = (a, op) => expect(a.page.getByText(`Finished ${op}: IR, display.`, { exact: true }).last()).toBeVisible()
+const more = a => statusBar(a).locator('.dsh-uml-viewer-request-more')
+const queue = a => statusBar(a).getByRole('list', { name: 'Request queue' })
+/**
+ * #53: the bar's line is the queue head, so a request sent while an older one
+ * still waits is only in the queue that the button opens.
+ */
+async function openQueue(a) {
+  if (await queue(a).count() === 0) await more(a).click()
+  return queue(a)
+}
+async function closeQueue(a) {
+  if (await queue(a).count()) await more(a).click()
+}
 
 test('Hide after a failed refresh still regenerates the IR, then displays; the draft stays', async ({ browser }) => {
   const { lane, companion } = await launch(browser, true)
@@ -82,6 +95,12 @@ test('Hide after a failed refresh still regenerates the IR, then displays; the d
     expect(companion.edits).toHaveLength(0)
     await menu(a, frame, ':api', 'Hide')
     await expect(a.page.getByText(/^UML viewer panel request:\n\{:op :omit :target \{:id :api :kind :class\} :context \{:context :real\} :request "[0-9a-f]{32}"\}$/).last()).toBeVisible()
+    // #51/#52/#53: the admitted hide is the bar's current entry — the refresh
+    // before it failed (#52), so the hide is the head of the queue — and the
+    // queue that opens behind the button lists it too.
+    await expect(statusBar(a)).toContainText('Hide :api: Queued')
+    await expect((await openQueue(a)).getByRole('listitem').filter({ hasText: 'Hide :api: Queued' })).toHaveCount(1)
+    await closeQueue(a)
     await finished(a, 'omit')
     // #52: the companion's uml_ir and the display it followed completed the
     // hide, and the bar says so.
@@ -148,8 +167,10 @@ test('choosing a proposal tells the companion; 新建提案 sends a timestamp na
     const unchanged = await fs.readFile(path.join(root, 'policy.edn'))
     await inspector.locator('.dsh-uml-proposals button').first().click()
     await expect(a.page.getByText('UML viewer panel request:\n{:op :context :context {:context :real}}', { exact: true }).last()).toBeVisible()
-    // #51: a context switch is done as soon as it is admitted.
-    await expect(statusBar(a)).toContainText('Switch discussion context: Done')
+    // #51/#53: a context switch is done as soon as it is admitted; it is in the
+    // queue behind the requests that still wait.
+    await expect((await openQueue(a)).getByRole('listitem').filter({ hasText: 'Switch discussion context: Done' })).toHaveCount(1)
+    await closeQueue(a)
     await expect(a.summary).toHaveAttribute('data-context', 'real')
     await expect.poll(() => companion.contexts.at(-1)).toBe('real')
     expect(await fs.readFile(path.join(root, 'policy.edn'))).toEqual(unchanged)

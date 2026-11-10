@@ -179,6 +179,20 @@ describe('panel Remote descriptors', () => {
     expect(() => parsePanelAction({ action: 'declutter', mode: 3 })).toThrow(/mode/)
   })
 
+  // #53: dismissing a finished request names it by its request-status id.
+  it('accepts a request dismissal by id and refuses one without a valid id', () => {
+    expect(parsePanelAction({ action: 'dismiss-request', id: 'req-1_a' })).toEqual({ action: 'dismiss-request', id: 'req-1_a' })
+    expect(() => parsePanelAction({ action: 'dismiss-request' })).toThrow(/id/)
+    expect(() => parsePanelAction({ action: 'dismiss-request', id: '' })).toThrow(/id/)
+    expect(() => parsePanelAction({ action: 'dismiss-request', id: 'a b' })).toThrow(/id/)
+    expect(() => parsePanelAction({ action: 'dismiss-request', id: 'x'.repeat(129) })).toThrow(/id/)
+    // The descriptor's codec is the same validator, so the carrier refuses it too.
+    const action = UML_VIEWER_REMOTE.descriptors.find(descriptor => descriptor.method === 'action')!
+    const codec = action.parameters.find(parameter => parameter.name === 'action')!.codec.create()
+    expect(codec.parse({ action: 'dismiss-request', id: 'r1' })).toEqual({ action: 'dismiss-request', id: 'r1' })
+    expect(() => codec.parse({ action: 'dismiss-request', id: 7 })).toThrow(/id/)
+  })
+
   it('names the packaged Sarasa face the client loads', () => {
     expect(PANEL_FONT_PATH).toBe('/dsh-uml-viewer/font/SarasaMonoSC-Regular.ttf')
   })
