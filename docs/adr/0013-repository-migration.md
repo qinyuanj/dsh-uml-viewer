@@ -284,3 +284,14 @@ ADR 0011 说面板由宿主注入 `dsh-client-ui-primitives`。实际落地时
 - **代价与边界**：没有 `DSH_HOME` 时插件什么都不持久化，面板照实说明，不会假装记住了视图；
   会话被删除时这些文件不由宿主清理，fork 也不继承它们。宿主若公开了给插件用的会话存储
   API，应重新评估本条并迁移。
+
+## 附录（2026-11-10）：uml-viewer 不归档，`get-uml-viewer` 继续安装
+
+- **决定**：qinyuanj/uml-viewer 不归档，仍冻结在 `get-uml-viewer` / `./uml` 流程上、不再
+  发行新版本。`get-uml-viewer` 不改为只输出迁移指引：它照常安装冻结版本并以 0 退出，同时
+  在输出里提示 DSH 用户可改装 dsh-uml-viewer 插件；长期保留，不在一个发行周期后删除；仍
+  不读、不改、不删 `.uml-viewer/`。本附录修订上文“迁移指引”一条与 ADR 0011 的“过渡”一条。
+- **理由**：同 [ADR 0012 2026-11-10 附录](0012-quality-tools-in-rust.md)。插件只能在 DSH
+  中使用，关闭旧入口会让不用 DSH 的用户失去唯一可用的安装方式。
+- **单据**：qinyuanj/dsh-uml-viewer#35 关闭为 not planned；qinyuanj/uml-viewer#204 按本附录
+  改写。

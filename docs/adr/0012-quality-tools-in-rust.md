@@ -34,3 +34,13 @@ clone 并各建 `.venv`；mutator 运行时导入 crapper 的 `coverage`、`disc
 - **mutator crate 直接依赖 crapper crate**：dryer 也要用同一套发现与语言规则，共享
   crate 才能让三者的选择规则保持一致（ADR 0001 2026-11-01 附录）。
 - **先以 Python 实现发布、再逐个替换**：要先做一套马上被丢弃的 Python 安装机制。
+
+## 附录（2026-11-10）：原 Python 仓库不归档
+
+- **决定**：qinyuanj/crapper、qinyuanj/mutator、qinyuanj/dryer 不归档为只读，上文
+  “对齐后归档为只读”一条失效。三个仓库的 README 改为指向 dsh-uml-viewer：在 DSH 中用
+  插件，DSH 之外仍可单独使用原工具。
+- **理由**：dsh-uml-viewer 只能在 DSH 中运行，原工具是 DSH 之外唯一可用的形态；冻结的
+  `get-uml-viewer` 也要 clone 这三个仓库。
+- **维护边界**：原工具可以修 bug，新功能只进 dsh-uml-viewer；“与 Python 版逐字节一致”
+  只是移植完成的判据，此后不再要求两边保持一致。
