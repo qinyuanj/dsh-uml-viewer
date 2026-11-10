@@ -5,23 +5,38 @@ import { launchViewerLane } from './lane.mjs'
 import { producerFrame, toScreen } from './canvas.mjs'
 
 /**
- * #53: the request queue in the status bar. Three admitted requests show the
- * current one plus 「还有 N 条」 with the whole queue behind a click; a refused
- * request stays as a failed entry until the user dismisses it, and a dismissal
- * is the host's list — a page refresh does not bring the entry back, and no new
- * message reaches the conversation.
+ * #53: the request queue in the status bar, under #52's turn-end rule. Three
+ * admitted requests show the current one plus 「还有 N 条」 with the whole queue
+ * behind a click; a refused request stays as a failed entry until the user
+ * dismisses it, and a dismissal is the host's list — a page refresh does not
+ * bring the entry back, and no new message reaches the conversation.
  *
- * The scripted companion only acknowledges a panel request and runs no tool, so
- * every admitted request stays queued: running, done and the completed fade are
- * #52's transitions (the fade itself is covered in the client's statusbar
- * tests). What this spec proves is the browser-visible queue and dismissal.
+ * A request only stays unfinished while the companion has not finished its
+ * turn (#52), so the scripted companion holds its answer to the first panel
+ * request open: the turn that consumed it is still running while the test
+ * queues the others, which is the busy-companion state story 37 describes.
+ * The running/done transitions and the completed fade are #52's (see
+ * status.spec.mjs and the client's statusbar tests); what this spec proves is
+ * the browser-visible queue and dismissal.
  */
-function acknowledging(request) {
-  if (!request.tools?.length) return null
-  const last = request.messages?.at(-1)
-  const text = (last?.content ?? []).find(part => part.type === 'text' && part.text?.startsWith('UML viewer panel request:'))?.text
-  if (!text) return null
-  return { text: `Acknowledged ${/:op :([a-z-]+)/.exec(text)?.[1]}.` }
+
+/**
+ * The scripted companion: the first panel request's answer waits on `hold`,
+ * every later one is acknowledged at once.
+ * @param hold resolves the held answer.
+ */
+function acknowledging(hold) {
+  let held = false
+  return request => {
+    if (!request.tools?.length) return null
+    const last = request.messages?.at(-1)
+    const text = (last?.content ?? []).find(part => part.type === 'text' && part.text?.startsWith('UML viewer panel request:'))?.text
+    if (!text) return null
+    const reply = { text: `Acknowledged ${/:op :([a-z-]+)/.exec(text)?.[1]}.` }
+    if (held) return reply
+    held = true
+    return hold.then(() => reply)
+  }
 }
 
 async function clickRefresh(panel, frame, id) {
@@ -38,7 +53,11 @@ const queue = panel => statusBar(panel).getByRole('list', { name: 'Request queue
 const items = panel => queue(panel).getByRole('listitem')
 
 test('the queue shows how many wait behind the current request, and a dismissed failure stays gone', async ({ browser }) => {
-  const lane = await launchViewerLane(browser, { reply: acknowledging })
+  // The companion's answer to the first panel request waits until the test is
+  // done with the queue, so that turn — and the requests behind it — stay open.
+  let release = () => {}
+  const hold = new Promise(resolve => { release = resolve })
+  const lane = await launchViewerLane(browser, { reply: acknowledging(hold) })
   try {
     let a = await lane.openPanel('deep')
     const frame = await producerFrame(a, { root: lane.projects.deep, home: lane.home })
@@ -83,7 +102,7 @@ test('the queue shows how many wait behind the current request, and a dismissed 
     await clickRefresh(a, frame, ':api')
     await expect(statusBar(a)).toHaveAttribute('data-request', 'failed')
     await expect(statusBar(a)).toHaveAttribute('data-request-count', '4')
-    await expect(statusBar(a)).toContainText(/Refresh CRAP: Failed — .*api\.ts/)
+    await expect(statusBar(a)).toContainText(/Refresh CRAP :api: Failed — .*api\.ts/)
     await expect(messages()).toHaveCount(admitted)
     // The failure stays — past the completed fade's ten seconds — until the
     // user dismisses it.
@@ -95,8 +114,8 @@ test('the queue shows how many wait behind the current request, and a dismissed 
     await expect(items(a)).toHaveCount(4)
     const failed = items(a).nth(3)
     await expect(failed).toHaveAttribute('data-state', 'failed')
-    await expect(failed).toContainText(/Refresh CRAP: Failed — .*api\.ts/)
-    const dismiss = failed.getByRole('button', { name: /^Dismiss Refresh CRAP: Failed/ })
+    await expect(failed).toContainText(/Refresh CRAP :api: Failed — .*api\.ts/)
+    const dismiss = failed.getByRole('button', { name: /^Dismiss Refresh CRAP :api: Failed/ })
     await expect(dismiss).toHaveCount(1)
     await expect(queue(a).getByRole('button')).toHaveCount(1)
     await lane.screenshot(a, 't53-queue-failed')
@@ -121,5 +140,5 @@ test('the queue shows how many wait behind the current request, and a dismissed 
     await expect(items(a).filter({ hasText: 'Failed' })).toHaveCount(0)
     expect(a.problems).toEqual([])
     await lane.screenshot(a, 't53-queue-after-refresh')
-  } finally { await lane.close() }
+  } finally { release(); await lane.close() }
 })
