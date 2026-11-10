@@ -55,11 +55,14 @@ test('a refresh is queued at once, a refused one says why, and a page refresh ke
     await expect(messages()).toHaveCount(admitted)
     await lane.screenshot(a, 't51-status-failed')
 
-    // A page refresh: the host still holds this session's list, and the
-    // unfinished request is the current one again.
+    // A page refresh: the host still holds this session's list, so both
+    // unfinished entries come back. The bar's current entry is the unseen
+    // failure (#53's rule), and the queued one still waits behind it.
     a = await lane.reopenPanel(a)
-    await expect(statusBar(a)).toContainText('Refresh CRAP :core: Queued')
-    await expect(statusBar(a)).toHaveAttribute('data-request', 'queued')
+    await expect(statusBar(a)).toContainText(/Refresh CRAP: Failed — .*api\.ts/)
+    await expect(statusBar(a)).toHaveAttribute('data-request', 'failed')
+    await expect(statusBar(a)).toHaveAttribute('data-request-count', '2')
+    await expect(a.panel.getByRole('button', { name: 'Show the other 1 requests' })).toHaveText('1 more')
     expect(a.problems).toEqual([])
     await lane.screenshot(a, 't51-status-after-refresh')
   } finally { await lane.close() }

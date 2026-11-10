@@ -63,4 +63,23 @@ export class RequestStatuses {
       if (set.size === 0 && this.listeners.get(sessionId) === set) this.listeners.delete(sessionId)
     }
   }
+
+  /**
+   * The user dismissed an entry (#53): drop it and tell the session's
+   * listeners, so every panel of the session — and one opened later — stops
+   * showing it. Only a finished (`done` or `failed`) entry goes; an unfinished
+   * one is still the session's queue.
+   * @param sessionId the session whose panel dismissed it.
+   * @param id the entry's id.
+   * @returns whether an entry was dropped.
+   */
+  dismiss(sessionId: string, id: string): boolean {
+    const current = this.lists.get(sessionId) ?? []
+    const index = current.findIndex(item => item.id === id && (item.state === 'done' || item.state === 'failed'))
+    if (index < 0) return false
+    const next = current.filter((_, at) => at !== index)
+    this.lists.set(sessionId, next)
+    for (const listener of this.listeners.get(sessionId) ?? []) listener(next)
+    return true
+  }
 }
