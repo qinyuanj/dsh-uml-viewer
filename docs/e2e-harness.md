@@ -623,6 +623,27 @@ $env:UML_VIEWER_BIN = '<absolute path to an existing uml-viewer.exe>'
 pnpm --filter @dsh-uml-viewer/e2e test:e2e overlays.spec.mjs
 ```
 
+`packages/e2e/legend.spec.mjs` (#50) covers the diagram's legend in the same
+lane. Its rows are the resident's, so the spec reads them out of the panel's
+own DOM:
+
+- Below 900px the legend is closed until 「更多」 opens it as a popover
+  (`data-mode="popover"`), with the English rows the frame carries; **Esc**
+  closes the popover and stops there — the selected class survives, so the key
+  did not fall through to "clear the selection".
+- With the host's fullscreen toggle the panel container reaches 900px and the
+  legend stays resident (`data-mode="docked"`, no close button) as a strip of
+  the canvas row below the diagram: the legend and the canvas share no pixel,
+  the drawing keeps the row's full width, and the viewport the resident was
+  told matches the shrunken canvas. Leaving fullscreen returns it to the closed popover.
+- The swatches are the diagram's colors: the 质量色 ramp's stops resolve to the
+  documented fill ramp literals in the dark theme, 违规关系色, 依赖链高亮 and
+  the 无数据 dot to theirs, and 普通关系色 is compared with the pixels the
+  canvas painted for a plain relation in the same producer frame.
+- A DSH language switch (Settings → General → Language) rewords the rows from
+  the next frame: 依赖链高亮, 类框 and 无数据 replace their English rows while
+  the panel's own title becomes 图例.
+
 These cases have run in CI; see the [aggregate results and remaining failures](#ci).
 
 ## CI

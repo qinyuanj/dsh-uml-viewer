@@ -2,7 +2,11 @@
 
 The **scene frame** is one view of the diagram, fully drawable: every box,
 badge, port and relation, and the pointer's hover popup, with its text,
-geometry, LOD tier, highlight state and color **role**. The `frame` crate (`crates/frame`)
+geometry, LOD tier, highlight state and color **role**. It also carries the
+diagram's **legend** (#50): what those shapes and colors mean, worded in the
+language the frame was built in. The legend is not drawn on the canvas — the
+panel lays it out as its own DOM — but it is the resident's text, like the
+hover popup's rows. The `frame` crate (`crates/frame`)
 builds it from a `scene::ViewState` as typed draw lists (`frame::Layers`,
 `frame::frame::chrome`); the viewer panel (dsh-uml-viewer#21–#27), the only
 renderer since the egui window was deleted (#30), receives the JSON written
@@ -57,6 +61,7 @@ not carry the optional `hover` capability below; `--hover-metadata` adds it to a
 | `world` | item[] | scene-space items, painted in order (packages first, then each class with its badges, text and ports) |
 | `edges` | edge[] | relation strokes, arrowheads and indicators, painted after `world` |
 | `chrome` | item[] | viewport-space items, painted last: the hover popup, or nothing (#46) |
+| `legend` | object | the diagram's legend, in the frame's language (see Legend); `{sections: []}` when there is none |
 | `hover` | object | optional bounded hover metadata (see Hover metadata); absent from the goldens |
 
 ### `style`
@@ -185,6 +190,43 @@ discard points within 0.5 screen points of its chord to the next point. At
 native shaft mesh does. Closed heads always paint over their shafts, including
 at zoom 0.4–0.6. This deliberately avoids the native window's pre-existing
 low-zoom flush-order defect, which paints its shaft mesh after the heads.
+
+## Legend
+
+The legend explains the drawing rather than being part of it (#50, ADR 0015):
+`crates/frame/src/legend.rs` typesets the rows from the language table
+(`crates/frame/src/strings.rs`, #44), so the goldens carry one set of rows per
+language — `{name}.frame.json` in Chinese, `{name}.en.frame.json` in English,
+the same ids in both. A row's swatch names the same semantic **roles** the
+diagram is drawn with, so the panel resolves a legend color and a diagram color
+through one theme and the two cannot drift apart.
+
+```json
+"legend": {
+  "sections": [
+    {"id": "shapes", "title": "Shapes", "rows": [
+      {"id": "class-box", "label": "Class box: …",
+       "sample": {"kind": "box", "shape": "rect",
+                  "fill": {"role": "quality-fill", "grade": 3.0},
+                  "stroke": {"role": "quality-stroke", "grade": 3.0}, "dimmed": false}}
+    ]}
+  ]
+}
+```
+
+| sample kind | fields | drawing |
+|---|---|---|
+| `box` | `shape rect\|oval`, `fill`, `stroke`, `dimmed` | a miniature class, component or foreign-package box: `fill` inside, `stroke` frame, `oval` for an ellipse |
+| `line` | `stroke`, `dimmed` | a relation line in that state's color |
+| `dot` | `fill` | a marker dot, 无数据 |
+| `ramp` | `stops[{role, grade}]` | the continuous 质量色 ramp, its sample stops worst first |
+
+`dimmed` marks a swatch drawn at the frame's `style.dimAlpha` (关系淡化). An
+additive sample kind stays version 1: the validator keeps it and the panel
+shows the row's label without a swatch, like an unknown item kind. The legend
+is the same for every view of one language — it explains the drawing, not the
+current selection — so the rows never change with the camera, the view or a
+selection.
 
 ## Hover metadata (optional, version 1)
 

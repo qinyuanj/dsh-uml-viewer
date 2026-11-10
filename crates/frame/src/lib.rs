@@ -9,6 +9,7 @@
 //!   roles and the dark palette), `lod` (detail tiers, culling,
 //!   decimation);
 //! - `hover` (the optional bounded hover metadata of a resident frame, #26),
+//! - `legend` (the diagram's legend, worded in the resident's language, #50),
 //! - `detail` (class card), `inspector`, `source` (source window),
 //!   `strings` (UI text), `session` (view snapshots the resident restores),
 //!   `watch` and `project_files` (file stamps and the project boundary).
@@ -19,6 +20,7 @@ pub mod detail;
 pub mod frame;
 pub mod hover;
 pub mod inspector;
+pub mod legend;
 pub mod lod;
 pub mod project_files;
 pub mod session;

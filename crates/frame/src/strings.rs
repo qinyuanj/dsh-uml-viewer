@@ -60,6 +60,34 @@ pub struct Text {
     /// Relationship phrases: kind, outgoing, incoming.
     pub phrases: [(&'static str, &'static str, &'static str); 6],
     pub phrase_fallback: (&'static str, &'static str),
+    /// The legend's section titles and row labels (#50); the rows' swatches
+    /// are semantic roles, not words, and live in `legend.rs`.
+    pub legend: LegendText,
+}
+
+/// The legend's text (#50): the section titles and the label of each row, in
+/// the resident's language. The row identity (`class-box`, `relation`, …) and
+/// the color each swatch shows are model, not text, and stay in `legend.rs`.
+#[derive(Debug)]
+pub struct LegendText {
+    /// Section titles.
+    pub shapes: &'static str,
+    pub quality: &'static str,
+    pub relations: &'static str,
+    /// The shapes section: what the diagram's boxes are.
+    pub class_box: &'static str,
+    pub component_box: &'static str,
+    pub foreign_package: &'static str,
+    /// The quality section: 质量色, 无数据 and the selection.
+    pub quality_ramp: &'static str,
+    pub no_data: &'static str,
+    pub selected: &'static str,
+    /// The relations section: 关系连线 and the interactive states.
+    pub relation: &'static str,
+    pub violation: &'static str,
+    pub relation_hover: &'static str,
+    pub dependency_chain: &'static str,
+    pub dimmed: &'static str,
 }
 
 // The metric names read the same in every language.
@@ -102,6 +130,22 @@ pub const ZH: Text = Text {
         ("composition", "组合", "被组合"),
     ],
     phrase_fallback: ("指向", "来自"),
+    legend: LegendText {
+        shapes: "形状",
+        quality: "质量色",
+        relations: "关系",
+        class_box: "类框：填充与框线取自质量色",
+        component_box: "组件框：可下钻的组件，质量取成员的汇总",
+        foreign_package: "外来包椭圆：只有依赖关系，没有质量数据",
+        quality_ramp: "质量色：红到绿，CRAP 越低越好",
+        no_data: "无数据：缺少 CRAP 或 mutation 数据",
+        selected: "选中：框线改用选中色",
+        relation: "关系连线：灰绿实线，头部形状表示关系种类",
+        violation: "违规关系色：红色，依赖方向违反架构规则",
+        relation_hover: "关系悬停高亮：悬停的关系变白",
+        dependency_chain: "依赖链高亮：选中类的依赖链变蓝",
+        dimmed: "关系淡化：不在依赖链上的元素变淡",
+    },
 };
 
 pub const EN: Text = Text {
@@ -133,6 +177,22 @@ pub const EN: Text = Text {
         ("composition", "composes", "composed by"),
     ],
     phrase_fallback: ("to", "from"),
+    legend: LegendText {
+        shapes: "Shapes",
+        quality: "Quality colors",
+        relations: "Relations",
+        class_box: "Class box: its fill and frame use the quality colors",
+        component_box: "Component box: a component you can drill into; quality pooled from its members",
+        foreign_package: "Foreign package: an ellipse with relations only, no quality data",
+        quality_ramp: "Quality color: red to green; lower CRAP is better",
+        no_data: "No data: CRAP or mutation data is missing",
+        selected: "Selected: the outline takes the selection color",
+        relation: "Relation: a grey-green solid line; the head shape names its kind",
+        violation: "Violating relation: red, the dependency points outward",
+        relation_hover: "Relation hover: the hovered relation turns white",
+        dependency_chain: "Dependency chain: the selected class's chain turns blue",
+        dimmed: "Dimmed: elements off the chain fade",
+    },
 };
 
 pub const REAL_DIAGRAM: &str = "源码图";

@@ -392,10 +392,38 @@ falls back to English. A switch relabels the open panel in place through
 both files (a unit test keeps their key sets and `{placeholders}` equal), reads
 it with `text.t(key, params)` and relabels on `subscribe`. Chinese copy uses
 the GLOSSARY's interface terms (源码图, 提案, 隐藏, 类卡片, 源码窗口). Text the
-resident lays out (card rows, 「无数据」, source errors) is chosen by the Rust
-string tables instead (#44): the panel passes `text.language` when it opens its
-stream and again on every switch, and `crates/frame/src/strings.rs` holds the
-Chinese and English tables behind `Lang`, with English for anything else.
+resident lays out (card rows, 「无数据」, source errors, the legend's rows) is
+chosen by the Rust string tables instead (#44): the panel passes
+`text.language` when it opens its stream and again on every switch, and
+`crates/frame/src/strings.rs` holds the Chinese and English tables behind
+`Lang`, with English for anything else.
+
+## Diagram legend (#50, ADR 0015)
+
+The legend explains the drawing — the class and component boxes, the foreign
+package ellipse, 质量色 and 无数据, the selected outline, 关系连线 and its
+violating, hovered, chained and faded states. It is not a second drawing: its
+rows are typeset in Rust (`crates/frame/src/legend.rs`, worded from
+`crates/frame/src/strings.rs`) and ride the frame's `legend` field
+(`docs/scene-frame.md`), so the panel rewords them with the next frame after a
+DSH language switch and the frame goldens cover both languages.
+`packages/client/src/legend.ts` lays them out as plain markup styled from
+`--dsw-*` tokens; each swatch resolves its semantic roles through
+`theme.ts`'s resolver, the one the canvas paints with, so a legend color is the
+diagram's own color in both themes.
+
+Where it lives follows `layout.ts`'s container measurement (#49), never the
+slot the panel sits in. Below 900px the legend is a popover opened from
+「更多」 (`moreMenuEntries` is extended through `mountTopBar({moreEntries})`);
+**Esc** closes it, before the drawer and before going back a level
+(`PanelController.escape`). From 900px it is resident: the legend takes a strip
+of the canvas row below the diagram, so the canvas — and the viewport the
+resident is told about — shrink with it and the legend never covers a class.
+The overlay root stops above the strip, so a docked drawer never covers the
+legend either. That is deliberate:
+a docked layer is reserved space, not an overlay on the drawing (follow-up
+F28). The 「更多」 entry stays listed while it is resident and does nothing,
+since there is no popover to open.
 
 ## Conversation tool views (#54, ADR 0015)
 

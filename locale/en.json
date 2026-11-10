@@ -79,6 +79,8 @@
     "request.line": "{op} {target}: {state}",
     "request.line.untargeted": "{op}: {state}",
     "request.failure": "{line} — {reason}",
-    "request.failure.exitCode": "{line} — {reason} (exit code {code})"
+    "request.failure.exitCode": "{line} — {reason} (exit code {code})",
+    "legend.title": "Legend",
+    "legend.close": "Close legend"
   }
 }

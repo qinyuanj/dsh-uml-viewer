@@ -26,6 +26,7 @@ import { PanelViews, registerToolViews } from './tool-views.js'
 import { MORE_MENU_STYLE } from './more-menu.js'
 import { STATUSBAR_STYLE, mountStatusBar, type StatusBar } from './statusbar.js'
 import { TOPBAR_STYLE, mountTopBar, type TopBar } from './topbar.js'
+import { LEGEND_STYLE, legendEntries, mountLegend, type Legend } from './legend.js'
 import { observeLayout } from './layout.js'
 
 export const TAB_ID = 'dsh-uml-viewer'
@@ -33,12 +34,16 @@ export const TAB_KIND = 'dsh-uml-viewer'
 export const GUIDE_ORDER = 30
 const REMOTE_NAMESPACE = 'umlViewer'
 
-const STYLE = `${TOPBAR_STYLE}${MORE_MENU_STYLE}${STATUSBAR_STYLE}${REQUEST_MENU_STYLE}
+const STYLE = `${TOPBAR_STYLE}${MORE_MENU_STYLE}${STATUSBAR_STYLE}${REQUEST_MENU_STYLE}${LEGEND_STYLE}
 /* The three sections (#46): the top bar, the canvas, the status bar. The
    overlay root covers the canvas alone, so a drawer never hides either bar. */
 .dsh-uml-viewer-panel { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; width: 100%; }
 .dsh-uml-viewer-canvas-host { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
-.dsh-uml-viewer-canvas-area { position: relative; display: flex; flex: 1 1 auto; min-height: 0; }
+/* The canvas row (#50): the canvas and, from 900px, the legend's reserved
+   strip below it. A resident legend takes room from this row, so it never
+   covers a class. */
+.dsh-uml-viewer-canvas-row { position: relative; display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
+.dsh-uml-viewer-canvas-area { position: relative; display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
 .dsh-uml-viewer-panel canvas { display: block; width: 100%; height: 100%; outline: none; }
 .dsh-uml-viewer-panel > .dsh-uml-overlay-root {
   top: var(--dsh-uml-toolbar-height, 0px); bottom: var(--dsh-uml-statusbar-height, 0px);
@@ -207,12 +212,15 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   host.appendChild(summary)
   let topBar: TopBar | null = null
   let statusBar: StatusBar | null = null
+  let legend: Legend | null = null
   const disposeSections = (): void => {
     stopLabels()
     topBar?.dispose()
     topBar = null
     statusBar?.dispose()
     statusBar = null
+    legend?.dispose()
+    legend = null
   }
   const api = await mountRemote(options.ctx)
   if (!api) {
@@ -277,6 +285,9 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     statusBar?.setMessage(reported)
     statusBar?.setRequests(state.requests)
     topBar?.render(state)
+    // The legend's rows are the frame's, worded in the resident's language
+    // (#50); a docked legend shows them without being opened.
+    legend?.render(state.frame)
   }
   const controller = new PanelController({
     canvas,
@@ -287,9 +298,18 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     paint: (frame, target) => paintFrame(frame, target),
     onStatus: renderStatus,
   })
-  // The three sections, in reading order: the top bar, the canvas, the status bar.
-  topBar = mountTopBar(host, { controller, text, onDone: focusCanvas })
-  host.appendChild(canvasArea)
+  // The three sections, in reading order: the top bar, the canvas, the status
+  // bar. The canvas row holds the legend's column beside the canvas (#50).
+  const canvasRow = document.createElement('div')
+  canvasRow.className = 'dsh-uml-viewer-canvas-row'
+  topBar = mountTopBar(host, {
+    controller, text, onDone: focusCanvas,
+    // 「更多」 carries the legend's entry (#50), which opens the popover.
+    moreEntries: () => (legend ? legendEntries(legend, text) : []),
+  })
+  legend = mountLegend(canvasRow, { text, onDone: focusCanvas })
+  canvasRow.append(canvasArea, legend.element)
+  host.appendChild(canvasRow)
   statusBar = mountStatusBar(host, { text })
   const disposeQualityMenu = mountQualityMenu(host, canvas, {
     frame: () => controller.current.frame,
@@ -303,13 +323,30 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   overlays = new OverlayController(action => controller.send(action), text)
   options.views?.attach(options.sessionId, overlays)
   options.onOverlays?.(overlays)
-  // Esc closes the class card / source drawer before it goes back (#49).
+  // Esc closes the class card / source drawer before it goes back (#49), and
+  // the legend's popover before that (#50).
   controller.setDrawer({
     open: () => overlays?.drawerOpen === true,
     close: () => { void overlays?.closeDrawer() },
   })
-  // The container's width picks the drawer or the docked card (#49).
-  const stopLayout = observeLayout(panelElement)
+  controller.setLegend({
+    isOpen: () => legend?.isOpen() === true,
+    close: () => legend?.close(),
+  })
+  // The overlays cover the drawable canvas alone: below the top bar, above the
+  // status bar, and above a resident legend's strip (#50), so neither a drawer
+  // nor the card covers a bar or the legend.
+  const placeOverlays = (): void => {
+    panelElement.style.setProperty?.('--dsh-uml-toolbar-height', `${topBar?.element.offsetHeight ?? 0}px`)
+    const legendHeight = legend?.element.offsetHeight ?? 0
+    panelElement.style.setProperty?.('--dsh-uml-statusbar-height', `${(statusBar?.element.offsetHeight ?? 0) + legendHeight}px`)
+  }
+  // The container's width picks the drawer or the docked card (#49), and
+  // whether the legend is a popover or resident (#50).
+  const stopLayout = observeLayout(panelElement, layout => {
+    legend?.setLayout(layout)
+    placeOverlays()
+  })
   /** **P**: one dispatch, through the overlays so a card reply in flight cannot
    * repopulate the card after the tree resets. */
   const namespaceTree = (): void => {
@@ -324,12 +361,6 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   if (tabId !== undefined) holders.set(tabKey(options.sessionId, tabId), closeLive)
   // The host tab's refresh command is the same reload as **R**.
   const unbindCommands = options.bindCommands?.({ refresh: () => { void controller.send({ action: 'reload' }) } })
-  // The overlays cover the canvas alone: they sit below the top bar and above
-  // the status bar, never over either.
-  const placeOverlays = (): void => {
-    panelElement.style.setProperty?.('--dsh-uml-toolbar-height', `${topBar?.element.offsetHeight ?? 0}px`)
-    panelElement.style.setProperty?.('--dsh-uml-statusbar-height', `${statusBar?.element.offsetHeight ?? 0}px`)
-  }
   placeOverlays()
   const unsubscribe = controller.subscribe(() => { /* state is published to React through overlays */ })
   // A DSH language switch relabels this mount in place; the tab stays open.
@@ -443,6 +474,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     observer?.disconnect()
     stopLayout()
     controller.setDrawer(null)
+    controller.setLegend(null)
     if (overlays) options.views?.detach(options.sessionId, overlays)
     overlays?.dispose()
     overlays = null

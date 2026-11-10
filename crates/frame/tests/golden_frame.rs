@@ -199,6 +199,146 @@ fn a_proposal_view_draws_the_same_way_without_a_banner() {
     );
 }
 
+/// The legend is typeset in Rust (#50, ADR 0015): the rows the panel draws are
+/// in the frame, in the language the resident was told, so each language has
+/// its own set. The goldens are the fixture for both.
+#[test]
+fn the_legend_rows_are_typeset_in_the_residents_language() {
+    let legend = |file: &str| -> serde_json::Value {
+        let frame: serde_json::Value = serde_json::from_str(&golden_text(file)).unwrap();
+        frame["legend"].clone()
+    };
+    let rows = |legend: &serde_json::Value| -> Vec<(String, String, String)> {
+        legend["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|section| {
+                section["rows"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|row| {
+                        (
+                            row["id"].as_str().unwrap().to_owned(),
+                            row["label"].as_str().unwrap().to_owned(),
+                            section["id"].as_str().unwrap().to_owned(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    };
+    let zh = legend("root.frame.json");
+    let en = legend("root.en.frame.json");
+    let (zh_rows, en_rows) = (rows(&zh), rows(&en));
+    // The same legend, the same row identities, word for word in each language.
+    assert_eq!(
+        zh_rows.iter().map(|r| r.0.clone()).collect::<Vec<_>>(),
+        en_rows.iter().map(|r| r.0.clone()).collect::<Vec<_>>(),
+        "both languages carry the same rows"
+    );
+    assert_eq!(
+        zh_rows.iter().map(|r| r.2.clone()).collect::<Vec<_>>(),
+        en_rows.iter().map(|r| r.2.clone()).collect::<Vec<_>>(),
+        "both languages group the rows the same way"
+    );
+    let cjk = |text: &str| text.chars().any(|c| ('\u{3400}'..='\u{9fff}').contains(&c));
+    assert!(
+        zh_rows.iter().all(|r| cjk(&r.1)),
+        "every Chinese row is Chinese: {zh_rows:?}"
+    );
+    assert!(
+        en_rows.iter().all(|r| !cjk(&r.1)),
+        "every English row is English: {en_rows:?}"
+    );
+    // The semantic vocabulary of the legend: boxes, relations, the quality
+    // ramp, the chain highlight and no-data.
+    let ids: Vec<&str> = zh_rows.iter().map(|r| r.0.as_str()).collect();
+    for expected in [
+        "class-box",
+        "component-box",
+        "foreign-package",
+        "quality-ramp",
+        "no-data",
+        "selected",
+        "relation",
+        "violation",
+        "relation-hover",
+        "dependency-chain",
+        "dimmed",
+    ] {
+        assert!(
+            ids.contains(&expected),
+            "the legend has {expected}: {ids:?}"
+        );
+    }
+}
+
+/// The legend's swatches name the roles the diagram itself is drawn with, so
+/// the panel resolves both through one theme and the colors cannot drift
+/// (#50). A role the legend names but no item uses would be its own color.
+#[test]
+fn the_legend_samples_use_the_roles_the_diagram_draws() {
+    fn roles(value: &serde_json::Value, out: &mut Vec<String>) {
+        match value {
+            serde_json::Value::Object(map) => {
+                if let Some(role) = map.get("role").and_then(|r| r.as_str()) {
+                    out.push(role.to_owned());
+                }
+                for (key, item) in map {
+                    if key != "role" {
+                        roles(item, out);
+                    }
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    roles(item, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut legend_roles = Vec::new();
+    let mut drawn_roles = Vec::new();
+    for file in [
+        "root.frame.json",
+        "root.en.frame.json",
+        "root-triangles-selected.frame.json",
+        "root-hover-frames.frame.json",
+        "core-selected.frame.json",
+    ] {
+        let frame: serde_json::Value = serde_json::from_str(&golden_text(file)).unwrap();
+        roles(&frame["legend"], &mut legend_roles);
+        roles(&frame["world"], &mut drawn_roles);
+        roles(&frame["edges"], &mut drawn_roles);
+    }
+    legend_roles.sort();
+    legend_roles.dedup();
+    assert!(!legend_roles.is_empty(), "the legend has samples");
+    for role in &legend_roles {
+        assert!(
+            drawn_roles.contains(role),
+            "the legend names {role}, which the diagram also draws: {drawn_roles:?}"
+        );
+    }
+    // The quality ramp and the chain highlight are the roles the diagram uses
+    // for its quality colors and its dependency chain.
+    for expected in [
+        "quality-fill",
+        "quality-stroke",
+        "no-data",
+        "relation",
+        "dependency-chain",
+    ] {
+        assert!(
+            legend_roles.iter().any(|role| role == expected),
+            "the legend explains {expected}: {legend_roles:?}"
+        );
+    }
+}
+
 /// Chrome left the frame (#46, ADR 0015): the title, the proposal banner, the
 /// return line, the status line and the centred hint are the panel's DOM now
 /// (breadcrumbs, status bar). A view has no chrome at all, and the pointer's

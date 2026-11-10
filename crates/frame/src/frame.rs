@@ -13,6 +13,7 @@ use scene::document::ViewState;
 use serde_json::{Map, Value as Json, json};
 
 use crate::commands::{self, Command, EdgeCommand, PopupRow};
+use crate::legend;
 use crate::lod::{self, Tier};
 use crate::strings::Lang;
 use crate::theme::{self, Role, RowMarker};
@@ -64,6 +65,9 @@ pub struct Frame {
     pub waiting: bool,
     pub layers: Layers,
     pub chrome: Vec<Command>,
+    /// The diagram's legend, worded in the language this frame was built in
+    /// (#50): what the drawing means, not part of the drawing.
+    pub legend: legend::Legend,
 }
 
 /// The zoom a view paints at: a non-positive zoom (never fitted) is 1.
@@ -97,6 +101,7 @@ pub fn build(state: &ViewState, width: f64, height: f64, lang: Lang) -> Frame {
             )
         },
         chrome: chrome(state, width, height),
+        legend: legend::legend(lang),
     }
 }
 
@@ -113,6 +118,7 @@ impl Frame {
             "world": self.layers.world.iter().map(world_json).collect::<Vec<_>>(),
             "edges": self.layers.edges.iter().map(edge_json).collect::<Vec<_>>(),
             "chrome": self.chrome.iter().map(chrome_json).collect::<Vec<_>>(),
+            "legend": legend::json(&self.legend),
         })
     }
 

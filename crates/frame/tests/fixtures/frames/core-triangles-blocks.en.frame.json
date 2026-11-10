@@ -151,6 +151,181 @@
       "violating": false
     }
   ],
+  "legend": {
+    "sections": [
+      {
+        "id": "shapes",
+        "rows": [
+          {
+            "id": "class-box",
+            "label": "Class box: its fill and frame use the quality colors",
+            "sample": {
+              "dimmed": false,
+              "fill": {
+                "grade": 3.0,
+                "role": "quality-fill"
+              },
+              "kind": "box",
+              "shape": "rect",
+              "stroke": {
+                "grade": 3.0,
+                "role": "quality-stroke"
+              }
+            }
+          },
+          {
+            "id": "component-box",
+            "label": "Component box: a component you can drill into; quality pooled from its members",
+            "sample": {
+              "dimmed": false,
+              "fill": {
+                "grade": 7.0,
+                "role": "package-fill"
+              },
+              "kind": "box",
+              "shape": "rect",
+              "stroke": {
+                "grade": 7.0,
+                "role": "package-stroke"
+              }
+            }
+          },
+          {
+            "id": "foreign-package",
+            "label": "Foreign package: an ellipse with relations only, no quality data",
+            "sample": {
+              "dimmed": false,
+              "fill": {
+                "grade": null,
+                "role": "quality-fill"
+              },
+              "kind": "box",
+              "shape": "oval",
+              "stroke": {
+                "grade": null,
+                "role": "quality-stroke"
+              }
+            }
+          }
+        ],
+        "title": "Shapes"
+      },
+      {
+        "id": "quality",
+        "rows": [
+          {
+            "id": "quality-ramp",
+            "label": "Quality color: red to green; lower CRAP is better",
+            "sample": {
+              "kind": "ramp",
+              "stops": [
+                {
+                  "grade": 0.0,
+                  "role": "quality-fill"
+                },
+                {
+                  "grade": 5.0,
+                  "role": "quality-fill"
+                },
+                {
+                  "grade": 10.0,
+                  "role": "quality-fill"
+                }
+              ]
+            }
+          },
+          {
+            "id": "no-data",
+            "label": "No data: CRAP or mutation data is missing",
+            "sample": {
+              "fill": {
+                "role": "no-data"
+              },
+              "kind": "dot"
+            }
+          },
+          {
+            "id": "selected",
+            "label": "Selected: the outline takes the selection color",
+            "sample": {
+              "dimmed": false,
+              "fill": {
+                "grade": 3.0,
+                "role": "quality-fill"
+              },
+              "kind": "box",
+              "shape": "rect",
+              "stroke": {
+                "role": "selected"
+              }
+            }
+          }
+        ],
+        "title": "Quality colors"
+      },
+      {
+        "id": "relations",
+        "rows": [
+          {
+            "id": "relation",
+            "label": "Relation: a grey-green solid line; the head shape names its kind",
+            "sample": {
+              "dimmed": false,
+              "kind": "line",
+              "stroke": {
+                "role": "relation"
+              }
+            }
+          },
+          {
+            "id": "violation",
+            "label": "Violating relation: red, the dependency points outward",
+            "sample": {
+              "dimmed": false,
+              "kind": "line",
+              "stroke": {
+                "role": "violation"
+              }
+            }
+          },
+          {
+            "id": "relation-hover",
+            "label": "Relation hover: the hovered relation turns white",
+            "sample": {
+              "dimmed": false,
+              "kind": "line",
+              "stroke": {
+                "role": "relation-hover"
+              }
+            }
+          },
+          {
+            "id": "dependency-chain",
+            "label": "Dependency chain: the selected class's chain turns blue",
+            "sample": {
+              "dimmed": false,
+              "kind": "line",
+              "stroke": {
+                "role": "dependency-chain"
+              }
+            }
+          },
+          {
+            "id": "dimmed",
+            "label": "Dimmed: elements off the chain fade",
+            "sample": {
+              "dimmed": true,
+              "kind": "line",
+              "stroke": {
+                "role": "relation"
+              }
+            }
+          }
+        ],
+        "title": "Relations"
+      }
+    ]
+  },
   "lod": "blocks",
   "schema": "dsh-uml-viewer/scene-frame",
   "style": {

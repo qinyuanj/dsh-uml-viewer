@@ -59,7 +59,7 @@ An event:
 | event | when | fields |
 |---|---|---|
 | `ready` | first line, before any action | `schema`, `frameSchema`, `frameVersion`, `stateSchema`, `stateVersion`, `actions` (the action names this child understands) |
-| `frame` | after every action that changes the view; after a hot reload (`seq` null) | `frame`: a scene frame, version 1, including the optional bounded `hover` metadata (`docs/scene-frame.md`) the panel needs for local hover |
+| `frame` | after every action that changes the view; after a hot reload (`seq` null) | `frame`: a scene frame, version 1, including the legend worded in the [language](#language) (#50) and the optional bounded `hover` metadata (`docs/scene-frame.md`) the panel needs for local hover |
 | `search` | answers `search` | `query`, `results`: `[{id, name, ns, label}]`, sorted by namespace then id |
 | `context` | answers `context`, before its `frame` | `context`: a [discussion context](#discussion-context) |
 | `state` | answers `save` | `state`: a [session state](#session-state); `breadcrumbs`: the tree path ([breadcrumbs and status codes](#breadcrumbs-and-status-codes-45-additive-version-1)); `status`: the canvas status code, or null |
@@ -206,7 +206,8 @@ line in the `no-data` role.
 ## Language (#44)
 
 The text the resident lays out — the class card's rows and tooltips, the class
-box's 无数据 marker and the source window's 打开失败 error — comes in Chinese and
+box's 无数据 marker, the source window's 未能打开源码：%s error and the
+[legend](scene-frame.md#legend) rows every frame carries — comes in Chinese and
 English. Any other locale tag reads English, and so does a resident that was
 never told one. The panel passes the DSH language when it opens its stream and
 again on every switch; the host sends it on `open` (a fresh resident) or as a
