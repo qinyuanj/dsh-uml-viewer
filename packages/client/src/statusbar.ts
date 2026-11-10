@@ -275,6 +275,9 @@ export function mountStatusBar(host: HTMLElement, options: StatusBarOptions = {}
     // timers too (a dismissal, or the host's own bound).
     for (const id of [...fadeTimers.keys()]) if (!next.some(entry => entry.id === id)) clearTimer(id)
     for (const id of [...faded]) if (!next.some(entry => entry.id === id)) faded.delete(id)
+    // A request the host no longer lists is never coming back; forget that the
+    // user saw it, so the set stays as small as the session's queue.
+    for (const id of [...seenFailures]) if (!next.some(entry => entry.id === id)) seenFailures.delete(id)
     // The next request started: what completed before it has had its turn.
     if (next.some(entry => !before.has(entry.id) && (entry.state === 'queued' || entry.state === 'running'))) {
       for (const entry of requests) if (entry.state === 'done') fade(entry.id)
