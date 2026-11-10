@@ -142,8 +142,6 @@ export function mountContextSwitcher(doc: Document, options: ContextSwitcherOpti
     menu.setAttribute('aria-label', text.t('switcher.label'))
   }
 
-  // Declared below; a press anywhere outside closes the open menu.
-  let dismiss: (event: Event) => void = () => {}
   const close = (): void => {
     if (!open) return
     open = false
@@ -231,8 +229,9 @@ export function mountContextSwitcher(doc: Document, options: ContextSwitcherOpti
   }
 
   const onTrigger = (): void => show()
-  // Any press outside the switcher closes it; the trigger's own click toggles.
-  dismiss = (event: Event): void => {
+  // A press outside the switcher closes it; the trigger's own click toggles.
+  // The listener exists only while the menu is open, like its `menu` role.
+  const dismiss = (event: Event): void => {
     if (!open) return
     const target = event.target as Node | null
     if (target && (target === root || root.contains?.(target))) return

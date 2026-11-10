@@ -252,7 +252,7 @@ fn the_declutter_action_sets_the_mode_the_panel_names() {
             .iter()
             .all(|edge| edge["kind"] == "indicator")
     );
-    // No mode still cycles, as the inspector's button did.
+    // No mode still cycles the modes, as any old control did.
     resident.ask(5, json!({"action": "declutter"}), "frame");
     let cycled = resident.ask(6, json!({"action": "save"}), "state");
     assert_eq!(json!(":elements"), cycled["state"]["declutter"]);

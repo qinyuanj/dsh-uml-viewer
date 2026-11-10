@@ -68,6 +68,21 @@
     "switcher.title": "讨论上下文：{name}。选择要讨论的图",
     "switcher.source": "源码图",
     "switcher.proposals": "提案",
-    "switcher.newProposal": "新建提案"
+    "switcher.newProposal": "新建提案",
+    "request.label": "请求状态",
+    "request.op.refresh-crap": "刷新 CRAP",
+    "request.op.refresh-mutate": "差量 mutation",
+    "request.op.refresh-mutate-all": "全量 mutation",
+    "request.op.omit": "隐藏",
+    "request.op.context": "切换讨论上下文",
+    "request.op.new-proposal": "新建提案",
+    "request.state.queued": "已排队",
+    "request.state.running": "进行中",
+    "request.state.done": "完成",
+    "request.state.failed": "失败",
+    "request.line": "{op} {target}：{state}",
+    "request.line.untargeted": "{op}：{state}",
+    "request.failure": "{line}——{reason}",
+    "request.failure.exitCode": "{line}——{reason}（退出码 {code}）"
   }
 }

@@ -68,6 +68,21 @@
     "switcher.title": "Discussion context: {name}. Choose the diagram to discuss",
     "switcher.source": "Source diagram",
     "switcher.proposals": "Proposals",
-    "switcher.newProposal": "New proposal"
+    "switcher.newProposal": "New proposal",
+    "request.label": "Request status",
+    "request.op.refresh-crap": "Refresh CRAP",
+    "request.op.refresh-mutate": "Differential mutation",
+    "request.op.refresh-mutate-all": "Full mutation",
+    "request.op.omit": "Hide",
+    "request.op.context": "Switch discussion context",
+    "request.op.new-proposal": "New proposal",
+    "request.state.queued": "Queued",
+    "request.state.running": "In progress",
+    "request.state.done": "Done",
+    "request.state.failed": "Failed",
+    "request.line": "{op} {target}: {state}",
+    "request.line.untargeted": "{op}: {state}",
+    "request.failure": "{line} — {reason}",
+    "request.failure.exitCode": "{line} — {reason} (exit code {code})"
   }
 }

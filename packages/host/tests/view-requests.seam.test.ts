@@ -367,3 +367,47 @@ it('names the element a display answers in its result, once, for that session al
   expect(await s.tool('uml_ir', {}, 'session-b')).toMatchObject({ status: 'ok' })
   expect(await s.tool('uml_display', {}, 'session-b')).toMatchObject({ status: 'ok', target: null })
 })
+
+// #51 request status A: a hide and a new proposal are queued under the id their
+// uml_ir presents; a context switch is done once admitted; a refusal fails.
+function statuses(events: PanelEvent[]) {
+  return events.flatMap(event => event.kind === 'request-status' ? [event.requests] : [])
+}
+
+it('queues a hide and a new proposal under the request id their uml_ir presents', async () => {
+  const s = await setup()
+  const panel = await s.open('session-a')
+  await s.act('session-a', { action: 'omit', id: ':view' })
+  await s.act('session-a', { action: 'new-proposal', name: 'Next' })
+  await until(() => statuses(panel.events).at(-1)?.length === 2)
+  expect(statuses(panel.events).at(-1)).toEqual([
+    { id: requestIdOf(s.texts()[0]!), op: 'omit', target: { id: ':view', kind: 'component' }, state: 'queued', reason: null, exitCode: null },
+    { id: requestIdOf(s.texts()[1]!), op: 'new-proposal', target: null, state: 'queued', reason: null, exitCode: null },
+  ])
+})
+
+it('completes a context switch as soon as it is admitted, without queuing it', async () => {
+  const s = await setup()
+  const panel = await s.open('session-a')
+  expect(await s.act('session-a', { action: 'context', proposalId: ':p-shop' })).toEqual({ accepted: true, reason: null })
+  await until(() => statuses(panel.events).at(-1)?.length === 1)
+  expect(statuses(panel.events).at(-1)).toEqual([
+    { id: s.admitted[0]!.requestId, op: 'context', target: null, state: 'done', reason: null, exitCode: null }])
+  expect(statuses(panel.events).flat().some(entry => entry.state === 'queued')).toBe(false)
+})
+
+it('fails a refused hide, context switch or proposal with the admission reason', async () => {
+  const s = await setup({ resident: { unknownProposals: [':gone'] } })
+  const panel = await s.open('session-a')
+  await s.act('session-a', { action: 'omit', id: ':serde' })
+  await s.act('session-a', { action: 'context', proposalId: ':gone' })
+  s.reject(() => new Error('session is archived'))
+  await s.act('session-a', { action: 'new-proposal', name: 'Next' })
+  await until(() => statuses(panel.events).at(-1)?.length === 3)
+  expect(statuses(panel.events).at(-1)).toEqual([
+    { id: expect.any(String), op: 'omit', target: null, state: 'failed', reason: expect.stringMatching(/foreign library/), exitCode: null },
+    { id: expect.any(String), op: 'context', target: null, state: 'failed', reason: 'unknown proposal :gone', exitCode: null },
+    { id: expect.any(String), op: 'new-proposal', target: null, state: 'failed', reason: 'session is archived', exitCode: null },
+  ])
+  expect(s.admitted).toEqual([])
+})

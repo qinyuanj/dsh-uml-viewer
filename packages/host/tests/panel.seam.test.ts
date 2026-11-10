@@ -147,9 +147,18 @@ async function setup(options: {
     const iterator = (owned
       ? viewer().watchOwned(agents[session]!, { pageId: 'page', holderId: owned.holderId }, owned.language, controller.signal)
       : viewer().watch(agents[session]!, controller.signal))[Symbol.asyncIterator]()
+    /** Every event, including the request-status lists (#51). */
+    const any = async () => (await iterator.next()) as IteratorResult<PanelEvent>
     return {
       controller,
-      next: async () => (await iterator.next()) as IteratorResult<PanelEvent>,
+      any,
+      /** The next scene/display event: the request-status lists (#51) are skipped. */
+      next: async () => {
+        for (;;) {
+          const result = await any()
+          if (result.done || result.value.kind !== 'request-status') return result
+        }
+      },
       /** A user close: the explicit Remote call, then the stream's own teardown. */
       close: async () => {
         await viewer().close(agents[session]!)
@@ -289,6 +298,28 @@ it('falls back to the source diagram when the persisted proposal no longer exist
     context: { kind: 'real', edn: '{:context :real}' }, proposalId: null,
   })
   await reader.close()
+})
+
+// #51: the request-status list follows the opening events on every stream kind,
+// even when nothing was ever requested.
+it('sends the session’s request-status list right after the opening events', async () => {
+  const { stream } = await setup()
+  for (const owned of [undefined, { holderId: 'h1', language: 'en' }]) {
+    const reader = stream('session-a', owned)
+    const kinds: string[] = []
+    for (;;) {
+      const event = (await timeout(reader.any())).value!
+      kinds.push(event.kind)
+      if (event.kind === 'request-status') {
+        expect(event.requests).toEqual([])
+        break
+      }
+    }
+    expect(kinds.at(-1)).toBe('request-status')
+    expect(kinds[0]).toBe('ready')
+    expect(kinds.filter(kind => kind === 'request-status')).toHaveLength(1)
+    await reader.withdraw()
+  }
 })
 
 it('restores an existing persisted proposal after showing a diagram', async () => {

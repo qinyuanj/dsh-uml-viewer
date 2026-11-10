@@ -17,6 +17,8 @@ import type { QualityRequestOp } from './requests.js'
 import { parseQualityRequestOp } from './requests.js'
 import { parseElementId } from './tools.js'
 import { parseProposalName } from './view-requests.js'
+import type { RequestStatusEntry } from './request-status.js'
+import { validateRequestStatusList } from './request-status.js'
 
 /** The Remote namespace the panel mounts. */
 export const REMOTE_SERVICE = 'umlViewer'
@@ -34,6 +36,9 @@ export type PanelEvent =
   | { kind: 'search'; query: string; results: SearchResult[] }
   | { kind: 'refused'; reason: string }
   | { kind: 'failed'; reason: string }
+  // #51: this session's whole request-status list, oldest first; sent when the
+  // stream opens and again on every change.
+  | { kind: 'request-status'; requests: RequestStatusEntry[] }
 
 /**
  * The declutter modes the resident knows (#46), from `scene::hierarchy`. The
@@ -234,6 +239,8 @@ export function parsePanelEvent(value: unknown, label = 'panel event'): PanelEve
         return { kind, reason: str(source.reason, `${label}.reason`) }
       case 'failed':
         return { kind, reason: str(source.reason, `${label}.reason`) }
+      case 'request-status':
+        return { kind, requests: validateRequestStatusList(source.requests, `${label}.requests`) }
       default:
         return at(`${label}.kind`, `unknown panel event ${JSON.stringify(source.kind)}`)
     }

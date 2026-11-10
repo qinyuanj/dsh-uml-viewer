@@ -114,6 +114,42 @@ describe('panel Remote descriptors', () => {
     expect(() => parsePanelEvent({ kind: 'refused' })).toThrow(/reason/)
   })
 
+  // #51: the session's whole request-status list, pushed on subscribe and on
+  // every change. Each entry names its id, op, target, state, reason and exit code.
+  it('parses the request-status list and rejects a malformed one', () => {
+    const event = { kind: 'request-status', requests: [
+      { id: 'g-1', op: 'refresh-crap', target: { id: ':core.order', kind: 'class' }, state: 'queued', reason: null, exitCode: null },
+      { id: 'g-2', op: 'omit', target: { id: ':core', kind: 'component' }, state: 'running', reason: null, exitCode: null },
+      { id: 'g-3', op: 'refresh-mutate', target: null, state: 'failed', reason: 'no class :x', exitCode: null },
+      { id: 'g-4', op: 'refresh-mutate-all', target: { id: ':api', kind: 'class' }, state: 'failed', reason: 'mutate failed', exitCode: 2 },
+      { id: 'g-5', op: 'context', target: null, state: 'done', reason: null, exitCode: null },
+      { id: 'g-6', op: 'new-proposal', target: null, state: 'queued', reason: null, exitCode: null },
+    ] }
+    expect(parsePanelEvent(event)).toEqual(event)
+    expect(parsePanelEvent({ kind: 'request-status', requests: [] })).toEqual({ kind: 'request-status', requests: [] })
+    const entry = event.requests[0]!
+    const bad = (patch: Record<string, unknown>) => ({ kind: 'request-status', requests: [{ ...entry, ...patch }] })
+    expect(() => parsePanelEvent({ kind: 'request-status' })).toThrow(/requests/)
+    expect(() => parsePanelEvent({ kind: 'request-status', requests: [null] })).toThrow(/requests\[0\]/)
+    expect(() => parsePanelEvent(bad({ id: '' }))).toThrow(/id/)
+    expect(() => parsePanelEvent(bad({ id: 7 }))).toThrow(/id/)
+    expect(() => parsePanelEvent(bad({ op: 'refresh-dry' }))).toThrow(/op/)
+    expect(() => parsePanelEvent(bad({ state: 'cancelled' }))).toThrow(/state/)
+    expect(() => parsePanelEvent(bad({ target: { id: 'core', kind: 'class' } }))).toThrow(/keyword/)
+    expect(() => parsePanelEvent(bad({ target: { id: ':core', kind: 'layer' } }))).toThrow(/kind/)
+    expect(() => parsePanelEvent(bad({ reason: 3 }))).toThrow(/reason/)
+    expect(() => parsePanelEvent(bad({ exitCode: 1.5 }))).toThrow(/exitCode/)
+    expect(() => parsePanelEvent(bad({ exitCode: '2' }))).toThrow(/exitCode/)
+    // A failure always says why; nothing else carries a reason.
+    expect(() => parsePanelEvent(bad({ state: 'failed', reason: null }))).toThrow(/reason/)
+    // Two entries with one id would make the list ambiguous for #52/#53.
+    expect(() => parsePanelEvent({ kind: 'request-status', requests: [entry, entry] })).toThrow(/duplicate/)
+    // The same contract guards the Remote's watch result codec.
+    const watch = UML_VIEWER_REMOTE.descriptors.find(descriptor => descriptor.method === 'watchOwned')!
+    expect(watch.result.create().parse(event)).toEqual(event)
+    expect(() => watch.result.create().parse(bad({ state: 'nope' }))).toThrow(/state/)
+  })
+
   it('accepts the documented panel actions and refuses anything else', () => {
     const actions = [
       { action: 'viewport', viewport: { width: 800, height: 600 } },

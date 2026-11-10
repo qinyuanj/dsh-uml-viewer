@@ -275,6 +275,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     reported = state.kind === 'refused' || state.kind === 'failed' ? state.reason : null
     statusBar?.setStatus(state.statusCode)
     statusBar?.setMessage(reported)
+    statusBar?.setRequests(state.requests)
     topBar?.render(state)
   }
   const controller = new PanelController({

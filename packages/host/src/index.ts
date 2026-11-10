@@ -89,7 +89,7 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
   const states = new SessionStates(home)
   const { sessions, prompts } = panelLifetime(ctx, home, services, effectiveConfig, states)
   const requests = new PanelRequests(services, sessions, grants)
-  const viewer = new ViewerService(sessions, prompts, requests)
+  const viewer = new ViewerService(sessions, prompts, requests, requests.statuses)
 
   ctx.effect(() => services.tools.register({
     name: 'uml_ir',
