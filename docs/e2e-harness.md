@@ -365,13 +365,26 @@ Ctrl+F, CJK typing/paste, same-name namespace disambiguation and Down/Enter
 locate.
 
 `lifecycle.spec.mjs` (#43) drives the host tab lifecycle through the host's
-own controls: the page refresh command (Ctrl+Alt+R on Web) and **R** each send
-`reload`; collapsing the right sidebar and toggling fullscreen keep the same
-resident process and the same view; the page close command (Ctrl+Alt+W) runs
-the UML tab's close handler and the resident exits at once; reopening the tab
+own controls: the tab refresh command and **R** each send `reload`; collapsing
+the right sidebar and toggling fullscreen keep the same resident process and
+the same view; the UML tab's own close button (`[data-dockkit-tab-close]`)
+runs the tab's close handler and the resident exits at once; reopening the tab
 restores the view and, for `ledger`, the proposal discussion context. It also
 asserts the panel has no `Expand`, `Conversation` or `Close viewer` button.
 Residents are observed through `/proc`, so the spec runs on Linux only.
+
+Two host facts the lane had to meet (`packages/e2e/lifecycle.mjs`). DSH
+0.2.2-rc.1 binds `page.refresh` and `page.close` only on Desktop and on Windows
+and macOS Web (Ctrl+Alt+R / Ctrl+Alt+W); Linux Web has no default, and its
+shortcut service admits only Ctrl+/, Ctrl+Shift+, and Ctrl+Shift+., so the page
+cannot reach the refresh command until the user saves an override. The lane
+therefore writes one into the page's own `dsh.keybindings.v1` preferences
+before it loads (`bindRefresh`, Ctrl+Shift+.), which is the document the
+shortcut reference writes, and it closes the tab through the host's close
+button instead of a key. Note that the host counts any `[role="menu"]` in the
+document as an open modal even when it is `hidden`, and a modal blocks the
+refresh command, whose modal list is empty; the panel's element menu therefore
+carries that role only while it is open (#43, `client/tests/quality-menu`).
 
 `session.spec.mjs` replaces the session/restore scenarios: navigate, select,
 zoom and pan; reload the Web client and compare its restored summary; then

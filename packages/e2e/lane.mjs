@@ -6,7 +6,7 @@ import { startMockLlm } from './mock-llm.mjs'
 import { makeProjects } from './projects.mjs'
 import { isolateScratch } from './scratch-scope.mjs'
 import { chooseWorkspace } from './workspace.mjs'
-import { recordActions } from './lifecycle.mjs'
+import { bindRefresh, recordActions } from './lifecycle.mjs'
 
 /**
  * Reusable #22–#29 browser lane: one scratch host/mock model, one browser
@@ -98,6 +98,7 @@ export async function launchViewerLane(browser, options = {}) {
     const problems = []
     // Attached before the page loads, so the Remote carrier is seen from its start.
     records.set(page, { number: records.size + 1, problems, transportProblems: [], sent: recordActions(page) })
+    await bindRefresh(page)
     page.on('pageerror', error => problems.push(error.message))
     page.on('console', message => { if (message.type() === 'error') records.get(page).transportProblems.push(`console: ${message.text()}`) })
     page.on('requestfailed', request => records.get(page).transportProblems.push(`request: ${request.method()} ${request.url().split('?')[0]} ${request.failure()?.errorText}`))
