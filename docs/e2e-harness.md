@@ -147,7 +147,8 @@ remains unsupported. The host and document keep running throughout.
 The case requires the exact old resident PID, process creation identity,
 executable path and lease to survive; its canvas pixels and camera state must
 survive remount and another canvas gesture must work. It verifies both installed
-executables with `--version`, then clicks **Close viewer / Open viewer**, requires
+executables with `--version`, then closes the UML tab with the host's page
+close command and reopens it, requires
 a new PID on 1.0.1 and checks that the 1.0.0 lease and directory disappear.
 Windows write access to the mapped old executable must fail before the update.
 The platform CLI installation is bounded at 20 seconds, and the whole
@@ -361,8 +362,29 @@ golden.
 real double-click drill-in, an in-browser painted dependency-port assertion,
 selection with dependency-chain highlighting and dimming, Escape/back, P,
 Ctrl+F, CJK typing/paste, same-name namespace disambiguation and Down/Enter
-locate. It also expands the sidebar to the root-scoped `main` page, asserts
-its original session id, and returns to the conversation.
+locate.
+
+`lifecycle.spec.mjs` (#43) drives the host tab lifecycle through the host's
+own controls: the tab refresh command and **R** each send `reload`; collapsing
+the right sidebar and toggling fullscreen keep the same resident process and
+the same view; the UML tab's own close button (`[data-dockkit-tab-close]`)
+runs the tab's close handler and the resident exits at once; reopening the tab
+restores the view and, for `ledger`, the proposal discussion context. It also
+asserts the panel has no `Expand`, `Conversation` or `Close viewer` button.
+Residents are observed through `/proc`, so the spec runs on Linux only.
+
+Two host facts the lane had to meet (`packages/e2e/lifecycle.mjs`). DSH
+0.2.2-rc.1 binds `page.refresh` and `page.close` only on Desktop and on Windows
+and macOS Web (Ctrl+Alt+R / Ctrl+Alt+W); Linux Web has no default, and its
+shortcut service admits only Ctrl+/, Ctrl+Shift+, and Ctrl+Shift+., so the page
+cannot reach the refresh command until the user saves an override. The lane
+therefore writes one into the page's own `dsh.keybindings.v1` preferences
+before it loads (`bindRefresh`, Ctrl+Shift+.), which is the document the
+shortcut reference writes, and it closes the tab through the host's close
+button instead of a key. Note that the host counts any `[role="menu"]` in the
+document as an open modal even when it is `hidden`, and a modal blocks the
+refresh command, whose modal list is empty; the panel's element menu therefore
+carries that role only while it is open (#43, `client/tests/quality-menu`).
 
 `session.spec.mjs` replaces the session/restore scenarios: navigate, select,
 zoom and pan; reload the Web client and compare its restored summary; then

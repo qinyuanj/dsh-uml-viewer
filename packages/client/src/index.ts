@@ -1,21 +1,21 @@
 /**
  * The plugin's browser half: one right-sidebar tab bound to the session the
- * sidebar belongs to, and the same panel as a full-width `main` page.
+ * sidebar belongs to. The tab's lifecycle is the host's (ADR 0015): the
+ * full-width form is the right sidebar's fullscreen, closing the tab is the
+ * explicit close (D13) through the tab-kind close handler, and the tab's
+ * refresh command is `reload`. Collapsing, presentation changes and plugin
+ * unload only unmount the body, which is a withdrawal.
  *
  * React comes from the host's platform module table (ADR 0013, D1): this
  * bundle requires it, never embeds it, and imports no
  * `dsh-client-ui-primitives`. The chrome is plain markup styled from host
  * theme tokens, which is why the panel reads tokens for its Canvas 2D colors
  * instead of relying on primitive components.
- *
- * The `main` slot is root-scoped: it receives no session prop. Expanding
- * records the sidebar's session id first and only then selects the main panel,
- * so the full-width page keeps watching the same session's resident.
  */
 import { createElement, useCallback, useRef, useState } from 'react'
 import { OverlayController } from './overlays.js'
 import { Overlays, OVERLAY_STYLE } from './overlay-view.js'
-import { UML_VIEWER_REMOTE, type SceneFrame } from '@dsh-uml-viewer/contracts'
+import { UML_VIEWER_REMOTE, type PanelOwner, type SceneFrame } from '@dsh-uml-viewer/contracts'
 import { FONT_FAMILY, loadSarasa } from './font.js'
 import { PanelController, type PanelRemoteApi, type PanelStatus } from './panel.js'
 import { paintFrame } from './paint.js'
@@ -26,7 +26,6 @@ import { panelText, type PanelText } from './locale.js'
 
 export const TAB_ID = 'dsh-uml-viewer'
 export const TAB_KIND = 'dsh-uml-viewer'
-export const PANEL_PATH = 'dsh-uml-viewer'
 export const GUIDE_ORDER = 30
 const REMOTE_NAMESPACE = 'umlViewer'
 
@@ -108,8 +107,19 @@ export interface SidebarTabsFace {
   register(tab: Record<string, unknown>): () => void
 }
 
-export interface LayoutFace {
-  selectPanel(key: string | null): void
+/** The page commands a tab body binds; the host's tab refresh calls `refresh`. */
+export interface TabCommands {
+  refresh?: () => void
+}
+
+/** What a tab body reads from the host's `useTabInfo` hook. */
+interface TabInfo {
+  tab?: { id?: string; actions?: { bindCommands?(commands: TabCommands): () => void } }
+}
+
+/** `ctx.sidebarRight`: only the close hook is used. */
+export interface SidebarRightFace {
+  registerCloseHandler?(kind: string, handler: (sessionId: string, tab: { id: string }) => void): () => void
 }
 
 /** The client services this bundle uses; unknown services stay `undefined`. */
@@ -155,6 +165,32 @@ function pageId(doc: Document): string {
   return data.__umlViewerPageId ??= crypto.randomUUID()
 }
 
+/**
+ * Each UML tab's latest panel holder, by session and tab id, so the tab's
+ * close handler closes exactly that holder. A live body closes through its
+ * controller; a body that already unmounted (withdrawn, waiting out its grace)
+ * is closed by its last owner, which stops the resident at once.
+ */
+const tabHolders = new WeakMap<ClientContext, Map<string, () => Promise<unknown>>>()
+
+function holdersOf(ctx: ClientContext): Map<string, () => Promise<unknown>> {
+  let holders = tabHolders.get(ctx)
+  if (!holders) tabHolders.set(ctx, holders = new Map())
+  return holders
+}
+
+const tabKey = (sessionId: string, tabId: string): string => `${sessionId}\u0000${tabId}`
+
+/** The host's tab close handler: user close and replacement alike (D13). */
+function closeTab(ctx: ClientContext, sessionId: string, tabId: string): void {
+  const holders = holdersOf(ctx)
+  const key = tabKey(sessionId, tabId)
+  const close = holders.get(key)
+  holders.delete(key)
+  // The handler is synchronous; the close itself is best effort.
+  void close?.().catch(() => {})
+}
+
 function summaryLine(): HTMLElement {
   const line = document.createElement('div')
   line.className = 'dsh-uml-viewer-summary'
@@ -188,10 +224,10 @@ function labelButton(element: HTMLButtonElement, label: string, title: string): 
 export interface MountOptions {
   sessionId: string
   ctx: ClientContext
-  /** The sidebar offers expansion; the main page offers the way back. */
-  main?: boolean
-  onExpand?: (sessionId: string) => void
-  onCollapse?: () => void
+  /** The host tab this body draws; its close handler closes this mount's holder. */
+  tabId?: string
+  /** The host tab's `bindCommands`: the tab refresh command reloads the diagram. */
+  bindCommands?: (commands: TabCommands) => () => void
   /** Receives this mount's overlay controller (inspector, card, sources). */
   onOverlays?: (controller: OverlayController | null) => void
 }
@@ -205,7 +241,6 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   // the panel element itself names the session and surface.
   const panelElement = host.closest?.<HTMLElement>('.dsh-uml-viewer-panel') ?? host
   panelElement.dataset.sessionId = options.sessionId
-  panelElement.dataset.surface = options.main ? 'main' : 'sidebar'
   const text: PanelText = panelText(name => options.ctx.get(name))
   const canvas = document.createElement('canvas')
   canvas.style.touchAction = 'none'
@@ -254,6 +289,8 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   }
   /** The frame the overlays last refreshed for; search/status updates reuse it. */
   let overlayFrame: SceneFrame | null = null
+  /** The holder this mount last opened; a withdrawn tab is closed by it. */
+  let lastOwner: PanelOwner | null = null
   const renderStatus = (state: PanelStatus): void => {
     const frame = state.frame
     // A new view frame refreshes the inspector/card; a search or status
@@ -323,7 +360,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     api,
     // The resident words its own text (#44); this is the language it reads.
     language: () => text.language,
-    owner: () => ({ pageId: pageId(host.ownerDocument), holderId: crypto.randomUUID() }),
+    owner: () => (lastOwner = { pageId: pageId(host.ownerDocument), holderId: crypto.randomUUID() }),
     paint: (frame, target) => paintFrame(frame, target),
     onStatus: renderStatus,
   })
@@ -350,33 +387,17 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     namespaceTree()
     canvas.focus({ preventScroll: true })
   })
-  const expand = button(options.main ? 'Conversation' : 'Expand',
-    options.main ? 'Return to conversation' : 'Expand to main area', () => {
-      if (options.main) options.onCollapse?.()
-      else options.onExpand?.(options.sessionId)
-    })
   toolbar.append(back, tree, search)
   const disposeDeclutter = mountDeclutterControl(toolbar, controller, text)
-  let closed = false
-  const close = button('Close viewer', 'Close viewer', () => {
-    close.disabled = true
-    if (closed) {
-      closed = false
-      close.textContent = 'Close viewer'
-      close.title = 'Close viewer'
-      close.setAttribute('aria-label', 'Close viewer')
-      void controller.open(options.sessionId).finally(() => { close.disabled = false })
-    } else {
-      closed = true
-      void controller.close().finally(() => {
-        close.textContent = 'Open viewer'
-        close.title = 'Open viewer'
-        close.setAttribute('aria-label', 'Open viewer')
-        close.disabled = false
-      })
-    }
-  })
-  toolbar.append(spacer, close, expand)
+  toolbar.append(spacer)
+  // Closing the host tab is the explicit close; while this body is mounted the
+  // controller closes its live holder (the stream ends without a withdrawal).
+  const tabId = options.tabId
+  const holders = holdersOf(options.ctx)
+  const closeLive = (): Promise<unknown> => controller.close()
+  if (tabId !== undefined) holders.set(tabKey(options.sessionId, tabId), closeLive)
+  // The host tab's refresh command is the same reload as **R**.
+  const unbindCommands = options.bindCommands?.({ refresh: () => { void controller.send({ action: 'reload' }) } })
   // The overlays sit below the (wrapping) toolbar instead of covering it.
   const placeOverlays = (): void => {
     panelElement.style.setProperty?.('--dsh-uml-toolbar-height', `${toolbar.offsetHeight ?? 0}px`)
@@ -489,6 +510,18 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   void loadSarasa().then(() => controller.repaint())
   await controller.open(options.sessionId)
   return () => {
+    unbindCommands?.()
+    if (tabId !== undefined) {
+      const key = tabKey(options.sessionId, tabId)
+      // Unmounting is a withdrawal. A later close of this tab still means
+      // "stop now", so it is left with this mount's last owner, unless a newer
+      // body of the same tab registered meanwhile.
+      if (holders.get(key) === closeLive) {
+        const owner = lastOwner
+        if (owner && api.closeOwned) holders.set(key, () => api.closeOwned!(options.sessionId, owner))
+        else holders.delete(key)
+      }
+    }
     observer?.disconnect()
     overlays?.dispose()
     overlays = null
@@ -512,22 +545,20 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   }
 }
 
-export interface PanelComponentOptions {
-  main?: boolean
-  onExpand?: (sessionId: string) => void
-  onCollapse?: () => void
-  /** The root-scoped main page reads the session recorded at expansion. */
-  mainSessionId?: () => string | null
-}
-
-/** One panel component, used by both the sidebar tab and the `main` page. */
-export function makePanelComponent(ctx: ClientContext, options: PanelComponentOptions = {}): (props: ClientPanelProps) => unknown {
+/** The sidebar tab's body component. */
+export function makePanelComponent(ctx: ClientContext): (props: ClientPanelProps) => unknown {
   return function UmlViewerPanel(props: ClientPanelProps): unknown {
     // One live mount per attach. A detach or rebind while `mountPanel` is
     // still awaiting invalidates that mount: its late disposer runs at once
     // and its overlay controller is never published.
     const mountRef = useRef<{ dispose: (() => void) | null } | null>(null)
     const [overlays, setOverlays] = useState<OverlayController | null>(null)
+    // The host's tab information hook (`sidebar.right.pane.tab`): the tab id
+    // the close handler is keyed by, and the tab's command binding.
+    const info = typeof props.useTabInfo === 'function' ? (props.useTabInfo as () => TabInfo)() : undefined
+    const tabRef = useRef<TabInfo['tab']>(undefined)
+    tabRef.current = info?.tab
+    const tabId = info?.tab?.id
     const attach = useCallback((element: HTMLElement | null): void => {
       if (!element) {
         const mount = mountRef.current
@@ -537,19 +568,22 @@ export function makePanelComponent(ctx: ClientContext, options: PanelComponentOp
         return
       }
       if (mountRef.current) return
-      const sessionId = options.main ? options.mainSessionId?.() : props.sessionId
+      const sessionId = props.sessionId
       if (typeof sessionId !== 'string') return
+      const tab = tabRef.current
+      const actions = tab?.actions
       const mount: { dispose: (() => void) | null } = { dispose: null }
       mountRef.current = mount
       void mountPanel(element, {
-        ...options,
         sessionId, ctx,
+        ...(typeof tab?.id === 'string' ? { tabId: tab.id } : {}),
+        ...(typeof actions?.bindCommands === 'function' ? { bindCommands: commands => actions.bindCommands!(commands) } : {}),
         onOverlays: controller => { if (mountRef.current === mount) setOverlays(controller) },
       }).then(dispose => {
         if (mountRef.current === mount) mount.dispose = dispose
         else dispose()
       })
-    }, [ctx, props.sessionId])
+    }, [ctx, props.sessionId, tabId])
     return createElement('div', { className: 'dsh-uml-viewer-panel', 'data-font': FONT_FAMILY },
       createElement('div', { className: 'dsh-uml-viewer-canvas-host', ref: attach }),
       overlays ? createElement(Overlays, { controller: overlays }) : null)
@@ -570,37 +604,8 @@ function installStyles(): () => void {
   }
 }
 
-/** The session the root-scoped main page belongs to, recorded before selection. */
-let mainSessionId: string | null = null
-try {
-  // `main` has no session prop; keep a page-reload on the full-width view on
-  // the same conversation, as well as an expand in the current client.
-  mainSessionId = window.sessionStorage.getItem('dsh-uml-viewer:main-session')
-} catch { /* storage is optional */ }
-
-function layoutOf(ctx: ClientContext): LayoutFace | undefined {
-  return ctx.get('layout') as LayoutFace | undefined
-}
-
 function registerPanels(ctx: ClientContext): void {
-  const Panel = makePanelComponent(ctx, {
-    onExpand(sessionId) {
-      // Set the binding before selecting a root-scoped panel: `main` has no
-      // session prop of its own and must never fall back to another session.
-      mainSessionId = sessionId
-      try { window.sessionStorage.setItem('dsh-uml-viewer:main-session', sessionId) } catch { /* optional */ }
-      layoutOf(ctx)?.selectPanel(PANEL_PATH)
-    },
-  })
-  const MainPanel = makePanelComponent(ctx, {
-    main: true,
-    mainSessionId: () => mainSessionId,
-    onCollapse() {
-      mainSessionId = null
-      try { window.sessionStorage.removeItem('dsh-uml-viewer:main-session') } catch { /* optional */ }
-      layoutOf(ctx)?.selectPanel(null)
-    },
-  })
+  const Panel = makePanelComponent(ctx)
   ctx.effect(() => installStyles(), 'dsh-uml-viewer: panel style')
 
   // The tab is bound to the session the right sidebar belongs to; the pane
@@ -628,12 +633,18 @@ function registerPanels(ctx: ClientContext): void {
       { name: 'sidebar.right.pane.tab.title', key: TAB_ID },
       () => createElement('span', null, text.t('tab.title')),
     )))
-    own(ctx.slots.inject('main', () => ctx.slots.register(
-      { name: 'main', key: PANEL_PATH },
-      props => MainPanel(props as ClientPanelProps),
-    )))
     if (typeof tabs.register !== 'function') return
     return () => { for (const dispose of disposers) dispose() }
+  })
+
+  // Closing the UML tab, or a replacement that removes it, is the explicit
+  // close (D13). Collapse, fullscreen or presentation changes and plugin
+  // unload never call this; they only unmount the body (a withdrawal).
+  ctx.inject(['sidebarRight'], (injected) => {
+    const sidebar = (injected as unknown as { sidebarRight?: SidebarRightFace }).sidebarRight
+    if (typeof sidebar?.registerCloseHandler !== 'function') return
+    const dispose = sidebar.registerCloseHandler(TAB_KIND, (sessionId, tab) => closeTab(ctx, sessionId, tab.id))
+    return typeof dispose === 'function' ? dispose : undefined
   })
 }
 

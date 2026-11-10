@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { test, expect } from '@playwright/test'
 import { packageInputs } from './dsh-web.mjs'
 import { launchViewerLane } from './lane.mjs'
+import { closeTab } from './lifecycle.mjs'
 import { UPGRADE_PROMPTS, upgradeReply } from './upgrade-reply.mjs'
 import { installEvidence } from './upgrade-evidence.mjs'
 
@@ -67,7 +68,7 @@ async function answerApprovals(page, done, timeoutMs = 120_000) {
 // actions to the ordinary open, so it needs more than the lane's default 180 s.
 test.setTimeout(300_000)
 
-test('installed update keeps the busy vN resident until explicit Close/Open, then cleans the unused version', async ({ browser }) => {
+test('installed update keeps the busy vN resident until the UML tab is closed and reopened, then cleans the unused version', async ({ browser }) => {
   test.skip(process.platform !== 'win32', 'Busy executable acceptance is the Windows CI lane.')
   test.skip(!initial || !next, 'Supply both initial and upgrade main/platform tarball pairs.')
   const observed = {}
@@ -168,11 +169,12 @@ test('installed update keeps the busy vN resident until explicit Close/Open, the
     // serves actions through the real canvas, beyond a retained DOM summary.
     await lane.wheel(shop, -2)
     await expect.poll(() => shop.summary.innerText()).not.toBe(state)
-    await shop.panel.getByRole('button', { name: 'Close viewer', exact: true }).click()
-    await expect(shop.panel.getByRole('button', { name: 'Open viewer', exact: true })).toBeVisible()
+    // Closing the UML tab runs its close handler: the explicit close (D13).
+    await closeTab(shop)
+    await expect(shop.page.locator('.dsh-uml-viewer-panel')).toHaveCount(0)
     await expect.poll(() => alive(oldPid), { timeout: 10_000 }).toBe(false)
     await expect.poll(() => leases(lane.home, '1.0.0')).toEqual({})
-    await shop.panel.getByRole('button', { name: 'Open viewer', exact: true }).click()
+    shop = await lane.reopenTab(shop)
     await expect(shop.summary).toHaveAttribute('data-kind', 'frame')
     await expect(shop.canvas).toBeVisible()
     await expect.poll(() => resident(newBinary).length).toBe(1)

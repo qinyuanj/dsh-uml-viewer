@@ -85,7 +85,7 @@ describe('mounted resident lifetime (#32 D13)', () => {
     await settled()
     expect(connection.refs).toBe(1)
     let second: (() => void) | undefined
-    const mountAgain = () => mountPanel(new Element('host', doc) as unknown as HTMLElement, { sessionId: 'session', ctx, main: true })
+    const mountAgain = () => mountPanel(new Element('host', doc) as unknown as HTMLElement, { sessionId: 'session', ctx })
     if (order === 'overlap') { second = await mountAgain(); await settled(); expect(connection.refs).toBe(2) }
     first()
     await settled()
@@ -175,7 +175,7 @@ describe('mounted panel quality menu (#28)', () => {
     draft.focus()
     const event = canvas.fire('contextmenu', { offsetX: 400, offsetY: 300 })
     expect(event.defaultPrevented).toBe(true)
-    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    const menu = host.descendants().find(el => el.className.includes('dsh-uml-quality-menu'))!
     expect(menu).toBeDefined()
     expect(menu.children.map(el => el.textContent)).toEqual(['Refresh CRAP', 'Differential mutation', 'Full mutation (--mutate-all)', 'Hide'])
     const id = golden.world[0]!.kind === 'package' ? golden.world[0]!.id : ':core'
@@ -200,7 +200,7 @@ describe('mounted panel quality menu (#28)', () => {
     draft.value = 'my unfinished draft'
     draft.focus()
     canvas.fire('contextmenu', { offsetX: 400, offsetY: 300 })
-    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    const menu = host.descendants().find(el => el.className.includes('dsh-uml-quality-menu'))!
     const id = golden.world[0]!.kind === 'package' ? golden.world[0]!.id : ':core'
     menu.children[3]!.fire('click')
     await settled()
@@ -224,7 +224,7 @@ describe('mounted panel quality menu (#28)', () => {
           bounds: { x: 200, y: 10, w: 40, h: 18 }, dimmed: false },
       ] as SceneFrame['world'] }
     await emit({ kind: 'frame', seq: 2, frame })
-    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    const menu = host.descendants().find(el => el.className.includes('dsh-uml-quality-menu'))!
     canvas.fire('contextmenu', { offsetX: 50, offsetY: 25 })
     expect(menu.hidden).toBe(true)
     canvas.fire('contextmenu', { offsetX: 210, offsetY: 15 })
@@ -235,7 +235,7 @@ describe('mounted panel quality menu (#28)', () => {
   it('does not open a menu on blank canvas and closes with Escape', async () => {
     const { host, canvas } = await mount()
     canvas.fire('contextmenu', { offsetX: 400, offsetY: 300 })
-    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    const menu = host.descendants().find(el => el.className.includes('dsh-uml-quality-menu'))!
     expect(menu.hidden).toBe(false)
     host.fire('keydown', { key: 'Escape' })
     expect(menu.hidden).toBe(true)
@@ -265,7 +265,7 @@ describe('mounted panel language (#42)', () => {
     dispose = await mountPanel(host as unknown as HTMLElement, { sessionId: 'session', ctx: localized })
     await emit({ kind: 'frame', seq: 1, frame: { ...golden, viewport: { width: 800, height: 600 }, camera: { x: 200, y: 200, zoom: 1 },
       world: [{ ...golden.world[0]!, bounds: { x: 0, y: 0, w: 4000, h: 4000 } }] } })
-    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    const menu = host.descendants().find(el => el.className.includes('dsh-uml-quality-menu'))!
     const input = host.find('input')
     const canvas = host.find('canvas')
     expect(menu.children.map(el => el.textContent)).toEqual(['刷新 CRAP', '差量 mutation', '全量 mutation（--mutate-all）', '隐藏'])

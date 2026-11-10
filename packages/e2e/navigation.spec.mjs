@@ -169,24 +169,3 @@ test('anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and cycl
     await lane.close()
   }
 })
-
-test('expands the same session into the root-scoped main page and back', async ({ browser }) => {
-  const lane = await launchViewerLane(browser)
-  try {
-    const shop = await lane.openPanel('shop')
-    await shop.panel.getByRole('button', { name: 'Expand to main area' }).click()
-    const main = shop.page.locator('.dsh-uml-viewer-panel[data-surface="main"]')
-    await expect(main).toBeVisible({ timeout: 30_000 })
-    await expect(main).toHaveAttribute('data-session-id', shop.sessionId)
-    await expect(main.locator('.dsh-uml-viewer-summary')).toContainText('Shop')
-    await expect(main.locator('canvas')).toBeVisible()
-    await expect(shop.page.locator('.dsh-uml-viewer-panel[data-surface="sidebar"]')).toBeHidden()
-    await main.getByRole('button', { name: 'Return to conversation' }).click()
-    await expect(main).toBeHidden()
-    await expect(shop.panel).toBeVisible()
-    await expect(shop.summary).toContainText('Shop')
-    expect(shop.problems).toEqual([])
-  } finally {
-    await lane.close()
-  }
-})

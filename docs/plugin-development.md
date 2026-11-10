@@ -80,26 +80,34 @@ nothing and leaves no other trace, so this journal is the only record of which
 build an activation actually runs; it is bounded to the newest 64 lines and is
 best-effort — it never fails an activation.
 
-A panel stream ending is **not** a panel close (D13). The shell's sidebar tab
-props carry only `sessionId` and `layout` has no close hook, so an unmount
-cannot say why it happened: a React detach, a client bundle swap or a
-sidebar/main move is a **withdrawal**. The mount disposer only ends its own
+A panel stream ending is **not** a panel close (D13). An unmount cannot say
+why it happened: a React detach, a client bundle swap, collapsing the right
+sidebar, switching fullscreen or the presentation, and plugin unload are all a
+**withdrawal**. The explicit close is the host's tab close handler (ADR 0015,
+#43): the plugin registers `ctx.sidebarRight.registerCloseHandler` for the UML
+tab kind, and the host runs it only when the user closes the tab or a
+replacement (`replaceTab`) removes it. The mount disposer only ends its own
 stream; it never sends a close. The resident then waits one bounded window
 (`WITHDRAWAL_GRACE_MS`, 30 s), and a remount inside it joins the same child,
 version and lease. Actions or tool calls that arrive during the window borrow
-the child without ending the window early. A last-panel **Close viewer** does
+the child without ending the window early. A last-panel tab close does
 not wait for such a borrow: it stops the child within the bounded stop timeout
-before acknowledging, so an **Open viewer** right after the ack always starts
+before acknowledging, so reopening the tab right after the ack always starts
 the current activation instead of rejoining the old child. The late action sees
 that resident stopped and reports its refusal.
 
 Each mount opens with `watchOwned(owner)`, where `owner` is `{pageId,
 holderId}`. `pageId` is a random id kept as a plain string on the browser
 `document`, so it stays the same across client HMR and surface moves.
-`holderId` is new for every mount. The definite close is the panel's
-**Close viewer** button: `closeOwned(owner)` releases that one holder, and the
-resident stops once no holder is left. **Open viewer** opens fresh, so it runs
-the current activation's version. A stale `closeOwned` from an old mount
+`holderId` is new for every mount. The definite close is closing the
+UML tab: the close handler sends `closeOwned(owner)` for that tab's holder (a
+live body closes through its controller; a body that already unmounted and is
+waiting out its grace is closed with its last owner), and the resident stops
+once no holder is left. Reopening the tab opens fresh, so it runs the current
+activation's version. The tab's refresh command is bound through
+`tab.actions.bindCommands({ refresh })` to the same `reload` as **R**. The
+panel registers no `main` slot and keeps no session id in `sessionStorage`;
+the full-width form is the right sidebar's fullscreen. A stale `closeOwned` from an old mount
 targets only its own holder; it cannot close a newer mount. The window
 expiring, plugin uninstall and DSH shutdown also stop the resident, saving
 the view first.
@@ -260,7 +268,7 @@ Right-click a class or namespace component and choose **Refresh CRAP**,
 **Differential mutation**, or **Full mutation (--mutate-all)**. The menu sends
 `{action: 'quality-request', request: 'refresh-crap' | 'refresh-mutate' |
 'refresh-mutate-all', id}` through the panel's existing typed Remote. Its
-`agentId` is the panel's bound session, including when expanded to `main`.
+`agentId` is the panel's bound session.
 The host asks the resident's additive `quality-target` action for the element's
 source files through a quiet request. The resident resolves the id against its
 CURRENT loaded Rust session document and shown proposal using the existing
@@ -395,7 +403,10 @@ scratch DSH homes under two plugin versions: a live vN panel and a fresh vN+1
 panel in the same root, a withdrawn stream (abort plus iterator return, as the
 gateway leaves it) with the same session remounting on the same vN child, the
 real `mountPanel` disposer followed by a new mount keeping the vN child and
-lease until **Close viewer**, after which **Open viewer** runs vN+1, a distinct
+lease until the UML tab's close handler runs, after which the reopened tab
+runs vN+1, the close handler stopping the resident when a replacement removes
+the tab or after the body already withdrew, a close of one UML tab leaving
+another alone, the tab refresh command reaching the resident as `reload`, a distinct
 withdrawn document opening fresh while a live second page shares the resident,
 an explicit close stopping it, root shutdown clearing a pending withdrawal window,
 six simultaneous real loaders for one version, cleanup

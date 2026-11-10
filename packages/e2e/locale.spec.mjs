@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
+import { producerFrame, screenRect, toScreen } from './canvas.mjs'
 import { launchViewerLane } from './lane.mjs'
-import { producerFrame, screenRect } from './canvas.mjs'
 
 /**
  * Switch the DSH language the way a user does: Settings → General → Language.
@@ -20,18 +20,37 @@ async function switchLanguage(page, label) {
 
 // The inspector (deleted by #47, not localized) has its own 精简 button.
 const declutter = panel => panel.panel.locator('button.dsh-uml-viewer-declutter')
-const menuItems = panel => panel.panel.locator('[role="menu"] [role="menuitem"]').allTextContents()
+// The element menu carries `role="menu"` only while it is open: the host reads
+// any such role in the document as an open modal and blocks the tab refresh
+// command with it (#43), so a closed menu is found by its class instead.
+const elementMenu = panel => panel.panel.locator('.dsh-uml-quality-menu')
+const menuItems = panel => elementMenu(panel).locator('[role="menuitem"]').allTextContents()
+/**
+ * A canvas point on a class box, read from the producer once in English (the
+ * summary the oracle parses is localized, and the view does not change when the
+ * language does). Right-clicking there opens the element menu.
+ */
+async function classPoint(panel, lane, root) {
+  const frame = await producerFrame(panel, { root, home: lane.home })
+  const item = frame.world.find(entry => entry.kind === 'class' && entry.shape !== 'oval')
+  expect(item, 'the frame has a class box').toBeTruthy()
+  return toScreen(frame, item.rect.x + item.rect.w / 2, item.rect.y + 10)
+}
 
 test('panel DOM text and accessible names follow a DSH language switch without reopening the tab (#42)', async ({ browser }) => {
   const lane = await launchViewerLane(browser)
   try {
     const shop = await lane.openPanel('shop')
+    const at = await classPoint(shop, lane, lane.projects.shop)
     await switchLanguage(shop.page, '中文')
     await expect(shop.panel.getByRole('searchbox', { name: '搜索类' })).toBeVisible()
     await expect(shop.canvas).toHaveAttribute('aria-label', 'UML 图画布')
     await expect(shop.summary).toContainText('讨论上下文：源码图')
-    await expect(shop.panel.getByRole('menu', { name: '元素请求', includeHidden: true })).toHaveCount(1)
+    await expect(elementMenu(shop)).toHaveAttribute('aria-label', '元素请求')
     expect(await menuItems(shop)).toEqual(['刷新 CRAP', '差量 mutation', '全量 mutation（--mutate-all）', '隐藏'])
+    await shop.canvas.click({ position: { x: at[0], y: at[1] }, button: 'right' })
+    await expect(shop.panel.getByRole('menu', { name: '元素请求' })).toHaveCount(1)
+    await shop.page.keyboard.press('Escape')
     await expect(declutter(shop)).toHaveAccessibleName(/^精简：/)
 
     await switchLanguage(shop.page, 'English')
@@ -40,8 +59,11 @@ test('panel DOM text and accessible names follow a DSH language switch without r
     await expect(shop.panel.getByRole('searchbox', { name: 'Search classes' })).toBeVisible()
     await expect(shop.canvas).toHaveAttribute('aria-label', 'UML diagram canvas')
     await expect(shop.summary).toContainText('Discussion: source diagram')
-    await expect(shop.panel.getByRole('menu', { name: 'Element requests', includeHidden: true })).toHaveCount(1)
+    await expect(elementMenu(shop)).toHaveAttribute('aria-label', 'Element requests')
     expect(await menuItems(shop)).toEqual(['Refresh CRAP', 'Differential mutation', 'Full mutation (--mutate-all)', 'Hide'])
+    await shop.canvas.click({ position: { x: at[0], y: at[1] }, button: 'right' })
+    await expect(shop.panel.getByRole('menu', { name: 'Element requests' })).toHaveCount(1)
+    await shop.page.keyboard.press('Escape')
     await expect(declutter(shop)).toHaveAccessibleName(/^Declutter: /)
     await lane.screenshot(shop, 'locale-english')
   } finally {
