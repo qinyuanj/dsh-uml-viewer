@@ -38,7 +38,9 @@ export type RequestEnd =
  * #52 attributes the companion's work to the requests in FIFO order: the head
  * of the list (the oldest entry still queued or in progress) is the request it
  * is handling, so its tool results end that entry. A hide or a new proposal is
- * matched exactly instead, by the id its `uml_ir` presents.
+ * matched exactly instead, by the id its `uml_ir` presents. A turn that ends
+ * settles what it consumed, and fails a head admitted before it began, so no
+ * request is left looking unfinished for a turn that is over.
  */
 export class RequestStatuses {
   private readonly lists = new Map<string, RequestStatusEntry[]>()
@@ -49,8 +51,23 @@ export class RequestStatuses {
    * known to have consumed this request (#52).
    */
   private readonly prompts = new Map<string, Map<string, string>>()
-  /** The entries whose message entered the current turn, per session (#52). */
+  /**
+   * The prompt correlation ids the current turn consumed, per session (#52).
+   * A prompt id is remembered even before its request's admission resolves —
+   * DSH can append the durable message before `prompt()` returns to the panel —
+   * and is resolved to the entry when the turn ends.
+   */
   private readonly claimed = new Map<string, Set<string>>()
+  /**
+   * The serial number of the session's next turn, counted from `turn/start`
+   * (#52), and the serial each still-unfinished entry was admitted under. A
+   * turn owns every request admitted before it began, so ending unfinished
+   * fails those; a request admitted while a turn is already running belongs to
+   * the next one, which is why an admission racing a turn's end is not failed
+   * by it.
+   */
+  private readonly turns = new Map<string, number>()
+  private readonly admitted = new Map<string, Map<string, number>>()
 
   /**
    * This session's entries, oldest first.
@@ -86,16 +103,20 @@ export class RequestStatuses {
       next.splice(finished < 0 ? 0 : finished, 1)
     }
     // A dropped entry's correlations must not outlive it.
+    const kept = new Set(next.map(item => item.id))
     const prompts = this.prompts.get(sessionId)
-    if (prompts) {
-      const kept = new Set(next.map(item => item.id))
-      for (const [prompt, id] of prompts) if (!kept.has(id)) prompts.delete(prompt)
-    }
+    if (prompts) for (const [prompt, id] of prompts) if (!kept.has(id)) prompts.delete(prompt)
     if (promptId !== undefined) {
       let own = this.prompts.get(sessionId)
       if (!own) this.prompts.set(sessionId, own = new Map())
       own.set(promptId, entry.id)
     }
+    let admitted = this.admitted.get(sessionId)
+    if (!admitted) this.admitted.set(sessionId, admitted = new Map())
+    for (const id of admitted.keys()) if (!kept.has(id)) admitted.delete(id)
+    // An entry keeps the turn serial it was admitted under, so a later
+    // `record` of the same id never moves it into a younger turn.
+    if (!admitted.has(entry.id)) admitted.set(entry.id, this.turns.get(sessionId) ?? 0)
     this.lists.set(sessionId, next)
     for (const listener of this.listeners.get(sessionId) ?? []) listener(next)
   }
@@ -130,45 +151,57 @@ export class RequestStatuses {
   }
 
   /**
-   * Note that the message of the request admitted under `promptId` entered the
-   * current turn (#52): if that turn ends without completing it, it fails.
+   * Note that a durable message carrying `promptId` entered the current turn
+   * (#52): if that turn ends without completing the request admitted under it,
+   * the request fails. The request may not be recorded yet — the message can
+   * beat the admission — so the prompt id is kept until the turn ends.
    * @param sessionId the session.
    * @param promptId the prompt correlation id the durable message echoes.
    */
   claim(sessionId: string, promptId: string): void {
-    const entry = this.prompts.get(sessionId)?.get(promptId)
-    if (entry === undefined) return
-    const own = this.list(sessionId).find(item => item.id === entry && unfinished(item))
-    if (!own) return
     let claimed = this.claimed.get(sessionId)
     if (!claimed) this.claimed.set(sessionId, claimed = new Set())
-    claimed.add(own.id)
+    claimed.add(promptId)
   }
 
   /**
-   * A turn of this session started: what the previous one claimed is done.
+   * A turn of this session started: what the previous one claimed is done, and
+   * this turn owns every request already admitted.
    * @param sessionId the session.
    */
   turnStarted(sessionId: string): void {
     this.claimed.delete(sessionId)
+    this.turns.set(sessionId, (this.turns.get(sessionId) ?? 0) + 1)
   }
 
   /**
-   * A turn of this session ended (#52). The request it consumed, or the one it
-   * left in progress, did not finish: the companion ended the turn without
-   * completing the display, so the request fails with that reason.
+   * A turn of this session ended (#52). What it consumed did not finish, and
+   * neither did the request it was handling: the companion ended the turn
+   * without completing the display, so those requests fail with that reason.
+   *
+   * The head is read before anything settles, because the requests behind it
+   * were not this turn's. It fails unless the turn began before the request was
+   * admitted: a request the panel queued during this turn waits for the next
+   * one, so an admission racing the turn's end is never failed by the turn it
+   * could not have been handled in.
    * @param sessionId the session.
    */
   turnEnded(sessionId: string): void {
     const claimed = this.claimed.get(sessionId)
     this.claimed.delete(sessionId)
-    for (const id of claimed ?? []) {
-      this.end(sessionId, { state: 'failed', reason: TURN_ENDED_REASON }, id)
+    const head = this.head(sessionId)
+    const settled = new Set<string>()
+    for (const promptId of claimed ?? []) {
+      const id = this.prompts.get(sessionId)?.get(promptId)
+      if (id === undefined || settled.has(id)) continue
+      if (this.end(sessionId, { state: 'failed', reason: TURN_ENDED_REASON }, id)) settled.add(id)
     }
+    if (!head || settled.has(head.id)) return
+    const admitted = this.admitted.get(sessionId)?.get(head.id) ?? 0
+    if (admitted >= (this.turns.get(sessionId) ?? 0)) return
     // A companion that ran tools without the message reaching us (an older
     // DSH, a resumed session) still left this request unfinished.
-    const head = this.head(sessionId)
-    if (head?.state === 'running') this.end(sessionId, { state: 'failed', reason: TURN_ENDED_REASON }, head.id)
+    this.end(sessionId, { state: 'failed', reason: TURN_ENDED_REASON }, head.id)
   }
 
   /**

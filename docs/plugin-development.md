@@ -336,7 +336,7 @@ is handling, so
 | a quality result with `validResult: false` | `running` → `failed`, with the record's `reason` (a fixed sentence when the record has none) and its `exitCode` |
 | a failed `uml_ir` | `running` → `failed`, with the IR record's reason and exit code |
 | a successful `uml_display` | `running` → `done` |
-| the companion's turn ends with the request unfinished | → `failed`, reason *the companion ended this turn without completing the display* |
+| a turn ends with a request it owned unfinished (consumed, or admitted before it began) | → `failed`, reason *the companion ended this turn without completing the display* |
 
 The attribution is the FIFO one the spec accepts: a quality call the user asks
 for by hand is attributed to the head too, so its result can end a request the
@@ -349,14 +349,18 @@ request names no element. The head is read from the list itself, in request
 order, never from a separately remembered "last request" record.
 
 Turn boundaries come from DSH's published `session/event` feed, the one public
-event a plugin can observe them through: `turn/start` clears the turn's claims,
-and `turn/end` settles the request that turn consumed. A durable
-`user/message` echoes the prompt `requestId` as its source `rpcId`, which is how
-the host knows a turn consumed one of its requests: a turn of the user's own
-that ends while a request still waits in DSH's queue leaves that request
-`queued`. The head is also failed at `turn/end` when it is `running` without a
-claim, so a companion that ran tools in a resumed or older session still
-settles. `agent/status` is not used: it carries no turn identity, so a
+event a plugin can observe them through: `turn/start` clears the turn's claims
+and numbers the turn, and `turn/end` settles it. A durable `user/message` echoes
+the prompt `requestId` as its source `rpcId`, which is how the host knows a turn
+consumed one of its requests; the claim is held by prompt id until the turn
+ends, so a message that reaches the log before the panel's own admission
+returns is still matched. `turn/end` also fails the head as it stood when the
+turn ended, unless the request was admitted while that turn was already
+running: a turn owns every request queued before it began, so a request the
+companion never handled fails with the turn-end reason instead of staying
+`queued` forever, while a request the panel queued mid-turn waits for the next
+one — an admission racing a turn's end is not failed by the turn that could not
+have handled it. `agent/status` is not used: it carries no turn identity, so a
 per-agent idle would fail a request the next turn is about to pick up.
 
 A refused request still names the element the browser clicked (#52 F26): the

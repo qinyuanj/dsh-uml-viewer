@@ -83,9 +83,15 @@ async function setup() {
   const home = await mkdtemp(path.join(os.tmpdir(), 'uml request status home '))
   roots.push(home)
   const admitted: PromptRequest[] = []
+  /** Whether the fake controller holds the next admission, and its open gates. */
+  let held = false
+  const releases: (() => void)[] = []
   const sessionController = {
     async prompt(request: PromptRequest) {
       admitted.push(request)
+      // A held admission lets the test append the durable message before the
+      // panel's own admission resolves, as DSH can.
+      if (held) await new Promise<void>(resolve => releases.push(resolve))
       return { accepted: true as const }
     },
   }
@@ -150,7 +156,15 @@ async function setup() {
   const turnEnd = (session: string) => append(session, { type: 'turn/end', seq: 2, time: 0, data: { turn: 1, reason: { kind: 'completed' } } })
   const write = (session: string, file: string, value: unknown) =>
     writeFile(path.join(projects[session]!, file), JSON.stringify(value))
-  return { projects, agents, admitted, open, act, tool, append, message, turnStart, turnEnd, write, ctx }
+  /** Hold the next admission open, past the panel's own `prompt()` call. */
+  const holdPrompts = () => { held = true }
+  /** Let every held admission resolve. */
+  const releasePrompts = () => {
+    held = false
+    for (const release of releases.splice(0)) release()
+  }
+  return { projects, agents, admitted, open, act, tool, append, message, turnStart, turnEnd, write, ctx,
+    holdPrompts, releasePrompts }
 }
 
 async function until(condition: () => boolean, ms = 5000): Promise<void> {
@@ -266,24 +280,72 @@ it('fails the running head when a turn ends, with the turn-end reason', async ()
     entry('refresh-crap', { id: ':api', kind: 'class' }, 'failed', { reason: TURN_ENDED })])
 })
 
-it('leaves the head queued when a turn that never consumed it ends', async () => {
+it('fails a request admitted before a turn that ends without consuming it', async () => {
   const s = await setup()
   const panel = await s.open('session-a')
   await s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':api' })
   await panel.status(list => list.length === 1)
-  // A turn of the user's own, with the request still waiting in DSH's queue:
-  // the companion did not end a turn for this request.
+  // The request was queued before this turn began, so the turn owned it — and
+  // ended without consuming its message (a rejected or empty turn, or a
+  // companion that never reached the request). It must not stay queued forever.
   s.turnStart('session-a')
-  s.message('session-a', { requestId: 'not-a-panel-request', sessionId: 'session-a', mode: 'queue', content: [] })
+  s.turnEnd('session-a')
+  expect(await panel.status(list => list[0]?.state === 'failed')).toEqual([
+    entry('refresh-crap', { id: ':api', kind: 'class' }, 'failed', { reason: TURN_ENDED })])
+})
+
+it('leaves a request admitted during a running turn queued for the next one', async () => {
+  const s = await setup()
+  const panel = await s.open('session-a')
+  // The turn was already running when the panel queued the request: only the
+  // next turn can handle it, so this turn's end must not fail it.
+  s.turnStart('session-a')
+  s.message('session-a', { requestId: 'the-user-s-own-message', sessionId: 'session-a', mode: 'queue', content: [] })
+  await s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':api' })
+  await panel.status(list => list.length === 1)
+  const pushed = panel.lists().length
   s.turnEnd('session-a')
   await new Promise(resolve => setTimeout(resolve, 100))
+  expect(panel.lists()).toHaveLength(pushed)
   expect(panel.lists().at(-1)![0]!.state).toBe('queued')
-  // The request's own turn then ends without a display: now it fails.
+  // Its own turn then ends without a display: now it fails.
   s.turnStart('session-a')
   s.message('session-a', s.admitted[0])
   s.turnEnd('session-a')
   expect(await panel.status(list => list[0]?.state === 'failed')).toEqual([
     entry('refresh-crap', { id: ':api', kind: 'class' }, 'failed', { reason: TURN_ENDED })])
+})
+
+it('settles the request whose message a turn consumed before its admission resolved', async () => {
+  const s = await setup()
+  const panel = await s.open('session-a')
+  s.holdPrompts()
+  const acting = s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':api' })
+  await until(() => s.admitted.length === 1)
+  // DSH starts the turn and appends the durable message before the panel's own
+  // admission returns: the claim must survive the record that follows it.
+  s.turnStart('session-a')
+  s.message('session-a', s.admitted[0])
+  s.releasePrompts()
+  await acting
+  await panel.status(list => list.length === 1)
+  s.turnEnd('session-a')
+  expect(await panel.status(list => list[0]?.state === 'failed')).toEqual([
+    entry('refresh-crap', { id: ':api', kind: 'class' }, 'failed', { reason: TURN_ENDED })])
+})
+
+it('fails only the head a turn ended with, leaving the requests behind it queued', async () => {
+  const s = await setup()
+  const panel = await s.open('session-a')
+  await s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':api' })
+  await s.act('session-a', { action: 'quality-request', request: 'refresh-mutate', id: ':core' })
+  const [first, second] = await panel.status(list => list.length === 2)
+  s.turnStart('session-a')
+  s.message('session-a', s.admitted[0])
+  s.turnEnd('session-a')
+  // The second request was not this turn's: it still waits in DSH's queue.
+  expect(await panel.status(list => list[0]?.state === 'failed')).toEqual([
+    { ...first!, state: 'failed', reason: TURN_ENDED }, second!])
 })
 
 it('attributes a quality call the user runs by hand to the head of the queue, and moves on afterwards', async () => {
