@@ -253,7 +253,9 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
       // The view and the depth come from the state's discussion context and
       // breadcrumbs (#46), not from chrome the frame no longer carries.
       const title = state.breadcrumbs[0]?.name ?? text.t('summary.untitled')
-      const view = state.context?.kind === 'proposal' ? 'proposal' : 'source'
+      // The resident's `:proposal-id` says whether the canvas shows a proposal
+      // layer or the discussion's source tree (#46).
+      const view = state.view
       summary.dataset.view = view
       summary.dataset.depth = state.breadcrumbs.length > 1 ? 'drilled' : 'root'
       const selected = frame.world.find(item => 'selected' in item && item.selected)

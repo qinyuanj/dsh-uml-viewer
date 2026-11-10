@@ -89,10 +89,10 @@ function harness(initial: PanelEvent[] = []): Harness {
 }
 
 /** A session state as the resident persists it; only `declutter` matters here. */
-function stateWith(declutter: string | null): SessionState {
+function stateWith(declutter: string | null, proposalId: string | null = null): SessionState {
   return {
     schema: 'dsh-uml-viewer/session-state', version: 1, diagram: null, context: null,
-    focus: [], proposalId: null, openLayer: null, declutter,
+    focus: [], proposalId, openLayer: null, declutter,
     camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null,
   }
 }
@@ -357,6 +357,17 @@ describe('session-bound panel stream', () => {
 
     expect(h.controller.key('p')).toBe(true)
     await settle(() => h.actions.some(entry => entry.action.action === 'namespace-tree'), 'P returns to the tree')
+
+    // The view summary is the resident's own flag (#46): `:proposal-id` is set
+    // exactly while the canvas shows a proposal layer, so a proposal view that
+    // returns to the source tree reads source, whatever the discussion is.
+    expect(h.controller.current.view).toBe('source')
+    h.emit({ kind: 'state', state: stateWith(null, ':p-shop'), breadcrumbs: [
+      { id: null, name: 'Shop' }, { id: ':core', name: 'core' },
+    ], status: null })
+    await settle(() => h.controller.current.view === 'proposal', 'the proposal view')
+    h.emit({ kind: 'state', state: stateWith(null), breadcrumbs: [{ id: null, name: 'Shop' }], status: null })
+    await settle(() => h.controller.current.view === 'source', 'back to the source view')
     h.controller.close()
   })
 

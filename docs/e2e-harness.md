@@ -371,10 +371,13 @@ length), `data-status` (the canvas status code, empty when there is none),
 `data-search`/`data-results`, `data-selected`, `data-chain` and `data-dimmed`,
 and text of the form `Diagram: … Discussion: … Camera: x, y, zoom`. It is
 populated from the same frame, context and state events that paint the Canvas.
-The view and the depth come from the discussion context and the `state`
-event's breadcrumbs (#46), not from chrome the frame no longer carries, so a
-proposal's root is `proposal`/`root` and a drilled namespace is
-`source`/`drilled`. It gives later tickets a user-readable assertion seam
+The view and the depth come from the `state` event (#46), not from chrome the
+frame no longer carries: `data-view` is `proposal` exactly while the state's
+`proposalId` names a proposal layer (the resident drops it on the way back to
+the source tree), and `data-depth` is `drilled` once the breadcrumb path has
+more than one level. A proposal's root is therefore `proposal`/`root`, a
+drilled namespace is `source`/`drilled`, and a proposal viewed from a source
+discussion reads `proposal` until **P**. It gives later tickets a user-readable assertion seam
 without reaching into client internals.
 
 `primitives.spec.mjs` (#24) is the Playwright form of the deleted egui
