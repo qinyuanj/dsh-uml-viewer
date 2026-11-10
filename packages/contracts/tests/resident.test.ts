@@ -43,7 +43,7 @@ describe('resident protocol', () => {
         schema: SESSION_STATE_SCHEMA, version: 1, diagram: 'D:/project/diagram.edn', context: { kind: 'real', edn: '{:context :real}' },
         focus: [':core'], proposalId: null, openLayer: null, declutter: null,
         camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null },
-        breadcrumbs: [{ id: null, name: 'Shop' }, { id: ':core', name: 'core' }], status: null },
+        breadcrumbs: [{ id: null, name: 'Shop' }, { id: ':core', name: 'core' }], status: null, proposals: [] },
       { version: 1, seq: null, event: 'error', message: 'not an object' },
     ]
     for (const line of lines) expect(validateResidentEvent(line), JSON.stringify(line).slice(0, 40)).toEqual(line)
@@ -71,16 +71,16 @@ describe('resident protocol', () => {
       camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null }
     const breadcrumbs = [{ id: null, name: 'Shop' }, { id: ':core', name: 'core' }, { id: ':p-shop', name: 'Proposal' }]
     const lines = [
-      { version: 1, seq: 9, event: 'state', state, breadcrumbs, status: { code: 'waiting-display' } },
+      { version: 1, seq: 9, event: 'state', state, breadcrumbs, status: { code: 'waiting-display' }, proposals: [] },
       { version: 1, seq: 10, event: 'state', state, breadcrumbs,
-        status: { code: 'missing-file', path: 'D:/project/diagram.edn' } },
-      { version: 1, seq: 11, event: 'state', state, breadcrumbs: [], status: null },
+        status: { code: 'missing-file', path: 'D:/project/diagram.edn' }, proposals: [] },
+      { version: 1, seq: 11, event: 'state', state, breadcrumbs: [], status: null, proposals: [] },
     ]
     for (const line of lines) expect(parseResidentLine(JSON.stringify(line))).toEqual(line)
     // A resident from before #45 has neither field: the panel then shows no
     // breadcrumbs and no status rather than failing the whole stream.
     const legacy = { version: 1, seq: 12, event: 'state', state }
-    expect(validateResidentEvent(legacy)).toEqual({ ...legacy, breadcrumbs: [], status: null })
+    expect(validateResidentEvent(legacy)).toEqual({ ...legacy, breadcrumbs: [], status: null, proposals: [] })
     for (const value of ['Shop', [{ name: 'Shop' }], [{ id: 3, name: 'Shop' }], [{ id: null, name: '' }], [{}]]) {
       expect(() => validateResidentEvent({ ...legacy, breadcrumbs: value }), JSON.stringify(value)).toThrow(/breadcrumbs/i)
     }
@@ -88,6 +88,22 @@ describe('resident protocol', () => {
     // broken resident, not a message to show.
     for (const status of [{ code: 'lost' }, { code: 'missing-file' }, { code: 'waiting-display', path: 3 }, 'waiting-display']) {
       expect(() => validateResidentEvent({ ...legacy, status }), JSON.stringify(status)).toThrow(/status/i)
+    }
+  })
+
+  it('lists the diagram proposals on the state event for the discussion-context switcher (#47)', () => {
+    const state = { schema: SESSION_STATE_SCHEMA, version: 1, diagram: null, context: null,
+      focus: [], proposalId: ':p-shop', openLayer: null, declutter: null,
+      camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null }
+    const proposals = [{ id: ':p-shop', name: 'Shop split' }, { id: ':p-2', name: '2026-10-24 10:00:00' }]
+    const line = { version: 1, seq: 13, event: 'state', state, breadcrumbs: [], status: null, proposals }
+    expect(parseResidentLine(JSON.stringify(line))).toEqual(line)
+    // A resident from before #47 lists none: the switcher then offers the
+    // source diagram and 新建提案 only.
+    const { proposals: _proposals, ...legacy } = line
+    expect(validateResidentEvent(legacy)).toEqual({ ...legacy, proposals: [] })
+    for (const value of ['p', [{ id: ':p' }], [{ id: 3, name: 'P' }], [{ id: ':p', name: '' }], [{ id: '', name: 'P' }], [null]]) {
+      expect(() => validateResidentEvent({ ...line, proposals: value }), JSON.stringify(value)).toThrow(/proposals/)
     }
   })
 
@@ -105,7 +121,7 @@ describe('resident protocol', () => {
     const state = { schema: SESSION_STATE_SCHEMA, version: 1, diagram: '/project/diagram.edn',
       loadedDiagram: { version: 1, sha256: 'a'.repeat(64) }, context: null, focus: [],
       proposalId: null, openLayer: null, declutter: null, camera: { x: 2, y: 3, zoom: 1 }, selected: null, detail: null }
-    const event = { version: 1, seq: 12, event: 'state', state, breadcrumbs: [], status: null }
+    const event = { version: 1, seq: 12, event: 'state', state, breadcrumbs: [], status: null, proposals: [] }
     expect(parseResidentLine(JSON.stringify(event))).toEqual(event)
     expect(validateSessionState({ ...state, loadedDiagram: null }).loadedDiagram).toBeNull()
     for (const loadedDiagram of [{ version: 2, sha256: 'a'.repeat(64) }, { version: 1, sha256: 'a'.repeat(63) },

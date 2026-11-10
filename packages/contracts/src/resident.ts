@@ -8,8 +8,8 @@
  */
 import type { SceneFrame } from './scene-frame.js'
 import { validateSceneFrame } from './scene-frame.js'
-import type { CardModel, InspectorModel, SourceModel } from './overlays.js'
-import { validateCardModel, validateInspectorModel, validateSourceModel } from './overlays.js'
+import type { CardModel, SourceModel } from './overlays.js'
+import { validateCardModel, validateSourceModel } from './overlays.js'
 import type { QualityTarget } from './requests.js'
 import { validateQualityTarget } from './requests.js'
 
@@ -70,17 +70,17 @@ export type ResidentEvent =
   | { version: 1; seq: unknown; event: 'search'; query: string; results: SearchResult[] }
   | { version: 1; seq: unknown; event: 'context'; context: DiscussionContext }
   | { version: 1; seq: unknown; event: 'state'; state: SessionState
-      breadcrumbs: BreadcrumbLevel[]; status: SessionStatus | null }
-  | { version: 1; seq: unknown; event: 'inspector'; inspector: InspectorModel }
-  | { version: 1; seq: unknown; event: 'card'; card: CardModel }
+      breadcrumbs: BreadcrumbLevel[]; status: SessionStatus | null; proposals: ProposalEntry[] }
+  /** `card` is null when no class card is open (#47). */
+  | { version: 1; seq: unknown; event: 'card'; card: CardModel | null }
   | { version: 1; seq: unknown; event: 'source'; source: SourceModel }
   | { version: 1; seq: unknown; event: 'quality-target'; target: QualityTarget }
   | { version: 1; seq: unknown; event: 'ack' }
   | { version: 1; seq: unknown; event: 'error'; message: string }
 
 const EVENTS: ReadonlySet<string> = new Set(['ready', 'frame', 'search', 'context', 'state', 'ack', 'error',
-  // #27 overlays: additive, version 1 is unchanged.
-  'inspector', 'card', 'source',
+  // #27 overlays: additive, version 1 is unchanged. #47 deleted `inspector`.
+  'card', 'source',
   // #28 panel request targets: additive, version 1 is unchanged.
   'quality-target'])
 
@@ -131,6 +131,36 @@ function loadedDiagram(value: unknown, label: string): { version: 1; sha256: str
   const sha256 = str(source.sha256, `${label}.sha256`)
   if (!/^[a-f0-9]{64}$/.test(sha256)) at(`${label}.sha256`, 'must be a lowercase SHA-256 hex digest')
   return { version: 1, sha256 }
+}
+
+/**
+ * One proposal of the shown diagram, as the discussion-context switcher lists
+ * it (#47): its EDN id and its display name.
+ */
+export interface ProposalEntry { id: string; name: string }
+
+/**
+ * Validate the proposal list a state event carries (#47), in the diagram's
+ * order. Each entry is a non-empty EDN id and a non-empty name.
+ * @param value the event's `proposals` (absent from a resident before #47).
+ * @param label the document name used in failure messages.
+ * @returns the proposals, or none.
+ */
+export function validateProposalEntries(value: unknown, label = 'proposals'): ProposalEntry[] {
+  if (value === null || value === undefined) return []
+  try {
+    return list(value, label).map((entry, index) => {
+      const row = record(entry, `${label}[${index}]`)
+      const id = str(row.id, `${label}[${index}].id`)
+      if (!id) at(`${label}[${index}].id`, 'must not be empty')
+      const name = str(row.name, `${label}[${index}].name`)
+      if (!name) at(`${label}[${index}].name`, 'must not be empty')
+      return { id, name }
+    })
+  } catch (error) {
+    if (error instanceof Invalid) throw new Error(error.message)
+    throw error
+  }
 }
 
 /**
@@ -257,11 +287,11 @@ export function validateResidentEvent(value: unknown, label = 'resident event'):
         // the persisted session state keeps its own contract untouched.
         return { version: RESIDENT_VERSION, seq, event, state: validateSessionState(source.state, `${label}.state`),
           breadcrumbs: validateBreadcrumbs(source.breadcrumbs, `${label}.breadcrumbs`),
-          status: validateSessionStatus(source.status, `${label}.status`) }
-      case 'inspector':
-        return { version: RESIDENT_VERSION, seq, event, inspector: validateInspectorModel(source.inspector, `${label}.inspector`) }
+          status: validateSessionStatus(source.status, `${label}.status`),
+          proposals: validateProposalEntries(source.proposals, `${label}.proposals`) }
       case 'card':
-        return { version: RESIDENT_VERSION, seq, event, card: validateCardModel(source.card, `${label}.card`) }
+        return { version: RESIDENT_VERSION, seq, event,
+          card: source.card === null ? null : validateCardModel(source.card, `${label}.card`) }
       case 'source':
         return { version: RESIDENT_VERSION, seq, event, source: validateSourceModel(source.source, `${label}.source`) }
       case 'quality-target':
