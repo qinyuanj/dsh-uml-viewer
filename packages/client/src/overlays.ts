@@ -24,6 +24,7 @@
  */
 import type { CardModel, InspectorModel, PanelAck, PanelAction, SourceModel } from '@dsh-uml-viewer/contracts'
 import { defaultProposalName } from '@dsh-uml-viewer/contracts'
+import { ENGLISH_TEXT, type PanelText } from './locale.js'
 
 export interface SourceWindow {
   serial: number
@@ -68,7 +69,8 @@ export class OverlayController {
   private nativeOffset: number | null = null
   private nativeScrollTask: Promise<void> | null = null
 
-  public constructor(private readonly send: Send) {}
+  /** The panel's DOM text; the view re-renders on a DSH language switch. */
+  public constructor(private readonly send: Send, public readonly text: PanelText = ENGLISH_TEXT) {}
 
   public get current(): OverlaySnapshot {
     return { inspector: this.inspector, card: this.card, sources: this.sources, failure: this.failure }
@@ -121,7 +123,7 @@ export class OverlayController {
       ack = { accepted: false, reason: error instanceof Error ? error.message : String(error) }
     }
     if (this.closed || !live()) return null
-    if (ack && !ack.accepted) this.fail(intent, ack.reason ?? 'panel action refused')
+    if (ack && !ack.accepted) this.fail(intent, ack.reason ?? this.text.t('request.refused'))
     return ack
   }
 

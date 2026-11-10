@@ -245,6 +245,45 @@ describe('mounted panel quality menu (#28)', () => {
   })
 })
 
+describe('mounted panel language (#42)', () => {
+  /** DSH's `ctx.locale` face: the active id and a change subscription. */
+  function dshLocale(active: string) {
+    const listeners = new Set<() => void>()
+    return {
+      getLocale: () => ({ active, locales: [], revision: 0 }),
+      subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn) } },
+      switch(next: string) { active = next; for (const fn of [...listeners]) fn() },
+    }
+  }
+
+  it('labels DOM text and accessible names in the DSH language and follows a switch without remounting', async () => {
+    const locale = dshLocale('zh-CN')
+    const localized = { get: (name: string) => name === 'locale' ? locale : ctx.get(name) } as unknown as ClientContext
+    const doc = makeDocument()
+    vi.stubGlobal('document', doc)
+    const host = new Element('host', doc)
+    dispose = await mountPanel(host as unknown as HTMLElement, { sessionId: 'session', ctx: localized })
+    await emit({ kind: 'frame', seq: 1, frame: { ...golden, viewport: { width: 800, height: 600 }, camera: { x: 200, y: 200, zoom: 1 },
+      world: [{ ...golden.world[0]!, bounds: { x: 0, y: 0, w: 4000, h: 4000 } }] } })
+    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    const input = host.find('input')
+    const canvas = host.find('canvas')
+    expect(menu.children.map(el => el.textContent)).toEqual(['刷新 CRAP', '差量 mutation', '全量 mutation（--mutate-all）', '隐藏'])
+    expect(menu.attributes['aria-label']).toBe('元素请求')
+    expect(input.attributes['aria-label']).toBe('搜索类')
+    expect(canvas.attributes['aria-label']).toBe('UML 图画布')
+
+    locale.switch('en')
+    expect(menu.children.map(el => el.textContent)).toEqual(['Refresh CRAP', 'Differential mutation', 'Full mutation (--mutate-all)', 'Hide'])
+    expect(menu.attributes['aria-label']).toBe('Element requests')
+    expect(input.attributes['aria-label']).toBe('Search classes')
+    expect(canvas.attributes['aria-label']).toBe('UML diagram canvas')
+
+    locale.switch('fr')
+    expect(input.attributes['aria-label']).toBe('Search classes')
+  })
+})
+
 describe('mounted panel IME handlers', () => {
   it.each([{ isComposing: true }, { isComposing: false, keyCode: 229 }])('leaves composing search keys native (%j), then Enter locates', async (guard) => {
     const { host, canvas, input, results } = await mount()

@@ -568,7 +568,7 @@ function messageOf(error: unknown): string {
 function ackOf(result: unknown): PanelAck | null {
   if (result && typeof result === 'object' && 'ok' in result) {
     const envelope = result as { ok: boolean; value?: unknown; error?: { message?: string } }
-    if (!envelope.ok) return { accepted: false, reason: envelope.error?.message ?? 'panel action failed' }
+    if (!envelope.ok) return { accepted: false, reason: envelope.error?.message ?? null }
     return (envelope.value as PanelAck | undefined) ?? null
   }
   return (result as PanelAck | null) ?? null

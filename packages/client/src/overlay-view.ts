@@ -2,6 +2,12 @@ import { createElement as h, useEffect, useRef, useState } from 'react'
 import type { CardItem, FrameColor } from '@dsh-uml-viewer/contracts'
 import { OverlayController, type OverlaySnapshot, type SourceWindow } from './overlays.js'
 import { resolveTheme, type Theme } from './theme.js'
+import { ENGLISH_TEXT, type PanelText } from './locale.js'
+
+/** The controller's panel text; English when a caller supplies none. */
+function textOf(controller: OverlayController): PanelText {
+  return (controller as Partial<OverlayController>).text ?? ENGLISH_TEXT
+}
 
 /** Map the Rust-provided semantic role through the Canvas palette too. */
 export function roleStyle(color: FrameColor, theme: Theme = resolveTheme(document.body)): string {
@@ -93,7 +99,7 @@ function CardRow({ item, id, controller, theme }: { item: CardItem; id: string; 
     style: { top: item.y, height: item.h } }, item.clickable ? h('button', {
     type: 'button', 'data-member': item.opName ?? undefined, 'data-rel': item.rel ?? undefined,
     'data-card-module': item.module ? '' : undefined,
-    'aria-label': item.text ?? item.opName ?? '成员',
+    'aria-label': item.text ?? item.opName ?? textOf(controller).t('card.member'),
     onClick: () => { void (item.rel ? controller.locate(item.rel) : controller.openSource(id, item.opName ?? undefined)) },
   }, ...contents) : contents)
 }
@@ -138,9 +144,9 @@ export function ClassCard({ state, controller, theme = resolveTheme(document.bod
     }
   }, [controller, model?.id])
   if (!model) return null
-  return h('section', { className: 'dsh-uml-window dsh-uml-card', role: 'dialog', 'aria-label': `类卡片 ${model.title}` },
+  return h('section', { className: 'dsh-uml-window dsh-uml-card', role: 'dialog', 'aria-label': textOf(controller).t('card.label', { title: model.title }) },
     h('header', { className: 'dsh-uml-window-header' }, h('strong', null, model.title),
-      h('button', { type: 'button', 'aria-label': '关闭类卡片', onClick: () => { void controller.closeCard() } }, '×')),
+      h('button', { type: 'button', 'aria-label': textOf(controller).t('card.close'), onClick: () => { void controller.closeCard() } }, '×')),
     h('div', { className: 'dsh-uml-card-scroll', ref: scrollRef, tabIndex: 0,
       onScroll: (event: { currentTarget: HTMLElement }) => {
         const offset = event.currentTarget.scrollTop
@@ -206,9 +212,9 @@ export function SourceView({ window, controller, index }: { window: SourceWindow
   }, [model])
   const rows = sourceRowWindow(model.rows.length, view.top, view.height)
   return h('section', { className: 'dsh-uml-window dsh-uml-source', role: 'dialog',
-    'aria-label': `源码窗口 ${model.title}`, style: { left: index * 16, top: 16 + index * 16, zIndex: index + 2, maxWidth: `calc(100% - ${index * 16}px)` } },
+    'aria-label': textOf(controller).t('source.label', { title: model.title }), style: { left: index * 16, top: 16 + index * 16, zIndex: index + 2, maxWidth: `calc(100% - ${index * 16}px)` } },
     h('header', { className: 'dsh-uml-window-header' }, h('strong', null, model.title),
-      h('button', { type: 'button', 'aria-label': '关闭源码窗口', onClick: () => controller.closeSource(window.serial) }, '×')),
+      h('button', { type: 'button', 'aria-label': textOf(controller).t('source.close'), onClick: () => controller.closeSource(window.serial) }, '×')),
     h('div', { className: 'dsh-uml-source-scroll', ref: scrollRef, 'data-source-rows': model.rows.length,
       onScroll: (event: { currentTarget: HTMLElement }) => {
         const element = event.currentTarget
@@ -237,6 +243,9 @@ export function Overlays({ controller }: { controller: OverlayController }): unk
     setState(controller.current)
     return controller.subscribe(() => setState(controller.current))
   }, [controller])
+  // A DSH language switch re-renders the labels without reopening the tab.
+  const [, setLanguage] = useState(textOf(controller).language)
+  useEffect(() => textOf(controller).subscribe(() => setLanguage(textOf(controller).language)), [controller])
   return h('div', { className: 'dsh-uml-overlay-root', ref: root },
     h(Inspector, { state, controller, theme }), h(ClassCard, { state, controller, theme }),
     ...state.sources.map((window, index) => h(SourceView, { key: window.serial, window, controller, index })),

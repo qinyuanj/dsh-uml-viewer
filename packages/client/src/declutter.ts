@@ -1,5 +1,6 @@
 /** The resident owns the five declutter modes; the control only sends its action. */
 import type { PanelController } from './panel.js'
+import { ENGLISH_TEXT, type PanelText, type TextKey } from './locale.js'
 
 export const DECLUTTER_STYLE = `
 .dsh-uml-viewer-declutter {
@@ -14,13 +15,13 @@ export const DECLUTTER_STYLE = `
 .dsh-uml-viewer-declutter:disabled { opacity: .6; cursor: default; }
 `
 
-const LABELS: Readonly<Record<string, string>> = {
-  full: 'Full', arrows: 'Compact arrows', triangles: 'Remove arrows',
-  elements: 'Hide members', classes: 'Components only',
+const LABELS: Readonly<Record<string, TextKey>> = {
+  full: 'declutter.full', arrows: 'declutter.arrows', triangles: 'declutter.triangles',
+  elements: 'declutter.elements', classes: 'declutter.classes',
 }
 
 /** Bind a visible keyboard-accessible button to the actual resident state. */
-export function mountDeclutterControl(host: HTMLElement, controller: PanelController): () => void {
+export function mountDeclutterControl(host: HTMLElement, controller: PanelController, text: PanelText = ENGLISH_TEXT): () => void {
   const button = host.ownerDocument.createElement('button')
   button.type = 'button'
   button.className = 'dsh-uml-viewer-declutter'
@@ -28,7 +29,8 @@ export function mountDeclutterControl(host: HTMLElement, controller: PanelContro
   let disposed = false
   const update = (): void => {
     const mode = controller.declutterMode
-    const label = `Declutter: ${LABELS[mode] ?? mode}`
+    const key = LABELS[mode]
+    const label = text.t('declutter.label', { mode: key ? text.t(key) : mode })
     button.textContent = label
     button.setAttribute('aria-label', label)
     button.dataset.mode = mode
@@ -49,11 +51,13 @@ export function mountDeclutterControl(host: HTMLElement, controller: PanelContro
   const click = (): void => { void activate().catch(() => { /* controller reports remote failures */ }) }
   button.addEventListener('click', click)
   const unsubscribe = controller.subscribe(update)
+  const unsubscribeText = text.subscribe(update)
   update()
   host.append(button)
   return () => {
     disposed = true
     unsubscribe()
+    unsubscribeText()
     button.removeEventListener('click', click)
     button.remove()
   }

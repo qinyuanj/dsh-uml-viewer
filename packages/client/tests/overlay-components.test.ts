@@ -78,7 +78,7 @@ it('renders producer rows and sends member/module/relationship activations throu
       { ...item, module: true, opName: null, text: 'order.rs' },
       { ...item, kind: 'rel', opName: null, rel: ':other', text: '依赖 other' }],
   } } })
-  expect(tree.props['aria-label']).toBe('类卡片 Order')
+  expect(tree.props['aria-label']).toBe('Class card Order')
   const member = all(tree, e => e.props['data-member'] === 'target')[0]!
   member.props.onClick()
   expect(openSource).toHaveBeenCalledWith(':order', 'target')
@@ -97,11 +97,11 @@ it('renders source tokens, declaration marker and unselectable gutter without re
     title: 'src/order.rs:82', line: 82, rows: [{ number: 82, marked: true,
       tokens: [{ kind: 'ink', text: '  ' }, { kind: 'keyword', text: 'pub' }, { kind: 'ink', text: ' fn target()' }] }],
   } } })
-  expect(tree.props['aria-label']).toBe('源码窗口 src/order.rs:82')
+  expect(tree.props['aria-label']).toBe('Source window src/order.rs:82')
   expect(all(tree, e => e.props['data-marked'] === true)[0]!.props['data-source-line']).toBe(82)
   expect(text(all(tree, e => e.type === 'code')[0]!)).toBe('  pub fn target()')
   expect(all(tree, e => e.props.className === 'dsh-uml-source-gutter')[0]!.props['aria-hidden']).toBe(true)
-  all(tree, e => e.props['aria-label'] === '关闭源码窗口')[0]!.props.onClick()
+  all(tree, e => e.props['aria-label'] === 'Close source window')[0]!.props.onClick()
   expect(closeSource).toHaveBeenCalledWith(7)
 })
 
