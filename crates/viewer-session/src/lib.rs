@@ -115,8 +115,8 @@ impl StatusCode {
         }
     }
 
-    /// The resident's own text for the canvas, in the single string table
-    /// that is still Chinese-only (#44 localizes it).
+    /// The resident's own text for the canvas hint the frame still draws, in
+    /// the chrome string table (#46 takes that chrome out of the frame).
     fn text(&self) -> String {
         match self {
             StatusCode::WaitingDisplay => strings::WAITING_DISPLAY.to_owned(),
