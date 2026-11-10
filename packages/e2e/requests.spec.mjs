@@ -124,6 +124,8 @@ test('validResult false stops the request before IR/display and reports why', as
     await fs.writeFile(path.join(lane.projects.deep, 'refuse-crap'), '')
     const before = lane.mock.requests.length
     await clickRefresh(a, frame, ':api', 'Refresh CRAP')
+    // #51: the admitted refresh is queued on the panel at once.
+    await expect(a.panel.locator('.dsh-uml-viewer-statusbar')).toContainText('Refresh CRAP :api: Queued')
     await expect(a.page.getByText('Stopped refresh-crap: quality returned validResult false; no IR or display.', { exact: true }).last()).toBeVisible()
     const requests = lane.mock.requests.slice(before).map(r => JSON.parse(r.body))
     // Only the failed quality call follows the visible request: no IR, no display.

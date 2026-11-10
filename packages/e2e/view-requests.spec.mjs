@@ -65,6 +65,8 @@ function preserved(edit) {
 }
 
 const composer = a => a.page.locator('[data-composer-input][contenteditable="true"]:visible').last()
+/** The bottom status bar; its request line is the request status (#51). */
+const statusBar = a => a.panel.locator('.dsh-uml-viewer-statusbar')
 const finished = (a, op) => expect(a.page.getByText(`Finished ${op}: IR, display.`, { exact: true }).last()).toBeVisible()
 
 test('Hide after a failed refresh still regenerates the IR, then displays; the draft stays', async ({ browser }) => {
@@ -80,6 +82,8 @@ test('Hide after a failed refresh still regenerates the IR, then displays; the d
     expect(companion.edits).toHaveLength(0)
     await menu(a, frame, ':api', 'Hide')
     await expect(a.page.getByText(/^UML viewer panel request:\n\{:op :omit :target \{:id :api :kind :class\} :context \{:context :real\} :request "[0-9a-f]{32}"\}$/).last()).toBeVisible()
+    // #51: the admitted hide is queued on the panel.
+    await expect(statusBar(a)).toContainText('Hide :api: Queued')
     await finished(a, 'omit')
     expect(companion.edits).toHaveLength(1)
     preserved(companion.edits[0])
@@ -142,6 +146,8 @@ test('choosing a proposal tells the companion; 新建提案 sends a timestamp na
     const unchanged = await fs.readFile(path.join(root, 'policy.edn'))
     await inspector.locator('.dsh-uml-proposals button').first().click()
     await expect(a.page.getByText('UML viewer panel request:\n{:op :context :context {:context :real}}', { exact: true }).last()).toBeVisible()
+    // #51: a context switch is done as soon as it is admitted.
+    await expect(statusBar(a)).toContainText('Switch discussion context: Done')
     await expect(a.summary).toHaveAttribute('data-context', 'real')
     await expect.poll(() => companion.contexts.at(-1)).toBe('real')
     expect(await fs.readFile(path.join(root, 'policy.edn'))).toEqual(unchanged)

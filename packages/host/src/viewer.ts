@@ -2,6 +2,7 @@ import type { PanelAck, PanelAction, PanelCloseAck, PanelEvent, ResidentEvent } 
 import { parsePanelAction, parsePanelLanguage, parsePanelOwner, type PanelOwner } from '@dsh-uml-viewer/contracts'
 import type { Agent } from './dsh.js'
 import type { PanelPrompts } from './prompt.js'
+import { RequestStatuses } from './request-status.js'
 import type { PanelRequests } from './requests.js'
 import { Refusal, ResidentSessions } from './resident.js'
 
@@ -51,6 +52,8 @@ export class ViewerService {
     private readonly sessions: ResidentSessions,
     private readonly prompts: PanelPrompts,
     private readonly requests: PanelRequests,
+    /** Each session's request status (#51); the same store `PanelRequests` records into. */
+    private readonly statuses: RequestStatuses = new RequestStatuses(),
   ) {}
 
   /**
@@ -84,17 +87,41 @@ export class ViewerService {
     }
     this.prompts.openPanel(agent)
     const queue = connection.attach()
+    // #51: the session's request status rides on this stream, sent once after
+    // the opening events and again after every change. Only the latest list
+    // matters, so changes made while this panel is not reading coalesce.
+    const sessionId = agent.session.id
+    let statusChanged = true
+    let wake: (() => void) | null = null
+    const unsubscribe = this.statuses.subscribe(sessionId, () => {
+      statusChanged = true
+      wake?.()
+    })
     try {
       yield { kind: 'ready', actions: [...connection.actions] }
       if (connection.latestContext) yield { kind: 'context', context: connection.latestContext }
       if (connection.latestFrame) yield { kind: 'frame', seq: null, frame: connection.latestFrame }
+      // A resident read in flight is kept across a status wake-up, never
+      // abandoned, so no resident event is lost to the merge.
+      let reading: Promise<IteratorResult<ResidentEvent>> | null = null
       for (;;) {
-        const next = await queue.next(signal)
+        if (statusChanged) {
+          statusChanged = false
+          yield { kind: 'request-status', requests: [...this.statuses.list(sessionId)] }
+          continue
+        }
+        reading ??= queue.next(signal)
+        const woken = new Promise<null>(resolve => { wake = () => resolve(null) })
+        const next = await Promise.race([reading, woken])
+        wake = null
+        if (next === null) continue
+        reading = null
         if (next.done) return
         const event = panelEvent(next.value)
         if (event) yield event
       }
     } finally {
+      unsubscribe()
       connection.detach(queue)
       this.prompts.closePanel(agent.session.id)
       // A stream ending is a carrier loss, not a panel close: the gateway aborts
