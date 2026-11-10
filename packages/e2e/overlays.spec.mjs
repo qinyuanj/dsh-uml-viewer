@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
-import { producerFrame, screenRect } from './canvas.mjs'
+import { producerFrame, screenRect, toScreen } from './canvas.mjs'
 import { TARGET_LINE, TARGET_TEXT } from './inspector-project.mjs'
+import { toggleFullscreen } from './lifecycle.mjs'
 
 // Browser counterparts of the deleted source_jump, source_window,
 // detail_scroll, review_fixes and inspector window drivers (#30). Every model comes from the real IR/resident lane.
@@ -12,6 +13,9 @@ test.afterAll(async () => { await lane?.close() })
 
 const card = panel => panel.panel.getByRole('dialog', { name: 'Class card Catalog', exact: true })
 const sources = panel => panel.panel.locator('.dsh-uml-source[role="dialog"]')
+/** The class card / source drawer (#49): there is never more than one. */
+const drawers = panel => panel.panel.locator('.dsh-uml-drawer')
+const layout = panel => panel.panel.getAttribute('data-layout')
 
 async function openCatalog(panel) {
   const frame = await producerFrame(panel, { root: lane.projects.inspector, home: lane.home })
@@ -33,18 +37,7 @@ async function metrics(scroll) {
   }))
 }
 
-/** Native CSS resize handle, using the same mouse gesture as a user. */
-async function resizeWindow(panel, window, width, height) {
-  const before = await window.boundingBox()
-  expect(before).toBeTruthy()
-  await panel.page.mouse.move(before.x + before.width - 3, before.y + before.height - 3)
-  await panel.page.mouse.down()
-  await panel.page.mouse.move(before.x + width - 3, before.y + height - 3, { steps: 8 })
-  await panel.page.mouse.up()
-  await expect.poll(async () => Math.round((await window.boundingBox()).height)).toBe(height)
-}
-
-/** Click the exposed right edge when a small source window overlaps the card. */
+/** A card row, scrolled into the drawer's viewport first. */
 async function clickRow(row) {
   await row.scrollIntoViewIfNeeded()
   const visible = await row.evaluate(element => {
@@ -53,6 +46,32 @@ async function clickRow(row) {
     return { x: Math.min(row.right, viewport.right) - row.left - 12, y: row.height / 2 }
   })
   await row.click({ position: visible })
+}
+
+/**
+ * Narrow the sidebar to about 400px with the host's own width handle when the
+ * default column is wider; the panel's container width is what the layout reads.
+ */
+async function narrowSidebar(panel, width = 400) {
+  const current = await panel.panel.evaluate(element => element.clientWidth)
+  if (current <= width + 40) return current
+  const box = await panel.panel.boundingBox()
+  // The resize handle sits on the column's left edge.
+  const handle = panel.page.locator('[data-sidebar-right-resize], [role="separator"][aria-orientation="vertical"]').last()
+  if (await handle.count()) {
+    const grip = await handle.boundingBox()
+    const x = grip.x + grip.width / 2
+    const y = grip.y + grip.height / 2
+    await panel.page.mouse.move(x, y)
+    await panel.page.mouse.down()
+    await panel.page.mouse.move(x + (current - width), y, { steps: 10 })
+    await panel.page.mouse.up()
+  } else {
+    // No handle on this host build: a narrower window gives a narrower column.
+    const viewport = panel.page.viewportSize()
+    await panel.page.setViewportSize({ width: Math.max(800, Math.round(viewport.width - (box.width - width) * 2)), height: viewport.height })
+  }
+  return panel.panel.evaluate(element => element.clientWidth)
 }
 
 async function cardNotch(panel, scroll, direction) {
@@ -95,18 +114,26 @@ test('inspector follows class selection, switches proposal, and P returns to the
   expect(panel.problems).toEqual([])
 })
 
-test('class card wheel steps clamp at both ends, keep inspector visible, and resize columns', async () => {
+test('in a narrow sidebar the class card is a bottom drawer over the lower half; wheel steps clamp and it scrolls sideways', async () => {
   const panel = await lane.openPanel('inspector')
+  const width = await narrowSidebar(panel)
+  expect(width, 'the sidebar is about 400px wide').toBeLessThan(520)
+  await expect(panel.panel).toHaveAttribute('data-layout', 'drawer')
   const dialog = await openCatalog(panel)
-  const panelWidth = await panel.panel.evaluate(element => element.clientWidth)
-  const narrowWidth = Math.max(220, Math.min(400, Math.floor(panelWidth * 0.65)))
-  await resizeWindow(panel, dialog, narrowWidth, 420)
+  await expect(drawers(panel)).toHaveCount(1)
+  // The drawer takes the lower half of the canvas; the diagram shows above it.
+  const area = await panel.panel.locator('.dsh-uml-viewer-canvas-area').boundingBox()
+  const drawer = await dialog.boundingBox()
+  expect(Math.abs(drawer.y + drawer.height - (area.y + area.height))).toBeLessThanOrEqual(2)
+  expect(Math.abs(drawer.height - area.height / 2)).toBeLessThanOrEqual(2)
+  expect(Math.abs(drawer.width - area.width)).toBeLessThanOrEqual(2)
+  const canvas = await panel.canvas.boundingBox()
+  expect(drawer.y - canvas.y, 'the upper half of the diagram stays visible').toBeGreaterThan(canvas.height * 0.4)
+  await lane.screenshot(panel, 't49-drawer-narrow')
+
   const scroll = dialog.locator('.dsh-uml-card-scroll')
-  const inspector = panel.panel.locator('.dsh-uml-inspector')
-  const proposal = inspector.getByRole('button', { name: 'Inspector proposal', exact: true })
-  const proposalBefore = await proposal.boundingBox()
   const cameraBefore = await panel.summary.innerText()
-  expect((await metrics(scroll)).horizontal, '560px minimum plan overflows a narrow card').toBeGreaterThan(100)
+  expect((await metrics(scroll)).horizontal, 'the 560px column plan scrolls sideways in a narrow drawer').toBeGreaterThan(50)
   expect((await metrics(scroll)).max).toBeGreaterThan(192)
   for (let n = 0; n < 4; n += 1) await cardNotch(panel, scroll, 1)
   expect((await metrics(scroll)).top).toBe(192)
@@ -126,44 +153,39 @@ test('class card wheel steps clamp at both ends, keep inspector visible, and res
   await expect.poll(async () => (await metrics(scroll)).top).toBe(0)
   await cardNotch(panel, scroll, 1)
   expect((await metrics(scroll)).top).toBe(48)
-  await expect(proposal).toBeInViewport()
-  expect(await proposal.boundingBox()).toEqual(proposalBefore)
   expect(await panel.summary.innerText(), 'card wheel does not zoom the diagram').toBe(cameraBefore)
-
-  await resizeWindow(panel, dialog, Math.min(900, panelWidth - 24), 420)
-  await expect.poll(async () => {
-    const size = await metrics(scroll)
-    const plan = await scroll.locator('.dsh-uml-card-plan').boundingBox()
-    return Math.abs(plan.width - Math.max(560, size.width - 16))
-  }).toBeLessThanOrEqual(1)
-  const wide = await metrics(scroll)
-  await lane.screenshot(panel, 't27-card')
-  expect(wide.width).toBeGreaterThan(narrowWidth)
-  if (wide.width >= 560) expect(wide.horizontal).toBe(0)
   await dialog.getByRole('button', { name: 'Close class card' }).click()
-  await expect(dialog).toHaveCount(0)
+  await expect(drawers(panel)).toHaveCount(0)
   expect(panel.problems).toEqual([])
 })
 
-test('module source, exact member line, native copy, same-file reuse and independent source windows', async () => {
+test('a member source replaces the card in the same drawer at its line; back returns to the card', async () => {
   const panel = await lane.openPanel('inspector')
   await panel.page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
   const dialog = await openCatalog(panel)
   await dialog.locator('[data-card-module]').click()
   await expect(sources(panel)).toHaveCount(1)
+  await expect(card(panel)).toHaveCount(0)
+  await expect(drawers(panel)).toHaveCount(1)
   const source = sources(panel).first()
   await expect(source).toHaveAttribute('aria-label', /Source window .*catalog\.ts$/)
-  // The whole 84-line model fits inside one bounded DOM window (overscan included).
+  // The 84-line model renders through the bounded row window from line 1;
+  // a half-height drawer may leave the last rows to the overscan of a scroll.
   await expect(source.locator('.dsh-uml-source-scroll')).toHaveAttribute('data-source-rows', '84')
-  await expect(source.locator('[data-source-line]')).toHaveCount(84)
+  await expect(source.locator('[data-source-line="1"]')).toBeInViewport()
+  expect(await source.locator('[data-source-line]').count()).toBeLessThanOrEqual(84)
   await expect(source.locator('[data-marked=true]')).toHaveCount(0)
   expect((await metrics(source.locator('.dsh-uml-source-scroll'))).top).toBe(0)
-  const original = await source.elementHandle()
-  // Expose card rows without closing this file, so reuse is observable.
-  await resizeWindow(panel, source, 260, 180)
-  await clickRow(dialog.locator('[data-member="target"]'))
+
+  await source.getByRole('button', { name: 'Back to class card' }).click()
+  await expect(card(panel)).toBeVisible()
+  await expect(sources(panel)).toHaveCount(0)
+  await expect(drawers(panel)).toHaveCount(1)
+
+  await clickRow(card(panel).locator('[data-member="target"]'))
   await expect(sources(panel)).toHaveCount(1)
-  expect(await source.evaluate((element, previous) => element === previous, original)).toBe(true)
+  await expect(card(panel)).toHaveCount(0)
+  await expect(drawers(panel)).toHaveCount(1)
   await expect(source).toHaveAttribute('aria-label', /catalog\.ts:82$/)
   const target = source.locator(`[data-source-line="${TARGET_LINE}"][data-marked=true]`)
   await expect(source.locator('[data-marked=true]')).toHaveCount(1)
@@ -176,6 +198,7 @@ test('module source, exact member line, native copy, same-file reuse and indepen
     return rect.top >= viewport.top && rect.bottom <= viewport.bottom
   }), 'line 82 is inside its scrolled source viewport').toBe(true)
   await expect(target.locator('.dsh-uml-source-gutter')).toHaveCSS('user-select', 'none')
+  await lane.screenshot(panel, 't49-drawer-source')
   const keyword = await target.locator('code').getByText('function', { exact: true }).boundingBox()
   expect(keyword).toBeTruthy()
   // A real drag selects the word's exact glyph range. Native Windows word
@@ -188,22 +211,88 @@ test('module source, exact member line, native copy, same-file reuse and indepen
   await panel.page.keyboard.press(process.platform === 'darwin' ? 'Meta+c' : 'Control+c')
   await expect.poll(() => panel.page.evaluate(() => navigator.clipboard.readText())).toBe('function')
 
-  // The relationship row performs resident Locate and opens the other card.
-  await clickRow(dialog.locator('[data-rel=":companion"]').first())
+  await source.getByRole('button', { name: 'Back to class card' }).click()
+  await expect(card(panel)).toBeVisible()
+  // The relationship row performs resident Locate; its card takes the drawer.
+  await clickRow(card(panel).locator('[data-rel=":companion"]').first())
   const otherCard = panel.panel.getByRole('dialog', { name: 'Class card Companion', exact: true })
   await expect(otherCard).toBeVisible()
+  await expect(drawers(panel)).toHaveCount(1)
   await clickRow(otherCard.locator('[data-card-module]'))
-  await expect(sources(panel)).toHaveCount(2)
-  await lane.screenshot(panel, 't27-source-windows')
-  const second = sources(panel).filter({ has: panel.page.locator('[data-source-line="1"] code', { hasText: 'second file' }) })
-  await expect(second).toHaveAttribute('aria-label', /companion\.ts$/)
-  await second.getByRole('button', { name: 'Close source window' }).click()
-  await expect(sources(panel)).toHaveCount(1)
-  await expect(sources(panel).first().locator(`[data-source-line="${TARGET_LINE}"][data-marked=true]`)).toBeInViewport()
+  await expect(sources(panel).first()).toHaveAttribute('aria-label', /companion\.ts$/)
+  await expect(drawers(panel)).toHaveCount(1)
+  // Closing the source closes the whole drawer.
   await sources(panel).first().getByRole('button', { name: 'Close source window' }).click()
-  await expect(sources(panel)).toHaveCount(0)
-  await otherCard.getByRole('button', { name: 'Close class card' }).click()
-  await expect(otherCard).toHaveCount(0)
+  await expect(drawers(panel)).toHaveCount(0)
+  expect(panel.problems).toEqual([])
+})
+
+test('Esc closes the drawer first, from the source or the canvas, and only then goes back a level', async () => {
+  const deep = await lane.openPanel('deep')
+  const root = await producerFrame(deep, { root: lane.projects.deep, home: lane.home })
+  const core = root.world.find(item => item.id === ':core' && (item.kind === 'class' || item.kind === 'package'))
+  await lane.point(deep, toScreen(root, core.rect.x + core.rect.w / 2, core.rect.y + core.rect.h / 2), 2)
+  await expect(deep.summary).toHaveAttribute('data-depth', 'drilled', { timeout: 30_000 })
+  const drilled = await producerFrame(deep, { root: lane.projects.deep, home: lane.home, focus: ':core' })
+  const order = drilled.world.find(item => item.kind === 'class' && item.id === ':core.order')
+  const at = toScreen(drilled, order.rect.x + 12, order.rect.y + 12)
+  const orderCard = deep.panel.getByRole('dialog', { name: /^Class card / })
+
+  // From the canvas: the first Esc closes the card, the depth stays.
+  await lane.point(deep, at, 2)
+  await expect(orderCard).toBeVisible()
+  await deep.canvas.focus()
+  await deep.page.keyboard.press('Escape')
+  await expect(drawers(deep)).toHaveCount(0)
+  await expect(deep.summary).toHaveAttribute('data-depth', 'drilled')
+
+  // From the source shown in the drawer: Esc closes the whole drawer.
+  await lane.point(deep, at, 2)
+  await expect(orderCard).toBeVisible()
+  await clickRow(orderCard.locator('[data-card-module]'))
+  await expect(sources(deep)).toHaveCount(1)
+  await expect(sources(deep).locator('.dsh-uml-source-scroll')).toBeFocused()
+  await deep.page.keyboard.press('Escape')
+  await expect(drawers(deep)).toHaveCount(0)
+  await expect(deep.summary).toHaveAttribute('data-depth', 'drilled')
+  await expect(deep.canvas).toBeFocused()
+  // With nothing left to close, Esc goes back a level.
+  await deep.page.keyboard.press('Escape')
+  await expect(deep.summary).toHaveAttribute('data-depth', 'root')
+  expect(deep.problems).toEqual([])
+})
+
+test('from 900px of panel width the class card docks on the right beside the diagram, and below it returns to the drawer', async () => {
+  const panel = await lane.openPanel('inspector')
+  await narrowSidebar(panel)
+  await expect(panel.panel).toHaveAttribute('data-layout', 'drawer')
+  const dialog = await openCatalog(panel)
+  // The host's fullscreen form widens the same tab; nothing remounts.
+  await toggleFullscreen(panel, true)
+  await expect.poll(() => panel.panel.evaluate(element => element.clientWidth)).toBeGreaterThanOrEqual(900)
+  await expect(panel.panel).toHaveAttribute('data-layout', 'docked')
+  await expect(dialog).toBeVisible()
+  await expect(drawers(panel)).toHaveCount(1)
+  const area = await panel.panel.locator('.dsh-uml-viewer-canvas-area').boundingBox()
+  await expect.poll(async () => {
+    const box = await dialog.boundingBox()
+    return [Math.round(box.x + box.width - (area.x + area.width)), Math.round(box.y - area.y), Math.round(box.height - area.height)]
+  }, { message: 'the docked card runs down the right edge of the canvas' }).toEqual([0, 0, 0])
+  const docked = await dialog.boundingBox()
+  expect(docked.width, 'the diagram keeps the larger share beside the card').toBeLessThan(area.width / 2)
+  expect(docked.width, 'the docked column keeps a readable minimum').toBeGreaterThanOrEqual(419)
+  await lane.screenshot(panel, 't49-docked')
+
+  // Below 900px the card is the bottom drawer again.
+  await toggleFullscreen(panel, false)
+  await expect(panel.panel).toHaveAttribute('data-layout', 'drawer')
+  await expect.poll(async () => {
+    const box = await dialog.boundingBox()
+    const canvas = await panel.panel.locator('.dsh-uml-viewer-canvas-area').boundingBox()
+    return Math.round(box.width - canvas.width)
+  }).toBe(0)
+  await dialog.getByRole('button', { name: 'Close class card' }).click()
+  await expect(drawers(panel)).toHaveCount(0)
   expect(panel.problems).toEqual([])
 })
 
@@ -224,6 +313,23 @@ async function tokenColor(locator, property, token) {
 test('inspector, card and source chrome follow host light and dark theme tokens', async () => {
   const panel = await lane.openPanel('inspector')
   const dialog = await openCatalog(panel)
+  const cardColors = []
+  for (const dark of [false, true]) {
+    await panel.page.evaluate(dark => {
+      if (dark) document.body.setAttribute('data-ds-dark-theme', '')
+      else document.body.removeAttribute('data-ds-dark-theme')
+    }, dark)
+    for (const [property, token] of [['backgroundColor', '--dsw-alias-bg-layer-2'], ['color', '--dsw-alias-label-primary'], ['borderTopColor', '--dsw-alias-border-l2']]) {
+      await expect.poll(async () => {
+        const value = await tokenColor(dialog, property, token)
+        return value.defined !== '' && value.actual === value.expected
+      }, { message: `${dark ? 'dark' : 'light'} card ${property} resolves ${token}` }).toBe(true)
+      cardColors.push((await tokenColor(dialog, property, token)).actual)
+    }
+  }
+  expect(cardColors.slice(0, 3), 'host theme changes the card surface').not.toEqual(cardColors.slice(3))
+  // The source replaces the card in the drawer, so the source surfaces are
+  // checked on their own.
   await clickRow(dialog.locator('[data-member="target"]'))
   const source = sources(panel).first()
   await expect(source).toBeVisible()
@@ -236,8 +342,6 @@ test('inspector, card and source chrome follow host light and dark theme tokens'
     }, dark)
     const surfaces = [
       [panel.panel.locator('.dsh-uml-inspector'), 'backgroundColor', '--dsw-alias-bg-layer-3'],
-      [dialog, 'backgroundColor', '--dsw-alias-bg-layer-2'],
-      [dialog, 'color', '--dsw-alias-label-primary'],
       [source, 'backgroundColor', '--dsw-alias-bg-layer-2'],
       [source.locator('[data-marked=true]'), 'backgroundColor', '--dsw-alias-state-business-tertiary'],
       [source.locator('.dsh-uml-source-gutter').first(), 'backgroundColor', '--dsw-alias-bg-layer-3'],
@@ -245,7 +349,7 @@ test('inspector, card and source chrome follow host light and dark theme tokens'
       [source.locator('[data-token=keyword]').first(), 'color', '--dsw-alias-state-business-primary'],
       [source.locator('[data-token=string]').first(), 'color', '--dsw-alias-state-warn-primary'],
       [source.locator('[data-token=comment]').first(), 'color', '--dsw-alias-label-tertiary'],
-      [dialog, 'borderTopColor', '--dsw-alias-border-l2'],
+      [source, 'borderTopColor', '--dsw-alias-border-l2'],
     ]
     const colors = []
     for (const [element, property, token] of surfaces) {
