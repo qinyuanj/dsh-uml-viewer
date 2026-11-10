@@ -18,8 +18,7 @@ import { parseQualityRequestOp } from './requests.js'
 import { parseElementId } from './tools.js'
 import { parseProposalName } from './view-requests.js'
 import type { RequestStatusEntry } from './request-status.js'
-import { validateRequestStatusList } from './request-status.js'
-import { parseRequestStatusId } from './request-status.js'
+import { parseRequestStatusId, validateRequestStatusList } from './request-status.js'
 
 /** The Remote namespace the panel mounts. */
 export const REMOTE_SERVICE = 'umlViewer'
