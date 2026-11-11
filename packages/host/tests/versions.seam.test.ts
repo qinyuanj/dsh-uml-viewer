@@ -463,7 +463,8 @@ it('binds a second live panel of the same session to the same vN resident', asyn
   await old.unload()
   const updated = await host(dshHome, await install('1.1.0'), new Map(), old)
   // Two live panels of one session are one resident: the second binds vN. This
-  // is the sidebar/main reparent case, not a carrier loss (D13).
+  // is a panel body remount during a right-sidebar presentation change, not a
+  // carrier loss (D13).
   const attached = await updated.panel('one-session')
   expect((await attached.runs()).at(-1)).toEqual({ version: '1.0.0', binary: path.join(home, '1.0.0', exe) })
   await attached.close()

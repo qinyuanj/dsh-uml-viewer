@@ -22,7 +22,8 @@ fn key(v: &Value) -> String {
     edn::encode(v).unwrap()
 }
 
-/// The 1500×920 window with its inspector: a 1220px canvas.
+/// The historical 1500×920 window with the inspector it once had: a 1220px
+/// canvas.
 fn canvas() -> Dims {
     Dims {
         window_w: 1500.0,

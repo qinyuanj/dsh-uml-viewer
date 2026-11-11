@@ -82,6 +82,28 @@ selected) and once for a display that answered a refresh asked for on
 are a Node fixture declared in the scratch project, so no Cargo work runs
 inside the lane; IR, resident and display are the real binary's.
 
+`status.spec.mjs` (#52) covers the request line's two endings in the browser.
+Its scripted companion ends the turn that consumed the first admitted refresh
+without a tool call, so that request reads "Failed — the companion ended this
+turn without completing the display"; the next refresh runs `uml_ir` and
+`uml_display` and reads "Refresh CRAP :core: Done". A page refresh brings the
+session's whole list back from the host: the failure the new page has not seen
+is its current entry again, with the completed one behind "1 more" (#53's
+rule). The spec's browser evidence is one failure and one success; the
+transition table is a host-seam test and the `validResult: false` failure stays
+in `requests.spec.mjs`.
+
+`locale.spec.mjs` (#42) switches the DSH language through the real host UI
+(Account menu → Settings → General → Language) and asserts the panel's own DOM
+follows it without reopening the tab: the search button and its searchbox, the
+canvas label, the discussion-context switcher's trigger and its 源码图,
+proposal and 新建提案 rows, the element menu's four rows in both languages, the
+More menu's 移除箭头 checkbox and its `Ctrl+0` shortcut, and the breadcrumb
+navigation's name (#45). Its status-bar case reads the `waiting-display` code's
+text and its 面板状态 name before and after the switch (#46), and its resident
+case shows the `inspector` sample's class card rows (#44) switching in place,
+with no Chinese left in the English card.
+
 These cases have run in remote CI; see the [partial results below](#ci).
 The lane never builds, so a run needs an existing matching executable supplied from outside.
 Do not follow the build commands above to make one inside the lane. A run sets
@@ -323,8 +345,10 @@ establish browser acceptance.
 
 ## Sample projects
 
-`packages/e2e/projects.mjs` copies six TypeScript projects into the
-scratch home: `shop`, `ledger`, `deep`, `atlas`, `levels` and `nexus`. `deep` (#23) has
+`packages/e2e/projects.mjs` copies seven TypeScript projects into the
+scratch home: `shop`, `ledger`, `deep`, `atlas`, `levels`, `inspector` and
+`nexus`. `inspector` (#27) is the class-card and source sample of the
+[overlay acceptance](#overlay-acceptance-27) below. `deep` (#23) has
 nested namespaces, cross-namespace dependencies and same-named CJK classes
 for navigation and search. `levels` (#45) has two namespace levels to drill
 into and a proposal whose layer holds a nested group, so the top bar's
@@ -665,6 +689,30 @@ own DOM:
   the panel's own title becomes 图例.
 
 These cases have run in CI; see the [aggregate results and remaining failures](#ci).
+
+## Selection action bar (#48)
+
+`packages/e2e/action-bar.spec.mjs` covers the bar the panel fixes above the
+status bar for the selection (ADR 0015). Its quality requests use the shared
+`quality-lane.mjs` fixture and scripted companion:
+
+- A selected component's bar is a `toolbar` named "Selection actions" with
+  `data-kind="component"`: it shows the element's name and five buttons —
+  Drill in, Refresh CRAP, Differential mutation, Hide and More requests —
+  while Full mutation (--mutate-all) stays in the secondary menu, which has a
+  `menu` role only while open. Pan and zoom move the diagram and leave the
+  bar's box exactly where it was, the selection survives, and the right-click
+  element menu keeps the same four requests. Refresh CRAP from the bar sends
+  the visible panel request for `:core`'s two files, the conversation shows it
+  finished, and the fixture recorded one `crap` call.
+- A selected class's bar opens its card without moving the view; Escape clears
+  the selection and takes the bar with it. A foreign package's bar
+  (`data-kind="foreign"`) shows its name alone and has no buttons.
+- With the card as the narrow bottom drawer and as the just-docked right column
+  (920px), the bar's box shares no area with the drawer or the status bar.
+- The fourth case is the status bar's queue over the bar: two requests from the
+  bar leave "1 more", and the opened queue paints over the bar's own corner
+  (a higher `z-index`) instead of behind it.
 
 ## CI
 

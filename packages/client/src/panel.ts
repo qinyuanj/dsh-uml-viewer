@@ -181,9 +181,10 @@ export class PanelController {
   public async open(sessionId: string): Promise<void> {
     const previous = this.sessionId
     const previousOwner = this.owner
-    // Rebinding is not a close: when the same session is replaced (the
-    // sidebar/main reparent), saying "closed" would stop the resident the new
-    // stream is about to re-attach to. Only a different session is left behind.
+    // Rebinding is not a close: when the same session is replaced (a panel
+    // body remount during a right-sidebar presentation change), saying
+    // "closed" would stop the resident the new stream is about to re-attach
+    // to. Only a different session is left behind.
     this.teardown()
     if (previous !== null && previous !== sessionId) this.sayClosed(previous, previousOwner)
     this.sessionId = sessionId

@@ -194,8 +194,9 @@ describe('session-bound panel stream', () => {
     const h = harness([{ kind: 'ready', actions: [] }])
     await h.controller.open('session-a')
     await settle(() => h.controller.current.kind === 'live', 'the ready event')
-    // The sidebar/main reparent rebinds the same session: nothing was closed,
-    // so the resident the new stream re-attaches to must not be told to stop.
+    // A panel body remount during a right-sidebar presentation change rebinds
+    // the same session: nothing was closed, so the resident the new stream
+    // re-attaches to must not be told to stop.
     await h.controller.open('session-a')
     expect(h.closes).toEqual([])
     // A different session is left behind: that one is closed.

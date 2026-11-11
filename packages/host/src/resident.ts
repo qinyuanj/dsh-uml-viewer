@@ -16,11 +16,12 @@ const STOP_TIMEOUT_MS = 3_000
 /**
  * How long a session's resident survives its last panel stream ending without
  * an explicit close (#32, D13). A carrier loss — a gateway reconnect, an HMR
- * client swap, the sidebar/main reparent — must not switch a session that is
- * still in use to a newer plugin version, so the resident (and its version
- * lease) waits this long for the same session to re-attach. A real page reload
- * or app restart is a fresh open and legitimately gets the newer version; this
- * is only the transport-loss window, so it stays small and bounded.
+ * client swap, a panel body remount during a right-sidebar presentation
+ * change — must not switch a session that is still in use to a newer plugin
+ * version, so the resident (and its version lease) waits this long for the
+ * same session to re-attach. A real page reload or app restart is a fresh
+ * open and legitimately gets the newer version; this is only the
+ * transport-loss window, so it stays small and bounded.
  */
 export const WITHDRAWAL_GRACE_MS = 30_000
 

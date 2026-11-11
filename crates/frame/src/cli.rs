@@ -33,7 +33,7 @@ const EX_USAGE: u8 = 2;
 const EX_FAILURE: u8 = 1;
 
 /// The default canvas, in points: the historical 1500x920 window less its
-/// inspector and chrome (`scene::document::WIDE_ASPECT`).
+/// chrome and the inspector it once had (`scene::document::WIDE_ASPECT`).
 pub const DEFAULT_WIDTH: f64 = 1220.0;
 pub const DEFAULT_HEIGHT: f64 = 884.0;
 

@@ -192,16 +192,17 @@ a successful quality result with `validResult: true`.
 
 - First view: **namespace components** (layers). Dependencies between them
   collapse to one arrow. Each component lists nested namespaces.
-- Double-click a component to open the next level. Esc or the ← label goes
-  up a level, including after drilling a proposal group.
+- Double-click a component to open the next level. Esc goes up one level,
+  including after drilling a proposal group; the top bar's breadcrumb jumps
+  to any level on the path.
 - Hover an arrow for a popup of every `from -> to` it bundles, in any
   declutter mode. Violating pairs are red.
-- The element operations **刷新 CRAP**, **刷新 mutation**, **全量 mutation**
-  and **隐藏** (Refresh CRAP / Refresh Mutation / Refresh All Mutation / Omit)
-  are panel requests to the session's agent
-  ([docs/companion-rules.md](docs/companion-rules.md)).
-  CRAP runs on that class or the files under that component. Mutation is
-  differential on those src files; All Mutation passes `--mutate-all`. Omit
+- The element operations **刷新 CRAP**, **差量 mutation**, **全量 mutation**
+  and **隐藏** — Refresh CRAP, Differential mutation, Full mutation
+  (--mutate-all) and Hide in English — are panel requests to the session's
+  agent ([docs/companion-rules.md](docs/companion-rules.md)).
+  CRAP runs on that class or the files under that component. Differential
+  mutation runs on those src files; Full mutation passes `--mutate-all`. Omit
   adds the id to the current proposal's `:omit`, or to policy `:omit` on the
   real diagram.
 - Component titles paint **on top of** crossing arrows.
@@ -418,13 +419,14 @@ Those names are not namespaces. Each item is `{:id :name :layers [...] :omit [..
 **Unassigned**). The as-is diagram stays the ns tree.
 The top bar's discussion-context switcher lists the real diagram (the
 namespace tree) and then **Proposals**; pick the source diagram to return to
-the tree (**P** does the same), or a proposal to show it (canvas marked
-**PROPOSAL — not instantiated in code**). Either pick makes that diagram the
-context of discussion (in the panel the agent is told). **新建提案** (New
-Proposal), the switcher's last row, asks the agent to add an empty proposal
-named with a timestamp; renaming or deleting a proposal is also a request
-to the agent, which edits the policy in place. Double-click a ns box to drill; **←** at the
-top returns to the proposal.
+the tree (**P** does the same), or a proposal to show it. Either pick makes
+that diagram the context of discussion (in the panel the agent is told); the
+switcher always names the current context, and the breadcrumb shows the
+proposal's levels. **新建提案** (New Proposal), the switcher's last row, asks
+the agent to add an empty proposal named with a timestamp; renaming or
+deleting a proposal is also a request to the agent, which edits the policy in
+place. Double-click a ns box to drill; Esc goes up one level at a time, and
+the breadcrumb's proposal level returns to the proposal.
 
 The **More** menu's **Remove arrows** toggle switches between full arrows
 (one arrow per component pair per direction) and the compact triangles mode

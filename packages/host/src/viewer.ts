@@ -127,8 +127,9 @@ export class ViewerService {
       this.prompts.closePanel(agent.session.id)
       // A stream ending is a carrier loss, not a panel close: the gateway aborts
       // the method signal and returns this generator on a client unload, on a
-      // reconnect and on the sidebar/main reparent. Only `close` is definite, so
-      // a withdrawn stream leaves the resident in its bounded grace (#32, D13).
+      // reconnect and on a panel body remount during a right-sidebar
+      // presentation change. Only `close` is definite, so a withdrawn stream
+      // leaves the resident in its bounded grace (#32, D13).
       if (owner) await this.sessions.releaseOwned(connection, owner)
       else await this.sessions.release(connection, connection.closeRequested ? 'closed' : 'withdrawn')
     }

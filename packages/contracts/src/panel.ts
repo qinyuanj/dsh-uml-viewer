@@ -132,8 +132,8 @@ export interface PanelAck {
 /**
  * The answer to the panel's explicit `close`. Only this call is a definite
  * close: a watch stream ending on its own is a carrier loss (a reconnect, an
- * HMR client swap, the sidebar/main reparent) and keeps the resident in its
- * bounded grace (D13, #32).
+ * HMR client swap, a panel body remount during a right-sidebar presentation
+ * change) and keeps the resident in its bounded grace (D13, #32).
  */
 export interface PanelCloseAck {
   /** Whether a resident was still there to close; false when it was already gone. */

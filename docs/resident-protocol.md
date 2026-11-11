@@ -59,10 +59,10 @@ An event:
 | event | when | fields |
 |---|---|---|
 | `ready` | first line, before any action | `schema`, `frameSchema`, `frameVersion`, `stateSchema`, `stateVersion`, `actions` (the action names this child understands) |
-| `frame` | after every action that changes the view; after a hot reload (`seq` null) | `frame`: a scene frame, version 1, including the legend worded in the [language](#language) (#50) and the optional bounded `hover` metadata (`docs/scene-frame.md`) the panel needs for local hover |
+| `frame` | after every action that changes the view; after a hot reload (`seq` null) | `frame`: a scene frame, version 1, including the legend worded in the [language](#language-44) (#50) and the optional bounded `hover` metadata (`docs/scene-frame.md`) the panel needs for local hover |
 | `search` | answers `search` | `query`, `results`: `[{id, name, ns, label}]`, sorted by namespace then id |
 | `context` | answers `context`, before its `frame` | `context`: a [discussion context](#discussion-context) |
-| `state` | answers `save` | `state`: a [session state](#session-state); `breadcrumbs`: the tree path ([breadcrumbs, status codes and proposals](#breadcrumbs-status-codes-and-proposals-45-47-additive-version-1)); `status`: the canvas status code, or null; `proposals`: the shown diagram's proposal list for the discussion-context switcher (#47) |
+| `state` | answers `save` | `state`: a [session state](#session-state); `breadcrumbs`: the tree path ([breadcrumbs, status codes and proposals](#breadcrumbs-and-status-codes-45-additive-version-1)); `status`: the canvas status code, or null; `proposals`: the shown diagram's proposal list for the discussion-context switcher (#47) |
 | `card` | answers `card` | `card`: the open [class card](#class-card) (#27), or `null` when none is open (#47) |
 | `source` | answers `open-source` | `source`: the [opened source](#source-window) (#27) |
 | `quality-target` | answers `quality-target` | `target`: the [resolved quality target](#quality-target) (#28) |
@@ -75,13 +75,13 @@ An `error` changes nothing; the session keeps running.
 
 | action | fields | answer | effect |
 |---|---|---|---|
-| `open` | `viewport?` `{width, height}`, `diagram?`, `state?`, `waiting?`, `language?` | `frame` | open the session. The diagram is `diagram` (relative to the project), else the state's `diagram`, else the project default (`diagram.edn`, `examples/<project>.edn`, any example). With `state` the saved view and discussion context are restored; otherwise the diagram is fitted to the viewport. `waiting: true` shows the empty waiting canvas until `display`, except that a `state` naming a displayed `diagram` restores that view (a reopened session, a restarted DSH). When that diagram does not exist yet the canvas waits, `save` answers the saved state unchanged, and the first `display` of the same diagram restores the view instead of fitting it. A missing diagram opens with the `missing-file` status code; an unreadable IR is an `error`. Another `open` replaces the session. `language` is the [language](#language) the panel passes (#44). |
+| `open` | `viewport?` `{width, height}`, `diagram?`, `state?`, `waiting?`, `language?` | `frame` | open the session. The diagram is `diagram` (relative to the project), else the state's `diagram`, else the project default (`diagram.edn`, `examples/<project>.edn`, any example). With `state` the saved view and discussion context are restored; otherwise the diagram is fitted to the viewport. `waiting: true` shows the empty waiting canvas until `display`, except that a `state` naming a displayed `diagram` restores that view (a reopened session, a restarted DSH). When that diagram does not exist yet the canvas waits, `save` answers the saved state unchanged, and the first `display` of the same diagram restores the view instead of fitting it. A missing diagram opens with the `missing-file` status code; an unreadable IR is an `error`. Another `open` replaces the session. `language` is the [language](#language-44) the panel passes (#44). |
 | `viewport` | `viewport` `{width, height}` (points) | `frame` | the client's canvas size; a pending fit uses it |
 | `camera` | `x`, `y`, `zoom` | `ack` | the client panned or zoomed locally: the frame's `camera` (top-left world point and zoom) the client now shows. Saved with the state; no frame is sent back. |
 | `display` | `path` | `frame` | show this diagram (what `uml_display` asks for): relative to the project or absolute. The same diagram keeps the view; another one is fitted. Ends the waiting canvas. |
 | `reload` | — | `frame` | check the diagram and quality snapshots now instead of at the next poll |
 | `drill-in` | `id` (EDN) or `at` (world point) | `frame` | enter a component: a namespace, a proposal package or a nested group. With `at`, what is there is entered when it is drillable, else nothing changes. |
-| `back` | `target?` (a breadcrumb id, or null for the source diagram's root) | `frame` | leave one level, or return to the level `target` names ([breadcrumbs, status codes and proposals](#breadcrumbs-status-codes-and-proposals-45-47-additive-version-1)); an id no level of the current path carries is an `error` |
+| `back` | `target?` (a breadcrumb id, or null for the source diagram's root) | `frame` | leave one level, or return to the level `target` names ([breadcrumbs, status codes and proposals](#breadcrumbs-and-status-codes-45-additive-version-1)); an id no level of the current path carries is an `error` |
 | `namespace-tree` | — | `frame` | **P**: the source diagram's namespace tree |
 | `select` | `at` (world point, or `null`) | `frame` | select what is at the point; `null` clears. The frame then carries the 依赖链高亮 and 关系淡化 of the selection. |
 | `search` | `query` | `search` | search class names and namespaces (ASCII case-insensitive substring); a blank query has no results. The view does not change. |
@@ -121,9 +121,9 @@ changes the view (the panel saves after each frame). The lines below abridge
 the state object:
 
 ```jsonl
-{"version":1,"seq":9,"event":"state","state":{"schema":"dsh-uml-viewer/session-state",...},"breadcrumbs":[{"id":null,"name":"Shop"},{"id":":core","name":"core"},{"id":":core.order","name":"order"}],"status":null}
-{"version":1,"seq":10,"event":"state","state":{"schema":"dsh-uml-viewer/session-state",...},"breadcrumbs":[{"id":":p-shop","name":"2026-10-24 10:00:00"},{"id":":proposal.domain","name":"Domain"}],"status":null}
-{"version":1,"seq":11,"event":"state","state":{...},"breadcrumbs":[],"status":{"code":"missing-file","path":"/project/diagram.edn"}}
+{"version":1,"seq":9,"event":"state","state":{"schema":"dsh-uml-viewer/session-state",...},"breadcrumbs":[{"id":null,"name":"Shop"},{"id":":core","name":"core"},{"id":":core.order","name":"order"}],"status":null,"proposals":[{"id":":p-shop","name":"2026-10-24 10:00:00"}]}
+{"version":1,"seq":10,"event":"state","state":{"schema":"dsh-uml-viewer/session-state",...},"breadcrumbs":[{"id":":p-shop","name":"2026-10-24 10:00:00"},{"id":":proposal.domain","name":"Domain"}],"status":null,"proposals":[{"id":":p-shop","name":"2026-10-24 10:00:00"}]}
+{"version":1,"seq":11,"event":"state","state":{...},"breadcrumbs":[],"status":{"code":"missing-file","path":"/project/diagram.edn"},"proposals":[]}
 ```
 
 The TS `PanelEvent.state` type requires `breadcrumbs` and `status`, while the contracts validator defaults absent fields to `[]` and `null` for a resident from before #45; in-repo producers always send both (F11).
@@ -196,7 +196,7 @@ an arbitrary filename to this action.
 
 The `inspector` action and event were deleted in #47. Its proposal list became
 the panel's discussion-context switcher and now rides on the `state` event
-([below](#breadcrumbs-status-codes-and-proposals-45-47-additive-version-1));
+([below](#breadcrumbs-and-status-codes-45-additive-version-1));
 its summary line (the selected class or component's name, package, level, CRAP,
 mutation counts and members) was deleted, not moved: the class card already
 carries the class's quality figures, and a second copy elsewhere would have to
