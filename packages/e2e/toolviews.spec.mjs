@@ -156,7 +156,7 @@ async function expandSteps(page, reply) {
   const answerNode = answer.locator('xpath=ancestor::*[@data-chat-turn][1]')
   const turnId = await answerNode.getAttribute('data-chat-turn')
   expect(turnId).toBeTruthy()
-  const turn = page.locator(`[data-step-process][data-chat-turn=${JSON.stringify(turnId)}]`)
+  const turn = page.locator(`[data-chat-flow-kind="turn-process"][data-chat-turn=${JSON.stringify(turnId)}]`)
   const steps = turn.getByRole('button', { name: /^(Completed in |已完成)/ })
   await expect(steps).toBeVisible()
   if (await steps.getAttribute('aria-expanded') !== 'true') await steps.click()
