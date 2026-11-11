@@ -18,6 +18,9 @@ pub struct Options {
     pub mutation_warning: i64,
     /// `--max-workers`: mutants to run at once; absent means every core.
     pub max_workers: Option<usize>,
+    /// `--copy`: paths outside the project root that every view must show.
+    /// May be repeated; validated by `isolation::resolve_outside`.
+    pub copies: Vec<String>,
 }
 impl Options {
     pub fn flag(&self, name: &str) -> bool {
@@ -105,6 +108,7 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
         "--mutation-warning",
         "--max-workers",
         "--lines",
+        "--copy",
     ];
     let mut index = 0;
     while index < args.len() {
@@ -121,6 +125,8 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
                 "--root" => options.scope.root = PathBuf::from(value),
                 "-s" | "--source-root" => options.scope.source_roots.push(value.clone()),
                 "--exclude" => options.scope.exclusions.push(value.clone()),
+                // Repeatable: every value is an outside path the call needs.
+                "--copy" => options.copies.push(value.clone()),
                 "--max-workers" => {
                     options.max_workers = Some(
                         python_int(value)

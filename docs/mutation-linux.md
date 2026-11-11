@@ -12,6 +12,21 @@ in the original. Other mutation languages are not silently substituted.
 A snapshot is byte-identical whatever the worker count: outcomes are keyed by
 mutation id and forms are sorted, so parallel execution cannot reorder the EDN.
 The acceptance test compares every published snapshot under `--max-workers 3`
+
+## Paths outside the project root (`--copy`)
+
+A Linux view is mounted **over the real project root** in its own namespace, so
+`..` from the view reaches the real parent directory: a relative path beside the
+project (`../contracts`) already resolves, and the baseline that imports it
+passes without help. `--copy <path>` (ADR 0015) is nevertheless accepted and
+validated on Linux, with the same usage errors as on Windows — an absolute path,
+a path inside the project root, more than one leading `..`, a path that resolves
+back inside the project root, or a missing path. Nothing is copied and no
+snapshot changes: the option exists for copy isolation, where a copy of the
+project root has no siblings. Its acceptance test compares the snapshot bytes of
+a run with and without the option and asserts that `..` is the real parent
+directory inside the view.
+
 ## Lua suites (Busted + LuaCov/cluacov)
 
 For a `.lua` source the test command is the generated Busted argv, not a shell

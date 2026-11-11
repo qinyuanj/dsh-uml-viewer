@@ -1,6 +1,10 @@
 //! Every command, including coverage and baseline, gets a disposable overlay.
 //! Mounting over the canonical root in the child namespace preserves absolute
 //! paths and sibling Cargo dependencies without exposing writes to the parent.
+//!
+//! Copy isolation is the Windows mechanism (`crate::copies`); the paths a call
+//! named with `--copy` are validated here for every platform, because a Linux
+//! view already reaches them and must still refuse the same bad arguments.
 #[cfg(target_os = "linux")]
 use crate::interrupts;
 #[cfg(target_os = "linux")]
@@ -15,7 +19,7 @@ use std::{
 };
 use std::{
     io,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     time::Duration,
 };
 
@@ -52,6 +56,104 @@ pub struct Completed {
     pub code: i32,
     pub elapsed: Duration,
     pub output: String,
+}
+
+/// A path outside the project root that a call declared with `--copy`.
+///
+/// On Windows the copy sits at `<slot>/project`, so `..` from it is the slot and
+/// `relative` is where the path must appear: the same position it has beside the
+/// real project root. Linux records the same validated paths and copies nothing,
+/// because its view is mounted over the real project root and `..` already
+/// reaches the real parent directory.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Outside {
+    /// The real path on this host, symlinks resolved.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub source: PathBuf,
+    /// Where a copy shows it, relative to the copy's parent: no `..`, no root.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub relative: PathBuf,
+}
+
+/// `--copy`: the outside paths a call named, validated before any command runs.
+///
+/// Only a path **outside** `root` is accepted: one inside it is already in the
+/// copy, so accepting it would promise something the copy does not do. `..` is
+/// allowed only as a single leading component that leaves `root`, so the target
+/// `<slot>/<relative>` can never leave this call's scratch slot. The argument
+/// must exist. Every failure is a usage error naming the value, as the other
+/// option errors do.
+pub fn resolve_outside(root: &Path, requested: &[String]) -> Result<Vec<Outside>, String> {
+    let root = quality_core::paths::resolve(root);
+    let mut resolved: Vec<Outside> = Vec::new();
+    for value in requested {
+        let mut relative = PathBuf::new();
+        let mut leaves = false;
+        for component in Path::new(value).components() {
+            match component {
+                Component::Normal(name) => relative.push(name),
+                Component::CurDir => {}
+                Component::ParentDir if relative.pop() => {}
+                Component::ParentDir => {
+                    if leaves {
+                        return Err(format!("--copy accepts at most one leading '..': {value}"));
+                    }
+                    leaves = true;
+                }
+                Component::Prefix(_) | Component::RootDir => {
+                    return Err(format!(
+                        "--copy takes a path relative to the project root, not an absolute path: \
+                         {value}"
+                    ));
+                }
+            }
+        }
+        if !leaves {
+            return Err(format!(
+                "--copy path is inside the project root, where the copy already has it: {value}"
+            ));
+        }
+        if relative.as_os_str().is_empty() {
+            return Err(format!(
+                "--copy path names the project's parent directory itself, not a path in it: {value}"
+            ));
+        }
+        // Every remaining component is normal, so the slot target is inside the
+        // scratch root by construction; the tests pin the normalisation.
+        debug_assert!(
+            relative
+                .components()
+                .all(|part| matches!(part, Component::Normal(_)))
+        );
+        let source = quality_core::paths::resolve(&root.join(value));
+        if source.starts_with(&root) {
+            return Err(format!(
+                "--copy path resolves back inside the project root: {value}"
+            ));
+        }
+        match std::fs::metadata(&source) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Err(format!("--copy path does not exist: {value}"));
+            }
+            Err(error) => {
+                return Err(format!("--copy path cannot be read ({error}): {value}"));
+            }
+            Ok(metadata) if metadata.is_dir() || metadata.is_file() => {}
+            Ok(_) => {
+                return Err(format!("--copy path is not a file or directory: {value}"));
+            }
+        }
+        // Two spellings of one position (`../contracts`, `.././contracts`) are
+        // one outside copy, not two copies onto the same path.
+        if resolved
+            .iter()
+            .any(|existing| existing.relative == relative)
+        {
+            continue;
+        }
+        resolved.push(Outside { source, relative });
+    }
+    Ok(resolved)
 }
 
 /// Commands that need the JVM's private home and a seeded dependency cache.
@@ -142,6 +244,10 @@ impl View {
         // A worker slot is reused, so its previous command's view is discarded
         // before this one: layer bytes never reach the next mutant.
         reset_layers(&self.directory).map_err(message)?;
+        // `--copy` needs no work here: the view is mounted over the real project
+        // root, so `..` resolves to the real parent directory and an outside
+        // path beside the project is already readable. It is still validated
+        // (`resolve_outside`) so both platforms refuse the same arguments.
         let mutation_path = self.directory.join("mutation");
         let destination = if let Some((path, source)) = mutation {
             scratch::private_file(&mutation_path)
@@ -674,3 +780,7 @@ mod tests {
         assert!(seed_cache(&source, &temporary.path().join("seed")).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "isolation_outside_tests.rs"]
+mod outside_tests;

@@ -7,6 +7,8 @@ mod child_env;
 #[cfg(all(test, any(windows, target_os = "linux")))]
 mod child_env_tests;
 mod cli;
+#[cfg(test)]
+mod cli_tests;
 mod clojure;
 #[cfg(windows)]
 mod copies;
@@ -56,6 +58,14 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String + Sync) -> E
             return ExitCode::from(1);
         }
     };
+    let root = options.scope.project_root();
+    // `--copy` is a usage error before any work, on every platform: Linux
+    // validates the same arguments and copies nothing (its view sees the real
+    // parent directory), Windows records them for the copy isolation.
+    if let Err(error) = validate_outside(&root, &options.copies) {
+        eprint!("{error}\n\n{HELP}");
+        return ExitCode::from(1);
+    }
     if let Some(refusal) = platform_refusal(
         std::env::consts::OS,
         if cfg!(windows) {
@@ -73,7 +83,6 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String + Sync) -> E
     ) {
         eprintln!("{warning}");
     }
-    let root = options.scope.project_root();
     // A run that arrives after a killed one reclaims that run's scratch first.
     // A live concurrent run's root keeps its owner lock and is left alone.
     if let Err(error) = scratch::sweep(&root) {
@@ -94,6 +103,21 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String + Sync) -> E
     }
     code
 }
+/// Validate a call's `--copy` paths before the platform decision and any work.
+///
+/// Every platform refuses the same bad arguments, because a Linux view already
+/// reaches the real parent directory and would otherwise accept a typo that
+/// fails only on Windows. Only copy isolation has to place the paths, so only
+/// Windows records them for `crate::copies`.
+fn validate_outside(root: &Path, requested: &[String]) -> Result<(), String> {
+    let outside = isolation::resolve_outside(root, requested)?;
+    #[cfg(windows)]
+    copies::remember_outside(root, &outside);
+    #[cfg(not(windows))]
+    drop(outside);
+    Ok(())
+}
+
 /// The platform decision, before selection and before any command.
 ///
 /// Pure in the declared host, so the macOS refusal is testable anywhere.

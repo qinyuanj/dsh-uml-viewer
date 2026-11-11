@@ -53,6 +53,45 @@ default), on every platform including under the Python original, so a host
 without the component gains it on the first default-coverage run. CI installs
 it up front.
 
+## Paths outside the project root (`--copy`)
+
+A copy holds the project root and nothing beside it, so a relative path that
+leaves the root (a suite importing `../../../contracts/board-policy.json`, a
+fixture next to the package) does not resolve in the copy and the **baseline
+fails before any mutant runs**. `--copy <path>` (ADR 0015) places one such path
+beside every command's copy at the position the copy's `..` reaches: with
+`--copy ../contracts`, a command running in `<slot>/project` reads
+`../contracts/value.txt` as `<slot>/contracts/value.txt`, copied from the real
+`contracts/` beside the project root. The option may be repeated, in any order,
+and a position declared twice is one copy. A directory is copied as a tree and a
+file as one file, so a single dependency file needs no parent directory in the
+project: `--copy ../server/Cargo.toml` creates `<slot>/server/`. One call can
+name both kinds, as a package whose tests read the repository root does:
+`--copy ../contracts --copy ../docs/release --copy ../server/Cargo.toml`.
+
+- The slot is deleted before every command, so the outside bytes are copied
+  again for each command: a mutant's write under `..` cannot greet the next
+  command, and nothing is left behind when the call ends, because the whole slot
+  is inside the scratch root the pool removes.
+- The outside copy obeys the project copy's link rules: a linked directory is
+  refused (`Copy isolation cannot freeze linked directory: …`) and a linked file
+  is materialised as independent bytes.
+- A path that cannot be placed fails that command with the path named
+  (`Copy isolation cannot place <path> beside the copy: …`) instead of leaving a
+  copy that silently lacks a dependency.
+- The argument is a path relative to `--root` that leaves it through **one**
+  leading `..`. An absolute path, a path inside the project root (the copy
+  already has it), more than one leading `..` (it would reach outside the
+  call's scratch slot), a path that resolves back inside the project root, and a
+  missing path are all usage errors, refused before any command runs with exit
+  1, like every other option error.
+- Each command pays one extra tree copy per `--copy` path; name only what a
+  command actually reads.
+
+Linux accepts and validates the same option and copies nothing: its view is
+mounted over the real project root, so `..` already reaches the real parent
+directory ([mutation-linux.md](mutation-linux.md)).
+
 ## Go, Java and Clojure
 
 The language dispatch now accepts all seven mutation languages. Go uses the
@@ -85,7 +124,9 @@ advantage here.
 A relative path dependency that leaves the project (`../../extdep`) does not
 resolve inside a copy, because the copy has no such sibling. This is the
 original's behaviour too; its own fixture helper substitutes an absolute path
-to the same directory, and so do the Windows tests.
+to the same directory, and so do the Windows tests. `--copy` (above) is how a
+call brings such a path into the copy instead, and the bytes it brings are the
+command's own: a write through them changes the copy, never the real tree.
 
 ## macOS
 
