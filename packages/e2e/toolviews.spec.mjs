@@ -156,12 +156,13 @@ async function expandSteps(page, reply) {
   const answerNode = answer.locator('xpath=ancestor::*[@data-chat-turn][1]')
   const turnId = await answerNode.getAttribute('data-chat-turn')
   expect(turnId).toBeTruthy()
-  const turn = page.locator(`[data-chat-flow-kind="turn-process"][data-chat-turn=${JSON.stringify(turnId)}]`)
-  const steps = turn.getByRole('button', { name: /^(Completed in |已完成)/ })
+  const process = page.locator(`[data-chat-flow-kind="turn-process"][data-chat-turn=${JSON.stringify(turnId)}]`)
+  const steps = process.getByRole('button', { name: /^(Completed in |已完成)/ })
   await expect(steps).toBeVisible()
   if (await steps.getAttribute('aria-expanded') !== 'true') await steps.click()
   await expect(steps).toHaveAttribute('aria-expanded', 'true')
-  // The turn keeps its tool calls in one more group; the rows are inside it.
+  // The tool-call group is a sibling of the turn-process footer, not its child.
+  const turn = page.locator(`[data-step-process][data-chat-turn=${JSON.stringify(turnId)}]`)
   const tools = turn.getByRole('button', { name: /^(Called tools|工具调用)/ })
   await expect(tools).toBeVisible()
   if (await tools.getAttribute('aria-expanded') !== 'true') await tools.click()
