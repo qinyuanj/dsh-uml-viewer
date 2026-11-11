@@ -148,18 +148,25 @@ function displayReply(request) {
 
 /**
  * A finished turn keeps its steps collapsed, as the host's own tool cards do;
- * the tool rows are inside. Expanding the latest turn is how a user reads them.
+ * the tool rows are inside. The final reply identifies the turn to expand.
  */
-async function expandSteps(page) {
-  const steps = page.getByRole('button', { name: /^(Completed in |已完成)/ }).last()
+async function expandSteps(page, reply) {
+  const answer = page.getByText(reply, { exact: true }).last()
+  await expect(answer).toBeVisible()
+  const answerNode = answer.locator('xpath=ancestor::*[@data-chat-turn][1]')
+  const turnId = await answerNode.getAttribute('data-chat-turn')
+  expect(turnId).toBeTruthy()
+  const turn = page.locator(`[data-step-process][data-chat-turn=${JSON.stringify(turnId)}]`)
+  const steps = turn.getByRole('button', { name: /^(Completed in |已完成)/ })
   await expect(steps).toBeVisible()
-  await steps.click()
+  if (await steps.getAttribute('aria-expanded') !== 'true') await steps.click()
   await expect(steps).toHaveAttribute('aria-expanded', 'true')
   // The turn keeps its tool calls in one more group; the rows are inside it.
-  const tools = page.getByRole('button', { name: /^(Called tools|工具调用)/ }).last()
+  const tools = turn.getByRole('button', { name: /^(Called tools|工具调用)/ })
   await expect(tools).toBeVisible()
-  await tools.click()
+  if (await tools.getAttribute('aria-expanded') !== 'true') await tools.click()
   await expect(tools).toHaveAttribute('aria-expanded', 'true')
+  return turn
 }
 
 /** The element menu's quality entry, from the element's own box on the canvas. */
@@ -178,21 +185,23 @@ test('quality tool results show validity, reason and targets, in the DSH languag
     const deep = await lane.openPanel('deep')
     await lane.sendPrompt(deep, 'Check the quality tool results')
     await expect(deep.page.getByText('Checked the quality tool results.', { exact: true }).last()).toBeVisible()
-    await expandSteps(deep.page)
-    await expect(deep.page.getByText('src/core/order.ts', { exact: true }).last()).toBeVisible()
-    await expect(deep.page.getByText('src/core/price.ts', { exact: true }).last()).toBeVisible()
-    await expect(deep.page.getByText('operations must declare crap and mutate', { exact: true }).last()).toBeVisible()
-    await expect(deep.page.getByText('Invalid', { exact: true }).last()).toBeVisible()
-    await expect(deep.page.getByText('Valid', { exact: true }).last()).toBeVisible()
-    await expect(deep.page.getByText('Exit code', { exact: true }).last()).toBeVisible()
+    const turn = await expandSteps(deep.page, 'Checked the quality tool results.')
+    const mutate = turn.locator('.dsh-uml-toolview').filter({ has: deep.page.getByText('uml_mutate', { exact: true }) })
+    const crap = turn.locator('.dsh-uml-toolview').filter({ has: deep.page.getByText('uml_crap', { exact: true }) })
+    await expect(mutate.getByText('src/core/order.ts', { exact: true })).toBeVisible()
+    await expect(crap.getByText('src/core/price.ts', { exact: true })).toBeVisible()
+    await expect(crap.getByText('operations must declare crap and mutate', { exact: true })).toBeVisible()
+    await expect(crap.getByText('Invalid', { exact: true })).toBeVisible()
+    await expect(mutate.getByText('Valid', { exact: true })).toBeVisible()
+    await expect(mutate.getByText('Exit code', { exact: true })).toBeVisible()
 
     // The rows read in the host's language without a reload.
     await switchLanguage(deep.page, '中文')
-    await expect(deep.page.getByText('有效', { exact: true }).last()).toBeVisible()
-    await expect(deep.page.getByText('无效', { exact: true }).last()).toBeVisible()
-    await expect(deep.page.getByText('原因', { exact: true }).last()).toBeVisible()
-    await expect(deep.page.getByText('退出码', { exact: true }).last()).toBeVisible()
-    await expect(deep.page.getByText('operations must declare crap and mutate', { exact: true }).last()).toBeVisible()
+    await expect(mutate.getByText('有效', { exact: true })).toBeVisible()
+    await expect(crap.getByText('无效', { exact: true })).toBeVisible()
+    await expect(crap.getByText('原因', { exact: true })).toBeVisible()
+    await expect(mutate.getByText('退出码', { exact: true })).toBeVisible()
+    await expect(crap.getByText('operations must declare crap and mutate', { exact: true })).toBeVisible()
     expect(deep.problems).toEqual([])
   } finally {
     await lane.close()
@@ -208,9 +217,9 @@ test('a configured target CRAP scope is not described as the whole business scop
     const deep = await lane.openPanel('deep')
     await lane.sendPrompt(deep, 'Check the configured CRAP target scope')
     await expect(deep.page.getByText('Checked the configured CRAP target scope.', { exact: true }).last()).toBeVisible()
-    await expandSteps(deep.page)
-    await expect(deep.page.getByText('the configured target scope', { exact: true }).last()).toBeVisible()
-    await expect(deep.page.getByText('the whole business scope', { exact: true })).toHaveCount(0)
+    const turn = await expandSteps(deep.page, 'Checked the configured CRAP target scope.')
+    await expect(turn.getByText('the configured target scope', { exact: true })).toBeVisible()
+    await expect(turn.getByText('the whole business scope', { exact: true })).toHaveCount(0)
     expect(deep.problems).toEqual([])
   } finally {
     await lane.close()
@@ -225,10 +234,10 @@ test('uml_display shows the diagram and 「在面板中查看」 opens the panel
     const summary = () => panel().locator('.dsh-uml-viewer-summary')
 
     // A display that answered no panel request opens the tab alone.
-    await expandSteps(deep.page)
+    const initialTurn = await expandSteps(deep.page, 'The isolated mock model displayed the generated IR. No real model was called.')
     await closeTab(deep)
     await expect(deep.page.locator('.dsh-uml-viewer-panel')).toBeHidden()
-    await deep.page.getByRole('button', { name: 'View in panel', exact: true }).last().click()
+    await initialTurn.getByRole('button', { name: 'View in panel', exact: true }).click()
     await expect(panel()).toBeVisible()
     await expect(summary()).toHaveAttribute('data-kind', 'frame')
     await expect(summary()).toHaveAttribute('data-selected', '')
@@ -246,12 +255,12 @@ test('uml_display shows the diagram and 「在面板中查看」 opens the panel
     await clickRefresh(deep, frame, ':core.order', 'Refresh CRAP')
     await expect(deep.page.getByText('Finished refresh-crap for :core: quality, IR, display.', { exact: true }).last())
       .toBeVisible()
-    await expandSteps(deep.page)
-    await expect(deep.page.getByText('Diagram: diagram.edn', { exact: true }).last()).toBeVisible()
+    const refreshTurn = await expandSteps(deep.page, 'Finished refresh-crap for :core: quality, IR, display.')
+    await expect(refreshTurn.getByText('Diagram: diagram.edn', { exact: true })).toBeVisible()
 
     await closeTab(deep)
     await expect(deep.page.locator('.dsh-uml-viewer-panel')).toBeHidden()
-    await deep.page.getByRole('button', { name: 'View in panel', exact: true }).last().click()
+    await refreshTurn.getByRole('button', { name: 'View in panel', exact: true }).click()
     await expect(summary()).toHaveAttribute('data-kind', 'frame')
     await expect(summary()).toHaveAttribute('data-selected', ':core.order')
     expect(deep.problems).toEqual([])
