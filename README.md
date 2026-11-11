@@ -14,8 +14,8 @@ The main package includes the Host and Web client, Sarasa font and one Cordis
 row. Its four exact-version optional dependencies target Windows x64, Linux
 x64, macOS arm64 and macOS x64. Unsupported combinations refuse activation with
 a reason. End users need DSH (`>=0.2.2-rc.1 <0.3.0`) and git; native packages
-require no Rust, Python or Herdr installation. Registry publication is a later
-release operation; local package assembly is available now.
+require no Rust, Python or Herdr installation. Version 1.0.0 is published;
+local package assembly also remains available.
 
 Install local archives through DSH plugin management (use absolute paths):
 
@@ -59,12 +59,17 @@ fields from the installable main package.
 Keep generated archives, binaries, IR and metrics out of commits. The four
 platform builds and the npm provenance release are configured in
 [release packaging](docs/releasing.md): a pull request assembles the archives and
-runs `npm publish --dry-run`, and a `v<version>` tag on the canonical repository
-is the only publishing path. `scripts/release.mjs verify` opens every staged
-archive and checks its real contents and package metadata before anything is
-published. [Release CI7 at `7fbace6`](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42600985433)
-passed all four native builds, archive-content inventory and `npm publish --dry-run`.
-Actual tag publishing and provenance have not run (#34). Browser acceptance is
+runs `npm pack <tgz> --dry-run --ignore-scripts` on all five in plan order. This
+is offline package-content acceptance, not a registry publishability check. A
+`v<version>` tag on the canonical repository is the only publishing path: after
+tag and inventory verification, all five archives must pass
+`npm publish --dry-run` before the same five are really published in plan order.
+`scripts/release.mjs verify` opens every staged archive and checks its real
+contents and package metadata before anything is published.
+[Release CI7 at `7fbace6`](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42600985433)
+passed all four native builds, archive-content inventory and the then-current
+`npm publish --dry-run`. Version 1.0.0 was published manually; tag-driven
+publishing and provenance have not run (#34). Browser acceptance is
 [partial, with a separate passing packaged lifecycle case](docs/e2e-harness.md#ci);
 installed-profile update acceptance remains unverified (#32).
 

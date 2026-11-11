@@ -1,10 +1,11 @@
 # Release packaging and publishing
 
-Status (2026-11-09): **remote packaging and publish dry-run passed**. Each run
-below passed all four native platform builds, real archive-content inventory
-verification and `npm publish --dry-run`, establishing the four-platform CI
-packaging evidence for dsh-uml-viewer#33. These runs do not establish actual
-publishing, provenance or installed behavior on all four platforms.
+Historical CI7 evidence (2026-11-09): **remote packaging and publish dry-run
+passed**. Each run below passed all four native platform builds, real
+archive-content inventory verification and `npm publish --dry-run`, establishing
+the four-platform CI packaging evidence for dsh-uml-viewer#33. These runs did
+not establish actual publishing, provenance or installed behavior on all four
+platforms.
 
 | Release run | Source head | Result |
 | --- | --- | --- |
@@ -14,8 +15,8 @@ publishing, provenance or installed behavior on all four platforms.
 | [42595826538](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42595826538) | `6147980` | Success |
 | [42600985433](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42600985433) | `7fbace6` | Success |
 
-Actual tag creation, registry publication and provenance remain **NOT RUN**,
-intentionally pending authorization for #34.
+All five `1.0.0` packages were subsequently published manually. Tag-driven
+publishing and npm provenance remain **NOT RUN**, pending #34.
 
 The files involved are `.github/workflows/package-release.yml`,
 `scripts/package.mjs` (assembler), `scripts/archive.mjs` (bounded gzip/ustar
@@ -44,8 +45,8 @@ the main and current-platform archives with the assembler, verifies the report
 hash against the staged bytes, and uploads its platform archive. Font, license
 and the rest of the main bundle are uploaded once, by `linux-x64` only.
 
-The `inventory` job is the single place that decides whether a release is
-publishable. `scripts/release.mjs verify` requires all of:
+The `inventory` job is the single place that validates the staged release
+inventory. `scripts/release.mjs verify` requires all of:
 
 - exactly four assemble reports, one per delivered platform, no duplicates;
 - every report at the Cargo workspace version, with `optionalDependencies`
@@ -100,20 +101,31 @@ affects the evidence, not what users download; tightening it would mean pinning
 It writes `release-inventory.json` (artifact `release-inventory`): version,
 per-artifact name, platform, file, path and SHA-256, plus the publish order.
 
-Pull requests stop after packaging:
+Pull requests stop after offline packaging acceptance:
 
 - `pnpm test:package` runs the package contract, the stale-payload identity gate
   and the release guards;
-- `npm publish --dry-run` prints what each publish would contain, from the staged
-  archives only, and never in the repository root, which stays `private`;
+- `npm pack <tgz> --dry-run --ignore-scripts` reads each of the five staged
+  archives in plan order and checks its package contents without contacting the
+  registry. The repository root stays `private` and is never a pack target;
+- a pack or inventory failure is a real package/CI failure and stops the job. An
+  already-published version is not a PR failure because this path deliberately
+  does not ask the registry about versions, credentials, access, trusted
+  publishing or provenance. It does not establish that the archives can be
+  published;
 - no `id-token` is requested and no credential is read on this path.
 
 On a `v*` tag push the `publish` job runs in the `release` environment with
 `contents: read` and `id-token: write` and nothing else, checks that the tag is
-`v<workspace version>`, re-verifies the inventory, then publishes the four
-platform archives before the main archive with `--provenance`. The order matters:
-the main package's optional dependencies must already exist when it becomes
-installable.
+`v<workspace version>`, and re-verifies the inventory. Before any real publish,
+it runs `npm publish <tgz> --dry-run --access public --ignore-scripts
+--provenance=false` on the same five staged archives in plan order. Only after
+all five dry-runs succeed does it publish the four platform archives before the
+main archive with `--provenance`. The order matters: the main package's optional
+dependencies must already exist when it becomes installable. Any dry-run or real
+publish error stops the job; errors are not ignored, retried or forced. The tag
+dry-run is a registry preflight, not proof that trusted publishing, provenance
+or the subsequent real publish will succeed.
 
 ## Version authority
 
@@ -185,7 +197,10 @@ node scripts/release.mjs check-tag v1.0.0      # tag/version guard
 ```
 
 `scripts/release.test.mjs` drives the real `stage`, `verify` and `plan` commands
-over controlled fixture archives. The fixtures are real small gzip/ustar archives
+over controlled fixture archives. It also executes the extracted pull-request and
+tag workflow loops against a bounded recording `npm` stub, including pack,
+dry-run and real-publish failures; those tests never contact a registry. The
+fixtures are real small gzip/ustar archives
 written by the same writer a release uses, carrying fixture text and the exact
 inventory and SHA-256 the report claims. The negative cases prove the guards by
 execution: a plaintext `.tgz`, a corrupt gzip header, stream or checksum, a bad
@@ -213,15 +228,20 @@ binary, real font or plugin bundle.
   unreported file, wrong manifest field) and no publish runs. Re-assemble that
   runner's package from a clean build; never patch the report or the archive by
   hand.
-- **Partial publish.** Versions are immutable, so a re-run fails with a conflict
-  on the packages that already published. Publish the remaining archives manually
-  in plan order (`npm publish <tgz> --provenance --access public`) or release a
-  new patch version. The workflow never un-publishes or re-tags.
+- **Tag dry-run conflict.** No real publish has started. Do not force or bypass
+  the failure: an already-published version needs a new release version, while an
+  authentication, access or other registry error needs its own correction.
+- **Partial publish.** Versions are immutable, so a re-run's full dry-run stops
+  with a conflict on the packages that already published, before any remaining
+  real publish. Publish the remaining archives manually in plan order
+  (`npm publish <tgz> --provenance --access public`) or release a new patch
+  version. The workflow never un-publishes or re-tags.
 
 ## Remaining acceptance gaps
 
-- Actual `npm publish`, provenance attestation and the trusted publisher
-  handshake have not run (#34); the successful dry-runs do not establish them.
+- The five `1.0.0` packages were published manually. The tag-driven
+  `npm publish`, provenance attestation and trusted publisher handshake have not
+  run (#34); historical and future dry-runs do not establish them.
 - Native builds and archive verification do not establish installed runtime
   behavior on every platform. The separate Windows real-tarball
   [install/display/uninstall case](e2e-harness.md#ci) passed in CI6 (#31).

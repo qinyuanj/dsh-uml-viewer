@@ -3,7 +3,7 @@
 # and CPU it ships to, because scripts/package.mjs runs the supplied binary as
 # `--version`; a foreign target binary is never executed on this host.
 #
-# Pull requests stop at `npm publish --dry-run`. A `v<workspace version>` tag on
+# Pull requests stop at `npm pack --dry-run`. A `v<workspace version>` tag on
 # the canonical repository is the only publishing path, and it uses npm trusted
 # publishing (OIDC), so no token, .npmrc or registry secret is authored here.
 # Maintainer setup and the bootstrap for a brand-new package: docs/releasing.md.
@@ -97,13 +97,13 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # One place decides whether the release is publishable: four distinct platform
+  # One place validates the staged release inventory: four distinct platform
   # archives at the workspace version, exactly one main archive, the same main
   # file inventory on every runner (one recorded main hash per runner, not byte
   # identity), every archive opened and checked against its report and the source
   # manifest, and no stray or stale archive.
   inventory:
-    name: inventory and registry dry run
+    name: inventory and offline package dry run
     needs: assemble
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -123,18 +123,19 @@ jobs:
           set -euo pipefail
           node scripts/release.mjs verify --artifacts "$RUNNER_TEMP/artifacts" --out "$RUNNER_TEMP/release-inventory.json"
           cat "$RUNNER_TEMP/release-inventory.json"
-      - name: npm publish dry run
+      - name: npm pack dry run
         if: github.event_name == 'pull_request'
         shell: bash
         # No credentials and no OIDC on the pull-request path: this only reads
-        # the staged archives and prints what a publish would contain.
+        # the staged archives and checks their package contents offline. It does
+        # not ask the registry whether these versions can be published.
         run: |
           set -euo pipefail
           node scripts/release.mjs plan --artifacts "$RUNNER_TEMP/artifacts" --out "$RUNNER_TEMP/publish-order.txt"
           planned=$(wc -l < "$RUNNER_TEMP/publish-order.txt")
           test "$planned" -eq 5
           while IFS= read -r archive; do
-            npm publish "$archive" --dry-run --access public --ignore-scripts --provenance=false
+            npm pack "$archive" --dry-run --ignore-scripts
           done < "$RUNNER_TEMP/publish-order.txt"
       - uses: actions/upload-artifact@v4
         with:
@@ -169,6 +170,18 @@ jobs:
         run: node scripts/release.mjs check-tag "$GITHUB_REF_NAME"
       - name: Verify the release artifact inventory
         run: node scripts/release.mjs verify --artifacts "$RUNNER_TEMP/artifacts" --out "$RUNNER_TEMP/release-inventory.json"
+      - name: Dry-run the platform packages, then the main package
+        shell: bash
+        # Check the same five staged archives with the registry before any real
+        # publish. A conflict or any other error stops the job immediately.
+        run: |
+          set -euo pipefail
+          node scripts/release.mjs plan --artifacts "$RUNNER_TEMP/artifacts" --out "$RUNNER_TEMP/publish-order.txt"
+          planned=$(wc -l < "$RUNNER_TEMP/publish-order.txt")
+          test "$planned" -eq 5
+          while IFS= read -r archive; do
+            npm publish "$archive" --dry-run --access public --ignore-scripts --provenance=false
+          done < "$RUNNER_TEMP/publish-order.txt"
       - name: Publish the platform packages, then the main package
         shell: bash
         run: |

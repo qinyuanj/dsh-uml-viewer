@@ -257,13 +257,17 @@ function stepFailure(result, limits = stepLimits) {
 
 // Runs a workflow shell step with a stub `npm` that records its arguments, so a
 // publish never reaches a registry.
-async function runStep(directory, script, limits = stepLimits) {
+async function runStep(directory, script, limits = stepLimits, { failCall = 0 } = {}) {
   const bin = path.join(directory, 'stub-bin')
   await mkdir(bin, { recursive: true })
   const log = path.join(directory, 'npm-calls.txt')
   const stub = [
     '#!/bin/sh',
+    'call=0',
+    'if [ -f "$NPM_LOG" ]; then call=$(wc -l < "$NPM_LOG"); fi',
+    'call=$((call + 1))',
     '{ printf \'%s\' "$1"; shift; for arg in "$@"; do printf \'\\t%s\' "$arg"; done; printf \'\\n\'; } >> "$NPM_LOG"',
+    'if [ "$call" -eq "$NPM_FAIL_CALL" ]; then printf \'npm stub: injected failure on call %s\\n\' "$call" >&2; exit 1; fi',
     '',
   ].join('\n')
   await writeFile(path.join(bin, 'npm'), stub)
@@ -272,7 +276,7 @@ async function runStep(directory, script, limits = stepLimits) {
     cwd: root, encoding: 'utf8',
     timeout: limits.timeout, maxBuffer: limits.maxBuffer, killSignal: limits.killSignal,
     env: {
-      ...process.env, RUNNER_TEMP: directory, NPM_LOG: log,
+      ...process.env, RUNNER_TEMP: directory, NPM_LOG: log, NPM_FAIL_CALL: String(failCall),
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
     },
   })
@@ -324,26 +328,31 @@ test('the tagged publish job is the only holder of an OIDC token and a release e
   assert.doesNotMatch(text, /secrets\.|NODE_AUTH_TOKEN|_authToken|npm_token/)
 })
 
-test('pull requests stop at packaging and an npm publish dry run', async () => {
+test('pull requests stop at offline package dry runs', async () => {
   const text = await workflow()
   const inventory = jobBlock(text, 'inventory')
   const publish = jobBlock(text, 'publish')
   assert.match(inventory, /if: github\.event_name == 'pull_request'/)
-  assert.match(inventory, /npm publish "\$archive" --dry-run/)
-  assert.doesNotMatch(publish, /--dry-run/)
+  assert.match(inventory, /npm pack "\$archive" --dry-run --ignore-scripts/)
+  assert.doesNotMatch(inventory, /npm publish/)
   assert.match(publish, /npm publish "\$archive" --provenance/)
-  // The private source package is never the publish target; only staged
-  // archives are, and every publish names one.
-  const publishes = text.split(/\r?\n/).filter(line => /^\s*npm publish\b/.test(line))
-  assert.equal(publishes.length, 2)
-  for (const line of publishes) assert.match(line, /npm publish "\$archive"/)
+  // The private source package is never the pack or publish target; only
+  // staged archives are, and every npm invocation names one.
+  const packs = inventory.split(/\r?\n/).filter(line => /^\s*npm pack\b/.test(line))
+  assert.equal(packs.length, 1)
+  for (const line of packs) assert.match(line, /npm pack "\$archive"/)
   assert.match(text, /node scripts\/version\.mjs --check/)
 })
 
-test('the publish job guards the tag, verifies the inventory, and publishes platforms first', async () => {
+test('the publish job guards the tag, verifies, dry-runs, then publishes platforms first', async () => {
   const text = await workflow()
   const publish = jobBlock(text, 'publish')
-  const order = ['check-tag "$GITHUB_REF_NAME"', 'release.mjs verify', 'release.mjs plan', 'npm publish "$archive"']
+  const order = [
+    'check-tag "$GITHUB_REF_NAME"',
+    'release.mjs verify',
+    'npm publish "$archive" --dry-run --access public --ignore-scripts --provenance=false',
+    'npm publish "$archive" --provenance --access public --ignore-scripts',
+  ]
   const positions = order.map(marker => publish.indexOf(marker))
   for (const [index, position] of positions.entries()) {
     assert.notEqual(position, -1, `publish job is missing ${order[index]}`)
@@ -353,9 +362,18 @@ test('the publish job guards the tag, verifies the inventory, and publishes plat
   assert.match(publish, /wc -l < "\$RUNNER_TEMP\/publish-order\.txt"/)
   assert.match(publish, /test "\$planned" -eq 5/)
   assert.match(publish, /while IFS= read -r archive; do/)
+  assert.doesNotMatch(publish, /--force|retry/i)
 })
 
-test('the publish step really publishes the five staged archives in plan order', async t => {
+async function tagPublishScript() {
+  const text = await workflow()
+  return [
+    stepScript(text, 'Dry-run the platform packages, then the main package'),
+    stepScript(text, 'Publish the platform packages, then the main package'),
+  ].join('\n')
+}
+
+test('the tag job dry-runs all five archives before really publishing the same five', async t => {
   if (hostShell() === null) {
     t.skip("no bash shares this host's paths and environment, so the workflow shell cannot be executed here")
     return
@@ -364,13 +382,81 @@ test('the publish step really publishes the five staged archives in plan order',
   try {
     const version = await releaseVersion()
     await inventoryFixture(directory)
-    const script = stepScript(await workflow(), 'Publish the platform packages, then the main package')
+    const { result, calls } = await runStep(directory, await tagPublishScript())
+    assert.equal(result.status, 0, stepFailure(result, stepLimits))
+    assert.equal(calls.length, 10)
+    assert.ok(calls.every(call => call.command === 'publish'))
+    for (const call of calls.slice(0, 5)) {
+      assert.deepEqual(call.args.slice(1), ['--dry-run', '--access', 'public', '--ignore-scripts', '--provenance=false'])
+    }
+    for (const call of calls.slice(5)) {
+      assert.deepEqual(call.args.slice(1), ['--provenance', '--access', 'public', '--ignore-scripts'])
+    }
+    const archives = path.join(directory, 'artifacts')
+    const planned = [
+      ...platforms.map(entry => path.join(archives, `package-${entry.platform}`, `dsh-uml-viewer-${entry.platform}-${version}.tgz`)),
+      path.join(archives, `package-${mainPlatform}`, `dsh-uml-viewer-${version}.tgz`),
+    ]
+    assert.deepEqual(calls.map(call => call.args[0]), [...planned, ...planned])
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('a tag dry-run conflict prevents every real publish', async t => {
+  if (hostShell() === null) {
+    t.skip("no bash shares this host's paths and environment, so the workflow shell cannot be executed here")
+    return
+  }
+  const directory = await scratch()
+  try {
+    await inventoryFixture(directory)
+    const { result, calls } = await runStep(directory, await tagPublishScript(), stepLimits, { failCall: 3 })
+    assert.notEqual(result.status, 0, 'a dry-run conflict must fail the tag job')
+    assert.match(result.stderr, /injected failure on call 3/)
+    assert.equal(calls.length, 3)
+    assert.ok(calls.every(call => call.command === 'publish' && call.args.includes('--dry-run')))
+    assert.equal(calls.filter(call => call.args.includes('--provenance')).length, 0)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('a real publish conflict stops the remaining publishes', async t => {
+  if (hostShell() === null) {
+    t.skip("no bash shares this host's paths and environment, so the workflow shell cannot be executed here")
+    return
+  }
+  const directory = await scratch()
+  try {
+    const version = await releaseVersion()
+    await inventoryFixture(directory)
+    const { result, calls } = await runStep(directory, await tagPublishScript(), stepLimits, { failCall: 8 })
+    assert.notEqual(result.status, 0, 'a real publish conflict must fail the tag job')
+    assert.match(result.stderr, /injected failure on call 8/)
+    assert.equal(calls.length, 8)
+    assert.ok(calls.slice(0, 5).every(call => call.args.includes('--dry-run')))
+    const real = calls.slice(5)
+    assert.equal(real.length, 3)
+    for (const call of real) {
+      assert.deepEqual(call.args.slice(1), ['--provenance', '--access', 'public', '--ignore-scripts'])
+    }
+    assert.match(real.at(-1).args[0], new RegExp(`dsh-uml-viewer-darwin-arm64-${version}\\.tgz$`))
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('the pull-request step packs all five staged archives in plan order without publishing', async t => {
+  if (hostShell() === null) {
+    t.skip("no bash shares this host's paths and environment, so the workflow shell cannot be executed here")
+    return
+  }
+  const directory = await scratch()
+  try {
+    const version = await releaseVersion()
+    await inventoryFixture(directory)
+    const script = stepScript(await workflow(), 'npm pack dry run')
     const { result, calls } = await runStep(directory, script)
     assert.equal(result.status, 0, stepFailure(result, stepLimits))
     assert.equal(calls.length, 5)
     for (const call of calls) {
-      assert.equal(call.command, 'publish')
-      assert.deepEqual(call.args.slice(1), ['--provenance', '--access', 'public', '--ignore-scripts'])
+      assert.equal(call.command, 'pack')
+      assert.deepEqual(call.args.slice(1), ['--dry-run', '--ignore-scripts'])
     }
     const archives = path.join(directory, 'artifacts')
     assert.deepEqual(calls.map(call => call.args[0]), [
@@ -380,23 +466,22 @@ test('the publish step really publishes the five staged archives in plan order',
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
-test('the pull-request step only dry-runs the same plan order', async t => {
+test('a pull-request pack failure stops before the remaining archives', async t => {
   if (hostShell() === null) {
     t.skip("no bash shares this host's paths and environment, so the workflow shell cannot be executed here")
     return
   }
   const directory = await scratch()
   try {
+    const version = await releaseVersion()
     await inventoryFixture(directory)
-    const script = stepScript(await workflow(), 'npm publish dry run')
-    const { result, calls } = await runStep(directory, script)
-    assert.equal(result.status, 0, stepFailure(result, stepLimits))
-    assert.equal(calls.length, 5)
-    for (const call of calls) {
-      assert.equal(call.command, 'publish')
-      assert.deepEqual(call.args.slice(1), ['--dry-run', '--access', 'public', '--ignore-scripts', '--provenance=false'])
-    }
-    assert.match(calls.at(-1).args[0], new RegExp(`dsh-uml-viewer-\\d+\\.\\d+\\.\\d+\\.tgz$`))
+    const script = stepScript(await workflow(), 'npm pack dry run')
+    const { result, calls } = await runStep(directory, script, stepLimits, { failCall: 3 })
+    assert.notEqual(result.status, 0, 'a pack failure must fail the pull-request step')
+    assert.match(result.stderr, /injected failure on call 3/)
+    assert.equal(calls.length, 3)
+    assert.ok(calls.every(call => call.command === 'pack'))
+    assert.match(calls.at(-1).args[0], new RegExp(`dsh-uml-viewer-darwin-arm64-${version}\\.tgz$`))
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
