@@ -48,6 +48,29 @@ pub fn shlex_quote(arg: &str) -> String {
     }
 }
 
+/// One argument for a `cmd.exe` command line, the way the Windows coverage
+/// scripts spell paths: bare when cmd and the tool's own parser both read it as
+/// itself, otherwise double quotes.
+///
+/// cmd ends an argument at a metacharacter (`&`, `|`, `<`, `>`, `^`, `(`, `)`)
+/// even with no space, so those are quoted; `%` is quoted too, which keeps a
+/// literal percent out of cmd's variable expansion in the common case. A
+/// double quote inside an argument cannot be expressed for both cmd and
+/// MSVCRT at once; the tools' own paths never contain one.
+pub fn cmd_quote(arg: &str) -> String {
+    if arg.is_empty() {
+        return "\"\"".to_string();
+    }
+    let plain = arg
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "-_@+=:,./\\".contains(c));
+    if plain {
+        arg.to_string()
+    } else {
+        format!("\"{}\"", arg.replace('"', "\\\""))
+    }
+}
+
 #[cfg(not(windows))]
 #[allow(clippy::disallowed_methods)] // the quality tools' one process boundary
 fn command(program: &Program, cwd: &Path) -> io::Result<Command> {

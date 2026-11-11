@@ -113,6 +113,32 @@ CI supplied runtime evidence: the Windows mutation job passed, and Linux
 Go/Java/Clojure goldens (7), reports (5) and site comparisons passed (#14 closed).
 See the pinned jobs below; this does not claim a new WSL acceptance run.
 
+## Coverage scripts run in the copy
+
+`cargo llvm-cov` is not the only coverage a run may need: the standard path also
+measures TypeScript and Python when the selected files are those languages. On
+Windows both generated scripts are `cmd.exe` scripts, and both spell every path
+they write relative to the package they run in — a copy lives at
+`<slot>/project`, so an absolute path would name the real project and write
+there. `cargo llvm-cov` already followed that rule; TypeScript and Python did
+not, which is why a package that reported no coverage data at all on Windows
+(the report directory was handed to `rm -rf --` as a Windows path) now measures
+itself.
+
+The shape is one `&` chain, because `cmd /c` takes a single line: `rmdir /s /q`
+and `mkdir` for the report directory, `del /f /q` for the stale data file,
+`|| (…)` blocks for the N/A guards, and every `if` parenthesized and last on the
+chain — `if … (block) & next` makes cmd read `next` as part of the skipped
+block, silently dropping the rest of the script. Arguments are quoted the way
+cmd and MSVCRT read them rather than with `shlex`'s single quotes, and Vitest is
+invoked through `node_modules\.bin\vitest.cmd`, the only shim cmd can execute.
+
+A TypeScript or Python package whose coverage toolchain is missing leaves that
+language uncovered with the original's `… will be N/A.` message; it never fails
+the run. When crapper ran first, neither script runs at all: the reports it
+already wrote are reused (see `docs/mutation-linux.md`, `crapper's coverage
+stamp`), and `Reusing <languages> coverage from crapper's last run.` says so.
+
 ## Weaker than Linux, and honest about it
 
 A copy is a convention, not an OS-enforced sandbox: an absolute path outside
@@ -145,8 +171,9 @@ improvement, not parity. `crap` and `dry` are unchanged.
 
 `windows-mutate` (windows-latest) installs the pinned toolchain's `llvm-tools`
 and `cargo-llvm-cov`, sets `MUTATOR_REQUIRE_TOOLCHAINS=1` so a missing
-toolchain fails instead of skipping, and runs the mutator suite plus the
-`uml-viewer` mutate tests. `macos-quality` (macos-latest) asserts the refusal
+toolchain fails instead of skipping, installs `coverage.py` for the Python
+coverage test (the same rule: a missing tool fails), and runs the mutator suite
+plus the `uml-viewer` mutate tests. `macos-quality` (macos-latest) asserts the refusal
 and runs the crap and dry suites.
 
 In [main CI6 at `6147980`](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42595826593),

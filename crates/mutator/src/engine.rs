@@ -192,7 +192,10 @@ fn execute(
 }
 
 /// `os.path.relpath`: `path` as seen from `base`, both absolute.
-fn relative_from(base: &Path, path: &Path) -> Option<PathBuf> {
+///
+/// The generated commands of a copied project use it to spell a path relative
+/// to their own directory, never the real project's absolute path.
+pub(crate) fn relative_from(base: &Path, path: &Path) -> Option<PathBuf> {
     let base: Vec<_> = base.components().collect();
     let path: Vec<_> = path.components().collect();
     let common = base
@@ -296,17 +299,22 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
     if reuse {
         collect_reports(&root.join("coverage"), &mut coverage.records);
         collect_reports(&root.join("target/coverage"), &mut coverage.records);
-        collect_native(root, files, &mut coverage, false)?;
+        collect_native(root, files, None, &mut coverage)?;
         return Ok(coverage);
     }
     if !standard {
         let command = options.value("--coverage-command");
         let Some(command) = command else {
             // Only --test-command was given: the original still measures the
-            // languages crapper measures, so Python and TypeScript do.
-            python_coverage(root, files, &mut coverage.records)?;
-            typescript_coverage(root, files, &mut coverage.records)?;
-            collect_native(root, files, &mut coverage, true)?;
+            // languages crapper measures, so Python and TypeScript do, and
+            // crapper's stamp decides which of them are regenerated.
+            let (stale, fresh) = stale_coverage_files(root, files, None);
+            report_reused(&fresh);
+            collect_reports(&root.join("coverage"), &mut coverage.records);
+            collect_reports(&root.join("target/coverage"), &mut coverage.records);
+            python_coverage(root, &stale, &mut coverage.records)?;
+            typescript_coverage(root, &stale, &mut coverage.records)?;
+            collect_native(root, files, Some(&stale), &mut coverage)?;
             return Ok(coverage);
         };
         // Stale reports are removed before the command, in the host shell's
@@ -346,12 +354,72 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
         return Ok(coverage);
     }
     // The original's runner order: TypeScript, Python, Rust, Go, Java,
-    // Clojure, then Lua (already collected above).
-    rust_coverage(root, files, &mut coverage.records)?;
-    python_coverage(root, files, &mut coverage.records)?;
-    typescript_coverage(root, files, &mut coverage.records)?;
-    collect_native(root, files, &mut coverage, true)?;
+    // Clojure, then Lua (already collected above). crapper's stamp decides
+    // which languages are regenerated; the rest are read from its reports, and
+    // the run says so, as the original and the help text promise.
+    let (stale, fresh) = stale_coverage_files(root, files, None);
+    report_reused(&fresh);
+    collect_reports(&root.join("coverage"), &mut coverage.records);
+    collect_reports(&root.join("target/coverage"), &mut coverage.records);
+    rust_coverage(root, &stale, &mut coverage.records)?;
+    python_coverage(root, &stale, &mut coverage.records)?;
+    typescript_coverage(root, &stale, &mut coverage.records)?;
+    collect_native(root, files, Some(&stale), &mut coverage)?;
     Ok(coverage)
+}
+
+/// Files to regenerate, and the languages crapper's stamp says are fresh.
+///
+/// A language is measured for all of its files or none, as the original's
+/// `_stale` decides: one stale file makes every file of that language stale.
+/// Lua is left out: it reports through its own instrumented collection, which
+/// this run just redid.
+fn stale_coverage_files(
+    root: &Path,
+    files: &[PathBuf],
+    command: Option<&str>,
+) -> (Vec<PathBuf>, Vec<&'static str>) {
+    let remaining: Vec<PathBuf> = files
+        .iter()
+        .filter(|file| language_of(file) != Some(Language::Lua))
+        .cloned()
+        .collect();
+    let stale_languages: BTreeSet<Language> =
+        quality_core::runner::stale_files(root, &remaining, command)
+            .iter()
+            .filter_map(|file| language_of(file))
+            .collect();
+    let fresh: Vec<&'static str> = remaining
+        .iter()
+        .filter_map(|file| language_of(file))
+        .filter(|language| !stale_languages.contains(language))
+        .map(Language::name)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let stale = remaining
+        .iter()
+        .filter(|file| language_of(file).is_some_and(|l| stale_languages.contains(&l)))
+        .cloned()
+        .collect();
+    (stale, fresh)
+}
+
+/// The original prints one line when crapper's reports are reused, naming the
+/// fresh languages sorted, and nothing at all when every language is stale.
+fn report_reused(fresh: &[&str]) {
+    if let Some(line) = reuse_message(fresh) {
+        eprintln!("{line}");
+    }
+}
+
+fn reuse_message(fresh: &[&str]) -> Option<String> {
+    (!fresh.is_empty()).then(|| {
+        format!(
+            "Reusing {} coverage from crapper's last run.",
+            fresh.join(", ")
+        )
+    })
 }
 
 /// Every Rust module's LCOV report, each in its own view. A missing tool or a
@@ -660,13 +728,14 @@ fn merge_root_native(coverage: &mut Coverage, view: &View) -> Result<(), i32> {
     Ok(())
 }
 
-/// crapper's native reports already on disk, then stale languages regenerated
-/// in disposable views. Reports and build output never reach the project.
+/// crapper's native reports already on disk, then the stale languages among
+/// `regenerate` regenerated in disposable views. Reports and build output never
+/// reach the project. `None` reads crapper's reports and runs no command.
 fn collect_native(
     root: &Path,
     files: &[PathBuf],
+    regenerate: Option<&[PathBuf]>,
     coverage: &mut Coverage,
-    collect: bool,
 ) -> Result<(), i32> {
     if !files.iter().any(|file| {
         matches!(
@@ -691,10 +760,9 @@ fn collect_native(
             quality_core::native_coverage::NativeReports::default()
         },
     );
-    if !collect {
+    let Some(stale) = regenerate else {
         return Ok(());
-    }
-    let stale = quality_core::runner::stale_files(root, files, None);
+    };
     // A language is measured for all selected files or none.
     let languages: BTreeSet<Language> = stale.iter().filter_map(|file| language_of(file)).collect();
     for language in &languages {
@@ -1933,3 +2001,22 @@ pub fn mutate(
 #[cfg(test)]
 #[path = "native_report_tests.rs"]
 mod native_report_tests;
+
+#[cfg(test)]
+mod reuse_tests {
+    use super::reuse_message;
+
+    #[test]
+    fn the_reuse_line_names_the_fresh_languages_sorted() {
+        assert_eq!(
+            reuse_message(&["python", "typescript"]).as_deref(),
+            Some("Reusing python, typescript coverage from crapper's last run.")
+        );
+        assert_eq!(
+            reuse_message(&["rust"]).as_deref(),
+            Some("Reusing rust coverage from crapper's last run.")
+        );
+        // Every language stale: the original prints nothing at all.
+        assert_eq!(reuse_message(&[]), None);
+    }
+}
