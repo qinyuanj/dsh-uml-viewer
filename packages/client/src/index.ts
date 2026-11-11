@@ -1,88 +1,64 @@
 /**
  * The plugin's browser half: one right-sidebar tab bound to the session the
- * sidebar belongs to, and the same panel as a full-width `main` page.
+ * sidebar belongs to. The tab's lifecycle is the host's (ADR 0015): the
+ * full-width form is the right sidebar's fullscreen, closing the tab is the
+ * explicit close (D13) through the tab-kind close handler, and the tab's
+ * refresh command is `reload`. Collapsing, presentation changes and plugin
+ * unload only unmount the body, which is a withdrawal.
  *
  * React comes from the host's platform module table (ADR 0013, D1): this
  * bundle requires it, never embeds it, and imports no
  * `dsh-client-ui-primitives`. The chrome is plain markup styled from host
  * theme tokens, which is why the panel reads tokens for its Canvas 2D colors
  * instead of relying on primitive components.
- *
- * The `main` slot is root-scoped: it receives no session prop. Expanding
- * records the sidebar's session id first and only then selects the main panel,
- * so the full-width page keeps watching the same session's resident.
  */
 import { createElement, useCallback, useRef, useState } from 'react'
 import { OverlayController } from './overlays.js'
 import { Overlays, OVERLAY_STYLE } from './overlay-view.js'
-import { UML_VIEWER_REMOTE, type SceneFrame } from '@dsh-uml-viewer/contracts'
+import { UML_VIEWER_REMOTE, type PanelOwner, type SceneFrame } from '@dsh-uml-viewer/contracts'
 import { FONT_FAMILY, loadSarasa } from './font.js'
 import { PanelController, type PanelRemoteApi, type PanelStatus } from './panel.js'
 import { paintFrame } from './paint.js'
 import { cssToWorld } from './fit.js'
-import { DECLUTTER_STYLE, mountDeclutterControl } from './declutter.js'
 import { REQUEST_MENU_STYLE, mountQualityMenu } from './requests.js'
+import { panelText, type PanelText } from './locale.js'
+import { PanelViews, registerToolViews } from './tool-views.js'
+import { MORE_MENU_STYLE } from './more-menu.js'
+import { STATUSBAR_STYLE, mountStatusBar, type StatusBar } from './statusbar.js'
+import { TOPBAR_STYLE, mountTopBar, type TopBar } from './topbar.js'
+import { returnToSourceTree, type SwitcherActions } from './context-switcher.js'
+import { ACTION_BAR_STYLE, elementSelection, mountActionBar, type ActionBar } from './action-bar.js'
+import { LEGEND_STYLE, legendEntries, mountLegend, type Legend } from './legend.js'
+import { observeLayout } from './layout.js'
 
 export const TAB_ID = 'dsh-uml-viewer'
 export const TAB_KIND = 'dsh-uml-viewer'
-export const PANEL_PATH = 'dsh-uml-viewer'
 export const GUIDE_ORDER = 30
 const REMOTE_NAMESPACE = 'umlViewer'
 
-const STYLE = `${DECLUTTER_STYLE}${REQUEST_MENU_STYLE}
-.dsh-uml-viewer-panel { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; width: 100%; }
+const STYLE = `${TOPBAR_STYLE}${MORE_MENU_STYLE}${STATUSBAR_STYLE}${REQUEST_MENU_STYLE}${ACTION_BAR_STYLE}${LEGEND_STYLE}
+/* The three sections (#46): the top bar, the canvas, the status bar. The
+   overlay root covers the canvas alone, so a drawer never hides either bar. */
+.dsh-uml-viewer-panel { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; width: 100%; --dsh-uml-dock-width: clamp(420px, 42%, 680px); }
 .dsh-uml-viewer-canvas-host { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
-.dsh-uml-viewer-panel > .dsh-uml-overlay-root { top: var(--dsh-uml-toolbar-height, 0px); }
-.dsh-uml-viewer-toolbar {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: 0 0 auto; min-height: 36px; padding: 4px 8px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary);
-  font: 12px/1.4 var(--dsw-font-family, system-ui);
+/* The canvas row (#50): the drawing stage and, from 900px, the legend's
+   reserved strip below it. A resident legend takes room from this row, so it
+   never covers a class. */
+.dsh-uml-viewer-canvas-row { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; min-width: 0; }
+/* The stage is a flex row (#49 F28): a docked drawer reserves its width as the
+   rightmost stage item, so the canvas — and the resident's viewport — shrinks
+   beside the card instead of the card covering the drawing. */
+.dsh-uml-viewer-canvas-stage { position: relative; display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
+.dsh-uml-viewer-canvas-area { position: relative; display: flex; flex: 1 1 auto; flex-shrink: 1; min-height: 0; min-width: 0; }
+.dsh-uml-viewer-dock-space { flex: 0 0 0; min-width: 0; }
+.dsh-uml-viewer-panel[data-layout=docked]:has(.dsh-uml-drawer) .dsh-uml-viewer-dock-space { flex-basis: var(--dsh-uml-dock-width); }
+.dsh-uml-viewer-panel canvas { display: block; width: 100%; height: 100%; outline: none; }
+.dsh-uml-viewer-panel > .dsh-uml-overlay-root {
+  top: var(--dsh-uml-toolbar-height, 0px); bottom: var(--dsh-uml-statusbar-height, 0px);
 }
-.dsh-uml-viewer-toolbar .dsh-uml-viewer-declutter { position: static; }
-.dsh-uml-viewer-toolbar button {
-  appearance: none; border: 1px solid transparent; border-radius: 4px; padding: 3px 8px;
-  background: transparent; color: var(--dsw-alias-label-secondary);
-  font: inherit; cursor: pointer; white-space: nowrap;
-}
-.dsh-uml-viewer-toolbar button:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
-.dsh-uml-viewer-toolbar button:active { background: var(--dsw-alias-interactive-bg-active); }
-.dsh-uml-viewer-toolbar button:focus-visible,
-.dsh-uml-viewer-search input:focus-visible {
-  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
-  outline-offset: 1px;
-}
-.dsh-uml-viewer-toolbar button:disabled { opacity: 0.45; cursor: default; background: transparent; }
-.dsh-uml-viewer-spacer { flex: 1 1 auto; }
-.dsh-uml-viewer-search { position: relative; flex: 0 1 260px; min-width: 120px; }
-.dsh-uml-viewer-search input {
-  box-sizing: border-box; width: 100%; border: 1px solid var(--dsw-alias-border-l2); border-radius: 4px;
-  padding: 3px 8px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit;
-}
-.dsh-uml-viewer-results {
-  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; max-height: 320px; overflow: auto;
-  margin: 0; padding: 4px; list-style: none; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px;
-  background: var(--dsw-alias-bg-overlay); box-shadow: var(--dsw-shadow-lv2, 0 4px 16px rgb(0 0 0 / 20%));
-}
-.dsh-uml-viewer-results[hidden] { display: none; }
-.dsh-uml-viewer-results li { margin: 0; padding: 0; }
-.dsh-uml-viewer-results button {
-  display: block; width: 100%; border: 0; border-radius: 3px; padding: 5px 8px; text-align: left;
-  background: transparent; color: var(--dsw-alias-label-primary); font: inherit; cursor: pointer;
-  overflow-wrap: anywhere;
-}
-.dsh-uml-viewer-results button[aria-selected="true"] { background: var(--dsw-alias-interactive-bg-active); }
-.dsh-uml-viewer-results button:hover { background: var(--dsw-alias-interactive-bg-hover); }
-.dsh-uml-viewer-empty { padding: 6px 8px; color: var(--dsw-alias-label-tertiary); }
-.dsh-uml-viewer-panel canvas { display: block; flex: 1 1 auto; min-height: 0; width: 100%; height: 100%; outline: none; }
 .dsh-uml-viewer-summary {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
-}
-.dsh-uml-viewer-status {
-  position: absolute; left: 12px; right: 12px; bottom: 8px;
-  font: 12px/1.4 var(--dsw-font-family, system-ui); color: var(--dsw-alias-state-error-primary);
-  pointer-events: none; white-space: pre-wrap;
 }
 `
 
@@ -107,8 +83,20 @@ export interface SidebarTabsFace {
   register(tab: Record<string, unknown>): () => void
 }
 
-export interface LayoutFace {
-  selectPanel(key: string | null): void
+/** The page commands a tab body binds; the host's tab refresh calls `refresh`. */
+export interface TabCommands {
+  refresh?: () => void
+}
+
+/** What a tab body reads from the host's `useTabInfo` hook. */
+interface TabInfo {
+  tab?: { id?: string; actions?: { bindCommands?(commands: TabCommands): () => void } }
+}
+
+/** `ctx.sidebarRight`: the close hook, and the navigation 「在面板中查看」 uses (#54). */
+export interface SidebarRightFace {
+  registerCloseHandler?(kind: string, handler: (sessionId: string, tab: { id: string }) => void): () => void
+  openTab?(kind: string): void
 }
 
 /** The client services this bundle uses; unknown services stay `undefined`. */
@@ -154,218 +142,321 @@ function pageId(doc: Document): string {
   return data.__umlViewerPageId ??= crypto.randomUUID()
 }
 
+/**
+ * Each UML tab's latest panel holder, by session and tab id, so the tab's
+ * close handler closes exactly that holder. A live body closes through its
+ * controller; a body that already unmounted (withdrawn, waiting out its grace)
+ * is closed by its last owner, which stops the resident at once.
+ */
+const tabHolders = new WeakMap<ClientContext, Map<string, () => Promise<unknown>>>()
+
+function holdersOf(ctx: ClientContext): Map<string, () => Promise<unknown>> {
+  let holders = tabHolders.get(ctx)
+  if (!holders) tabHolders.set(ctx, holders = new Map())
+  return holders
+}
+
+const tabKey = (sessionId: string, tabId: string): string => `${sessionId}\u0000${tabId}`
+
+/** The host's tab close handler: user close and replacement alike (D13). */
+function closeTab(ctx: ClientContext, sessionId: string, tabId: string): void {
+  const holders = holdersOf(ctx)
+  const key = tabKey(sessionId, tabId)
+  const close = holders.get(key)
+  holders.delete(key)
+  // The handler is synchronous; the close itself is best effort.
+  void close?.().catch(() => {})
+}
+
 function summaryLine(): HTMLElement {
   const line = document.createElement('div')
   line.className = 'dsh-uml-viewer-summary'
   line.setAttribute('role', 'status')
-  line.setAttribute('aria-label', 'UML panel summary')
   line.dataset.kind = 'connecting'
   return line
-}
-
-function statusLine(): HTMLElement {
-  const line = document.createElement('div')
-  line.className = 'dsh-uml-viewer-status'
-  line.setAttribute('role', 'status')
-  line.style.display = 'none'
-  return line
-}
-
-function button(label: string, title: string, onClick: () => void): HTMLButtonElement {
-  const element = document.createElement('button')
-  element.type = 'button'
-  element.textContent = label
-  element.title = title
-  element.setAttribute('aria-label', title)
-  element.addEventListener('click', onClick)
-  return element
 }
 
 export interface MountOptions {
   sessionId: string
   ctx: ClientContext
-  /** The sidebar offers expansion; the main page offers the way back. */
-  main?: boolean
-  onExpand?: (sessionId: string) => void
-  onCollapse?: () => void
-  /** Receives this mount's overlay controller (inspector, card, sources). */
+  /** The conversation's 「在面板中查看」 target: this mount's overlays and its live frames. */
+  views?: PanelViews
+  /** The host tab this body draws; its close handler closes this mount's holder. */
+  tabId?: string
+  /** The host tab's `bindCommands`: the tab refresh command reloads the diagram. */
+  bindCommands?: (commands: TabCommands) => () => void
+  /** Receives this mount's overlay controller (card, sources). */
   onOverlays?: (controller: OverlayController | null) => void
 }
 
 /**
- * Attach a controller to a host element and return the disposer. The canvas
- * fills the element; the panel is bound to `sessionId` for its whole life.
+ * Attach the controller to a host element and return the disposer. The host is
+ * the panel's three sections (#46, ADR 0015) top to bottom: the top bar
+ * (`topbar.ts`), the canvas, and the status bar (`statusbar.ts`). The panel is
+ * bound to `sessionId` for its whole life.
  */
 export async function mountPanel(host: HTMLElement, options: MountOptions): Promise<() => void> {
-  // The React panel mounts the canvas into an inner host beside its overlays;
-  // the panel element itself names the session and surface.
+  // The React panel mounts the three sections into an inner host beside its
+  // overlays; the panel element itself names the session and surface.
   const panelElement = host.closest?.<HTMLElement>('.dsh-uml-viewer-panel') ?? host
   panelElement.dataset.sessionId = options.sessionId
-  panelElement.dataset.surface = options.main ? 'main' : 'sidebar'
+  const text: PanelText = panelText(name => options.ctx.get(name))
   const canvas = document.createElement('canvas')
   canvas.style.touchAction = 'none'
+  canvas.className = 'dsh-uml-viewer-canvas'
   canvas.tabIndex = 0
-  canvas.setAttribute('aria-label', 'UML diagram canvas')
   const summary = summaryLine()
-  const status = statusLine()
-  const toolbar = document.createElement('div')
-  toolbar.className = 'dsh-uml-viewer-toolbar'
-  const search = document.createElement('div')
-  search.className = 'dsh-uml-viewer-search'
-  const input = document.createElement('input')
-  input.type = 'search'
-  input.placeholder = 'Search (Ctrl+F)'
-  input.setAttribute('aria-label', 'Search classes')
-  input.autocomplete = 'off'
-  const results = document.createElement('ul')
-  results.className = 'dsh-uml-viewer-results'
-  results.setAttribute('role', 'listbox')
-  results.setAttribute('aria-label', 'Search results')
-  results.hidden = true
-  search.append(input, results)
-  const spacer = document.createElement('span')
-  spacer.className = 'dsh-uml-viewer-spacer'
-  host.append(toolbar, summary, canvas, status)
+  const canvasArea = document.createElement('div')
+  canvasArea.className = 'dsh-uml-viewer-canvas-area'
+  canvasArea.appendChild(canvas)
+  /** A top-bar control ran: the keyboard goes back to the canvas. */
+  const focusCanvas = (): void => canvas.focus({ preventScroll: true })
+  const labelStatic = (): void => {
+    canvas.setAttribute('aria-label', text.t('canvas.label'))
+    summary.setAttribute('aria-label', text.t('summary.label'))
+  }
+  labelStatic()
+  const stopLabels = text.subscribe(labelStatic)
+  host.appendChild(summary)
+  let topBar: TopBar | null = null
+  let statusBar: StatusBar | null = null
+  let legend: Legend | null = null
+  const disposeSections = (): void => {
+    stopLabels()
+    topBar?.dispose()
+    topBar = null
+    statusBar?.dispose()
+    statusBar = null
+    legend?.dispose()
+    legend = null
+  }
   const api = await mountRemote(options.ctx)
   if (!api) {
-    status.textContent = 'The viewer panel needs the Web Remote gateway.'
-    status.style.display = ''
-    return () => { host.replaceChildren() }
+    // A host without the Remote gateway has no panel; the third section says
+    // so instead of a canvas hint the frame would have carried.
+    host.appendChild(canvasArea)
+    statusBar = mountStatusBar(host, { text })
+    statusBar.setMessage(() => text.t('gateway.missing'))
+    return () => {
+      disposeSections()
+      host.replaceChildren()
+    }
   }
   let overlays: OverlayController | null = null
-  let lastResults = ''
+  /** The overlay root's insets; assigned once the sections exist. */
+  let placeOverlays: () => void = () => {}
+  /** Whether the legend's strip was part of those insets last time. */
+  let legendVisible: boolean | null = null
+  /** The selection action bar (#48), over the bottom of the canvas area. */
+  let actionBar: ActionBar | null = null
+  /** A refusal from the element menu, re-rendered on a language switch. */
+  let reported: string | (() => string) | null = null
   /** The frame the overlays last refreshed for; search/status updates reuse it. */
   let overlayFrame: SceneFrame | null = null
+  /** The holder this mount last opened; a withdrawn tab is closed by it. */
+  let lastOwner: PanelOwner | null = null
+  const renderStatus = (state: PanelStatus): void => {
+    const frame = state.frame
+    // A new view frame refreshes the card; a search or status
+    // publish that keeps the same frame does not re-request them.
+    if (state.kind === 'live' && frame && overlays && frame !== overlayFrame) {
+      overlayFrame = frame
+      void overlays.refresh()
+      // A locate from the conversation waited for this panel to be able to take
+      // actions; the first live frame is that moment (#54).
+      options.views?.shown(options.sessionId)
+    }
+    summary.dataset.kind = frame ? 'frame' : state.kind
+    summary.dataset.context = state.context?.kind ?? 'real'
+    summary.dataset.status = state.statusCode?.code ?? ''
+    summary.dataset.breadcrumbs = String(state.breadcrumbs.length)
+    summary.dataset.search = state.search.active ? 'active' : 'closed'
+    summary.dataset.results = String(state.search.results.length)
+    if (frame) {
+      // The view and the depth come from the state's discussion context and
+      // breadcrumbs (#46), not from chrome the frame no longer carries.
+      const title = state.breadcrumbs[0]?.name ?? text.t('summary.untitled')
+      // The resident's `:proposal-id` says whether the canvas shows a proposal
+      // layer or the discussion's source tree (#46).
+      const view = state.view
+      summary.dataset.view = view
+      summary.dataset.depth = state.breadcrumbs.length > 1 ? 'drilled' : 'root'
+      const selected = frame.world.find(item => 'selected' in item && item.selected)
+      summary.dataset.selected = selected && 'id' in selected ? selected.id : ''
+      summary.dataset.chain = String(frame.edges.filter(item => item.kind === 'stroke' && item.stroke.role === 'dependency-chain').length)
+      summary.dataset.dimmed = String(frame.world.filter(item => item.dimmed).length)
+      const discussion = state.context?.kind === 'proposal' ? state.context.name ?? state.context.proposalId ?? '' : text.t('summary.source')
+      const camera = frame.camera
+      summary.textContent = text.t('summary.frame', {
+        title, discussion, view: text.t(view === 'proposal' ? 'summary.proposal' : 'summary.source'),
+        camera: `${camera.x.toFixed(3)}, ${camera.y.toFixed(3)}, ${camera.zoom.toFixed(3)}`,
+      })
+    } else {
+      summary.textContent = text.t('summary.state', { state: text.t(`state.${state.kind}` as const) })
+    }
+    reported = state.kind === 'refused' || state.kind === 'failed' ? state.reason : null
+    statusBar?.setStatus(state.statusCode)
+    statusBar?.setMessage(reported)
+    statusBar?.setRequests(state.requests)
+    topBar?.render(state)
+    // The legend's rows are the frame's, worded in the resident's language
+    // (#50); a docked legend shows them without being opened.
+    legend?.render(state.frame)
+    // The first frame makes a resident legend visible: its strip leaves the
+    // drawable area, so the overlay root has to stop above it.
+    const visible = legend !== null && !legend.element.hidden
+    if (visible !== legendVisible) {
+      legendVisible = visible
+      placeOverlays()
+    }
+    actionBar?.render(elementSelection(controller.selected, frame))
+  }
   const controller = new PanelController({
     canvas,
     api,
-    owner: () => ({ pageId: pageId(host.ownerDocument), holderId: crypto.randomUUID() }),
+    // The resident words its own text (#44); this is the language it reads.
+    language: () => text.language,
+    owner: () => (lastOwner = { pageId: pageId(host.ownerDocument), holderId: crypto.randomUUID() }),
     paint: (frame, target) => paintFrame(frame, target),
-    onStatus: (state: PanelStatus) => {
-      const frame = state.frame
-      // A new view frame refreshes the inspector/card; a search or status
-      // publish that keeps the same frame does not re-request them.
-      if (state.kind === 'live' && frame && overlays && frame !== overlayFrame) {
-        overlayFrame = frame
-        void overlays.refresh()
-      }
-      summary.dataset.kind = frame ? 'frame' : state.kind
-      summary.dataset.context = state.context?.kind ?? 'real'
-      summary.dataset.search = state.search.active ? 'active' : 'closed'
-      summary.dataset.results = String(state.search.results.length)
-      if (frame) {
-        const heading = frame.chrome.find(item => item.kind === 'title')
-        const title = heading && 'text' in heading ? heading.text : 'Untitled diagram'
-        const proposal = frame.chrome.find(item => item.kind === 'proposal-banner')
-        summary.dataset.view = proposal && 'text' in proposal ? 'proposal' : 'source'
-        summary.dataset.depth = frame.chrome.some(item => item.kind === 'back') ? 'drilled' : 'root'
-        const selected = frame.world.find(item => 'selected' in item && item.selected)
-        summary.dataset.selected = selected && 'id' in selected ? selected.id : ''
-        summary.dataset.chain = String(frame.edges.filter(item => item.kind === 'stroke' && item.stroke.role === 'dependency-chain').length)
-        summary.dataset.dimmed = String(frame.world.filter(item => item.dimmed).length)
-        const discussion = state.context?.kind === 'proposal' ? state.context.name ?? state.context.proposalId : 'source diagram'
-        const camera = frame.camera
-        summary.textContent = `Diagram: ${title}. Discussion: ${discussion}. View: ${proposal && 'text' in proposal ? 'proposal diagram' : 'source diagram'}. Camera: ${camera.x.toFixed(3)}, ${camera.y.toFixed(3)}, ${camera.zoom.toFixed(3)}.`
-      } else {
-        summary.textContent = `UML panel: ${state.kind}.`
-      }
-      const reason = state.kind === 'refused' || state.kind === 'failed' ? state.reason : null
-      status.textContent = reason ?? ''
-      status.style.display = reason ? '' : 'none'
-      back.disabled = !frame?.chrome.some(item => item.kind === 'back')
-      if (document.activeElement !== input && input.value !== state.search.query) input.value = state.search.query
-      const signature = JSON.stringify([state.search.active, state.search.results, state.search.selection])
-      if (signature !== lastResults) {
-        lastResults = signature
-        results.replaceChildren()
-        results.hidden = !state.search.active
-        if (state.search.active && state.search.query.trim() && state.search.results.length === 0) {
-          const empty = document.createElement('li')
-          empty.className = 'dsh-uml-viewer-empty'
-          empty.textContent = 'No matches'
-          results.appendChild(empty)
+    onStatus: renderStatus,
+  })
+  // The three sections, in reading order: the top bar, the canvas, the status
+  // bar. The canvas row holds the canvas and the legend's reserved strip (#50).
+  // The discussion-context switcher (#47) acts through the overlays, so a card
+  // reply in flight cannot repopulate the card after the view switches.
+  const switcherActions: SwitcherActions = {
+    choose: proposalId => { void overlays?.choose(proposalId) },
+    namespaceTree: () => {
+      if (overlays) void overlays.namespaceTree()
+      else void controller.namespaceTree()
+    },
+    newProposal: () => { void overlays?.newProposal(new Date()) },
+  }
+  const canvasRow = document.createElement('div')
+  canvasRow.className = 'dsh-uml-viewer-canvas-row'
+  topBar = mountTopBar(host, {
+    controller, text, onDone: focusCanvas, context: switcherActions,
+    // 「更多」 carries the legend's entry (#50) while it is a popover; a
+    // resident legend has nothing to open (F45).
+    moreEntries: () => (legend ? legendEntries(legend, text) : []),
+  })
+  const canvasStage = document.createElement('div')
+  canvasStage.className = 'dsh-uml-viewer-canvas-stage'
+  // The docked card's reserved column (#49 F28): zero width until a drawer is
+  // open at >=900px, when CSS gives it the card's width and the canvas shrinks.
+  const dockSpace = document.createElement('div')
+  dockSpace.className = 'dsh-uml-viewer-dock-space'
+  dockSpace.setAttribute('aria-hidden', 'true')
+  canvasStage.append(canvasArea, dockSpace)
+  legend = mountLegend(canvasRow, { text, onDone: focusCanvas })
+  canvasRow.append(canvasStage, legend.element)
+  host.appendChild(canvasRow)
+  statusBar = mountStatusBar(host, {
+    text,
+    // #53/F36: dismissing a finished request is the host's list; every panel
+    // of this session sees the new one when it is pushed back. A refusal is
+    // surfaced on the bar instead of being silently discarded.
+    onDismiss: id => {
+      void controller.send({ action: 'dismiss-request', id }).then(ack => {
+        if (ack === null || ack.accepted) {
+          statusBar?.setMessage(null)
+          return
         }
-        state.search.results.forEach((result, index) => {
-          const row = document.createElement('li')
-          const choice = document.createElement('button')
-          choice.type = 'button'
-          choice.setAttribute('role', 'option')
-          choice.setAttribute('aria-selected', String(index === state.search.selection))
-          choice.textContent = result.label
-          choice.addEventListener('click', () => {
-            controller.moveSearch(index - controller.current.search.selection)
-            controller.activateSearch()
-            canvas.focus({ preventScroll: true })
-          })
-          row.appendChild(choice)
-          results.appendChild(row)
-        })
-      }
+        const reason = ack.reason ?? text.t('request.refused')
+        statusBar?.setMessage(() => text.t('request.dismiss.refused', { reason }))
+      }, error => {
+        const reason = error instanceof Error ? error.message : String(error)
+        statusBar?.setMessage(() => text.t('request.dismiss.refused', { reason }))
+      })
     },
   })
   const disposeQualityMenu = mountQualityMenu(host, canvas, {
     frame: () => controller.current.frame,
     send: action => controller.send(action),
-    report(reason) { status.textContent = reason ?? ''; status.style.display = reason ? '' : 'none' },
+    report(reason) {
+      reported = reason
+      statusBar?.setMessage(reason)
+    },
+    text,
   })
-  overlays = new OverlayController(action => controller.send(action))
+  overlays = new OverlayController(action => controller.send(action), text)
+  actionBar = mountActionBar(canvasArea, {
+    text,
+    send: action => controller.send(action),
+    openCard: id => overlays?.openCard(id),
+    report(reason) {
+      reported = reason
+      statusBar?.setMessage(reason)
+    },
+  })
+  options.views?.attach(options.sessionId, overlays)
   options.onOverlays?.(overlays)
-  /** **P** and the toolbar's tree button: one dispatch, through the overlays so
-   * a card reply in flight cannot repopulate the card after the tree resets. */
-  const namespaceTree = (): void => {
-    if (overlays) void overlays.namespaceTree()
-    else void controller.namespaceTree()
+  // Esc closes the class card / source drawer before it goes back (#49), and
+  // the legend's popover before that (#50).
+  controller.setDrawer({
+    open: () => overlays?.drawerOpen === true,
+    close: () => { void overlays?.closeDrawer() },
+  })
+  controller.setLegend({
+    isOpen: () => legend?.isOpen() === true,
+    close: () => legend?.close(),
+  })
+  // The overlays cover the drawable canvas alone: below the top bar, above the
+  // status bar, and above a resident legend's strip (#50), so neither a drawer
+  // nor the card covers a bar or the legend.
+  placeOverlays = (): void => {
+    panelElement.style.setProperty?.('--dsh-uml-toolbar-height', `${topBar?.element.offsetHeight ?? 0}px`)
+    // A hidden legend (narrow and closed, or before the first frame) is 0 high.
+    const legendHeight = legend?.element.offsetHeight ?? 0
+    panelElement.style.setProperty?.('--dsh-uml-statusbar-height', `${(statusBar?.element.offsetHeight ?? 0) + legendHeight}px`)
   }
-  const back = button('‹ Back', 'Back (Esc)', () => {
-    void controller.back()
-    canvas.focus({ preventScroll: true })
+  // The container's width picks the drawer or the docked card (#49), and
+  // whether the legend is a popover or resident (#50).
+  const stopLayout = observeLayout(panelElement, layout => {
+    legend?.setLayout(layout)
+    placeOverlays()
   })
-  back.disabled = true
-  const tree = button('Namespace tree', 'Namespace tree (P)', () => {
-    namespaceTree()
-    canvas.focus({ preventScroll: true })
-  })
-  const expand = button(options.main ? 'Conversation' : 'Expand',
-    options.main ? 'Return to conversation' : 'Expand to main area', () => {
-      if (options.main) options.onCollapse?.()
-      else options.onExpand?.(options.sessionId)
-    })
-  toolbar.append(back, tree, search)
-  const disposeDeclutter = mountDeclutterControl(toolbar, controller)
-  let closed = false
-  const close = button('Close viewer', 'Close viewer', () => {
-    close.disabled = true
-    if (closed) {
-      closed = false
-      close.textContent = 'Close viewer'
-      close.title = 'Close viewer'
-      close.setAttribute('aria-label', 'Close viewer')
-      void controller.open(options.sessionId).finally(() => { close.disabled = false })
-    } else {
-      closed = true
-      void controller.close().finally(() => {
-        close.textContent = 'Open viewer'
-        close.title = 'Open viewer'
-        close.setAttribute('aria-label', 'Open viewer')
-        close.disabled = false
-      })
-    }
-  })
-  toolbar.append(spacer, close, expand)
-  // The overlays sit below the (wrapping) toolbar instead of covering it.
-  const placeOverlays = (): void => {
-    panelElement.style.setProperty?.('--dsh-uml-toolbar-height', `${toolbar.offsetHeight ?? 0}px`)
-  }
+  /** **P** (#47): the same as choosing the source diagram in the switcher —
+   * back to the namespace tree's root, leaving a proposal under discussion,
+   * through the overlays so a card reply in flight cannot repopulate the card. */
+  const namespaceTree = (): void => returnToSourceTree(controller.current.context, switcherActions)
+  // Closing the host tab is the explicit close; while this body is mounted the
+  // controller closes its live holder (the stream ends without a withdrawal).
+  const tabId = options.tabId
+  const holders = holdersOf(options.ctx)
+  const closeLive = (): Promise<void> => controller.close()
+  if (tabId !== undefined) holders.set(tabKey(options.sessionId, tabId), closeLive)
+  // The host tab's refresh command is the same reload as **R**.
+  const unbindCommands = options.bindCommands?.({ refresh: () => { void controller.send({ action: 'reload' }) } })
   placeOverlays()
   const unsubscribe = controller.subscribe(() => { /* state is published to React through overlays */ })
+  // A DSH language switch relabels this mount in place; the tab stays open.
+  const unsubscribeText = text.subscribe(() => {
+    void controller.setLanguage(text.language)
+    // Keep an element-menu refusal; the status publish would otherwise clear it.
+    const kept = reported
+    renderStatus(controller.current)
+    reported = kept
+    statusBar?.setMessage(kept)
+  })
   // Keyboard input belongs to this panel; never capture the chat composer.
-  // **P** from the overlay windows (outside the canvas host) also returns to
-  // the tree; keys inside the host are handled once by `onKeyDown` below.
+  // **P** and **Esc** from the overlays (the drawer, outside the canvas host)
+  // work as on the canvas; keys inside the host are handled once by
+  // `onKeyDown` below.
   const onPanelKey = (event: KeyboardEvent): void => {
     if (event.isComposing || event.keyCode === 229 || host.contains?.(event.target as Node)) return
-    if (event.key.toLowerCase() !== 'p' || event.ctrlKey || event.metaKey || event.altKey) return
+    if (event.ctrlKey || event.metaKey || event.altKey) return
     const target = event.target as HTMLElement
     if (target.matches?.('input,textarea,select,[contenteditable=""],[contenteditable=true]')) return
+    if (event.key === 'Escape') {
+      // The same chain as on the canvas; the keyboard returns to the canvas,
+      // since the drawer it was in may be gone.
+      event.preventDefault()
+      controller.escape()
+      focusCanvas()
+      return
+    }
+    if (event.key.toLowerCase() !== 'p') return
     if (controller.current.search.active) return
     event.preventDefault()
     namespaceTree()
@@ -377,7 +468,11 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   }
   const resize = host.ownerDocument.defaultView?.ResizeObserver
   const observer = resize ? new resize(() => onResize()) : null
+  // Observe the canvas area itself: opening the docked card changes its width
+  // without changing the panel's, and the resident must be told the new
+  // viewport so it refits the diagram beside the card (F28).
   observer?.observe(host)
+  observer?.observe(canvasArea)
   const onPointerDown = (event: PointerEvent): void => {
     if (event.button !== undefined && event.button !== 0) return
     canvas.focus({ preventScroll: true })
@@ -389,21 +484,15 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   }
   const onPointerUp = (event: PointerEvent): void => controller.pointerUp(event.offsetX, event.offsetY)
   const onPointerLeave = (): void => controller.hoverEnd()
-  // One double-click dispatch: the back hotspot goes back (native parity);
-  // anything else is one `open-card`, where Rust decides class detail vs.
-  // layer drill-in. There is no second `drill-in` handler. CSS stretches the
-  // frame-sized bitmap per axis, so each axis is mapped separately.
+  // One double-click dispatch: one `open-card`, where Rust decides class detail
+  // vs. layer drill-in. The canvas has no back hotspot (#46): going back is the
+  // top bar's crumbs or Escape. CSS stretches the bitmap per axis, so each axis
+  // is mapped separately.
   const onDoubleClick = (event: MouseEvent): void => {
     const frame = controller.current.frame
     if (!frame || controller.current.search.active) return
     const bounds = canvas.getBoundingClientRect()
     if (!(bounds.width > 0) || !(bounds.height > 0)) return
-    const fx = event.offsetX * frame.viewport.width / bounds.width
-    const fy = event.offsetY * frame.viewport.height / bounds.height
-    if (frame.chrome.some(item => item.kind === 'back') && fx < 320 && fy < 44) {
-      void controller.back()
-      return
-    }
     const world = cssToWorld(frame, bounds, event.offsetX, event.offsetY)
     if (world) void overlays?.openCardAt(world)
   }
@@ -415,7 +504,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     }, -event.deltaX / 100)
   }
   const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.isComposing || event.keyCode === 229 || event.target === input) return
+    if (event.isComposing || event.keyCode === 229 || topBar?.owns(event.target) === true) return
     // `controller.key` would also map P; route it once, through the overlays.
     if (!controller.current.search.active && event.key.toLowerCase() === 'p'
       && !event.ctrlKey && !event.metaKey) {
@@ -428,18 +517,9 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     if (!handled) return
     event.preventDefault()
     event.stopPropagation()
-    if (controller.current.search.active) input.focus({ preventScroll: true })
+    // **Ctrl+F** opens the search box; the caret goes into it.
+    if (controller.current.search.active) topBar?.focusSearch()
   }
-  const onSearchKey = (event: KeyboardEvent): void => {
-    if (event.isComposing || event.keyCode === 229) return
-    if (!['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(event.key)
-      && !((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f')) return
-    event.preventDefault()
-    event.stopPropagation()
-    controller.key(event.key, { control: event.ctrlKey || event.metaKey })
-    if (event.key === 'Escape') input.blur()
-  }
-  const onSearchInput = (): void => controller.setSearchQuery(input.value)
   canvas.addEventListener('pointerdown', onPointerDown)
   canvas.addEventListener('pointermove', onPointerMove)
   canvas.addEventListener('pointerup', onPointerUp)
@@ -447,18 +527,35 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   canvas.addEventListener('dblclick', onDoubleClick)
   canvas.addEventListener('wheel', onWheel, { passive: false })
   host.addEventListener('keydown', onKeyDown)
-  input.addEventListener('keydown', onSearchKey)
-  input.addEventListener('input', onSearchInput)
   void loadSarasa().then(() => controller.repaint())
   await controller.open(options.sessionId)
   return () => {
+    unbindCommands?.()
+    if (tabId !== undefined) {
+      const key = tabKey(options.sessionId, tabId)
+      // Unmounting is a withdrawal. A later close of this tab still means
+      // "stop now", so it is left with this mount's last owner, unless a newer
+      // body of the same tab registered meanwhile.
+      if (holders.get(key) === closeLive) {
+        const owner = lastOwner
+        if (owner && api.closeOwned) holders.set(key, () => api.closeOwned!(options.sessionId, owner))
+        else holders.delete(key)
+      }
+    }
     observer?.disconnect()
+    stopLayout()
+    controller.setDrawer(null)
+    controller.setLegend(null)
+    if (overlays) options.views?.detach(options.sessionId, overlays)
     overlays?.dispose()
     overlays = null
     options.onOverlays?.(null)
     if (panelElement !== host) panelElement.removeEventListener('keydown', onPanelKey)
-    disposeDeclutter()
     disposeQualityMenu()
+    actionBar?.dispose()
+    actionBar = null
+    disposeSections()
+    unsubscribeText()
     unsubscribe()
     canvas.removeEventListener('pointerdown', onPointerDown)
     canvas.removeEventListener('pointermove', onPointerMove)
@@ -467,29 +564,25 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     canvas.removeEventListener('dblclick', onDoubleClick)
     canvas.removeEventListener('wheel', onWheel)
     host.removeEventListener('keydown', onKeyDown)
-    input.removeEventListener('keydown', onSearchKey)
-    input.removeEventListener('input', onSearchInput)
     controller.detach()
     host.replaceChildren()
   }
 }
 
-export interface PanelComponentOptions {
-  main?: boolean
-  onExpand?: (sessionId: string) => void
-  onCollapse?: () => void
-  /** The root-scoped main page reads the session recorded at expansion. */
-  mainSessionId?: () => string | null
-}
-
-/** One panel component, used by both the sidebar tab and the `main` page. */
-export function makePanelComponent(ctx: ClientContext, options: PanelComponentOptions = {}): (props: ClientPanelProps) => unknown {
+/** The sidebar tab's body component. */
+export function makePanelComponent(ctx: ClientContext, views?: PanelViews): (props: ClientPanelProps) => unknown {
   return function UmlViewerPanel(props: ClientPanelProps): unknown {
     // One live mount per attach. A detach or rebind while `mountPanel` is
     // still awaiting invalidates that mount: its late disposer runs at once
     // and its overlay controller is never published.
     const mountRef = useRef<{ dispose: (() => void) | null } | null>(null)
     const [overlays, setOverlays] = useState<OverlayController | null>(null)
+    // The host's tab information hook (`sidebar.right.pane.tab`): the tab id
+    // the close handler is keyed by, and the tab's command binding.
+    const info = typeof props.useTabInfo === 'function' ? (props.useTabInfo as () => TabInfo)() : undefined
+    const tabRef = useRef<TabInfo['tab']>(undefined)
+    tabRef.current = info?.tab
+    const tabId = info?.tab?.id
     const attach = useCallback((element: HTMLElement | null): void => {
       if (!element) {
         const mount = mountRef.current
@@ -499,19 +592,22 @@ export function makePanelComponent(ctx: ClientContext, options: PanelComponentOp
         return
       }
       if (mountRef.current) return
-      const sessionId = options.main ? options.mainSessionId?.() : props.sessionId
+      const sessionId = props.sessionId
       if (typeof sessionId !== 'string') return
+      const tab = tabRef.current
+      const actions = tab?.actions
       const mount: { dispose: (() => void) | null } = { dispose: null }
       mountRef.current = mount
       void mountPanel(element, {
-        ...options,
-        sessionId, ctx,
+        sessionId, ctx, ...(views ? { views } : {}),
+        ...(typeof tab?.id === 'string' ? { tabId: tab.id } : {}),
+        ...(typeof actions?.bindCommands === 'function' ? { bindCommands: commands => actions.bindCommands!(commands) } : {}),
         onOverlays: controller => { if (mountRef.current === mount) setOverlays(controller) },
       }).then(dispose => {
         if (mountRef.current === mount) mount.dispose = dispose
         else dispose()
       })
-    }, [ctx, props.sessionId])
+    }, [ctx, props.sessionId, tabId, views])
     return createElement('div', { className: 'dsh-uml-viewer-panel', 'data-font': FONT_FAMILY },
       createElement('div', { className: 'dsh-uml-viewer-canvas-host', ref: attach }),
       overlays ? createElement(Overlays, { controller: overlays }) : null)
@@ -532,38 +628,23 @@ function installStyles(): () => void {
   }
 }
 
-/** The session the root-scoped main page belongs to, recorded before selection. */
-let mainSessionId: string | null = null
-try {
-  // `main` has no session prop; keep a page-reload on the full-width view on
-  // the same conversation, as well as an expand in the current client.
-  mainSessionId = window.sessionStorage.getItem('dsh-uml-viewer:main-session')
-} catch { /* storage is optional */ }
-
-function layoutOf(ctx: ClientContext): LayoutFace | undefined {
-  return ctx.get('layout') as LayoutFace | undefined
+/**
+ * 「在面板中查看」 (#54): open this session's UML tab through the host's
+ * navigation, which reveals the column and records the navigation like the
+ * sidebar's own controls. The tab kind is this plugin's page; a host without
+ * the service simply has no column to open.
+ */
+function openPanelTab(ctx: ClientContext): void {
+  const sidebar = ctx.get('sidebarRight') as SidebarRightFace | undefined
+  sidebar?.openTab?.(TAB_KIND)
 }
 
 function registerPanels(ctx: ClientContext): void {
-  const Panel = makePanelComponent(ctx, {
-    onExpand(sessionId) {
-      // Set the binding before selecting a root-scoped panel: `main` has no
-      // session prop of its own and must never fall back to another session.
-      mainSessionId = sessionId
-      try { window.sessionStorage.setItem('dsh-uml-viewer:main-session', sessionId) } catch { /* optional */ }
-      layoutOf(ctx)?.selectPanel(PANEL_PATH)
-    },
-  })
-  const MainPanel = makePanelComponent(ctx, {
-    main: true,
-    mainSessionId: () => mainSessionId,
-    onCollapse() {
-      mainSessionId = null
-      try { window.sessionStorage.removeItem('dsh-uml-viewer:main-session') } catch { /* optional */ }
-      layoutOf(ctx)?.selectPanel(null)
-    },
-  })
+  const views = new PanelViews(() => openPanelTab(ctx))
+  const Panel = makePanelComponent(ctx, views)
   ctx.effect(() => installStyles(), 'dsh-uml-viewer: panel style')
+  // The five `uml_*` tool result views (#54); they locate into this panel.
+  ctx.effect(() => registerToolViews(ctx, views), 'dsh-uml-viewer: tool views')
 
   // The tab is bound to the session the right sidebar belongs to; the pane
   // receives that session id from the shell.
@@ -574,12 +655,13 @@ function registerPanels(ctx: ClientContext): void {
     const own = (result: unknown): void => {
       if (typeof result === 'function') disposers.push(result as () => void)
     }
+    const text = panelText(name => ctx.get(name))
     own(tabs.register({
       id: TAB_ID,
       kind: TAB_KIND,
-      title: () => 'UML',
+      title: () => text.t('tab.title'),
       keepMounted: true,
-      guide: [{ id: TAB_ID, order: GUIDE_ORDER, title: () => 'UML', description: () => 'The session project’s namespace tree and quality' }],
+      guide: [{ id: TAB_ID, order: GUIDE_ORDER, title: () => text.t('tab.title'), description: () => text.t('guide.description') }],
     }))
     own(ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register(
       { name: 'sidebar.right.pane.tab', key: TAB_ID },
@@ -587,14 +669,20 @@ function registerPanels(ctx: ClientContext): void {
     )))
     own(ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register(
       { name: 'sidebar.right.pane.tab.title', key: TAB_ID },
-      () => createElement('span', null, 'UML'),
-    )))
-    own(ctx.slots.inject('main', () => ctx.slots.register(
-      { name: 'main', key: PANEL_PATH },
-      props => MainPanel(props as ClientPanelProps),
+      () => createElement('span', null, text.t('tab.title')),
     )))
     if (typeof tabs.register !== 'function') return
     return () => { for (const dispose of disposers) dispose() }
+  })
+
+  // Closing the UML tab, or a replacement that removes it, is the explicit
+  // close (D13). Collapse, fullscreen or presentation changes and plugin
+  // unload never call this; they only unmount the body (a withdrawal).
+  ctx.inject(['sidebarRight'], (injected) => {
+    const sidebar = (injected as unknown as { sidebarRight?: SidebarRightFace }).sidebarRight
+    if (typeof sidebar?.registerCloseHandler !== 'function') return
+    const dispose = sidebar.registerCloseHandler(TAB_KIND, (sessionId, tab) => closeTab(ctx, sessionId, tab.id))
+    return typeof dispose === 'function' ? dispose : undefined
   })
 }
 

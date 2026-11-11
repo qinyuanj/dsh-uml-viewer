@@ -85,11 +85,11 @@ function points(actual: [number, number][], expected: [number, number][], label:
  * the window's own numbers rather than this suite's reimplementation.
  */
 const NATIVE_HEADS: Record<string, { tip: [number, number]; a: [number, number]; c: [number, number]; back: [number, number] }> = {
-  ':core.order→:core.price': { tip: [670, 537], a: [664.08026, 522.1354], c: [655.9104, 529.4182], back: [659.3533, 525.0565] },
-  ':core.order→:core.cart': { tip: [514.8, 537], a: [520.27234, 521.9649], c: [509.32767, 521.9649], back: [514.8, 521] },
-  ':core.cart→:core.price': { tip: [630, 593.4], a: [619.64777, 581.2004], c: [614.22797, 590.7088], back: [616.09955, 585.47675] },
-  ':core.price→:core.cart': { tip: [590, 593.4], a: [605.77203, 590.7088], c: [600.35223, 581.2004], back: [603.90045, 585.47675] },
-  ':core.cart→:core': { tip: [690, 339], a: [683.6315, 353.67795], c: [694.5563, 354.33755], back: [689.0357, 354.97092] },
+  ':core.order→:core.price': { tip: [670, 519.0], a: [664.08026, 504.1354], c: [655.9104, 511.4182], back: [659.3533, 507.0565] },
+  ':core.order→:core.cart': { tip: [514.8, 519.0], a: [520.27234, 503.9649], c: [509.32767, 503.9649], back: [514.8, 503.0] },
+  ':core.cart→:core.price': { tip: [630, 575.4], a: [619.64777, 563.2004], c: [614.22797, 572.7088], back: [616.09955, 567.47675] },
+  ':core.price→:core.cart': { tip: [590, 575.4], a: [605.77203, 572.7088], c: [600.35223, 563.2004], back: [603.90045, 567.47675] },
+  ':core.cart→:core': { tip: [690, 321.0], a: [683.6315, 335.67795], c: [694.5563, 336.33755], back: [689.0357, 336.97092] },
 }
 
 describe('relation edges from the producer goldens', () => {
@@ -145,9 +145,10 @@ describe('relation edges from the producer goldens', () => {
     expect(triangle).toMatchObject({ from: ':store', to: ':core', head: 'triangle', width: 1.6,
       stroke: { role: 'relation' }, fill: { role: 'canvas' } })
     const drawn = paths(paintEdge(root, triangle))
-    // Native paint_head f32 output for :store→:core at zoom 0.8346456692913385.
+    // Native paint_head f32 output for :store→:core, re-read at the fit this
+    // frame is produced with (#46: no chrome strip reserved, zoom 0.8700787401574803).
     points(drawn[0]!.points, [
-      [620.0652, 581.8583], [626.942, 570.4107], [617.9748, 568.6686],
+      [620.4925, 569.03153], [627.66124, 557.09795], [618.31335, 555.28189],
     ], 'implements triangle')
     expect(drawn[0]!.op.fillStyle).toBe('#161c20')
     expect(drawn[0]!.op.strokeStyle).toBe('#9db8a8')

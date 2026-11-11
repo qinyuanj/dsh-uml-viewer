@@ -1,0 +1,28 @@
+;; #45 state-event goldens: the shop fixture with two namespace levels to
+;; drill into and a proposal whose layer holds a nested group, so the
+;; breadcrumb path covers the source tree, a proposal, a layer and a group.
+;; Hand-written like the scene core's own test documents: the IR pipeline is
+;; not under test here.
+{:hierarchical true
+ :title "Levels"
+ :prefix "levels"
+ :edge-kinds {}
+ :omit-edges []
+ :levels [[core] [api]]
+ :order [api core]
+ :omit []
+ :classes
+ [{:id :api.serve :name "serve" :ns "levels.api.serve" :lang :rust :level 1
+   :ops [{:name "serve" :text "serve"}]}
+  {:id :core.inner :name "inner" :ns "levels.core.inner" :lang :rust :level 0
+   :ops []}
+  {:id :core.inner.order :name "order" :ns "levels.core.inner.order" :lang :rust :level 0
+   :ops [{:name "place" :text "place"}]}]
+ :edges
+ [{:from :api.serve :to :core.inner.order :kind :dependency}]
+ :proposals
+ [{:id :p-levels :name "Levels proposal"
+   :layers [{:id :domain :label "Domain"
+             :nses [{:id :core-group :label "Core" :nses [core]}]}
+            {:id :edge :label "Edge" :nses [api]}]
+   :omit []}]}

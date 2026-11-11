@@ -22,6 +22,7 @@ describe('panel Remote descriptors', () => {
     expect(watch.service).toBe(REMOTE_SERVICE)
     expect(watch.namespace).toBe(REMOTE_SERVICE)
     expect(watch.scope).toEqual({ context: 'agent', wire: 'agentId' })
+    // The legacy watch keeps its version-1 wire shape; the language rides on watchOwned (#44).
     expect(watch.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup']])
     expect(watch.parameters[0]!.codec.typeSymbol).toBe('@deepseek-ai/dsh-session/types#SessionId')
     expect(watch.cancellation).toEqual({ parameter: 'signal' })
@@ -55,9 +56,10 @@ describe('panel Remote descriptors', () => {
     expect(close.id).toBe('dsh-uml-viewer#umlViewer/closeOwned')
     expect(close.mode).toBeUndefined()
     expect(close.cancellation).toBeUndefined()
+    expect(watch.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup'], ['owner', 'json'], ['language', 'json']])
+    expect(close.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup'], ['owner', 'json']])
     for (const descriptor of [watch, close]) {
       expect(descriptor.scope).toEqual({ context: 'agent', wire: 'agentId' })
-      expect(descriptor.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup'], ['owner', 'json']])
       expect(descriptor.parameters[0]!.codec.typeSymbol).toBe('@deepseek-ai/dsh-session/types#SessionId')
       const owner = descriptor.parameters[1]!.codec.create()
       expect(owner.parse({ pageId: 'page-1', holderId: 'a_b-C' })).toEqual({ pageId: 'page-1', holderId: 'a_b-C' })
@@ -71,6 +73,23 @@ describe('panel Remote descriptors', () => {
     expect(close.result.create().parse({ closed: false })).toEqual({ closed: false })
   })
 
+  it('takes a locale tag, or nothing, as the watch language (#44)', () => {
+    for (const method of ['watchOwned']) {
+      const descriptor = UML_VIEWER_REMOTE.descriptors.find(entry => entry.method === method)!
+      const language = descriptor.parameters.find(parameter => parameter.wire === 'language')!.codec.create()
+      expect(language.parse('zh')).toBe('zh')
+      expect(language.parse('zh-CN')).toBe('zh-CN')
+      expect(language.parse('en')).toBe('en')
+      // An older panel passes none; the resident keeps its language.
+      expect(language.parse(undefined)).toBeNull()
+      expect(language.parse(null)).toBeNull()
+      expect(() => language.parse(7)).toThrow(/language/)
+      expect(() => language.parse('')).toThrow(/language/)
+      expect(() => language.parse('zh;rm -rf')).toThrow(/language/)
+      expect(() => language.parse('x'.repeat(36))).toThrow(/language/)
+    }
+  })
+
   it('parses every event kind the panel receives, and rejects the rest', () => {
     const events = [
       { kind: 'ready', actions: ['open', 'display'] },
@@ -78,7 +97,12 @@ describe('panel Remote descriptors', () => {
       { kind: 'context', context: { kind: 'real', edn: '{:context :real}' } },
       { kind: 'context', context: { kind: 'proposal', proposalId: ':p-shop', name: 'P', edn: '{:context :proposal}' } },
       { kind: 'state', state: { schema: 'dsh-uml-viewer/session-state', version: 1, diagram: null, context: null,
-        focus: [], proposalId: null, openLayer: null, declutter: null, camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null } },
+        focus: [], proposalId: null, openLayer: null, declutter: null, camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null },
+        breadcrumbs: [{ id: null, name: 'Shop' }], status: null, proposals: [] },
+      { kind: 'state', state: { schema: 'dsh-uml-viewer/session-state', version: 1, diagram: null, context: null,
+        focus: [':core'], proposalId: null, openLayer: null, declutter: null, camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null },
+        breadcrumbs: [{ id: null, name: 'Shop' }, { id: ':core', name: 'core' }], status: { code: 'missing-file', path: 'diagram.edn' },
+        proposals: [{ id: ':p-shop', name: 'Shop split' }] },
       { kind: 'search', query: 'a', results: [] },
       { kind: 'refused', reason: 'read-only sandbox' },
       { kind: 'failed', reason: 'resident exited 3' },
@@ -90,22 +114,84 @@ describe('panel Remote descriptors', () => {
     expect(() => parsePanelEvent({ kind: 'refused' })).toThrow(/reason/)
   })
 
+  // #51: the session's whole request-status list, pushed on subscribe and on
+  // every change. Each entry names its id, op, target, state, reason and exit code.
+  it('parses the request-status list and rejects a malformed one', () => {
+    const event = { kind: 'request-status', requests: [
+      { id: 'g-1', op: 'refresh-crap', target: { id: ':core.order', kind: 'class' }, state: 'queued', reason: null, exitCode: null },
+      { id: 'g-2', op: 'omit', target: { id: ':core', kind: 'component' }, state: 'running', reason: null, exitCode: null },
+      { id: 'g-3', op: 'refresh-mutate', target: null, state: 'failed', reason: 'no class :x', exitCode: null },
+      { id: 'g-4', op: 'refresh-mutate-all', target: { id: ':api', kind: 'class' }, state: 'failed', reason: 'mutate failed', exitCode: 2 },
+      { id: 'g-5', op: 'context', target: null, state: 'done', reason: null, exitCode: null },
+      { id: 'g-6', op: 'new-proposal', target: null, state: 'queued', reason: null, exitCode: null },
+    ] }
+    expect(parsePanelEvent(event)).toEqual(event)
+    expect(parsePanelEvent({ kind: 'request-status', requests: [] })).toEqual({ kind: 'request-status', requests: [] })
+    const entry = event.requests[0]!
+    const bad = (patch: Record<string, unknown>) => ({ kind: 'request-status', requests: [{ ...entry, ...patch }] })
+    expect(() => parsePanelEvent({ kind: 'request-status' })).toThrow(/requests/)
+    expect(() => parsePanelEvent({ kind: 'request-status', requests: [null] })).toThrow(/requests\[0\]/)
+    expect(() => parsePanelEvent(bad({ id: '' }))).toThrow(/id/)
+    expect(() => parsePanelEvent(bad({ id: 7 }))).toThrow(/id/)
+    expect(() => parsePanelEvent(bad({ op: 'refresh-dry' }))).toThrow(/op/)
+    expect(() => parsePanelEvent(bad({ state: 'cancelled' }))).toThrow(/state/)
+    expect(() => parsePanelEvent(bad({ target: { id: 'core', kind: 'class' } }))).toThrow(/keyword/)
+    expect(() => parsePanelEvent(bad({ target: { id: ':core', kind: 'layer' } }))).toThrow(/kind/)
+    expect(() => parsePanelEvent(bad({ reason: 3 }))).toThrow(/reason/)
+    expect(() => parsePanelEvent(bad({ exitCode: 1.5 }))).toThrow(/exitCode/)
+    expect(() => parsePanelEvent(bad({ exitCode: '2' }))).toThrow(/exitCode/)
+    // A failure always says why; nothing else carries a reason.
+    expect(() => parsePanelEvent(bad({ state: 'failed', reason: null }))).toThrow(/reason/)
+    // Two entries with one id would make the list ambiguous for #52/#53.
+    expect(() => parsePanelEvent({ kind: 'request-status', requests: [entry, entry] })).toThrow(/duplicate/)
+    // The same contract guards the Remote's watch result codec.
+    const watch = UML_VIEWER_REMOTE.descriptors.find(descriptor => descriptor.method === 'watchOwned')!
+    expect(watch.result.create().parse(event)).toEqual(event)
+    expect(() => watch.result.create().parse(bad({ state: 'nope' }))).toThrow(/state/)
+  })
+
   it('accepts the documented panel actions and refuses anything else', () => {
     const actions = [
       { action: 'viewport', viewport: { width: 800, height: 600 } },
       { action: 'camera', x: 1, y: 2, zoom: 0.5 },
       { action: 'display', path: 'diagram.edn' },
-      { action: 'reload' }, { action: 'back' }, { action: 'namespace-tree' }, { action: 'declutter' }, { action: 'save' },
+      { action: 'reload' }, { action: 'back' }, { action: 'back', target: ':core' }, { action: 'back', target: null },
+      { action: 'namespace-tree' }, { action: 'declutter' }, { action: 'declutter', mode: 'triangles' },
+      { action: 'declutter', mode: 'full' }, { action: 'save' },
       { action: 'drill-in', id: ':core' }, { action: 'drill-in', at: [1, 2] },
       { action: 'select', at: null }, { action: 'select', at: [3, 4] },
       { action: 'search', query: 'graph' }, { action: 'locate', id: ':ir.graph' },
       { action: 'context', proposalId: null }, { action: 'context', proposalId: ':p-shop' },
+      { action: 'language', language: 'zh-CN' }, { action: 'language', language: 'en' },
     ]
     for (const action of actions) expect(parsePanelAction(action), action.action).toEqual(action)
     expect(() => parsePanelAction({ action: 'shell', argv: ['rm'] })).toThrow(/action/)
     expect(() => parsePanelAction({ action: 'display', path: '../escape.edn' })).toThrow(/relative/)
     expect(() => parsePanelAction({ action: 'viewport', viewport: { width: 'big', height: 1 } })).toThrow(/width/)
     expect(() => parsePanelAction({ action: 'search' })).toThrow(/query/)
+    // #45: a breadcrumb click names its level; anything else is not a target.
+    expect(() => parsePanelAction({ action: 'back', target: 7 })).toThrow(/target/)
+    expect(() => parsePanelAction({ action: 'back', target: {} })).toThrow(/target/)
+    expect(() => parsePanelAction({ action: 'language' })).toThrow(/language/)
+    expect(() => parsePanelAction({ action: 'language', language: 'en\n' })).toThrow(/language/)
+    // The More menu names a declutter mode (#46); a mode the resident does not
+    // know is a broken panel, not a request to send.
+    expect(() => parsePanelAction({ action: 'declutter', mode: 'sideways' })).toThrow(/declutter mode/)
+    expect(() => parsePanelAction({ action: 'declutter', mode: 3 })).toThrow(/mode/)
+  })
+
+  // #53: dismissing a finished request names it by its request-status id.
+  it('accepts a request dismissal by id and refuses one without a valid id', () => {
+    expect(parsePanelAction({ action: 'dismiss-request', id: 'req-1_a' })).toEqual({ action: 'dismiss-request', id: 'req-1_a' })
+    expect(() => parsePanelAction({ action: 'dismiss-request' })).toThrow(/id/)
+    expect(() => parsePanelAction({ action: 'dismiss-request', id: '' })).toThrow(/id/)
+    expect(() => parsePanelAction({ action: 'dismiss-request', id: 'a b' })).toThrow(/id/)
+    expect(() => parsePanelAction({ action: 'dismiss-request', id: 'x'.repeat(129) })).toThrow(/id/)
+    // The descriptor's codec is the same validator, so the carrier refuses it too.
+    const action = UML_VIEWER_REMOTE.descriptors.find(descriptor => descriptor.method === 'action')!
+    const codec = action.parameters.find(parameter => parameter.name === 'action')!.codec.create()
+    expect(codec.parse({ action: 'dismiss-request', id: 'r1' })).toEqual({ action: 'dismiss-request', id: 'r1' })
+    expect(() => codec.parse({ action: 'dismiss-request', id: 7 })).toThrow(/id/)
   })
 
   it('names the packaged Sarasa face the client loads', () => {
@@ -124,10 +210,25 @@ describe('uml_display contract', () => {
 
   it('returns a version-1 record with the ADR 0001 fields', () => {
     const record = { version: 1, operation: 'display', projectRoot: 'D:/p', path: 'diagram.edn', exitCode: null,
-      validResult: true, crapScope: null, configured: false, tool: 'uml-viewer', status: 'ok', reason: null }
+      validResult: true, crapScope: null, configured: false, tool: 'uml-viewer', status: 'ok', reason: null, target: null }
     expect(validateDisplayResult(record)).toEqual(record)
     expect(DISPLAY_RESULT_SCHEMA.properties.operation).toMatchObject({ const: 'display' })
     expect(() => validateDisplayResult({ ...record, status: 'applied' })).toThrow(/status/)
     expect(() => validateDisplayResult({ ...record, operation: 'ir' })).toThrow(/operation/)
+  })
+
+  // #54: the panel request a display answers names one element; the result
+  // carries it so 「在面板中查看」 can locate the element. A display that answers
+  // no request says so with null.
+  it('carries the element target a display answers, validated like a panel request', () => {
+    const record = { version: 1, operation: 'display', projectRoot: 'D:/p', path: 'diagram.edn', exitCode: null,
+      validResult: true, crapScope: null, configured: false, tool: 'uml-viewer', status: 'ok', reason: null,
+      target: { id: ':core', kind: 'component' } }
+    expect(validateDisplayResult(record)).toEqual(record)
+    expect(DISPLAY_RESULT_SCHEMA.required).toContain('target')
+    expect(() => validateDisplayResult({ ...record, target: { id: 'core', kind: 'class' } })).toThrow(/keyword/)
+    expect(() => validateDisplayResult({ ...record, target: { id: ':core', kind: 'layer' } })).toThrow(/kind/)
+    expect(() => validateDisplayResult({ ...record, target: undefined })).toThrow(/target/)
+    expect(validateDisplayResult({ ...record, target: null }).target).toBeNull()
   })
 })

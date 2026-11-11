@@ -21,7 +21,7 @@ use edn::Value;
 use scene::document::{self, ViewState};
 use scene::events::{self, Dims};
 
-use frame::{inspector, strings, watch};
+use frame::{detail, discussion, watch};
 
 pub mod display;
 pub mod metrics;
@@ -62,7 +62,9 @@ pub enum Canvas {
 pub enum Action {
     /// Choose the source diagram (`None`) or a proposal as the discussion.
     Choose(Option<Value>),
-    Declutter,
+    /// Cycle the declutter mode, or set it when one is named (#46: the panel's
+    /// Remove arrows toggle names `:triangles` / `:full`).
+    Declutter(Option<Value>),
     CloseCard,
     /// Enter a search result: its namespace, selection, card and centre.
     Locate(Value),
@@ -85,12 +87,43 @@ pub struct Outcome {
     pub context: Option<Value>,
 }
 
+/// The canvas status as a code the panel localizes (#45): the resident names
+/// the state, the panel's language files own the text. The frame no longer
+/// carries a hint at all (#46, ADR 0015); this code is the only spelling.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StatusCode {
+    /// The empty canvas waits for its first `display`.
+    WaitingDisplay,
+    /// The diagram file the session names is not there.
+    MissingFile { path: String },
+}
+
+impl StatusCode {
+    /// The code the panel stream carries.
+    pub fn code(&self) -> &'static str {
+        match self {
+            StatusCode::WaitingDisplay => "waiting-display",
+            StatusCode::MissingFile { .. } => "missing-file",
+        }
+    }
+
+    /// The state event's `status`: the code plus the parameters it needs.
+    pub fn to_json(&self) -> serde_json::Value {
+        match self {
+            StatusCode::WaitingDisplay => serde_json::json!({"code": self.code()}),
+            StatusCode::MissingFile { path } => {
+                serde_json::json!({"code": self.code(), "path": path})
+            }
+        }
+    }
+}
+
 pub struct Session {
     state: ViewState,
     project_root: PathBuf,
     diagram: PathBuf,
-    hint: Option<String>,
-    status: Option<String>,
+    /// The canvas status (a missing diagram); the panel localizes its code.
+    canvas_status: Option<StatusCode>,
     /// When the IR and metrics stamps were last polled; `None` is due.
     last_poll: Option<Instant>,
     force_refresh: bool,
@@ -100,14 +133,14 @@ pub struct Session {
 
 impl Session {
     /// Open the first view of `diagram` in `project_root`. Only an
-    /// unreadable IR is an error; a missing diagram opens with the hint.
+    /// unreadable IR is an error; a missing diagram opens with the canvas
+    /// status saying so.
     pub fn open(project_root: PathBuf, diagram: PathBuf, start: Start) -> Result<Session, String> {
         let mut session = Session {
             state: ViewState::default(),
             project_root,
             diagram,
-            hint: None,
-            status: None,
+            canvas_status: None,
             last_poll: None,
             force_refresh: false,
             loaded_digest: None,
@@ -136,7 +169,7 @@ impl Session {
                     revision: 1,
                     ..ViewState::default()
                 };
-                self.hint = Some(strings::missing_file(&path));
+                self.canvas_status = Some(StatusCode::MissingFile { path: path.clone() });
                 return Ok(());
             }
             Err(error) => return Err(format!("cannot read {path}: {error}")),
@@ -192,7 +225,9 @@ impl Session {
         }
         let path_text = self.diagram.to_string_lossy().into_owned();
         let Ok(mtime) = watch::mtime(&self.diagram) else {
-            self.hint = Some(strings::missing_file(&path_text));
+            self.canvas_status = Some(StatusCode::MissingFile {
+                path: path_text.clone(),
+            });
             return;
         };
         let (snapshots, stamp) = metrics::snapshot(&self.project_root);
@@ -201,7 +236,9 @@ impl Session {
             return;
         }
         let Ok(text) = std::fs::read_to_string(&self.diagram) else {
-            self.hint = Some(strings::missing_file(&path_text));
+            self.canvas_status = Some(StatusCode::MissingFile {
+                path: path_text.clone(),
+            });
             return;
         };
         let (next, reloaded, rejected) =
@@ -212,7 +249,7 @@ impl Session {
             self.loaded_digest = Some(display::digest(&text));
         }
         if next.document.is_some() {
-            self.hint = None;
+            self.canvas_status = None;
         }
         self.state = next;
     }
@@ -239,13 +276,16 @@ impl Session {
         let state = &self.state;
         self.state = match action {
             Action::Choose(id) => {
-                let choice = inspector::choose(state, id.as_ref());
+                let choice = discussion::choose(state, id.as_ref());
                 let mut next = choice.state;
                 next.discussion_context = Some(choice.context.clone());
                 outcome.context = Some(choice.context);
                 next
             }
-            Action::Declutter => events::cycle_declutter(state),
+            Action::Declutter(mode) => match mode.as_ref() {
+                Some(mode) => events::set_declutter(state, mode),
+                None => events::cycle_declutter(state),
+            },
             Action::CloseCard => events::close_detail(state),
             Action::Locate(id) => events::locate(state, &id, dims),
             Action::Drill(id) => events::drill(state, &id),
@@ -257,10 +297,25 @@ impl Session {
         outcome
     }
 
+    /// Return to the breadcrumb level `target` names (`None` is the source
+    /// diagram's root); an id no level of the current path carries is refused
+    /// instead of moving one level.
+    pub fn back_to(&mut self, target: Option<Value>) -> Result<(), String> {
+        let next = events::back_to(&self.state, target.as_ref()).ok_or_else(|| {
+            let label = target.as_ref().map_or_else(
+                || "null".to_owned(),
+                |id| edn::encode(id).unwrap_or_default(),
+            );
+            format!("no breadcrumb level {label} in this view")
+        })?;
+        self.state = next;
+        Ok(())
+    }
+
     /// A wheel over the panel's class card (#27): the shared scroll model
     /// owns the 48-point step and both clamps.
     pub fn scroll_card(&mut self, delta: f64, view_h: f64) {
-        self.state = inspector::scroll(&self.state, delta, view_h);
+        self.state = detail::scroll_card(&self.state, delta, view_h);
     }
 
     /// Apply one host command (`{:op :display :path …}` or
@@ -277,7 +332,7 @@ impl Session {
             self.diagram = PathBuf::from(path);
         }
         if path_changed {
-            self.hint = None;
+            self.canvas_status = None;
         }
     }
 
@@ -318,14 +373,14 @@ impl Session {
         &self.diagram
     }
 
-    /// The canvas hint (a missing diagram), if any.
-    pub fn hint(&self) -> Option<&str> {
-        self.hint.as_deref()
-    }
-
-    /// The status line, if any.
-    pub fn status(&self) -> Option<&str> {
-        self.status.as_deref()
+    /// The canvas status as the code the panel localizes (#45): the empty
+    /// canvas waiting for its first display, or the missing diagram file.
+    pub fn status_code(&self) -> Option<StatusCode> {
+        if self.state.waiting {
+            Some(StatusCode::WaitingDisplay)
+        } else {
+            self.canvas_status.clone()
+        }
     }
 }
 

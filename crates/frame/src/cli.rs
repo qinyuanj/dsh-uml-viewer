@@ -5,14 +5,15 @@
 //!                  [--wide [--aspect <w/h>]] [--extra <edn map>]
 //!                  [--width <pt>] [--height <pt>] [--zoom <z> --camera <x>,<y>]
 //!                  [--select <edn hit>] [--hover <edn hit>] [--pointer <x>,<y>]
-//!                  [--hover-metadata] [--output <file>]
+//!                  [--hover-metadata] [--lang <tag>] [--output <file>]
 //! ```
 //!
 //! Without `--frame` the arguments go to the scene geometry export
 //! unchanged (`scene::run`). The view is fitted to the viewport, as the
 //! window shows a freshly opened diagram, unless `--zoom` places the
 //! camera. A hit is the EDN map hit testing yields, e.g.
-//! `{:kind :class :id :ir.graph}`.
+//! `{:kind :class :id :ir.graph}`. `--lang` is the language the resident
+//! lays text out in (`zh`, else English, the default).
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -21,16 +22,18 @@ use std::process::ExitCode;
 use edn::Value;
 use scene::events::{self, Dims};
 
+use crate::strings::Lang;
+
 const USAGE: &str = "usage: uml-viewer scene --frame --ir <file.edn> [--focus <edn>] \
 [--metrics-root <dir>] [--wide [--aspect <w/h>]] [--extra <edn map>] [--width <pt>] \
 [--height <pt>] [--zoom <z> --camera <x>,<y>] [--select <edn hit>] [--hover <edn hit>] \
-[--pointer <x>,<y>] [--hover-metadata] [--output <file>]";
+[--pointer <x>,<y>] [--hover-metadata] [--lang <tag>] [--output <file>]";
 
 const EX_USAGE: u8 = 2;
 const EX_FAILURE: u8 = 1;
 
 /// The default canvas, in points: the historical 1500x920 window less its
-/// inspector and chrome (`scene::document::WIDE_ASPECT`).
+/// chrome and the inspector it once had (`scene::document::WIDE_ASPECT`).
 pub const DEFAULT_WIDTH: f64 = 1220.0;
 pub const DEFAULT_HEIGHT: f64 = 884.0;
 
@@ -48,6 +51,7 @@ struct Options {
     pointer: Option<(f64, f64)>,
     /// The optional bounded hover metadata (#26); off for the goldens.
     hover_metadata: bool,
+    lang: Lang,
     output: Option<PathBuf>,
 }
 
@@ -105,6 +109,7 @@ fn parse(args: &[OsString]) -> Result<Options, String> {
     let mut hover = None;
     let mut pointer = None;
     let mut hover_metadata = false;
+    let mut lang = Lang::default();
     let mut output = None;
     let mut i = 0;
     while i < args.len() {
@@ -151,6 +156,7 @@ fn parse(args: &[OsString]) -> Result<Options, String> {
             "--hover" => hover = Some(edn_arg(&next(arg)?, arg)?),
             "--pointer" => pointer = Some(pair(&next(arg)?, arg)?),
             "--hover-metadata" => hover_metadata = true,
+            "--lang" => lang = Lang::from_tag(&next(arg)?),
             "--output" => output = Some(PathBuf::from(next(arg)?)),
             other => return Err(format!("unknown option {other}")),
         }
@@ -186,6 +192,7 @@ fn parse(args: &[OsString]) -> Result<Options, String> {
         hover,
         pointer,
         hover_metadata,
+        lang,
         output,
     })
 }
@@ -228,7 +235,7 @@ fn execute(opts: &Options) -> Result<(), String> {
     }
     state.hover = opts.hover.clone();
     state.pointer = opts.pointer;
-    let frame = crate::frame::build(&state, opts.width, opts.height, None, None);
+    let frame = crate::frame::build(&state, opts.width, opts.height, opts.lang);
     // The goldens are written without the optional capability; --hover-metadata
     // adds the same field the resident sends.
     let json = if opts.hover_metadata {

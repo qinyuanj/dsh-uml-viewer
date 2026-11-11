@@ -49,12 +49,12 @@ async function probeFrameAt(panel, frame, point, radius, options) {
   const dx = dotPanX(frame.viewport.width, toScreen(frame, ...point)[0], radius * frame.camera.zoom)
   if (dx === 0) return { frame, restore: async () => {} }
   const box = await panel.canvas.boundingBox()
-  const inspector = await panel.panel.getByRole('complementary', { name: '检查器' }).boundingBox()
-  const exposed = inspector.x - box.x
+  // The whole canvas is exposed since the inspector was deleted (#47).
+  const exposed = box.width
   async function pan(delta) {
     const start = delta < 0 ? exposed - 16 : 16
     expect(start + delta, 'probe pan stays on exposed canvas').toBeGreaterThan(0)
-    expect(start + delta, 'probe pan stays before the inspector').toBeLessThan(exposed)
+    expect(start + delta, 'probe pan stays on the canvas').toBeLessThan(exposed)
     const y = box.y + box.height - 30
     await panel.page.mouse.move(box.x + start, y)
     await panel.page.mouse.down()

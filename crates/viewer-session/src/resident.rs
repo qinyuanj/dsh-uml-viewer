@@ -18,6 +18,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Instant;
 
 use edn::Value;
+use frame::strings::Lang;
 use scene::events::Dims;
 use serde_json::{Value as Json, json};
 
@@ -50,8 +51,8 @@ pub const ACTIONS: &[&str] = &[
     "declutter",
     "save",
     "quit",
-    // #27 overlays (additive; see docs/resident-protocol.md).
-    "inspector",
+    // #27 overlays (additive; see docs/resident-protocol.md). #47 deleted
+    // `inspector`; the `state` event lists the proposals instead.
     "card",
     "open-card",
     "close-card",
@@ -59,6 +60,8 @@ pub const ACTIONS: &[&str] = &[
     "open-source",
     // #28: the panel request targets the host queues (additive).
     "quality-target",
+    // #44: the language the resident lays text out in (additive).
+    "language",
 ];
 
 const USAGE: &str = "usage: uml-viewer resident [--project <dir>]";
@@ -190,6 +193,33 @@ fn error(seq: &Json, message: impl Into<String>) -> Json {
     event("error", seq, json!({"message": message.into()}))
 }
 
+/// The breadcrumb path the panel draws: each level's component id (null for
+/// the source diagram's root) and name (#45).
+fn crumbs_json(state: &scene::ViewState) -> Json {
+    Json::Array(
+        scene::events::breadcrumbs(state)
+            .iter()
+            .map(|crumb| {
+                json!({
+                    "id": crumb.id.as_ref().map_or(Json::Null, |id| Json::String(edn_text(id))),
+                    "name": crumb.name,
+                })
+            })
+            .collect(),
+    )
+}
+
+/// The shown diagram's proposals for the discussion-context switcher (#47):
+/// EDN id and display name, in the document's order.
+fn proposals_json(state: &scene::ViewState) -> Json {
+    Json::Array(
+        frame::discussion::proposals(state)
+            .iter()
+            .map(|p| json!({"id": edn_text(&p.id), "name": p.name}))
+            .collect(),
+    )
+}
+
 /// A saved view whose diagram was not there when the session opened
 /// waiting: the first display of that diagram restores it, and until then
 /// `save` answers it unchanged, so closing the panel early loses nothing.
@@ -199,13 +229,17 @@ struct Pending {
     state: Json,
 }
 
-/// The protocol state: the session once opened, and the client viewport.
+/// The protocol state: the session once opened, the client viewport and the
+/// language the panel last passed. The language belongs to the resident, not
+/// to the session: DSH has one language for every panel, and a saved view
+/// never records it.
 pub struct Resident {
     project: PathBuf,
     session: Option<Session>,
     pending: Option<Pending>,
     width: f64,
     height: f64,
+    language: Lang,
     quit: bool,
 }
 
@@ -217,6 +251,7 @@ impl Resident {
             pending: None,
             width: frame::cli::DEFAULT_WIDTH,
             height: frame::cli::DEFAULT_HEIGHT,
+            language: Lang::default(),
             quit: false,
         }
     }
@@ -236,13 +271,7 @@ impl Resident {
             return error(seq, "no session: send open first");
         };
         session.canvas(Canvas::Fit, dims);
-        let built = frame::frame::build(
-            session.state(),
-            self.width,
-            self.height,
-            session.hint(),
-            session.status(),
-        );
+        let built = frame::frame::build(session.state(), self.width, self.height, self.language);
         // The panel needs the optional bounded hover metadata (#26) to reproduce
         // the window's dependency tooltip and bundled-edge (`via-ids`) warming;
         // both are derived from the scene here, never inferred by the client.
@@ -296,6 +325,9 @@ impl Resident {
                 // Validate both candidates before committing either: an
                 // invalid state/diagram must retain the current viewport,
                 // and an invalid viewport must retain the current session.
+                if action.get("language").is_some_and(|l| !l.is_null()) {
+                    self.language = Lang::from_tag(text(action, "language")?);
+                }
                 let (width, height) = self.viewport(action)?;
                 self.open(action)?;
                 self.width = width;
@@ -368,7 +400,22 @@ impl Resident {
                 }
             }
             "back" => {
-                self.session()?.act(Action::Back, &dims);
+                let session = self.session()?;
+                match action.get("target") {
+                    None => {
+                        session.act(Action::Back, &dims);
+                    }
+                    // The source diagram's root has no component id.
+                    Some(Json::Null) => session.back_to(None)?,
+                    Some(Json::String(_)) => {
+                        session.back_to(Some(edn_field(action, "target")?))?;
+                    }
+                    Some(other) => {
+                        return Err(format!(
+                            "target must be a breadcrumb id or null, not {other}"
+                        ));
+                    }
+                }
             }
             "namespace-tree" => {
                 self.session()?.act(Action::NamespaceTree, &dims);
@@ -416,9 +463,9 @@ impl Resident {
                 };
                 if let Some(id) = &id {
                     let session = self.session()?;
-                    if !frame::inspector::entries(session.state())
+                    if !frame::discussion::proposals(session.state())
                         .iter()
-                        .any(|entry| entry.id.as_ref() == Some(id))
+                        .any(|proposal| &proposal.id == id)
                     {
                         return Err(format!("unknown proposal {}", edn_text(id)));
                     }
@@ -434,32 +481,45 @@ impl Resident {
                 ]);
             }
             "declutter" => {
-                self.session()?.act(Action::Declutter, &dims);
+                // The panel's Remove arrows toggle names the mode it wants
+                // (#46); without one the resident cycles as it always did.
+                let mode = match action.get("mode") {
+                    None => None,
+                    Some(Json::String(name)) => Some(Value::keyword(name)),
+                    Some(other) => {
+                        return Err(format!("mode must be a declutter mode, not {other}"));
+                    }
+                };
+                self.session()?.act(Action::Declutter(mode), &dims);
             }
             "save" => {
-                let saved = match &self.pending {
-                    Some(pending) => pending.state.clone(),
-                    None => self.session()?.saved_state(),
-                };
-                return Ok(vec![event("state", seq, json!({"state": saved}))]);
+                // The pending snapshot stands in for the view until its
+                // diagram is displayed; the breadcrumbs and status are the
+                // live session's either way.
+                let pending = self.pending.as_ref().map(|pending| pending.state.clone());
+                let session = self.session()?;
+                let saved = pending.unwrap_or_else(|| session.saved_state());
+                return Ok(vec![event(
+                    "state",
+                    seq,
+                    json!({
+                        "state": saved,
+                        "breadcrumbs": crumbs_json(session.state()),
+                        "status": session.status_code().map_or(Json::Null, |code| code.to_json()),
+                        "proposals": proposals_json(session.state()),
+                    }),
+                )]);
             }
             "quit" => {
                 self.quit = true;
                 return Ok(vec![event("ack", seq, json!({}))]);
             }
-            // #27: the panel's inspector, class card and source window.
-            "inspector" => {
-                let inspector = overlays::inspector_json(self.session()?);
-                return Ok(vec![event(
-                    "inspector",
-                    seq,
-                    json!({"inspector": inspector}),
-                )]);
-            }
+            // #27: the panel's class card and source window.
             "card" => {
                 let width = optional_number(action, "width")?;
                 let view_height = optional_number(action, "viewHeight")?;
-                let card = overlays::card_json(self.session()?, width, view_height)?;
+                let language = self.language;
+                let card = overlays::card_json(self.session()?, width, view_height, language);
                 return Ok(vec![event("card", seq, json!({"card": card}))]);
             }
             "open-card" => {
@@ -505,7 +565,8 @@ impl Resident {
                     Some(Json::String(name)) => Some(name.as_str()),
                     Some(other) => return Err(format!("member must be a string, not {other}")),
                 };
-                let source = overlays::source_json(self.session()?, &id, member)?;
+                let language = self.language;
+                let source = overlays::source_json(self.session()?, &id, member, language)?;
                 return Ok(vec![event("source", seq, json!({"source": source}))]);
             }
             // #28: what this resident's loaded diagram shows for one panel
@@ -519,6 +580,15 @@ impl Resident {
                     seq,
                     json!({"target": target}),
                 )]);
+            }
+            // #44: the panel passes the DSH language; the latest one wins.
+            // The frame answers it, so every panel redraws its 无数据 markers
+            // and asks again for an open class card.
+            "language" => {
+                self.language = Lang::from_tag(text(action, "language")?);
+                if self.session.is_none() {
+                    return Ok(vec![event("ack", seq, json!({}))]);
+                }
             }
             other => return Err(format!("unknown action {other}")),
         }

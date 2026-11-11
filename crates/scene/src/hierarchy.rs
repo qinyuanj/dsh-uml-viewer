@@ -505,7 +505,7 @@ pub fn named_proposals(x: &Value) -> Vec<Value> {
     policy::named_proposals(x)
 }
 
-fn chosen(doc: &Value, which: Option<&Value>) -> (Option<Value>, Option<Value>) {
+pub(crate) fn chosen(doc: &Value, which: Option<&Value>) -> (Option<Value>, Option<Value>) {
     let named = match which {
         Some(w @ Value::Map(_)) if get(w, "layers").is_some() => Some(w.clone()),
         Some(w) if !matches!(w, Value::Nil) => policy::proposal_by_id(doc, Some(w)),

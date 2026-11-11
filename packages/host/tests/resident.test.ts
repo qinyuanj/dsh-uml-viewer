@@ -162,7 +162,7 @@ it('rejects requests still pending when the resident fails or ends', async () =>
   const failed = h.resident.request({ action: 'card' })
   h.resident.fail('uml-viewer resident exited (exit 1)')
   await expect(failed).rejects.toThrow(/exit 1/)
-  const ended = h.resident.request({ action: 'inspector' })
+  const ended = h.resident.request({ action: 'search', query: 'x' })
   h.resident.end()
   await expect(ended).rejects.toThrow(/session ended/)
 })

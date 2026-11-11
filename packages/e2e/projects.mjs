@@ -27,6 +27,7 @@ export async function makeProjects(home) {
     projects[name] = root
   }
   projects.atlas = await makeAtlas(home)
+  projects.levels = await makeLevels(home)
   projects.inspector = await makeInspector(home)
   projects.deep = await makeDeep(home)
   projects.nexus = await makeNexus(home)
@@ -76,6 +77,37 @@ async function makeDeep(home) {
     'core/price.ts': 'export class Price { total(): number { return 42 } }\n',
     'alpha/deep/解析器.ts': 'export class 解析器 { parse(): number { return 1 } }\n',
     'beta/解析器.ts': 'export class 解析器 { parse(): number { return 2 } }\n',
+  }
+  for (const [name, text] of Object.entries(sources)) {
+    const file = path.join(root, 'src', name)
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    await fs.writeFile(file, text)
+  }
+  return root
+}
+
+/**
+ * The breadcrumb sample (#45): two namespace levels to drill into and a
+ * proposal whose layer holds a nested group, so the top bar's path has the
+ * same depth in the source tree and in a proposal.
+ */
+async function makeLevels(home) {
+  const root = path.join(home, 'projects', 'levels')
+  await fs.mkdir(path.join(root, 'src'), { recursive: true })
+  await fs.writeFile(path.join(root, 'policy.edn'), `{:hierarchical true
+ :title "Levels"
+ :prefix "levels"
+ :sources [{:lang :typescript :root "src" :prefix "levels"}]
+ :levels [[core] [api]]
+ :order [api core]
+ :proposals [{:id :p-levels :name "Levels proposal"
+              :layers [{:id :domain :label "Domain"
+                        :nses [{:id :core-group :label "Core" :nses [core]}]}
+                       {:id :edge :label "Edge" :nses [api]}]}]
+ :out "diagram.edn"}\n`)
+  const sources = {
+    'api/serve.ts': "import { Order } from '../core/inner/order.js'\nexport class Api {\n  order = new Order()\n}\n",
+    'core/inner/order.ts': 'export class Order {\n  total(): number { return 42 }\n}\n',
   }
   for (const [name, text] of Object.entries(sources)) {
     const file = path.join(root, 'src', name)

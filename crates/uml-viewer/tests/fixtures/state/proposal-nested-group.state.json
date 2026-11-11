@@ -1,0 +1,23 @@
+{
+  "breadcrumbs": [
+    {
+      "id": ":p-levels",
+      "name": "Levels proposal"
+    },
+    {
+      "id": ":proposal.domain",
+      "name": "Domain"
+    },
+    {
+      "id": ":core-group",
+      "name": "Core"
+    }
+  ],
+  "proposals": [
+    {
+      "id": ":p-levels",
+      "name": "Levels proposal"
+    }
+  ],
+  "status": null
+}

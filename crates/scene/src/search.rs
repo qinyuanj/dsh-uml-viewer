@@ -1,5 +1,6 @@
-//! Inspector search (port of `application/inspector.lua` search): UTF-8
-//! substring over class names and namespaces, ASCII case-insensitive.
+//! Class search (port of the deleted inspector's search,
+//! `application/inspector.lua`): UTF-8 substring over class names and
+//! namespaces, ASCII case-insensitive.
 
 use edn::Value;
 use edn::record::{get, name};

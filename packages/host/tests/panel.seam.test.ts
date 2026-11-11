@@ -135,16 +135,30 @@ async function setup(options: {
   }
   const viewer = () => ctx.get('umlViewer') as unknown as {
     watch(agent: Agent, signal: AbortSignal): AsyncIterable<PanelEvent>
+    watchOwned(agent: Agent, owner: { pageId: string; holderId: string }, language: string | null, signal: AbortSignal): AsyncIterable<PanelEvent>
     action(agent: Agent, action: unknown): Promise<{ accepted: boolean; reason: string | null }>
     close(agent: Agent): Promise<{ closed: boolean }>
   }
-  const stream = (session: string) => {
+  const stream = (session: string, owned?: { holderId: string; language: string | null }) => {
     const controller = new AbortController()
     controllers.push(controller)
-    const iterator = viewer().watch(agents[session]!, controller.signal)[Symbol.asyncIterator]()
+    // The owned stream is called as the gateway calls it: its parameters in
+    // descriptor order, then the cancellation signal.
+    const iterator = (owned
+      ? viewer().watchOwned(agents[session]!, { pageId: 'page', holderId: owned.holderId }, owned.language, controller.signal)
+      : viewer().watch(agents[session]!, controller.signal))[Symbol.asyncIterator]()
+    /** Every event, including the request-status lists (#51). */
+    const any = async () => (await iterator.next()) as IteratorResult<PanelEvent>
     return {
       controller,
-      next: async () => (await iterator.next()) as IteratorResult<PanelEvent>,
+      any,
+      /** The next scene/display event: the request-status lists (#51) are skipped. */
+      next: async () => {
+        for (;;) {
+          const result = await any()
+          if (result.done || result.value.kind !== 'request-status') return result
+        }
+      },
       /** A user close: the explicit Remote call, then the stream's own teardown. */
       close: async () => {
         await viewer().close(agents[session]!)
@@ -286,6 +300,28 @@ it('falls back to the source diagram when the persisted proposal no longer exist
   await reader.close()
 })
 
+// #51: the request-status list follows the opening events on every stream kind,
+// even when nothing was ever requested.
+it('sends the session’s request-status list right after the opening events', async () => {
+  const { stream } = await setup()
+  for (const owned of [undefined, { holderId: 'h1', language: 'en' }]) {
+    const reader = stream('session-a', owned)
+    const kinds: string[] = []
+    for (;;) {
+      const event = (await timeout(reader.any())).value!
+      kinds.push(event.kind)
+      if (event.kind === 'request-status') {
+        expect(event.requests).toEqual([])
+        break
+      }
+    }
+    expect(kinds.at(-1)).toBe('request-status')
+    expect(kinds[0]).toBe('ready')
+    expect(kinds.filter(kind => kind === 'request-status')).toHaveLength(1)
+    await reader.withdraw()
+  }
+})
+
 it('restores an existing persisted proposal after showing a diagram', async () => {
   const { home, projects, tool } = await setup()
   const stored = await seedState(home, 'session-a', {
@@ -379,6 +415,34 @@ it('streams the resident scene frame to the panel bound to that session', async 
   await reader.close()
   expect((await actionLog(projects['session-a']!)).map(entry => entry.action))
     .toEqual(['open', 'reload', 'save', 'search', 'save', 'quit'])
+})
+
+it('passes the panel language to the resident on open and on a switch (#44)', async () => {
+  const { stream, projects, agents, viewer, home } = await setup()
+  const reader = stream('session-a', { holderId: 'first', language: 'zh-CN' })
+  expect((await timeout(reader.next())).value?.kind).toBe('ready')
+  expect((await timeout(reader.next())).value?.kind).toBe('frame')
+  // The open action carries the language; the resident is not restarted for it.
+  const actions = await actionLog(projects['session-a']!)
+  expect(actions[0]).toMatchObject({ action: 'open', language: 'zh-CN' })
+
+  // The same session's other panel passed no language (an older panel): the
+  // latest writer decides, so it does not push the resident back to English.
+  const other = stream('session-a', { holderId: 'second', language: null })
+  expect((await timeout(other.next())).value?.kind).toBe('ready')
+  expect((await actionLog(projects['session-a']!)).filter(entry => entry.action === 'open')).toHaveLength(1)
+
+  // A DSH language switch reaches the resident, without any save of a language.
+  expect(await viewer().action(agents['session-a']!, { action: 'language', language: 'en' }))
+    .toEqual({ accepted: true, reason: null })
+  expect((await actionLog(projects['session-a']!)).find(entry => entry.action === 'language'))
+    .toMatchObject({ action: 'language', language: 'en' })
+  // A view change persists the view; it never records the language, which is the resident's.
+  expect(await viewer().action(agents['session-a']!, { action: 'declutter' })).toMatchObject({ accepted: true })
+  await reader.withdraw()
+  await other.withdraw()
+  const state = await readJson(path.join(home, 'dsh-uml-viewer', 'sessions', 'session-a.json'))
+  expect(Object.keys(state).filter(key => key.startsWith('lang'))).toEqual([])
 })
 
 it('keeps one resident per session and stops it when the last panel closes', async () => {
@@ -527,6 +591,26 @@ it('persists the panel view state per session and restores it when the panel reo
     .trim().split('\n')[3]!) as { state?: unknown }
   expect(openAction.state).toMatchObject({ declutter: ':triangles' })
   await reopen.close()
+})
+
+it('forwards the state event’s breadcrumb path, status code and proposals to the panel (#45, #47)', async () => {
+  const { stream, viewer, agents } = await setup()
+  const reader = stream('session-a')
+  // ready, then the frame the resident opened with.
+  await timeout(reader.next())
+  await timeout(reader.next())
+  expect(await viewer().action(agents['session-a']!, { action: 'save' })).toEqual({ accepted: true, reason: null })
+  const next = await timeout(reader.next())
+  expect(next.done).toBe(false)
+  expect(next.value).toEqual({
+    kind: 'state',
+    state: expect.objectContaining({ schema: 'dsh-uml-viewer/session-state', version: 1 }),
+    breadcrumbs: [{ id: null, name: 'Shop' }, { id: ':core', name: 'core' }],
+    status: { code: 'waiting-display' },
+    // #47: the discussion-context switcher's list.
+    proposals: [{ id: ':p-shop', name: 'Shop split' }],
+  })
+  await reader.close()
 })
 
 it('persists the view as soon as a panel action changes it, not only when the panel closes', async () => {

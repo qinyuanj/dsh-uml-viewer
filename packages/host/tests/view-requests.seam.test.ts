@@ -344,3 +344,73 @@ it('carries the #29 request formats and the request-id rule in the embedded comp
     expect(rules).toContain(phrase)
   }
 })
+
+// #54: 「在面板中查看」 locates the element the answered panel request named, so
+// the display result must say which element a request was about, once, and only
+// for the session that made the request.
+it('names the element a display answers in its result, once, for that session alone', async () => {
+  const s = await setup({
+    resident: { qualityTargets: { ':core': { kind: 'component', files: ['src/core/order.ts'] } } },
+  })
+  await s.open('session-a')
+  // A display that answers no request names no element: the conversation only opens the tab.
+  expect(await s.tool('uml_ir', {})).toMatchObject({ status: 'ok' })
+  expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: null })
+  // The request admitted in this session names its element for the display that answers it.
+  expect(await s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':core' }))
+    .toEqual({ accepted: true, reason: null })
+  expect(await s.tool('uml_ir', {})).toMatchObject({ status: 'ok' })
+  expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: { id: ':core', kind: 'component' } })
+  // The next display answers no request: the target belonged to the one before it.
+  expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: null })
+  // Another session's display names nothing of this session's request.
+  expect(await s.tool('uml_ir', {}, 'session-b')).toMatchObject({ status: 'ok' })
+  expect(await s.tool('uml_display', {}, 'session-b')).toMatchObject({ status: 'ok', target: null })
+})
+
+// #51 request status A: a hide and a new proposal are queued under the id their
+// uml_ir presents; a context switch is done once admitted; a refusal fails.
+function statuses(events: PanelEvent[]) {
+  return events.flatMap(event => event.kind === 'request-status' ? [event.requests] : [])
+}
+
+it('queues a hide and a new proposal under the request id their uml_ir presents', async () => {
+  const s = await setup()
+  const panel = await s.open('session-a')
+  await s.act('session-a', { action: 'omit', id: ':view' })
+  await s.act('session-a', { action: 'new-proposal', name: 'Next' })
+  await until(() => statuses(panel.events).at(-1)?.length === 2)
+  expect(statuses(panel.events).at(-1)).toEqual([
+    { id: requestIdOf(s.texts()[0]!), op: 'omit', target: { id: ':view', kind: 'component' }, state: 'queued', reason: null, exitCode: null },
+    { id: requestIdOf(s.texts()[1]!), op: 'new-proposal', target: null, state: 'queued', reason: null, exitCode: null },
+  ])
+})
+
+it('completes a context switch as soon as it is admitted, without queuing it', async () => {
+  const s = await setup()
+  const panel = await s.open('session-a')
+  expect(await s.act('session-a', { action: 'context', proposalId: ':p-shop' })).toEqual({ accepted: true, reason: null })
+  await until(() => statuses(panel.events).at(-1)?.length === 1)
+  expect(statuses(panel.events).at(-1)).toEqual([
+    { id: s.admitted[0]!.requestId, op: 'context', target: null, state: 'done', reason: null, exitCode: null }])
+  expect(statuses(panel.events).flat().some(entry => entry.state === 'queued')).toBe(false)
+})
+
+it('fails a refused hide, context switch or proposal with the admission reason', async () => {
+  const s = await setup({ resident: { unknownProposals: [':gone'] } })
+  const panel = await s.open('session-a')
+  await s.act('session-a', { action: 'omit', id: ':serde' })
+  await s.act('session-a', { action: 'context', proposalId: ':gone' })
+  s.reject(() => new Error('session is archived'))
+  await s.act('session-a', { action: 'new-proposal', name: 'Next' })
+  await until(() => statuses(panel.events).at(-1)?.length === 3)
+  expect(statuses(panel.events).at(-1)).toEqual([
+    // #52 F26: the element the browser clicked is named even though the hide
+    // was refused; a context switch or proposal names none.
+    { id: expect.any(String), op: 'omit', target: { id: ':serde', kind: 'class' }, state: 'failed',
+      reason: expect.stringMatching(/foreign library/), exitCode: null },
+    { id: expect.any(String), op: 'context', target: null, state: 'failed', reason: 'unknown proposal :gone', exitCode: null },
+    { id: expect.any(String), op: 'new-proposal', target: null, state: 'failed', reason: 'session is archived', exitCode: null },
+  ])
+  expect(s.admitted).toEqual([])
+})

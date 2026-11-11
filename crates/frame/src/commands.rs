@@ -11,7 +11,7 @@ use scene::highlight::Highlight;
 use scene::{Rect, vec2};
 
 use crate::lod::{self, Tier};
-use crate::strings;
+use crate::strings::Lang;
 use crate::theme::{self, Role, RowMarker, fonts};
 
 // Text keeps the layout's 12px side padding; package titles also clear the
@@ -179,33 +179,10 @@ pub enum Command {
         owner_id: Option<Value>,
         dimmed: bool,
     },
-    // Screen-space chrome (view coordinates, scaled by DPI at paint time).
-    Title {
-        text: String,
-        x: f64,
-        y: f64,
-        color: Role,
-    },
-    ProposalBanner {
-        text: String,
-        x: f64,
-        y: f64,
-        color: Role,
-    },
-    Back {
-        text: String,
-        x: f64,
-        y: f64,
-        color: Role,
-    },
-    Status {
-        text: String,
-        x: f64,
-        y: f64,
-        color: Role,
-    },
-    /// Empty-canvas / missing-file hint, centered on the canvas.
-    Hint { text: String, color: Role },
+    // The frame's only screen-space chrome (#46, ADR 0015): the hover popup
+    // that follows the pointer, in view coordinates (scaled by DPI at paint
+    // time). Titles, the proposal banner, the return line, the status line and
+    // the centred hint left the frame: the panel draws them as DOM.
     Popup {
         x: f64,
         y: f64,
@@ -232,11 +209,6 @@ impl Command {
             Command::ChildWash { .. } => "child-wash",
             Command::PortLink { .. } => "port-link",
             Command::Port { .. } => "port",
-            Command::Title { .. } => "title",
-            Command::ProposalBanner { .. } => "proposal-banner",
-            Command::Back { .. } => "back",
-            Command::Status { .. } => "status",
-            Command::Hint { .. } => "hint",
             Command::Popup { .. } => "popup",
         }
     }
@@ -496,7 +468,13 @@ fn marked(view_hit: Option<&Value>, kind: &str, id: Option<&Value>) -> bool {
 }
 
 /// The class boxes, packages, badges and ports of one scene.
-pub fn commands(scene: &Value, selected: Option<&Value>, hover: Option<&Value>) -> Vec<Command> {
+/// The scene-space draw list; `lang` picks the 无数据 marker's text (#44).
+pub fn commands(
+    scene: &Value,
+    selected: Option<&Value>,
+    hover: Option<&Value>,
+    lang: Lang,
+) -> Vec<Command> {
     let h = Highlight::new(scene, selected, hover);
     let hover_id = h.hover.clone();
     let mut out = Vec::new();
@@ -820,7 +798,7 @@ pub fn commands(scene: &Value, selected: Option<&Value>, hover: Option<&Value>) 
         if no_data_label {
             class_commands.push(Command::NoData {
                 rect: r,
-                text: strings::NO_DATA.into(),
+                text: lang.text().no_data.into(),
                 right: r.right() - PAD,
                 y: r.bottom() - NO_DATA_STRIP - 2.0,
                 size: fonts::LEVEL as f64,
@@ -1001,113 +979,40 @@ pub fn text_color(role: &str) -> Role {
     }
 }
 
-/// A centered canvas hint command (waiting for :display, missing file).
-pub fn hint(text: &str) -> Command {
-    Command::Hint {
-        text: text.into(),
-        color: Role::Muted,
-    }
-}
-
-/// Screen-space canvas chrome (port of `class_boxes.chrome`): the waiting
-/// hint, the diagram banner, return scope and the leaf-dependency popup
-/// (Declutter lives in the inspector, #141).
-pub fn chrome(state: &ViewState, width: f64, height: f64) -> Vec<Command> {
-    let mut out = Vec::new();
+/// The frame's only screen-space chrome (#46, ADR 0015): the hover popup — the
+/// leaf-dependency list, or an overview tier's class name — port of
+/// `class_boxes.chrome`'s popup. The title, the proposal banner, the return
+/// line, the status line and the centred hint left the frame: the panel draws
+/// them as DOM, so the frame is the diagram and this popup alone.
+pub fn popup(state: &ViewState, width: f64, height: f64) -> Option<Command> {
     if state.waiting {
-        out.push(hint(strings::WAITING_DISPLAY));
-        return out;
-    }
-    let diagram = get(&state.scene, "diagram")
-        .cloned()
-        .unwrap_or(Value::Map(vec![]));
-    let title = get(&diagram, "title");
-    // A scoped view names its scope on the return line, not twice.
-    let scoped = !state.focus.is_empty() || get(&state.extra, "open-layer").is_some();
-    let banner = flag(&diagram, "proposal");
-    if banner {
-        let mut proposal_name: Option<String> = None;
-        if let Some(doc) = &state.document {
-            for p in &scene::proposals(doc) {
-                if get(p, "id") == get(&state.extra, "proposal-id") {
-                    proposal_name = Some(match get(p, "name") {
-                        Some(Value::String(s)) => s.clone(),
-                        _ => local_name(get(p, "id").unwrap_or(&Value::Nil))
-                            .unwrap_or_default()
-                            .to_owned(),
-                    });
-                }
-            }
-        }
-        out.push(Command::ProposalBanner {
-            text: format!(
-                "{}{}",
-                strings::PROPOSAL_BANNER,
-                proposal_name.map(|n| format!(" · {n}")).unwrap_or_default()
-            ),
-            x: 12.0,
-            y: 8.0,
-            color: Role::Accent,
-        });
-    } else if let Some(Value::String(title)) = title.filter(|_| !scoped) {
-        out.push(Command::Title {
-            text: title.clone(),
-            x: 12.0,
-            y: 8.0,
-            color: Role::Muted,
-        });
-    }
-    if scoped {
-        let parts: Vec<String> = state
-            .focus
-            .iter()
-            .map(|v| local_name(v).unwrap_or_default().to_owned())
-            .collect();
-        let scope = if !parts.is_empty() {
-            parts.join(".")
-        } else {
-            title
-                .map(|t| match t {
-                    Value::String(s) => s.clone(),
-                    other => local_name(other).unwrap_or_default().to_owned(),
-                })
-                .unwrap_or_else(|| {
-                    local_name(get(&state.extra, "open-layer").unwrap_or(&Value::Nil))
-                        .unwrap_or_default()
-                        .to_owned()
-                })
-        };
-        out.push(Command::Back {
-            text: format!("{} · {scope}", strings::BACK),
-            x: 12.0,
-            y: if banner { 28.0 } else { 8.0 },
-            color: Role::Accent,
-        });
+        return None;
     }
     let rows = hover_rows(state);
-    if let (false, Some((mx, my))) = (rows.is_empty(), state.pointer) {
-        let mut tw = 40.0f64;
-        for row in &rows {
-            tw = tw.max(estimate_w(&row.text, fonts::BODY as f64));
-        }
-        let w = (tw + 16.0).min((16.0f64).max(width - 16.0));
-        let h = 16.0 + rows.len() as f64 * (fonts::BODY as f64 + 2.0);
-        let x = (8.0f64).max(mx.min(width - w - 8.0));
-        let mut y = my + 16.0;
-        if y + h > height {
-            y = (8.0f64).max(my - h - 8.0);
-        }
-        out.push(Command::Popup {
-            x,
-            y,
-            w,
-            h,
-            fill: Role::Popup,
-            border: Role::Line,
-            rows,
-        });
+    let (mx, my) = state.pointer?;
+    if rows.is_empty() {
+        return None;
     }
-    out
+    let mut tw = 40.0f64;
+    for row in &rows {
+        tw = tw.max(estimate_w(&row.text, fonts::BODY as f64));
+    }
+    let w = (tw + 16.0).min((16.0f64).max(width - 16.0));
+    let h = 16.0 + rows.len() as f64 * (fonts::BODY as f64 + 2.0);
+    let x = (8.0f64).max(mx.min(width - w - 8.0));
+    let mut y = my + 16.0;
+    if y + h > height {
+        y = (8.0f64).max(my - h - 8.0);
+    }
+    Some(Command::Popup {
+        x,
+        y,
+        w,
+        h,
+        fill: Role::Popup,
+        border: Role::Line,
+        rows,
+    })
 }
 
 /// The hover popup rows: an edge's dependencies, or in the overview tiers

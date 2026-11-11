@@ -35,7 +35,23 @@ describe('scene frame validation', () => {
     expect(root.style.dimAlpha).toBe(70)
     expect(root.world.length).toBeGreaterThan(0)
     expect(root.edges.length).toBeGreaterThan(0)
-    expect(root.chrome.length).toBeGreaterThan(0)
+    // Chrome left the frame with #46: a view has none, the hover popup alone
+    // is left (the `root-hover-frames` golden carries one).
+    expect(root.chrome).toEqual([])
+  })
+
+  it('carries the hover popup as the frame\'s only chrome', () => {
+    const hovered = validateSceneFrame(golden('root-hover-frames.frame.json'))
+    expect(hovered.chrome.map(item => item.kind)).toEqual(['popup'])
+  })
+
+  it('rejects the five chrome kinds that left the frame (#46)', () => {
+    const frame = golden('root.frame.json') as Record<string, unknown>
+    for (const kind of ['title', 'proposal-banner', 'back', 'status', 'hint']) {
+      const item = kind === 'popup' ? {} : { kind, text: 'x', at: [12, 8], ink: { role: 'muted' } }
+      expect(() => validateSceneFrame({ ...frame, chrome: [item] }), kind)
+        .toThrow(/unknown chrome kind/)
+    }
   })
 
   it('knows every world item kind the producer emits', () => {
@@ -88,6 +104,51 @@ describe('scene frame validation', () => {
     expect(() => validateSceneFrame(frame)).toThrow(message)
   })
 
+  it('carries the legend the resident typesets, one set of rows per language (#50)', () => {
+    const zh = validateSceneFrame(golden('root.frame.json'))
+    const en = validateSceneFrame(golden('root.en.frame.json'))
+    const ids = (frame: SceneFrame): string[] => frame.legend.sections.flatMap(section => section.rows.map(row => row.id))
+    // The same legend, worded by the resident in the frame's language.
+    expect(ids(zh)).toEqual(ids(en))
+    expect(ids(zh)).toContain('dependency-chain')
+    expect(ids(zh)).toContain('quality-ramp')
+    const label = (frame: SceneFrame, id: string): string =>
+      frame.legend.sections.flatMap(section => section.rows).find(row => row.id === id)!.label
+    expect(label(zh, 'no-data')).toMatch(/[\u3400-\u9fff]/)
+    expect(label(en, 'no-data')).not.toMatch(/[\u3400-\u9fff]/)
+    // A sample is the diagram's own semantic roles, so the panel resolves it
+    // through the same theme as the canvas.
+    const sample = (frame: SceneFrame, id: string): unknown =>
+      frame.legend.sections.flatMap(section => section.rows).find(row => row.id === id)!.sample
+    expect(sample(zh, 'class-box')).toMatchObject({ kind: 'box', fill: { role: 'quality-fill' }, stroke: { role: 'quality-stroke' } })
+    expect(sample(zh, 'relation')).toMatchObject({ kind: 'line', stroke: { role: 'relation' } })
+    expect(sample(zh, 'dependency-chain')).toMatchObject({ kind: 'line', stroke: { role: 'dependency-chain' } })
+    expect(sample(zh, 'quality-ramp')).toMatchObject({ kind: 'ramp' })
+  })
+
+  it.each([
+    ['a legend without sections', (frame: Record<string, unknown>) => { frame.legend = {} }, /legend\.sections/],
+    ['a section without a title', (frame: Record<string, unknown>) => {
+      (frame.legend as { sections: Record<string, unknown>[] }).sections[0]!.title = undefined
+    }, /title/],
+    ['a row without a label', (frame: Record<string, unknown>) => {
+      const rows = (frame.legend as { sections: { rows: Record<string, unknown>[] }[] }).sections[0]!.rows
+      delete rows[0]!.label
+    }, /label/],
+    ['a sample without a kind', (frame: Record<string, unknown>) => {
+      const rows = (frame.legend as { sections: { rows: { sample: Record<string, unknown> }[] }[] }).sections[0]!.rows
+      delete rows[0]!.sample.kind
+    }, /kind/],
+    ['a quality row whose swatch has no role', (frame: Record<string, unknown>) => {
+      const rows = (frame.legend as { sections: { rows: { sample: { fill: unknown } }[] }[] }).sections[0]!.rows
+      rows[0]!.sample.fill = { grade: 3 }
+    }, /role/],
+  ])('rejects a legend with %s', (_label, mutate, message) => {
+    const frame = golden('root.frame.json') as Record<string, unknown>
+    mutate(frame)
+    expect(() => validateSceneFrame(frame)).toThrow(message)
+  })
+
   it('accepts an additive unknown world kind and an unknown role, keeping version 1', () => {
     const frame = golden('root.frame.json') as Record<string, unknown>
     const world = frame.world as Record<string, unknown>[]
@@ -106,7 +167,7 @@ describe('scene frame validation', () => {
         widths: { band: 2, rule: 1, dot: 1, portLink: 1.3, dash: 6, dashGap: 4 },
         radius: { class: 4, package: 8, port: 3, rowWash: 2 }, dimAlpha: 70,
         lodZoom: { frames: 0.15, full: 0.4 }, minTextPx: 5, edgeDecimatePx: 8 },
-      world: [], edges: [], chrome: [{ kind: 'hint', text: 'No diagram yet', ink: { role: 'muted' } }],
+      world: [], edges: [], chrome: [], legend: { sections: [] },
     })
     expect(parsed.waiting).toBe(true)
   })

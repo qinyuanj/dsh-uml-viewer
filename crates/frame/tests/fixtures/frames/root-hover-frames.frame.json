@@ -6,20 +6,6 @@
   },
   "chrome": [
     {
-      "at": [
-        12.0,
-        8.0
-      ],
-      "ink": {
-        "role": "muted"
-      },
-      "kind": "title",
-      "plate": {
-        "role": "chrome-plate"
-      },
-      "text": "Shop"
-    },
-    {
       "border": {
         "role": "line"
       },
@@ -618,6 +604,181 @@
       "width": 1.6
     }
   ],
+  "legend": {
+    "sections": [
+      {
+        "id": "shapes",
+        "rows": [
+          {
+            "id": "class-box",
+            "label": "类框：填充与框线取自质量色",
+            "sample": {
+              "dimmed": false,
+              "fill": {
+                "grade": 3.0,
+                "role": "quality-fill"
+              },
+              "kind": "box",
+              "shape": "rect",
+              "stroke": {
+                "grade": 3.0,
+                "role": "quality-stroke"
+              }
+            }
+          },
+          {
+            "id": "component-box",
+            "label": "组件框：可下钻的组件，质量取成员的汇总",
+            "sample": {
+              "dimmed": false,
+              "fill": {
+                "grade": 7.0,
+                "role": "package-fill"
+              },
+              "kind": "box",
+              "shape": "rect",
+              "stroke": {
+                "grade": 7.0,
+                "role": "package-stroke"
+              }
+            }
+          },
+          {
+            "id": "foreign-package",
+            "label": "外来包椭圆：只有依赖关系，没有质量数据",
+            "sample": {
+              "dimmed": false,
+              "fill": {
+                "grade": 1.0,
+                "role": "quality-fill"
+              },
+              "kind": "box",
+              "shape": "oval",
+              "stroke": {
+                "grade": 1.0,
+                "role": "quality-stroke"
+              }
+            }
+          }
+        ],
+        "title": "形状"
+      },
+      {
+        "id": "quality",
+        "rows": [
+          {
+            "id": "quality-ramp",
+            "label": "质量色：红到绿，CRAP 越低越好",
+            "sample": {
+              "kind": "ramp",
+              "stops": [
+                {
+                  "grade": 0.0,
+                  "role": "quality-fill"
+                },
+                {
+                  "grade": 5.0,
+                  "role": "quality-fill"
+                },
+                {
+                  "grade": 10.0,
+                  "role": "quality-fill"
+                }
+              ]
+            }
+          },
+          {
+            "id": "no-data",
+            "label": "无数据：缺少 CRAP 或 mutation 数据",
+            "sample": {
+              "fill": {
+                "role": "no-data"
+              },
+              "kind": "dot"
+            }
+          },
+          {
+            "id": "selected",
+            "label": "选中：框线改用选中色",
+            "sample": {
+              "dimmed": false,
+              "fill": {
+                "grade": 3.0,
+                "role": "quality-fill"
+              },
+              "kind": "box",
+              "shape": "rect",
+              "stroke": {
+                "role": "selected"
+              }
+            }
+          }
+        ],
+        "title": "质量色"
+      },
+      {
+        "id": "relations",
+        "rows": [
+          {
+            "id": "relation",
+            "label": "关系连线：灰绿实线，头部形状表示关系种类",
+            "sample": {
+              "dimmed": false,
+              "kind": "line",
+              "stroke": {
+                "role": "relation"
+              }
+            }
+          },
+          {
+            "id": "violation",
+            "label": "违规关系色：红色，依赖方向违反架构规则",
+            "sample": {
+              "dimmed": false,
+              "kind": "line",
+              "stroke": {
+                "role": "violation"
+              }
+            }
+          },
+          {
+            "id": "relation-hover",
+            "label": "关系悬停高亮：悬停的关系变白",
+            "sample": {
+              "dimmed": false,
+              "kind": "line",
+              "stroke": {
+                "role": "relation-hover"
+              }
+            }
+          },
+          {
+            "id": "dependency-chain",
+            "label": "依赖链高亮：选中类的依赖链变蓝",
+            "sample": {
+              "dimmed": false,
+              "kind": "line",
+              "stroke": {
+                "role": "dependency-chain"
+              }
+            }
+          },
+          {
+            "id": "dimmed",
+            "label": "关系淡化：不在依赖链上的元素变淡",
+            "sample": {
+              "dimmed": true,
+              "kind": "line",
+              "stroke": {
+                "role": "relation"
+              }
+            }
+          }
+        ],
+        "title": "关系"
+      }
+    ]
+  },
   "lod": "frames",
   "schema": "dsh-uml-viewer/scene-frame",
   "style": {

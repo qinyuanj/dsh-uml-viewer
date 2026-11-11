@@ -276,12 +276,6 @@ export function paintFrame(frame: SceneFrame, canvas: HTMLCanvasElement): void {
   ctx.fillStyle = theme.frame('canvas')
   ctx.fillRect(0, 0, p.width, p.height)
 
-  if (frame.waiting) {
-    text(p, 'No diagram yet — run uml_ir, then uml_display.', 16, p.height / 2, frame.style.fonts.chrome,
-      theme.frame('muted'))
-    return
-  }
-
   for (const item of frame.world) paintWorld(p, item)
   for (const draw of p.deferred ?? []) draw()
   for (const edge of frame.edges) paintEdge(p, edge)
@@ -516,34 +510,13 @@ function paintEdge(p: Painter, edge: SceneFrame['edges'][number]): void {
   ctx.globalAlpha = 1
 }
 
+/** The frame's only chrome (#46): the hover popup. The rest is the panel's DOM. */
 function paintChrome(p: Painter, item: SceneFrame['chrome'][number]): void {
-  const { ctx, theme, width, height, frame } = p
+  const { ctx, theme, frame } = p
   const colorOf = (c: { role: string; grade?: number | null; ratio?: number | null }): string =>
     theme.frame(c.role, c.grade ?? null, c.ratio ?? null)
 
   switch (item.kind) {
-    case 'title':
-    case 'proposal-banner':
-    case 'back': {
-      const [x, y] = item.at
-      const px = frame.style.fonts.chrome
-      ctx.font = `${px}px ${FONT_STACK}`
-      const measured = ctx.measureText(item.text).width
-      ctx.fillStyle = colorOf(item.plate)
-      roundRect(ctx, x - 6, y - 2, measured + 12, px + 4, 3)
-      ctx.fill()
-      text(p, item.text, x, y + px / 2, px, colorOf(item.ink))
-      return
-    }
-    case 'status': {
-      const [x, y] = item.at
-      text(p, item.text, x, y, frame.style.fonts.chrome, colorOf(item.ink))
-      return
-    }
-    case 'hint': {
-      text(p, item.text, width / 2, height / 2, frame.style.fonts.chrome, colorOf(item.ink), { align: 'center' })
-      return
-    }
     case 'popup': {
       box(p, item.rect.x, item.rect.y, item.rect.w, item.rect.h, 4,
         colorOf(item.fill), colorOf(item.border), 1, false)

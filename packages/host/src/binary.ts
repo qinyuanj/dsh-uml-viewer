@@ -65,7 +65,15 @@ export function activationBinary(config: Config, home: string | undefined, platf
   let source: string
   const name = platform.platform === 'win32' ? 'uml-viewer.exe' : 'uml-viewer'
   try {
-    const dependencyManifest = createRequire(path.join(root, 'package.json')).resolve(`${dependency}/package.json`)
+    // An explicitly installed platform package is a sibling of the main one.
+    // Prefer it over the main package's nested semver optional dependency:
+    // after release, pnpm can install that nested copy from the registry even
+    // when the caller supplied both exact-version tarballs for acceptance.
+    const modules = path.dirname(root)
+    const direct = path.basename(modules) === 'node_modules'
+      ? path.join(modules, dependency, 'package.json') : null
+    const dependencyManifest = direct && existsSync(direct)
+      ? direct : createRequire(path.join(root, 'package.json')).resolve(`${dependency}/package.json`)
     const installed = JSON.parse(readFileSync(dependencyManifest, 'utf8'))
     if (installed.version !== manifest.version) throw new Error(`installed version is ${installed.version}`)
     source = path.join(path.dirname(dependencyManifest), 'bin', name)

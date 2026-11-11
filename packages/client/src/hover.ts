@@ -144,13 +144,11 @@ export function withHover(frame: SceneFrame, hit: HoverHit | null, pointer: Poin
 }
 
 /**
- * The popup sits after the title/back chrome and before the hint/status line,
- * the order `frame::chrome` builds (`commands::chrome`, then hint and status).
+ * The hover popup is appended to the frame's own chrome, the order
+ * `frame::chrome` builds: the popup is the frame's only chrome now (#46).
  */
 function withPopup(chrome: readonly ChromeItem[], popup: ChromeItem): ChromeItem[] {
-  const index = chrome.findIndex(item => item.kind === 'hint' || item.kind === 'status')
-  if (index < 0) return [...chrome, popup]
-  return [...chrome.slice(0, index), popup, ...chrome.slice(index)]
+  return [...chrome, popup]
 }
 
 /** A relation's key: EDN ids may hold spaces, so the separator is NUL. */

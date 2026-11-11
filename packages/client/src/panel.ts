@@ -10,7 +10,8 @@
  * never changes the frame itself. The local camera math mirrors `scene::events` (on_wheel,
  * on_scroll, zoom_at, fit) so the panel behaves like the egui window.
  */
-import type { DiscussionContext, PanelAck, PanelAction, PanelEvent, PanelOwner, SceneFrame, SearchResult } from '@dsh-uml-viewer/contracts'
+import type { BreadcrumbLevel, DeclutterMode, DiscussionContext, PanelAck, PanelAction, PanelEvent, PanelOwner,
+  ProposalEntry, RequestStatusEntry, SceneFrame, SearchResult, SessionStatus } from '@dsh-uml-viewer/contracts'
 import { hitTest, paintFrame } from './paint.js'
 import { hoverAt, sameHover, showsPopup, withHover, type HoverHit } from './hover.js'
 import { cssToWorld, screenToWorld, viewTransform } from './fit.js'
@@ -24,7 +25,8 @@ export interface PanelStream extends AsyncIterable<PanelEvent> {
 /** What the panel hands to the host side of the Remote. */
 export interface PanelRemoteApi {
   watch(sessionId: string): PanelStream
-  watchOwned?(sessionId: string, owner: PanelOwner): PanelStream
+  /** `language` is the DSH language (#44); the resident lays its text out in it. */
+  watchOwned?(sessionId: string, owner: PanelOwner, language: string): PanelStream
   closeOwned?(sessionId: string, owner: PanelOwner): Promise<unknown>
   action(sessionId: string, action: PanelAction): Promise<unknown>
   /**
@@ -53,6 +55,33 @@ export interface PanelStatus {
   /** The discussion context carried by this session's stream. */
   context: DiscussionContext | null
   search: SearchState
+  /**
+   * The tree path from the resident's state event (#45), root first; the
+   * panel's top bar draws it. Empty until a diagram is loaded.
+   */
+  breadcrumbs: readonly BreadcrumbLevel[]
+  /**
+   * The canvas status code from the same event (#45). The panel localizes it;
+   * the code never carries text of its own.
+   */
+  statusCode: SessionStatus | null
+  /**
+   * What the canvas shows (#46): the discussion's source tree, or a proposal
+   * layer. The resident's `:proposal-id` is the view's own flag — the frame no
+   * longer carries a banner to read it from — so the summary and its e2e
+   * assertions take it from `state`.
+   */
+  view: 'source' | 'proposal'
+  /**
+   * The shown diagram's proposals from the same event (#47), in its order:
+   * the discussion-context switcher lists them after the source diagram.
+   */
+  proposals: readonly ProposalEntry[]
+  /**
+   * The session's request-status list (#51), oldest first, as the host last
+   * pushed it; the status bar shows the current one.
+   */
+  requests: readonly RequestStatusEntry[]
 }
 
 export interface PanelDeps {
@@ -63,16 +92,29 @@ export interface PanelDeps {
   onStatus?: (status: PanelStatus) => void
   /** A new holder per open; the document identity stays stable on remount. */
   owner?: () => PanelOwner
+  /** The DSH language, read when the stream opens and on every switch (#44). */
+  language?: () => string
 }
 
 export interface KeyModifiers { control?: boolean; shift?: boolean }
 
+/** The panel's drawer (#49), as the Esc chain sees it. */
+export interface DrawerHook {
+  open(): boolean
+  close(): void
+}
+
+/** The legend's popover (#50), as the Esc chain sees it; a resident legend is not a layer. */
+export interface LegendHook {
+  isOpen(): boolean
+  close(): void
+}
+
 type Listener = () => void
 
-/** `scene::events`: one wheel notch, the pan unit and the chrome top strip. */
+/** `scene::events`: one wheel notch and the pan unit. */
 export const ZOOM_STEP = 1.1
 const SCROLL_UNIT = 48
-const CHROME_INSET = 36
 // scene::compose::bounds inflates content by 16 world units; size then
 // reserves another 40 around it. Fit must use that scene extent, not ink.
 const SCENE_BOUNDS_INSET = 16
@@ -92,19 +134,30 @@ export class PanelController {
   private sessionId: string | null = null
   private owner: PanelOwner | null = null
   private readonly makeOwner: (() => PanelOwner) | undefined
+  private readonly language: () => string
+  /** The language this stream opened with; a switch sends the new one. */
+  private sentLanguage: string | null = null
   private frame: SceneFrame | null = null
-  private status: PanelStatus = { kind: 'connecting', reason: null, actions: [], frame: null, context: null, search: EMPTY_SEARCH }
+  private status: PanelStatus = { kind: 'connecting', reason: null, actions: [], frame: null, context: null,
+    search: EMPTY_SEARCH, breadcrumbs: [], statusCode: null, view: 'source', proposals: [], requests: [] }
   private observer: MutationObserver | null = null
   private readonly listeners = new Set<Listener>()
   /** Last mode reported by the resident's existing `state` event. */
   private mode = 'full'
   public get declutterMode(): string { return this.mode }
+  /** The selected hit (EDN) from the same `state` event; the action bar (#48) reads it. */
+  private selectedHit: string | null = null
+  public get selected(): string | null { return this.selectedHit }
   // Pending pointer gesture, in screen pixels.
   private drag: { x: number; y: number; moved: boolean } | null = null
   /** Last pointer position: the zoom anchor, like `Dims.pointer`. */
   private pointer: { x: number; y: number } | null = null
   /** What the pointer hovers; painted over the resident's frame, never sent. */
   private hoverHit: HoverHit | null = null
+  /** The class card / source drawer; Esc closes it before going back. */
+  private drawer: DrawerHook | null = null
+  /** The legend popover, below the search box and above the drawer on Esc. */
+  private legend: LegendHook | null = null
 
   public constructor(deps: PanelDeps) {
     this.canvas = deps.canvas
@@ -112,6 +165,7 @@ export class PanelController {
     this.paint = deps.paint ?? paintFrame
     this.onStatus = deps.onStatus
     this.makeOwner = deps.owner
+    this.language = deps.language ?? (() => 'en')
   }
 
   public get current(): PanelStatus {
@@ -127,21 +181,29 @@ export class PanelController {
   public async open(sessionId: string): Promise<void> {
     const previous = this.sessionId
     const previousOwner = this.owner
-    // Rebinding is not a close: when the same session is replaced (the
-    // sidebar/main reparent), saying "closed" would stop the resident the new
-    // stream is about to re-attach to. Only a different session is left behind.
+    // Rebinding is not a close: when the same session is replaced (a panel
+    // body remount during a right-sidebar presentation change), saying
+    // "closed" would stop the resident the new stream is about to re-attach
+    // to. Only a different session is left behind.
     this.teardown()
     if (previous !== null && previous !== sessionId) this.sayClosed(previous, previousOwner)
     this.sessionId = sessionId
     const abort = new AbortController()
     this.abort = abort
-    this.publish({ kind: 'connecting', reason: null, actions: [], frame: this.frame, context: null, search: EMPTY_SEARCH })
+    // A new binding starts with nothing said: the first frame's `save` brings
+    // this session's breadcrumbs, status and selection.
+    this.selectedHit = null
+    this.publish({ kind: 'connecting', reason: null, actions: [], frame: this.frame, context: null,
+      search: EMPTY_SEARCH, breadcrumbs: [], statusCode: null, view: 'source', proposals: [], requests: [] })
     this.observeTheme()
     const size = await this.measureViewport()
     this.setViewport(size.width, size.height)
     if (abort.signal.aborted) return
     this.owner = this.makeOwner && this.api.watchOwned && this.api.closeOwned ? this.makeOwner() : null
-    let stream = this.owner ? this.api.watchOwned!(sessionId, this.owner) : this.api.watch(sessionId)
+    this.sentLanguage = this.language()
+    let stream = this.owner
+      ? this.api.watchOwned!(sessionId, this.owner, this.sentLanguage)
+      : this.api.watch(sessionId)
     this.stream = stream
     void (async () => {
       try {
@@ -163,12 +225,31 @@ export class PanelController {
             this.stream = stream
           }
         }
-        if (!abort.signal.aborted) this.publish({ kind: 'closed', reason: null, actions: [], frame: this.frame, context: this.status.context, search: this.status.search })
+        if (!abort.signal.aborted) this.publish({ kind: 'closed', reason: null, actions: [], frame: this.frame,
+          context: this.status.context, search: this.status.search,
+          breadcrumbs: this.status.breadcrumbs, statusCode: this.status.statusCode, view: this.status.view,
+          proposals: this.status.proposals, requests: this.status.requests })
       } catch (error) {
         if (abort.signal.aborted) return
-        this.publish({ kind: 'failed', reason: messageOf(error), actions: [], frame: this.frame, context: this.status.context, search: this.status.search })
+        this.publish({ kind: 'failed', reason: messageOf(error), actions: [], frame: this.frame,
+          context: this.status.context, search: this.status.search,
+          breadcrumbs: this.status.breadcrumbs, statusCode: this.status.statusCode, view: this.status.view,
+          proposals: this.status.proposals, requests: this.status.requests })
       }
     })()
+  }
+
+  /**
+   * Follow a DSH language switch (#44): the resident lays the frame, the
+   * 无数据 markers and the open class card out again, so the panel redraws
+   * the frame it receives and re-requests the card. The language is the
+   * resident's, never part of this session's saved view.
+   */
+  public async setLanguage(language: string): Promise<void> {
+    if (this.sessionId === null || language === this.sentLanguage) return
+    this.sentLanguage = language
+    // The answer is a frame in the new language; a refusal keeps the old one.
+    await this.send({ action: 'language', language })
   }
 
   /** Presentation teardown is withdrawal; it carries no user close intent. */
@@ -182,7 +263,9 @@ export class PanelController {
     const sessionId = this.sessionId
     const owner = this.owner
     this.teardown()
-    this.publish({ kind: 'closed', reason: null, actions: [], frame: this.frame, context: this.status.context, search: EMPTY_SEARCH })
+    this.publish({ kind: 'closed', reason: null, actions: [], frame: this.frame, context: this.status.context,
+      search: EMPTY_SEARCH, breadcrumbs: this.status.breadcrumbs, statusCode: this.status.statusCode, view: this.status.view,
+          proposals: this.status.proposals, requests: this.status.requests })
     return sessionId !== null ? this.sayClosed(sessionId, owner) : Promise.resolve()
   }
 
@@ -301,13 +384,9 @@ export class PanelController {
     if (world) void this.send({ action: 'select', at: world })
   }
 
-  /** Double-click: the back hotspot goes back, otherwise drill into what is there. */
+  /** Double-click: drill into what is at the point (the canvas has no hotspot, #46). */
   public doubleClick(x: number, y: number): void {
     if (this.status.search.active) return
-    if (this.hasBack() && x < 320 && y < 44) {
-      void this.back()
-      return
-    }
     const world = this.world(x, y)
     // The resident's own hit test decides whether this is drillable; a class
     // card (double-click on a leaf class) is #25's surface.
@@ -391,7 +470,11 @@ export class PanelController {
     this.updateCamera({ ...camera, ...(horizontal ? { x: value } : { y: value }) })
   }
 
-  /** Ctrl+0: fit the whole scene into the usable canvas, like `scene::events::fit`. */
+  /**
+   * Ctrl+0 and the More menu's Fit view: the whole scene in the canvas, like
+   * `scene::events::fit`. The canvas is the frame's whole viewport (#46): the
+   * top bar and the status bar are DOM outside it, so nothing is reserved.
+   */
   public fit(): void {
     if (!this.frame || !this.viewport) return
     const bounds = this.sceneBounds()
@@ -402,11 +485,11 @@ export class PanelController {
     const y0 = Math.min(0, bounds.y0 - margin)
     const w = Math.max(1, bounds.x1 + margin - x0)
     const h = Math.max(1, bounds.y1 + margin - y0)
-    const usable = Math.max(1, vh - CHROME_INSET)
+    const usable = Math.max(1, vh)
     const zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.min(vw / w, usable / h, 1)))
     this.updateCamera({
       x: x0 + w / 2 - vw / (2 * zoom),
-      y: y0 + h / 2 - usable / (2 * zoom) - CHROME_INSET / zoom,
+      y: y0 + h / 2 - usable / (2 * zoom),
       zoom,
     })
   }
@@ -417,12 +500,37 @@ export class PanelController {
     return world && this.frame ? hitTest(this.frame, world) : null
   }
 
+  /** Whether the view is below the tree's root: the breadcrumb path says so (#45). */
   private hasBack(): boolean {
-    return this.frame?.chrome.some(item => item.kind === 'back') ?? false
+    return this.status.breadcrumbs.length > 1
   }
 
   public async back(): Promise<PanelAck | null> {
     return this.send({ action: 'back' })
+  }
+
+  /**
+   * A breadcrumb click: return to the level whose id `target` is (`null` is
+   * the source diagram's root) instead of one level up.
+   */
+  public async backTo(target: string | null): Promise<PanelAck | null> {
+    return this.send({ action: 'back', target })
+  }
+
+  /**
+   * The More menu's Remove arrows toggle (#46): name the declutter mode instead
+   * of cycling to it. The mode comes back on the next `state` event.
+   */
+  public async setDeclutter(mode: DeclutterMode): Promise<void> {
+    const ack = await this.send({ action: 'declutter', mode })
+    if (!ack?.accepted) return
+    try {
+      // The mode comes back on the next `state` event; a failed save only
+      // means the menu shows the old one until the next frame saves anyway.
+      await this.send({ action: 'save' })
+    } catch {
+      // The next frame's save reports the resident's real mode.
+    }
   }
 
   /** **P**: return to the source diagram's namespace tree. */
@@ -430,10 +538,29 @@ export class PanelController {
     return this.send({ action: 'namespace-tree' })
   }
 
-  /** Escape: close search, else back one level, else clear the selection. */
+  /** The drawer the Esc chain closes; null detaches it. */
+  public setDrawer(drawer: DrawerHook | null): void {
+    this.drawer = drawer
+  }
+
+  /** The legend popover the Esc chain closes (#50); null detaches it. */
+  public setLegend(legend: LegendHook | null): void {
+    this.legend = legend
+  }
+
+  /**
+   * Escape: close search, else the legend popover, else the drawer, else back
+   * one level, else clear the selection. Layers close topmost first: the
+   * search box and the legend are popovers over the canvas, the drawer rises
+   * over its lower half.
+   */
   public escape(): void {
     if (this.status.search.active) {
       this.closeSearch()
+    } else if (this.legend?.isOpen()) {
+      this.legend.close()
+    } else if (this.drawer?.open()) {
+      this.drawer.close()
     } else if (this.hasBack()) {
       void this.back()
     } else {
@@ -506,17 +633,25 @@ export class PanelController {
   private handle(event: PanelEvent, signal: AbortSignal): void {
     switch (event.kind) {
       case 'ready':
-        this.publish({ kind: 'live', reason: null, actions: event.actions, frame: this.frame, context: this.status.context, search: this.status.search })
+        this.publish({ kind: 'live', reason: null, actions: event.actions, frame: this.frame,
+          context: this.status.context, search: this.status.search,
+          breadcrumbs: this.status.breadcrumbs, statusCode: this.status.statusCode, view: this.status.view,
+          proposals: this.status.proposals, requests: this.status.requests })
         // The panel names its viewport before the first frame can be laid out.
         if (this.viewport) void this.send({ action: 'viewport', viewport: this.viewport })
         return
       case 'state':
         this.mode = event.state.declutter?.replace(/^:/, '') ?? 'full'
-        this.publish(this.status)
+        this.selectedHit = event.state.selected
+        this.publish({ ...this.status, breadcrumbs: event.breadcrumbs, statusCode: event.status,
+          view: event.state.proposalId ? 'proposal' : 'source', proposals: event.proposals })
         return
       case 'frame':
         this.frame = event.frame
-        this.publish({ kind: 'live', reason: null, actions: this.status.actions, frame: event.frame, context: this.status.context ?? { kind: 'real', edn: '{:context :real}' }, search: this.status.search })
+        this.publish({ kind: 'live', reason: null, actions: this.status.actions, frame: event.frame,
+          context: this.status.context ?? { kind: 'real', edn: '{:context :real}' }, search: this.status.search,
+          breadcrumbs: this.status.breadcrumbs, statusCode: this.status.statusCode, view: this.status.view,
+          proposals: this.status.proposals, requests: this.status.requests })
         this.draw(event.frame)
         // Rebuilds and display can change the mode. Read actual resident state,
         // including a restored mode, instead of advancing a local click count.
@@ -525,6 +660,9 @@ export class PanelController {
       case 'context':
         this.publish({ ...this.status, context: event.context })
         return
+      case 'request-status':
+        this.publish({ ...this.status, requests: event.requests })
+        return
       case 'search': {
         const search = this.status.search
         const selection = Math.max(-1, Math.min(search.selection, event.results.length - 1))
@@ -532,10 +670,16 @@ export class PanelController {
         return
       }
       case 'refused':
-        this.publish({ kind: 'refused', reason: event.reason, actions: [], frame: this.frame, context: this.status.context, search: this.status.search })
+        this.publish({ kind: 'refused', reason: event.reason, actions: [], frame: this.frame,
+          context: this.status.context, search: this.status.search,
+          breadcrumbs: this.status.breadcrumbs, statusCode: this.status.statusCode, view: this.status.view,
+          proposals: this.status.proposals, requests: this.status.requests })
         return
       case 'failed':
-        this.publish({ kind: 'failed', reason: event.reason, actions: [], frame: this.frame, context: this.status.context, search: this.status.search })
+        this.publish({ kind: 'failed', reason: event.reason, actions: [], frame: this.frame,
+          context: this.status.context, search: this.status.search,
+          breadcrumbs: this.status.breadcrumbs, statusCode: this.status.statusCode, view: this.status.view,
+          proposals: this.status.proposals, requests: this.status.requests })
         return
       default:
         // state events are the host's own persistence traffic, not panel UI.
@@ -568,7 +712,7 @@ function messageOf(error: unknown): string {
 function ackOf(result: unknown): PanelAck | null {
   if (result && typeof result === 'object' && 'ok' in result) {
     const envelope = result as { ok: boolean; value?: unknown; error?: { message?: string } }
-    if (!envelope.ok) return { accepted: false, reason: envelope.error?.message ?? 'panel action failed' }
+    if (!envelope.ok) return { accepted: false, reason: envelope.error?.message ?? null }
     return (envelope.value as PanelAck | undefined) ?? null
   }
   return (result as PanelAck | null) ?? null

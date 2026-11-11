@@ -19,12 +19,6 @@ import type { Agent, HostServices, SpawnSpec, ToolDefinition } from '../src/dsh.
 const goldenFrame = fileURLToPath(new URL('../../../crates/frame/tests/fixtures/frames/root.frame.json', import.meta.url))
 const fakeBinary = [process.execPath, fileURLToPath(new URL('./fixtures/uml-viewer.mjs', import.meta.url))]
 
-const inspector = {
-  entries: [{ id: null, label: 'Shop', active: true }, { id: ':p-shop', label: 'Proposal', active: false }],
-  summary: { kind: 'class', lines: [{ type: 'label', text: 'order', color: { role: 'ink' } }] },
-  declutterLabel: '精简：无', detail: ':core.order', selected: null,
-  labels: { inspector: '检查器', proposals: '提案', pHint: 'P：返回命名空间树' },
-}
 const card = {
   id: ':core.order', title: 'order', contentHeight: 342, viewHeight: 120, scroll: 192, maxScroll: 222,
   items: [{
@@ -75,7 +69,7 @@ async function setup(config: Record<string, unknown> = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'uml overlay project '))
   roots.push(home, root)
   await writeFile(path.join(root, 'resident.json'), JSON.stringify({
-    framePath: goldenFrame, inspector, card, source, ...config,
+    framePath: goldenFrame, card, source, ...config,
   }))
   const agent = { id: 'session-a', session: { id: 'session-a' }, ctx: {} } as unknown as Agent
   const definitions = new Map<string, ToolDefinition>()
@@ -114,9 +108,8 @@ async function setup(config: Record<string, unknown> = {}) {
   return { root, action, stream, actions, fiber }
 }
 
-it('answers inspector, card and open-source on the ack of their own action', async () => {
+it('answers card and open-source on the ack of their own action', async () => {
   const { action } = await setup()
-  expect(await action({ action: 'inspector' })).toEqual({ accepted: true, reason: null, inspector })
   expect(await action({ action: 'card', viewHeight: 120 })).toEqual({ accepted: true, reason: null, card })
   expect(await action({ action: 'open-source', id: ':core.order', member: 'place' }))
     .toEqual({ accepted: true, reason: null, source })
@@ -168,10 +161,14 @@ it('does not broadcast one panel\'s card or source window into another panel\'s 
     }
     expect(kinds).not.toContain('source')
     expect(kinds).not.toContain('card')
-    expect(kinds).not.toContain('inspector')
   }
   await first.close()
   await second.close()
+})
+
+it('carries a null card when no class card is open (#47)', async () => {
+  const { action } = await setup({ card: null })
+  expect(await action({ action: 'card', viewHeight: 120 })).toEqual({ accepted: true, reason: null, card: null })
 })
 
 it('reports a resident refusal without inventing a model', async () => {

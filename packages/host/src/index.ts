@@ -9,7 +9,7 @@ import type { ActivatedBinary, BinaryPlatform, Config } from './binary.js'
 import { activationBinary, packageRoot } from './binary.js'
 import { recordActivation } from './activation.js'
 import { displayResult, runDisplay } from './display.js'
-import type { HostServices, ToolRunContext } from './dsh.js'
+import type { HostServices, SessionEventFeed, ToolRunContext } from './dsh.js'
 import { registerFontRoute } from './font.js'
 import { IrGate, QualityGate, RequestGrants } from './gate.js'
 import { qualityResult, runQuality } from './quality.js'
@@ -88,7 +88,27 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
   const grants = new RequestGrants()
   const states = new SessionStates(home)
   const { sessions, prompts } = panelLifetime(ctx, home, services, effectiveConfig, states)
-  const viewer = new ViewerService(sessions, prompts, new PanelRequests(services, sessions, grants))
+  const requests = new PanelRequests(services, sessions, grants)
+  const viewer = new ViewerService(sessions, prompts, requests, requests.statuses)
+
+  // #52: a turn boundary is the one host event that says the companion is done
+  // trying. `session/event` is DSH's published append feed (`dsh-session`
+  // README: post-commit, fire-and-forget), and `turn/start`, `user/message` and
+  // `turn/end` are entries of its public event map. An untagged listener
+  // receives every session's events (`dsh-scope` README), so one subscription
+  // covers the sessions whose panels hold requests.
+  const feed = ctx as unknown as SessionEventFeed
+  feed.on('session/event', (session, event) => {
+    if (event?.type === 'turn/start') {
+      requests.statuses.turnStarted(session.id)
+    } else if (event?.type === 'turn/end') {
+      requests.statuses.turnEnded(session.id)
+    } else if (event?.type === 'user/message') {
+      // The durable message echoes the prompt id of the request it delivers.
+      const rpcId = event.data?.source?.rpcId
+      if (typeof rpcId === 'string') requests.statuses.claim(session.id, rpcId)
+    }
+  })
 
   ctx.effect(() => services.tools.register({
     name: 'uml_ir',
@@ -99,9 +119,20 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
     output: { schema: IR_RESULT_SCHEMA, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
     async execute(args, exec) {
       const sessionId = exec.agent?.session.id
+      // #52: a granted IR names its panel request exactly; any other call is
+      // attributed to the head of this session's request queue.
+      const request = presentedRequest(args)
+      if (sessionId !== undefined) requests.statuses.begin(sessionId, request)
       // Queued behind earlier quality calls: IR reads the snapshots they write
       // and must see their outcome, never the one before an in-flight call.
-      return sessionId === undefined ? generate(args, exec) : quality.run(sessionId, () => generate(args, exec))
+      const result = sessionId === undefined ? await generate(args, exec) : await quality.run(sessionId, () => generate(args, exec))
+      // A failed IR leaves the request it answered failed, with the record's
+      // reason and exit code, exactly as a failed quality result does.
+      if (sessionId !== undefined && !result.validResult) {
+        requests.statuses.end(sessionId, { state: 'failed',
+          reason: result.reason ?? 'the IR generation failed', exitCode: result.exitCode }, request)
+      }
+      return result
     },
   }), 'dsh-uml-viewer: uml_ir')
 
@@ -158,6 +189,9 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
       output: { schema: QUALITY_RESULT_SCHEMA, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
       async execute(args, exec) {
         const sessionId = exec.agent?.session.id
+        // #52: the companion's first `uml_*` call after a request marks its head
+        // in progress — including a quality run the user asked for by hand.
+        if (sessionId !== undefined) requests.statuses.begin(sessionId)
         const attempt = async (): Promise<QualityToolResult> => {
           const root = exec.agent ? services.workingDirectory.get(exec.agent.session) : ''
           let result: QualityToolResult
@@ -171,7 +205,14 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
           if (sessionId !== undefined) quality.record(sessionId, result)
           return result
         }
-        return sessionId === undefined ? attempt() : quality.run(sessionId, attempt)
+        const result = sessionId === undefined ? await attempt() : await quality.run(sessionId, attempt)
+        // A record without `validResult: true` ends the request with the
+        // record's own reason and exit code.
+        if (sessionId !== undefined && !result.validResult) {
+          requests.statuses.end(sessionId, { state: 'failed',
+            reason: result.reason ?? QUALITY_FAILED_REASON, exitCode: result.exitCode })
+        }
+        return result
       },
     }), `dsh-uml-viewer: ${name}`)
   }
@@ -194,8 +235,18 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
     isConcurrencySafe: () => true,
     output: { schema: DISPLAY_RESULT_SCHEMA, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
     async execute(args, exec) {
+      const sessionId = exec.agent?.session.id
+      // #52: a display also starts the head request, should it be the first call.
+      if (sessionId !== undefined) requests.statuses.begin(sessionId)
       try {
-        return await runDisplay(services, sessions, gate, exec, parseDisplayRequest(args))
+        const result = await runDisplay(services, sessions, gate, exec, parseDisplayRequest(args))
+        // #52: a successful display completes the head of this session's request
+        // queue — the request it answered. #54: its result names that request's
+        // element, once, so 「在面板中查看」 can locate it. A failed display
+        // leaves the request unfinished and keeps its target.
+        if (result.status !== 'ok' || sessionId === undefined) return result
+        const answered = requests.statuses.end(sessionId, { state: 'done' })
+        return { ...result, target: answered?.target ?? null }
       } catch (error) {
         return displayResult(exec.agent ? services.workingDirectory.get(exec.agent.session) : '', {
           reason: error instanceof Error ? error.message : String(error),
@@ -238,3 +289,17 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
     }
   }, 'dsh-uml-viewer: activation version lease')
 }
+
+/**
+ * The panel request id an `uml_ir` call presents (#52), when it presents one:
+ * the id names the request that `uml_ir` answers exactly. Malformed arguments
+ * name nothing here and are refused by `parseIrRequest` as before.
+ */
+function presentedRequest(args: unknown): string | undefined {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return undefined
+  const request = (args as Record<string, unknown>).request
+  return typeof request === 'string' && /^[0-9a-f]{32}$/.test(request) ? request : undefined
+}
+
+/** Why a request fails when its quality run reported no valid result and no reason (#52). */
+const QUALITY_FAILED_REASON = 'the quality run reported validResult false'

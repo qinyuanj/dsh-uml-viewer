@@ -80,26 +80,34 @@ nothing and leaves no other trace, so this journal is the only record of which
 build an activation actually runs; it is bounded to the newest 64 lines and is
 best-effort — it never fails an activation.
 
-A panel stream ending is **not** a panel close (D13). The shell's sidebar tab
-props carry only `sessionId` and `layout` has no close hook, so an unmount
-cannot say why it happened: a React detach, a client bundle swap or a
-sidebar/main move is a **withdrawal**. The mount disposer only ends its own
+A panel stream ending is **not** a panel close (D13). An unmount cannot say
+why it happened: a React detach, a client bundle swap, collapsing the right
+sidebar, switching fullscreen or the presentation, and plugin unload are all a
+**withdrawal**. The explicit close is the host's tab close handler (ADR 0015,
+#43): the plugin registers `ctx.sidebarRight.registerCloseHandler` for the UML
+tab kind, and the host runs it only when the user closes the tab or a
+replacement (`replaceTab`) removes it. The mount disposer only ends its own
 stream; it never sends a close. The resident then waits one bounded window
 (`WITHDRAWAL_GRACE_MS`, 30 s), and a remount inside it joins the same child,
 version and lease. Actions or tool calls that arrive during the window borrow
-the child without ending the window early. A last-panel **Close viewer** does
+the child without ending the window early. A last-panel tab close does
 not wait for such a borrow: it stops the child within the bounded stop timeout
-before acknowledging, so an **Open viewer** right after the ack always starts
+before acknowledging, so reopening the tab right after the ack always starts
 the current activation instead of rejoining the old child. The late action sees
 that resident stopped and reports its refusal.
 
 Each mount opens with `watchOwned(owner)`, where `owner` is `{pageId,
 holderId}`. `pageId` is a random id kept as a plain string on the browser
 `document`, so it stays the same across client HMR and surface moves.
-`holderId` is new for every mount. The definite close is the panel's
-**Close viewer** button: `closeOwned(owner)` releases that one holder, and the
-resident stops once no holder is left. **Open viewer** opens fresh, so it runs
-the current activation's version. A stale `closeOwned` from an old mount
+`holderId` is new for every mount. The definite close is closing the
+UML tab: the close handler sends `closeOwned(owner)` for that tab's holder (a
+live body closes through its controller; a body that already unmounted and is
+waiting out its grace is closed with its last owner), and the resident stops
+once no holder is left. Reopening the tab opens fresh, so it runs the current
+activation's version. The tab's refresh command is bound through
+`tab.actions.bindCommands({ refresh })` to the same `reload` as **R**. The
+panel registers no `main` slot and keeps no session id in `sessionStorage`;
+the full-width form is the right sidebar's fullscreen. A stale `closeOwned` from an old mount
 targets only its own holder; it cannot close a newer mount. The window
 expiring, plugin uninstall and DSH shutdown also stop the resident, saving
 the view first.
@@ -118,8 +126,8 @@ A legacy `close` still stops a resident that only legacy watches use, but it
 is ignored once a resident has an owned holder, so an old client's close
 cannot cut off a new panel; that resident ends at its window instead. These
 are Node seam tests through the real `mountPanel` disposer, a new mount and
-the root pool. Real browser HMR, sidebar/main moves, page reload and app
-restart are **not** run-verified.
+the root pool. Real browser HMR, right-sidebar presentation changes, page
+reload and app restart are **not** run-verified.
 
 Cleanup removes only version directories that are neither current nor leased
 by a live owner. A lease whose heartbeat is old but whose PID is still alive
@@ -260,7 +268,7 @@ Right-click a class or namespace component and choose **Refresh CRAP**,
 **Differential mutation**, or **Full mutation (--mutate-all)**. The menu sends
 `{action: 'quality-request', request: 'refresh-crap' | 'refresh-mutate' |
 'refresh-mutate-all', id}` through the panel's existing typed Remote. Its
-`agentId` is the panel's bound session, including when expanded to `main`.
+`agentId` is the panel's bound session.
 The host asks the resident's additive `quality-target` action for the element's
 source files through a quiet request. The resident resolves the id against its
 CURRENT loaded Rust session document and shown proposal using the existing
@@ -300,6 +308,81 @@ in `packages/e2e/requests.spec.mjs` use the existing isolated lane and a
 scripted model with scratch-project Node quality overrides (no Cargo); they
 require a separately available existing native binary.
 
+### Request status (#51, #52, ADR 0015)
+
+`packages/host/src/request-status.ts` keeps each session's panel requests in
+process memory (DSH restarting forgets them; at most 64 per session, finished
+ones dropped first). `PanelRequests` records each admission outcome: an
+admitted request is `queued`, an admitted context switch is `done`, and a
+refused one is `failed` with the admission reason. A hide or new proposal is
+named by its grant id, the one `uml_ir({request})` presents; any other request
+by its admitted message's `requestId`. The panel stream carries the whole list
+as `{kind: 'request-status', requests: [{id, op, target, state, reason,
+exitCode}]}` (`packages/contracts/src/request-status.ts`). It is sent once
+after the opening events and again after each change, so a reopened tab or a
+refreshed page sees the unfinished entries again. A session's list never
+reaches another session's stream. `RequestStatuses.record` replaces an entry
+with the same id, which is the seam for the transitions below and for dismissal
+(#53).
+
+The status bar (`packages/client/src/statusbar.ts`) shows one current entry and
+how many wait behind it as 「还有 N 条」; the button opens the whole queue in
+list order (#53). The current entry is the list's own choice — an unseen
+failure, else the running head, else the oldest queued, else the newest — so a
+refreshed page and an open page agree. A completed entry fades on the client
+ten seconds after it finishes or as soon as the next request starts; a failed
+one stays until the user dismisses it. Dismissal is the `dismiss-request` panel
+action (`{action: 'dismiss-request', id}`), answered by
+`RequestStatuses.dismiss` in the host: only a finished entry goes, and the
+session's new list reaches every panel. The browser evidence is
+`packages/e2e/queue.spec.mjs`; the host seams are in
+`packages/host/tests/requests.seam.test.ts` and
+`packages/host/tests/request-status.seam.test.ts`, the standing rules in
+`packages/host/tests/request-status.test.ts` and the bar's own behaviour in
+`packages/client/tests/statusbar.test.ts`.
+
+#52 attributes the companion's work to those entries in FIFO order: the head
+of the list — the oldest entry still `queued` or `running` — is the request it
+is handling, so
+
+| Trigger | Transition |
+| --- | --- |
+| the first `uml_*` call after the head was admitted | `queued` → `running` |
+| a quality result with `validResult: false` | `running` → `failed`, with the record's `reason` (a fixed sentence when the record has none) and its `exitCode` |
+| a failed `uml_ir` | `running` → `failed`, with the IR record's reason and exit code |
+| a successful `uml_display` | `running` → `done` |
+| a turn ends with a request it owned unfinished (consumed, or admitted before it began) | → `failed`, reason *the companion ended this turn without completing the display* |
+
+The attribution is the FIFO one the spec accepts: a quality call the user asks
+for by hand is attributed to the head too, so its result can end a request the
+user did not ask it for. A hide or a new proposal is matched exactly instead:
+`uml_ir({request})` names one entry by the grant id it carries, so its `running`
+and `failed` transitions land on that entry, not on the head. A successful
+`uml_display` completes the head and reports that entry's `target` in its
+result, which is what 「在面板中查看」 locates (#54); a display that answers no
+request names no element. The head is read from the list itself, in request
+order, never from a separately remembered "last request" record.
+
+Turn boundaries come from DSH's published `session/event` feed, the one public
+event a plugin can observe them through: `turn/start` clears the turn's claims
+and numbers the turn, and `turn/end` settles it. A durable `user/message` echoes
+the prompt `requestId` as its source `rpcId`, which is how the host knows a turn
+consumed one of its requests; the claim is held by prompt id until the turn
+ends, so a message that reaches the log before the panel's own admission
+returns is still matched. `turn/end` also fails the head as it stood when the
+turn ended, unless the request was admitted while that turn was already
+running: a turn owns every request queued before it began, so a request the
+companion never handled fails with the turn-end reason instead of staying
+`queued` forever, while a request the panel queued mid-turn waits for the next
+one — an admission racing a turn's end is not failed by the turn that could not
+have handled it. `agent/status` is not used: it carries no turn identity, so a
+per-agent idle would fail a request the next turn is about to pick up.
+
+A refused request still names the element the browser clicked (#52 F26): the
+refusal keeps the id the user clicked when the shown diagram gives its kind
+(an unresolved target of a refresh, a foreign library, a class without source).
+Requests whose id is not in the shown diagram any more name no element.
+
 ## Contracts and follow-on seams
 
 `packages/contracts/src/tools.ts` owns JSON-only request/result contracts and
@@ -319,6 +402,8 @@ exports the public contracts. Later additions belong in separate modules:
   `docs/scene-frame.md`, tested against `crates/frame/tests/fixtures/frames`.
   Do not invent a second scene model. Additive fields/kinds are compatible;
   unknown kinds are skipped and unknown roles render as `ink`.
+
+Compatibility note: `PanelEvent.state` requires `breadcrumbs`/`status` in TS while the validator defaults absent fields to `[]`/`null` for a resident from before #45, and `DisplayResult.target` is optional in TS while `DISPLAY_RESULT_SCHEMA`/`validateDisplayResult` require it; in-repo producers always send both (F5/F11).
 
 The host's `dsh.ts` is a narrow structural boundary to the inspected DSH
 0.2.2-rc.1 services; `process.ts` owns confinement and bounded subprocess
@@ -355,6 +440,75 @@ typed Remote, `prompt.ts` the companion prompt section that lives exactly as
 long as that session's panel stream, and `state.ts` the persisted per-session
 view state under the plugin home.
 
+## Panel language (#42, ADR 0015)
+
+Every DOM label and accessible name in the panel comes from the `panel` section
+of `locale/en.json` and `locale/zh.json`; no client source hard-codes them.
+`packages/client/src/locale.ts` reads the active language from DSH's
+`ctx.locale` (`getLocale().active`): any `zh-*` id is Chinese, every other id
+falls back to English. A switch relabels the open panel in place through
+`PanelText.subscribe`; the tab is not reopened. New DOM text adds one key to
+both files (a unit test keeps their key sets and `{placeholders}` equal), reads
+it with `text.t(key, params)` and relabels on `subscribe`. Chinese copy uses
+the GLOSSARY's interface terms (源码图, 提案, 隐藏, 类卡片, 源码窗口). Text the
+resident lays out (card rows, 「无数据」, source errors, the legend's rows) is
+chosen by the Rust string tables instead (#44): the panel passes
+`text.language` when it opens its stream and again on every switch, and
+`crates/frame/src/strings.rs` holds the Chinese and English tables behind
+`Lang`, with English for anything else.
+
+## Diagram legend (#50, ADR 0015)
+
+The legend explains the drawing — the class and component boxes, the foreign
+package ellipse, 质量色 and 无数据, the selected outline, 关系连线 and its
+violating, hovered, chained and faded states. It is not a second drawing: its
+rows are typeset in Rust (`crates/frame/src/legend.rs`, worded from
+`crates/frame/src/strings.rs`) and ride the frame's `legend` field
+(`docs/scene-frame.md`), so the panel rewords them with the next frame after a
+DSH language switch and the frame goldens cover both languages.
+`packages/client/src/legend.ts` lays them out as plain markup styled from
+`--dsw-*` tokens; each swatch resolves its semantic roles through
+`theme.ts`'s resolver, the one the canvas paints with, so a legend color is the
+diagram's own color in both themes.
+
+Where it lives follows `layout.ts`'s container measurement (#49), never the
+slot the panel sits in. Below 900px the legend is a popover opened from
+「更多」 (`moreMenuEntries` is extended through `mountTopBar({moreEntries})`);
+**Esc** closes it, before the drawer and before going back a level
+(`PanelController.escape`). From 900px it is resident: the legend takes a strip
+of the canvas row below the diagram, so the canvas — and the viewport the
+resident is told about — shrink with it and the legend never covers a class.
+The overlay root stops above the strip, so a docked drawer never covers the
+legend either. That is deliberate: a docked card reserves the right column of
+the drawing stage, its canvas shrinks, and the resident is told the smaller
+viewport so it refits — the card is not an overlay on the drawing (F28).
+The 「更多」 legend entry is omitted while the legend is resident, since there
+is no popover to open (F45).
+
+## Conversation tool views (#54, ADR 0015)
+
+The five `uml_*` tools register the host's keyed `tool.call.toolview` slot in
+`packages/client/src/tool-views.ts`, one key per wire name, so a call in the
+conversation reads as its outcome instead of the raw JSON record. The quality
+tools show validity, the reason and the targets the call dispatched (`args.targets`
+names explicit files, `crapScope: "targets"` names a configured target scope,
+and only a whole-tree result says the whole business scope); `uml_ir` shows
+success and its bounded output; `uml_display` shows the diagram it put on
+screen and 「在面板中查看」. Every word comes from
+the `panel` section of `locale/{en,zh}.json` and follows a DSH language switch,
+like the panel's own chrome (#42): the row subscribes through `PanelText` and
+re-renders in place. Rows are plain markup styled from `--dsw-*` tokens; they
+never load `dsh-client-ui-primitives` or the host's Tool views (ADR 0013).
+
+`uml_display` carries one additive field, `target: {id, kind} | null`: the
+element of the shown diagram that the panel request it answered named
+(`PanelRequests` remembers the target of the session's last admitted request
+and `uml_display` consumes it on success). 「在面板中查看」 opens that session's
+UML tab through `ctx.sidebarRight.openTab` and sends the existing `locate`
+action once the panel can take actions — immediately, or on the reopened
+panel's first live frame. A display that answered no request (`target: null`)
+only opens the tab, and a refused or failed display does not locate anything.
+
 ## Manifests and verification
 
 DSH reads `package.json`'s `dsh.bundle.patch`, runtime export and `engines.dsh`.
@@ -379,7 +533,10 @@ scratch DSH homes under two plugin versions: a live vN panel and a fresh vN+1
 panel in the same root, a withdrawn stream (abort plus iterator return, as the
 gateway leaves it) with the same session remounting on the same vN child, the
 real `mountPanel` disposer followed by a new mount keeping the vN child and
-lease until **Close viewer**, after which **Open viewer** runs vN+1, a distinct
+lease until the UML tab's close handler runs, after which the reopened tab
+runs vN+1, the close handler stopping the resident when a replacement removes
+the tab or after the body already withdrew, a close of one UML tab leaving
+another alone, the tab refresh command reaching the resident as `reload`, a distinct
 withdrawn document opening fresh while a live second page shares the resident,
 an explicit close stopping it, root shutdown clearing a pending withdrawal window,
 six simultaneous real loaders for one version, cleanup

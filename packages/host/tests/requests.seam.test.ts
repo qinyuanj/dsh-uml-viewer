@@ -15,7 +15,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
-import type { PanelEvent } from '@dsh-uml-viewer/contracts'
+import type { PanelEvent, RequestStatusEntry } from '@dsh-uml-viewer/contracts'
+import { parsePanelEvent } from '@dsh-uml-viewer/contracts'
 
 const builtHost = new URL('../../../lib/host.js', import.meta.url).href
 const plugin = await import(builtHost) as typeof import('../src/index.js')
@@ -128,12 +129,31 @@ async function setup(options: { shown?: boolean; controller?: boolean } = {}) {
     watch(agent: Agent, signal: AbortSignal): AsyncIterable<PanelEvent>
     action(agent: Agent, action: unknown): Promise<{ accepted: boolean; reason: string | null }>
   }
+  /** Open a panel stream and keep reading it; `statuses` is every request-status list it pushed. */
   const open = async (session: string) => {
     const controller = new AbortController()
     controllers.push(controller)
     const iterator = viewer().watch(agents[session]!, controller.signal)[Symbol.asyncIterator]()
     expect((await iterator.next()).value).toMatchObject({ kind: 'ready' })
-    return { close: async () => { controller.abort(); await iterator.return?.(undefined) } }
+    const events: PanelEvent[] = []
+    const reading = (async () => {
+      for (;;) {
+        const next = await iterator.next().catch(() => ({ done: true as const, value: undefined }))
+        if (next.done) return
+        events.push(next.value)
+      }
+    })()
+    const statuses = () => events.flatMap(event => event.kind === 'request-status' ? [event.requests] : [])
+    return {
+      events,
+      statuses,
+      /** The latest list once `condition` holds for it. */
+      async status(condition: (list: RequestStatusEntry[]) => boolean) {
+        await until(() => { const last = statuses().at(-1); return last !== undefined && condition(last) })
+        return statuses().at(-1)!
+      },
+      close: async () => { controller.abort(); await reading },
+    }
   }
   const request = (session: string, request: string, id: string, extra: Record<string, unknown> = {}) =>
     viewer().action(agents[session]!, { action: 'quality-request', request, id, ...extra })
@@ -307,4 +327,134 @@ it('carries the companion rules only while that session has an open panel', asyn
   await panel.close()
   await until(() => s.sections['session-a']!.length === 0)
   expect(s.sections['session-a']).toEqual([])
+})
+
+// #51 request status A: the host keeps each session's request-status list in
+// memory and pushes the whole list on the panel stream, when the stream opens
+// and on every change.
+const queued = (op: string, target: unknown, id: unknown = expect.any(String)) =>
+  ({ id, op, target, state: 'queued', reason: null, exitCode: null })
+
+it('pushes the session’s list when the stream opens, and an admitted refresh is queued at once', async () => {
+  const s = await setup()
+  const panel = await s.open('session-a')
+  // The list arrives on subscribe, before any request, and is a valid event.
+  expect(await panel.status(list => list.length === 0)).toEqual([])
+  expect(await s.request('session-a', 'refresh-crap', ':core.order')).toEqual({ accepted: true, reason: null })
+  const [entry] = await panel.status(list => list.length === 1)
+  // Its id is the admitted message's correlation id.
+  expect(entry).toEqual(queued('refresh-crap', { id: ':core.order', kind: 'class' }, s.admitted[0]!.requestId))
+  await s.request('session-a', 'refresh-mutate', ':core')
+  expect(await panel.status(list => list.length === 2)).toEqual([
+    entry, queued('refresh-mutate', { id: ':core', kind: 'component' }, s.admitted[1]!.requestId)])
+  for (const event of panel.events) expect(parsePanelEvent(event)).toEqual(event)
+})
+
+it('marks a request DSH did not admit as failed with the admission reason, and never queues it', async () => {
+  const s = await setup()
+  const panel = await s.open('session-a')
+  // Refused before the message: the resident names no target for the element.
+  expect(await s.request('session-a', 'refresh-mutate', ':nowhere')).toMatchObject({ accepted: false })
+  const [unresolved] = await panel.status(list => list.length === 1)
+  expect(unresolved).toEqual({ id: expect.any(String), op: 'refresh-mutate', target: null, state: 'failed',
+    reason: 'no class or namespace component :nowhere in the shown diagram', exitCode: null })
+  // Refused by DSH itself: the element was resolved, the session refused the message.
+  s.reject(() => new Error('session is archived'))
+  expect(await s.request('session-a', 'refresh-crap', ':api')).toMatchObject({ accepted: false })
+  const list = await panel.status(list => list.length === 2)
+  expect(list[1]).toEqual({ id: expect.any(String), op: 'refresh-crap', target: { id: ':api', kind: 'class' },
+    state: 'failed', reason: expect.stringMatching(/session is archived/), exitCode: null })
+  expect(list[0]!.id).not.toBe(list[1]!.id)
+  expect(s.admitted).toEqual([])
+  // Nothing was ever queued.
+  expect(panel.statuses().flat().some(entry => entry.state === 'queued')).toBe(false)
+})
+
+it('fails a request with a reason when this DSH offers no session prompt service', async () => {
+  const s = await setup({ controller: false })
+  const panel = await s.open('session-a')
+  await s.request('session-a', 'refresh-crap', ':api')
+  expect(await panel.status(list => list.length === 1)).toEqual([expect.objectContaining({
+    op: 'refresh-crap', state: 'failed', reason: expect.stringMatching(/sessionController/) })])
+})
+
+it('keeps a session’s entries for a stream opened later, as after a page refresh', async () => {
+  const s = await setup()
+  const first = await s.open('session-a')
+  await s.request('session-a', 'refresh-crap', ':api')
+  await s.request('session-a', 'refresh-mutate', ':nowhere')
+  const before = await first.status(list => list.length === 2)
+  await first.close()
+  // The page refreshed: a new stream of the same session gets the list on subscribe.
+  const second = await s.open('session-a')
+  expect(await second.status(list => list.length === 2)).toEqual(before)
+  expect(before.map(entry => entry.state)).toEqual(['queued', 'failed'])
+})
+
+it('never shows one session’s entries on another session’s panel', async () => {
+  const s = await setup()
+  const a = await s.open('session-a')
+  const b = await s.open('session-b')
+  await b.status(list => list.length === 0)
+  await s.request('session-a', 'refresh-crap', ':api')
+  await s.request('session-a', 'refresh-crap', ':nowhere')
+  await a.status(list => list.length === 2)
+  await s.request('session-b', 'refresh-crap', ':api')
+  expect(await b.status(list => list.length === 1)).toEqual([
+    queued('refresh-crap', { id: ':api', kind: 'class' }, s.admitted.at(-1)!.requestId)])
+  // B saw only its own list; A's list never grew B's entry.
+  expect(b.statuses().every(list => list.length <= 1)).toBe(true)
+  await new Promise(resolve => setTimeout(resolve, 100))
+  expect(a.statuses().at(-1)).toHaveLength(2)
+  // A late B stream gets B's list alone.
+  const late = await s.open('session-b')
+  expect(await late.status(list => list.length === 1)).toEqual(b.statuses().at(-1))
+})
+
+it('keeps every resident event while request-status updates interleave with them', async () => {
+  const s = await setup()
+  const panel = await s.open('session-a')
+  await until(() => panel.events.some(event => event.kind === 'frame'))
+  // A burst of requests and resident answers at once: nothing of either is lost.
+  await Promise.all([
+    ...[':api', ':core', ':core.order'].map(id => s.request('session-a', 'refresh-crap', id)),
+    ...['a', 'b', 'c'].map(query => s.viewer().action(s.agents['session-a']!, { action: 'search', query })),
+  ])
+  await panel.status(list => list.length === 3)
+  await until(() => panel.events.filter(event => event.kind === 'search').length === 3)
+  expect(panel.events.flatMap(event => event.kind === 'search' ? [event.query] : [])).toEqual(['a', 'b', 'c'])
+})
+
+// #53: a failed entry stays until the user dismisses it; the dismissal is a
+// panel action the host answers by dropping the entry for every panel of the
+// session, including one opened after a page refresh.
+it('drops a dismissed failure for every panel of the session and keeps it gone after a refresh', async () => {
+  const s = await setup()
+  const a = await s.open('session-a')
+  const twin = await s.open('session-a')
+  const b = await s.open('session-b')
+  await s.request('session-a', 'refresh-crap', ':api')
+  await s.request('session-a', 'refresh-mutate', ':nowhere')
+  await s.request('session-b', 'refresh-mutate', ':nowhere')
+  const [admitted, failed] = await a.status(list => list.length === 2)
+  expect(failed).toMatchObject({ state: 'failed' })
+  const dismiss = (session: string, id: unknown) => s.viewer().action(s.agents[session]!, { action: 'dismiss-request', id })
+  expect(await dismiss('session-a', failed!.id)).toEqual({ accepted: true, reason: null })
+  expect(await a.status(list => list.length === 1)).toEqual([admitted])
+  expect(await twin.status(list => list.length === 1)).toEqual([admitted])
+  // A page refresh: the new stream never sees the dismissed entry.
+  await a.close()
+  const reopened = await s.open('session-a')
+  expect(await reopened.status(() => true)).toEqual([admitted])
+  // Another session's failure is not this session's to dismiss, and the
+  // dismissal never reaches a resident.
+  const [other] = await b.status(list => list.length === 1)
+  expect(await dismiss('session-a', other!.id)).toEqual({ accepted: false, reason: expect.stringMatching(/no finished request/) })
+  expect(b.statuses().at(-1)).toEqual([other])
+  expect((await s.actions('session-a')).some(entry => entry.action === 'dismiss-request')).toBe(false)
+  // A queued request is still in the session's queue: it cannot be dismissed.
+  expect(await dismiss('session-a', admitted!.id)).toEqual({ accepted: false, reason: expect.stringMatching(/no finished request/) })
+  // A malformed id is refused by the contract before anything else.
+  expect(await dismiss('session-a', 'not an id')).toEqual({ accepted: false, reason: expect.stringMatching(/id/) })
+  expect(reopened.statuses().at(-1)).toEqual([admitted])
 })

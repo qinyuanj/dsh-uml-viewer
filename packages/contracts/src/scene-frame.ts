@@ -227,28 +227,13 @@ export interface IndicatorEdge {
 
 export type FrameEdge = StrokeEdge | HeadEdge | IndicatorEdge
 
-export interface ChromeLine {
-  kind: 'title' | 'proposal-banner' | 'back'
-  text: string
-  at: FramePoint
-  ink: FrameColor
-  plate: FrameColor
-}
-
-export interface ChromeStatus {
-  kind: 'status'
-  text: string
-  at: FramePoint
-  ink: FrameColor
-  plate: null
-}
-
-export interface ChromeHint {
-  kind: 'hint'
-  text: string
-  ink: FrameColor
-}
-
+/**
+ * The frame's chrome, version 1 after #46: only the pointer's hover popup. The
+ * title, the proposal banner, the return line, the status line and the centred
+ * hint left the frame with ADR 0015 — the panel draws them as DOM (top bar,
+ * status bar) — so a frame that still carries one of those kinds is a broken
+ * resident, not a frame to draw.
+ */
 export interface ChromePopup {
   kind: 'popup'
   rect: FrameRect
@@ -257,7 +242,10 @@ export interface ChromePopup {
   rows: readonly { text: string; violating: boolean; ink: FrameColor }[]
 }
 
-export type ChromeItem = ChromeLine | ChromeStatus | ChromeHint | ChromePopup
+export type ChromeItem = ChromePopup
+
+/** The chrome kinds a frame may carry: the hover popup alone (#46). */
+export const CHROME_KINDS: readonly ChromeItem['kind'][] = ['popup']
 
 export interface FrameStyle {
   fonts: { canvas: number; level: number; marker: number; badge: number; port: number; chrome: number }
@@ -303,6 +291,71 @@ export interface FrameHover {
   indicators: readonly FrameHoverIndicator[]
 }
 
+/** The kinds of swatch a legend row can draw (`frame::legend::Sample`). */
+export const LEGEND_SAMPLE_KINDS = ['box', 'line', 'dot', 'ramp'] as const
+
+/**
+ * The legend the resident typesets (#50, ADR 0015): what the diagram's boxes,
+ * quality colors and relation colors mean, worded in the frame's language. The
+ * panel draws it as its own DOM — a popover from 「更多」, resident from 900px
+ * of panel width — and resolves a sample's roles through the same theme as the
+ * canvas, so a legend color is the diagram's color.
+ */
+export type LegendShape = 'rect' | 'oval'
+
+/** A class or component box: its fill, its frame and its outline's shape. */
+export interface LegendBoxSample {
+  kind: 'box'
+  shape: LegendShape
+  fill: FrameColor
+  stroke: FrameColor
+  dimmed: boolean
+}
+
+/** A relation line in one of its interactive states' colors. */
+export interface LegendLineSample {
+  kind: 'line'
+  stroke: FrameColor
+  dimmed: boolean
+}
+
+/** A marker dot, 无数据. */
+export interface LegendDotSample {
+  kind: 'dot'
+  fill: FrameColor
+}
+
+/** The continuous 质量色 ramp: sample stops, worst to best. */
+export interface LegendRampSample {
+  kind: 'ramp'
+  stops: FrameColor[]
+}
+
+/**
+ * A sample the renderer draws. An additive sample kind stays version 1: the
+ * validator keeps its fields and the panel draws the row's label without a
+ * swatch, exactly as it skips an unknown item kind.
+ */
+export type LegendSample = LegendBoxSample | LegendLineSample | LegendDotSample | LegendRampSample
+
+export interface LegendRow {
+  /** Stable identity of the explained thing (`class-box`, `relation`, …). */
+  id: string
+  /** The resident's label, in the frame's language. */
+  label: string
+  sample: LegendSample
+}
+
+export interface LegendSection {
+  id: string
+  title: string
+  rows: LegendRow[]
+}
+
+export interface Legend {
+  sections: LegendSection[]
+}
+
 export interface SceneFrame {
   schema: typeof SCENE_FRAME_SCHEMA
   version: typeof SCENE_FRAME_VERSION
@@ -314,6 +367,8 @@ export interface SceneFrame {
   world: WorldItem[]
   edges: FrameEdge[]
   chrome: ChromeItem[]
+  /** What the drawing means, worded in the frame's language (#50). */
+  legend: Legend
   /** Optional capability; absent from the goldens (`scene --frame`). */
   hover?: FrameHover
 }
@@ -387,6 +442,66 @@ function color(value: unknown, label: string): FrameColor {
   if (source.grade !== undefined) parsed.grade = source.grade === null ? null : num(source.grade, `${label}.grade`)
   if (source.ratio !== undefined) parsed.ratio = source.ratio === null ? null : num(source.ratio, `${label}.ratio`)
   return parsed
+}
+
+const LEGEND_SHAPES: ReadonlySet<string> = new Set(['rect', 'oval'])
+
+function legendShape(value: unknown, label: string): LegendShape {
+  const shape = str(value, label)
+  if (!LEGEND_SHAPES.has(shape)) at(label, `unknown legend shape ${JSON.stringify(shape)}`)
+  return shape as LegendShape
+}
+
+/** One row's swatch: the diagram's own roles, so one theme resolves both. */
+function legendSample(value: unknown, label: string): LegendSample {
+  const source = record(value, label)
+  const kind = str(source.kind, `${label}.kind`)
+  switch (kind) {
+    case 'box':
+      return {
+        kind,
+        shape: legendShape(source.shape, `${label}.shape`),
+        fill: color(source.fill, `${label}.fill`),
+        stroke: color(source.stroke, `${label}.stroke`),
+        dimmed: bool(source.dimmed, `${label}.dimmed`),
+      }
+    case 'line':
+      return {
+        kind,
+        stroke: color(source.stroke, `${label}.stroke`),
+        dimmed: bool(source.dimmed, `${label}.dimmed`),
+      }
+    case 'dot':
+      return { kind, fill: color(source.fill, `${label}.fill`) }
+    case 'ramp':
+      return { kind, stops: list(source.stops, `${label}.stops`).map((stop, index) => color(stop, `${label}.stops[${index}]`)) }
+    default:
+      // Compatible additive kind: the fields travel through unchanged and the
+      // panel keeps the row's label while drawing no swatch.
+      return { ...source, kind } as LegendSample
+  }
+}
+
+function legend(value: unknown, label: string): Legend {
+  const source = record(value, label)
+  return {
+    sections: list(source.sections, `${label}.sections`).map((section, index) => {
+      const item = record(section, `${label}.sections[${index}]`)
+      const id = `${label}.sections[${index}]`
+      return {
+        id: str(item.id, `${id}.id`),
+        title: str(item.title, `${id}.title`),
+        rows: list(item.rows, `${id}.rows`).map((row, n) => {
+          const entry = record(row, `${id}.rows[${n}]`)
+          return {
+            id: str(entry.id, `${id}.rows[${n}].id`),
+            label: str(entry.label, `${id}.rows[${n}].label`),
+            sample: legendSample(entry.sample, `${id}.rows[${n}].sample`),
+          }
+        }),
+      }
+    }),
+  }
 }
 
 function lod(value: unknown, label: string): Lod {
@@ -515,18 +630,7 @@ function edge(value: unknown, label: string): FrameEdge {
 function chrome(value: unknown, label: string): ChromeItem {
   const source = record(value, label)
   const kind = str(source.kind, `${label}.kind`)
-  const ink = () => color(source.ink, `${label}.ink`)
   switch (kind) {
-    case 'title':
-    case 'proposal-banner':
-    case 'back':
-      return { kind, text: str(source.text, `${label}.text`), at: point(source.at, `${label}.at`),
-        ink: ink(), plate: color(source.plate, `${label}.plate`) }
-    case 'status':
-      if (source.plate !== null && source.plate !== undefined) at(`${label}.plate`, 'must be null')
-      return { kind, text: str(source.text, `${label}.text`), at: point(source.at, `${label}.at`), ink: ink(), plate: null }
-    case 'hint':
-      return { kind, text: str(source.text, `${label}.text`), ink: ink() }
     case 'popup':
       return { kind, rect: rect(source.rect, `${label}.rect`), fill: color(source.fill, `${label}.fill`),
         border: color(source.border, `${label}.border`),
@@ -537,7 +641,9 @@ function chrome(value: unknown, label: string): ChromeItem {
             ink: color(entry.ink, `${label}.rows[${index}].ink`) }
         }) }
     default:
-      return { ...source, kind } as ChromeItem
+      // The five canvas kinds left the frame with #46; a frame that carries
+      // one is a resident the panel cannot draw, so say so instead of drawing it.
+      return at(`${label}.kind`, `unknown chrome kind ${JSON.stringify(kind)}; the hover popup is the only one`)
   }
 }
 
@@ -653,6 +759,7 @@ export function validateSceneFrame(value: unknown, label = 'scene frame'): Scene
       world: list(source.world, `${label}.world`).map((item, index) => worldItem(item, `${label}.world[${index}]`)),
       edges: list(source.edges, `${label}.edges`).map((item, index) => edge(item, `${label}.edges[${index}]`)),
       chrome: list(source.chrome, `${label}.chrome`).map((item, index) => chrome(item, `${label}.chrome[${index}]`)),
+      legend: legend(source.legend, `${label}.legend`),
       ...(source.hover === undefined || source.hover === null
         ? {}
         : { hover: hover(source.hover, `${label}.hover`) }),

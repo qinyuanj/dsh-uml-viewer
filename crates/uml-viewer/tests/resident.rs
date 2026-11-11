@@ -15,8 +15,8 @@ fn shop_ir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../frame/tests/fixtures/shop/shop.ir.edn")
 }
 
-/// A project directory holding the shop diagram as `diagram.edn`.
-fn project(label: &str) -> PathBuf {
+/// A project directory holding `ir` as its `diagram.edn`.
+fn project_from(label: &str, ir: &Path) -> PathBuf {
     static SERIAL: AtomicUsize = AtomicUsize::new(0);
     let dir = std::env::temp_dir().join(format!(
         "uml-resident {label} {} {}",
@@ -25,8 +25,22 @@ fn project(label: &str) -> PathBuf {
     ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::copy(shop_ir(), dir.join("diagram.edn")).unwrap();
+    std::fs::copy(ir, dir.join("diagram.edn")).unwrap();
     dir
+}
+
+fn project(label: &str) -> PathBuf {
+    project_from(label, &shop_ir())
+}
+
+/// The state-event golden fixture (#45): two source namespace levels and a
+/// proposal with a layer and a nested group.
+fn levels_ir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/state/levels.ir.edn")
+}
+
+fn levels_project(label: &str) -> PathBuf {
+    project_from(label, &levels_ir())
 }
 
 /// One running resident session.
@@ -140,12 +154,14 @@ fn items<'a>(frame: &'a Value, kind: &str) -> Vec<&'a Value> {
         .collect()
 }
 
-fn chrome_texts(frame: &Value) -> Vec<String> {
+/// The frame's chrome kinds (#46: a view carries none; only the pointer's
+/// hover popup is chrome, and these tests never point).
+fn chrome_kinds(frame: &Value) -> Vec<String> {
     frame["frame"]["chrome"]
         .as_array()
         .unwrap()
         .iter()
-        .filter_map(|i| i["text"].as_str().map(str::to_owned))
+        .filter_map(|i| i["kind"].as_str().map(str::to_owned))
         .collect()
 }
 
@@ -166,7 +182,10 @@ fn open_answers_the_fitted_namespace_tree_of_the_project_diagram() {
         json!({"width": 1220.0, "height": 884.0}),
         frame["frame"]["viewport"]
     );
-    assert!(chrome_texts(&frame).contains(&"Shop".to_owned()));
+    // The diagram title is the top bar's breadcrumb now, not frame chrome (#46).
+    assert_eq!(Vec::<String>::new(), chrome_kinds(&frame));
+    let state = resident.ask(2, json!({"action": "save"}), "state");
+    assert_eq!(json!("Shop"), state["breadcrumbs"][0]["name"]);
     resident.finish();
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -179,7 +198,10 @@ fn drill_in_enters_a_component_and_back_returns_to_the_namespace_tree() {
     let ids = classes(&frame);
     assert!(ids.contains(&":core.order".to_owned()), "{ids:?}");
     assert!(!ids.contains(&":api".to_owned()), "{ids:?}");
-    assert!(chrome_texts(&frame).contains(&"< 返回 · core".to_owned()));
+    // The return line left the frame (#46); the path it named is the state's.
+    assert_eq!(Vec::<String>::new(), chrome_kinds(&frame));
+    let state = resident.ask(9, json!({"action": "save"}), "state");
+    assert_eq!(json!("core"), state["breadcrumbs"][1]["name"]);
     let frame = resident.ask(3, json!({"action": "back"}), "frame");
     assert!(classes(&frame).contains(&":api".to_owned()));
     resident.finish();
@@ -196,6 +218,46 @@ fn centre_of(frame: &Value, id: &str) -> [f64; 2] {
     let r = &class["rect"];
     let n = |k: &str| r[k].as_f64().unwrap();
     [n("x") + n("w") / 2.0, n("y") + n("h") / 2.0]
+}
+
+#[test]
+fn the_declutter_action_sets_the_mode_the_panel_names() {
+    let dir = project("declutter mode");
+    let mut resident = opened(&dir);
+    // The More menu's Remove arrows toggle names the mode (#46): 移除箭头
+    // draws compact indicators instead of arrows, and `save` reports the mode.
+    let frame = resident.ask(
+        2,
+        json!({"action": "declutter", "mode": "triangles"}),
+        "frame",
+    );
+    let edges = frame["frame"]["edges"].as_array().unwrap();
+    assert!(!edges.is_empty(), "{frame}");
+    assert!(
+        edges.iter().all(|edge| edge["kind"] == "indicator"),
+        "移除箭头 draws indicators, not strokes: {edges:?}"
+    );
+    let saved = resident.ask(3, json!({"action": "save"}), "state");
+    assert_eq!(json!(":triangles"), saved["state"]["declutter"]);
+    // Naming the mode again is not a cycle: it stays where it was put.
+    let again = resident.ask(
+        4,
+        json!({"action": "declutter", "mode": "triangles"}),
+        "frame",
+    );
+    assert!(
+        again["frame"]["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|edge| edge["kind"] == "indicator")
+    );
+    // No mode still cycles the modes, as any old control did.
+    resident.ask(5, json!({"action": "declutter"}), "frame");
+    let cycled = resident.ask(6, json!({"action": "save"}), "state");
+    assert_eq!(json!(":elements"), cycled["state"]["declutter"]);
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -293,6 +355,124 @@ fn switching_the_discussion_context_reports_it_and_shows_that_diagram() {
     );
     let frame = resident.expect("frame");
     assert!(classes(&frame).contains(&":api".to_owned()));
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// The state event's breadcrumbs: the path from the tree root to the current
+/// component, each level with the id a `back` target names (#45).
+#[test]
+fn back_with_a_target_returns_to_a_named_breadcrumb_level() {
+    let dir = project("back target");
+    let mut resident = opened(&dir);
+    let root = resident.ask(2, json!({"action": "save"}), "state");
+    assert_eq!(json!([{"id": null, "name": "Shop"}]), root["breadcrumbs"]);
+    assert_eq!(
+        Value::Null,
+        root["status"],
+        "a live view has no status code"
+    );
+    resident.ask(3, json!({"action": "drill-in", "id": ":core"}), "frame");
+    resident.ask(
+        4,
+        json!({"action": "drill-in", "id": ":core.order"}),
+        "frame",
+    );
+    let deep = resident.ask(5, json!({"action": "save"}), "state");
+    assert_eq!(
+        json!([{"id": null, "name": "Shop"},
+               {"id": ":core", "name": "core"},
+               {"id": ":core.order", "name": "order"}]),
+        deep["breadcrumbs"]
+    );
+    // Any level of the path is a target, not only the one above.
+    resident.ask(6, json!({"action": "back", "target": ":core"}), "frame");
+    let middle = resident.ask(7, json!({"action": "save"}), "state");
+    assert_eq!(
+        json!([{"id": null, "name": "Shop"}, {"id": ":core", "name": "core"}]),
+        middle["breadcrumbs"]
+    );
+    resident.ask(8, json!({"action": "back", "target": null}), "frame");
+    let again = resident.ask(9, json!({"action": "save"}), "state");
+    assert_eq!(root["breadcrumbs"], again["breadcrumbs"]);
+    // A target the path does not carry is an error, not one level back.
+    for target in [json!(":api"), json!(":missing"), json!(7)] {
+        let error = resident.ask(10, json!({"action": "back", "target": target}), "error");
+        assert!(
+            error["message"].as_str().unwrap().contains("breadcrumb"),
+            "{error}"
+        );
+    }
+    let unchanged = resident.ask(11, json!({"action": "save"}), "state");
+    assert_eq!(again["breadcrumbs"], unchanged["breadcrumbs"]);
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A proposal's breadcrumb path starts at the proposal, not at the source
+/// diagram: its root id is the proposal and its levels are the proposal's.
+#[test]
+fn a_proposal_breadcrumb_path_names_its_layers_and_returns_to_them() {
+    let dir = project("proposal crumbs");
+    let mut resident = opened(&dir);
+    resident.ask(
+        2,
+        json!({"action": "context", "proposalId": ":p-shop"}),
+        "context",
+    );
+    resident.expect("frame");
+    let root = resident.ask(3, json!({"action": "save"}), "state");
+    assert_eq!(
+        json!([{"id": ":p-shop", "name": "2026-10-24 10:00:00"}]),
+        root["breadcrumbs"]
+    );
+    resident.ask(
+        4,
+        json!({"action": "drill-in", "id": ":proposal.domain"}),
+        "frame",
+    );
+    let layer = resident.ask(5, json!({"action": "save"}), "state");
+    assert_eq!(
+        json!([{"id": ":p-shop", "name": "2026-10-24 10:00:00"},
+               {"id": ":proposal.domain", "name": "Domain"}]),
+        layer["breadcrumbs"]
+    );
+    resident.ask(6, json!({"action": "back", "target": ":p-shop"}), "frame");
+    let back = resident.ask(7, json!({"action": "save"}), "state");
+    assert_eq!(root["breadcrumbs"], back["breadcrumbs"]);
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// The state event carries the canvas status as a code the panel localizes,
+/// with the parameters that code needs; frames keep their own text until #46.
+#[test]
+fn the_state_event_reports_the_canvas_status_code() {
+    let dir = project("status codes");
+    let mut resident = Resident::start(&dir);
+    resident.expect("ready");
+    resident.ask(
+        1,
+        json!({"action": "open", "waiting": true, "viewport": {"width": 1220, "height": 884}}),
+        "frame",
+    );
+    let waiting = resident.ask(2, json!({"action": "save"}), "state");
+    assert_eq!(json!([]), waiting["breadcrumbs"], "nothing is loaded yet");
+    assert_eq!(json!({"code": "waiting-display"}), waiting["status"]);
+    // A named diagram that is not there says which file is missing.
+    resident.ask(
+        3,
+        json!({"action": "open", "diagram": "missing.edn"}),
+        "frame",
+    );
+    let missing = resident.ask(4, json!({"action": "save"}), "state");
+    let status = &missing["status"];
+    assert_eq!(json!("missing-file"), status["code"]);
+    assert!(
+        status["path"].as_str().unwrap().ends_with("missing.edn"),
+        "{status}"
+    );
+    assert_eq!(json!([]), missing["breadcrumbs"]);
     resident.finish();
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -430,7 +610,7 @@ fn a_view_saved_before_any_display_reopens_waiting() {
 #[test]
 fn an_edited_diagram_hot_reloads_into_an_unprompted_frame() {
     let dir = project("reload");
-    let resident = opened(&dir);
+    let mut resident = opened(&dir);
     let text = std::fs::read_to_string(dir.join("diagram.edn"))
         .unwrap()
         .replace(":title \"Shop\"", ":title \"Shop v2\"");
@@ -444,7 +624,10 @@ fn an_edited_diagram_hot_reloads_into_an_unprompted_frame() {
         .unwrap();
     let frame = resident.expect("frame");
     assert_eq!(Value::Null, frame["seq"], "a reload answers no action");
-    assert!(chrome_texts(&frame).contains(&"Shop v2".to_owned()));
+    // The new title shows up in the top bar's path, not in frame chrome (#46).
+    assert_eq!(Vec::<String>::new(), chrome_kinds(&frame));
+    let state = resident.ask(9, json!({"action": "save"}), "state");
+    assert_eq!(json!("Shop v2"), state["breadcrumbs"][0]["name"]);
     resident.finish();
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -596,4 +779,125 @@ fn an_action_line_over_the_transport_cap_stops_the_session_with_a_reason() {
         "a capped session fails, never exits 0"
     );
     let _ = std::fs::remove_dir_all(&project);
+}
+
+/// A `state` event golden (#45): the breadcrumb path and the status code the
+/// panel's top bar and status line are built from. Frames have their own
+/// goldens (`crates/frame/tests/golden_frame.rs`); this event has no frame, so
+/// it keeps its own checked-in record. Regenerate with
+/// `UPDATE_STATE_GOLDENS=1` and review the diff like the contract change it is.
+fn state_golden(name: &str, event: &Value) {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/state")
+        .join(format!("{name}.state.json"));
+    let fields = recorded(event);
+    if std::env::var_os("UPDATE_STATE_GOLDENS").is_some() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string_pretty(&fields).unwrap()),
+        )
+        .unwrap();
+    }
+    let expected: Value = serde_json::from_str(
+        &std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("missing golden {}: {e}", path.display())),
+    )
+    .unwrap();
+    assert_eq!(
+        expected,
+        fields,
+        "{name}: state event differs from {}; rerun with UPDATE_STATE_GOLDENS=1 and review the diff",
+        path.display()
+    );
+}
+
+/// The event's #45 fields and the switcher's proposal list (#47). A status's `path` is the machine's, so the golden
+/// records the file it names rather than the checkout it was captured in.
+fn recorded(event: &Value) -> Value {
+    let mut status = event["status"].clone();
+    if let Some(full) = status.get("path").and_then(Value::as_str) {
+        let file = Path::new(full)
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        status["path"] = json!(file);
+    }
+    json!({"breadcrumbs": event["breadcrumbs"], "status": status, "proposals": event["proposals"]})
+}
+
+fn saved(resident: &mut Resident, seq: i64) -> Value {
+    resident.ask(seq, json!({"action": "save"}), "state")
+}
+
+#[test]
+fn state_golden_root_names_the_diagram_alone() {
+    let dir = levels_project("golden root");
+    let mut resident = opened(&dir);
+    state_golden("root", &saved(&mut resident, 2));
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn state_golden_source_names_both_namespace_levels() {
+    let dir = levels_project("golden source");
+    let mut resident = opened(&dir);
+    resident.ask(2, json!({"action": "drill-in", "id": ":core"}), "frame");
+    resident.ask(
+        3,
+        json!({"action": "drill-in", "id": ":core.inner"}),
+        "frame",
+    );
+    state_golden("source-two-levels", &saved(&mut resident, 4));
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn state_golden_proposal_path_starts_at_the_proposal_and_descends() {
+    let dir = levels_project("golden proposal");
+    let mut resident = opened(&dir);
+    resident.ask(
+        2,
+        json!({"action": "context", "proposalId": ":p-levels"}),
+        "context",
+    );
+    resident.expect("frame");
+    state_golden("proposal-root", &saved(&mut resident, 3));
+    resident.ask(
+        4,
+        json!({"action": "drill-in", "id": ":proposal.domain"}),
+        "frame",
+    );
+    state_golden("proposal-layer", &saved(&mut resident, 5));
+    resident.ask(
+        6,
+        json!({"action": "drill-in", "id": ":core-group"}),
+        "frame",
+    );
+    state_golden("proposal-nested-group", &saved(&mut resident, 7));
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn state_goldens_cover_the_waiting_and_missing_diagram_status_codes() {
+    let dir = levels_project("golden status");
+    let mut resident = Resident::start(&dir);
+    resident.expect("ready");
+    resident.ask(
+        1,
+        json!({"action": "open", "waiting": true, "viewport": {"width": 1220, "height": 884}}),
+        "frame",
+    );
+    state_golden("waiting", &saved(&mut resident, 2));
+    resident.ask(
+        3,
+        json!({"action": "open", "diagram": "missing.edn"}),
+        "frame",
+    );
+    state_golden("missing-file", &saved(&mut resident, 4));
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
 }

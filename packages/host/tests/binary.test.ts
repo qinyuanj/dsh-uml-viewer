@@ -1,10 +1,13 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { binaryArgv } from '../src/binary.js'
 
 const roots: string[] = []
+// The e2e lane exports UML_VIEWER_BIN; these locator cases must not read that
+// ambient override (F47). Each test stubs/unstubs its own value from here.
+beforeEach(() => { vi.stubEnv('UML_VIEWER_BIN', undefined) })
 afterEach(async () => {
   vi.unstubAllEnvs()
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })

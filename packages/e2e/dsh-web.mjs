@@ -98,6 +98,10 @@ export async function startDshWeb({ home, projects, packages = null }) {
     COREPACK_HOME: path.join(home, 'cache', 'corepack'),
     XDG_CACHE_HOME: path.join(home, 'cache', 'xdg'),
   }
+  // Opt-in: seed the lane's fresh Corepack home from a known-good cache, so a
+  // flaky registry cannot fail the `pnpm/latest` lookup every lane repeats.
+  const seed = process.env.UML_VIEWER_E2E_COREPACK_SEED
+  if (seed && fs.existsSync(seed)) fs.cpSync(seed, env.COREPACK_HOME, { recursive: true })
   delete env.DSH_PROFILE
   delete env.DSH_PROFILE_DIR
   // Packaged acceptance must exercise the shipped optional-dependency locator.
@@ -107,7 +111,16 @@ export async function startDshWeb({ home, projects, packages = null }) {
   // The Desktop CLI scrubs npm_config_* on its internal pnpm process. Pass the
   // store explicitly; environment-only configuration silently uses a global store.
   const store = ['--store-dir', path.join(home, 'cache', 'pnpm-store')]
-  run(command, ['plugin', '--profile', 'web', 'add', '--ignore-scripts', ...store, ...targets], env)
+  const add = () => run(command, ['plugin', '--profile', 'web', 'add', '--ignore-scripts', ...store, ...targets], env)
+  try {
+    add()
+  } catch (error) {
+    // A lane installs into a fresh npm cache; on a busy host with a slow
+    // registry one download can fail. The command is idempotent, so retry once
+    // before failing the lane (the second failure still surfaces).
+    console.warn(`[e2e] the plugin install failed (${error.message}); retrying once`)
+    add()
+  }
   // pnpm 11 remove does not accept --ignore-scripts; these archives have no scripts.
   const uninstall = () => run(command, ['plugin', '--profile', 'web', 'remove', ...store,
     'dsh-uml-viewer', ...(packages ? [`@dsh-uml-viewer/${process.platform}-${process.arch}`] : [])], env)

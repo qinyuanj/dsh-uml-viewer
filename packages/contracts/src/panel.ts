@@ -6,16 +6,19 @@
  * generator in this package). They are plain data with `create(): { parse }`
  * codecs, so the host and the browser bundle share one declaration.
  */
-import type { DiscussionContext, SearchResult, SessionState } from './resident.js'
+import type { BreadcrumbLevel, DiscussionContext, ProposalEntry, SearchResult, SessionState, SessionStatus } from './resident.js'
 import type { SceneFrame } from './scene-frame.js'
 import { validateSceneFrame } from './scene-frame.js'
-import { validateSessionState } from './resident.js'
+import { validateBreadcrumbs, validateProposalEntries, validateSessionState, validateSessionStatus } from './resident.js'
 import { normalizeRelativePath } from './tools.js'
-import type { CardModel, InspectorModel, SourceModel } from './overlays.js'
-import { validateCardModel, validateInspectorModel, validateSourceModel } from './overlays.js'
+import type { CardModel, SourceModel } from './overlays.js'
+import { validateCardModel, validateSourceModel } from './overlays.js'
 import type { QualityRequestOp } from './requests.js'
-import { parseElementId, parseQualityRequestOp } from './requests.js'
+import { parseQualityRequestOp } from './requests.js'
+import { parseElementId } from './tools.js'
 import { parseProposalName } from './view-requests.js'
+import type { RequestStatusEntry } from './request-status.js'
+import { parseRequestStatusId, validateRequestStatusList } from './request-status.js'
 
 /** The Remote namespace the panel mounts. */
 export const REMOTE_SERVICE = 'umlViewer'
@@ -27,16 +30,36 @@ export type PanelEvent =
   | { kind: 'ready'; actions: string[] }
   | { kind: 'frame'; seq: number | null; frame: SceneFrame }
   | { kind: 'context'; context: DiscussionContext }
-  | { kind: 'state'; state: SessionState }
+  // #47: `proposals` lists the shown diagram's proposals for the switcher.
+  | { kind: 'state'; state: SessionState; breadcrumbs: BreadcrumbLevel[]; status: SessionStatus | null
+      proposals: ProposalEntry[] }
   | { kind: 'search'; query: string; results: SearchResult[] }
   | { kind: 'refused'; reason: string }
   | { kind: 'failed'; reason: string }
+  // #51: this session's whole request-status list, oldest first; sent when the
+  // stream opens and again on every change.
+  | { kind: 'request-status'; requests: RequestStatusEntry[] }
+
+/**
+ * The declutter modes the resident knows (#46), from `scene::hierarchy`. The
+ * More menu names one instead of cycling to it.
+ */
+export type DeclutterMode = 'full' | 'arrows' | 'triangles' | 'elements' | 'classes'
+
+/** Every declutter mode, in the resident's cycle order. */
+export const DECLUTTER_MODES: readonly DeclutterMode[] = ['full', 'arrows', 'triangles', 'elements', 'classes']
 
 export type PanelAction =
   | { action: 'viewport'; viewport: { width: number; height: number } }
   | { action: 'camera'; x: number; y: number; zoom: number }
   | { action: 'display'; path?: string }
-  | { action: 'reload' } | { action: 'back' } | { action: 'namespace-tree' } | { action: 'declutter' } | { action: 'save' }
+  | { action: 'reload' } | { action: 'namespace-tree' } | { action: 'save' }
+  // #46: the More menu's Remove arrows toggle names the declutter mode it
+  // wants; without one the resident cycles the modes.
+  | { action: 'declutter'; mode?: DeclutterMode }
+  // #45: a breadcrumb click names the level to return to; no target is one
+  // level up, and `null` is the source diagram's root.
+  | { action: 'back'; target?: string | null }
   | { action: 'drill-in'; id?: string; at?: [number, number] }
   | { action: 'select'; at: [number, number] | null }
   | { action: 'search'; query: string }
@@ -44,7 +67,6 @@ export type PanelAction =
   | { action: 'context'; proposalId: string | null }
   // #27 overlays: the answers come back on the ack, so one panel's card or
   // source window never appears in another panel of the same session.
-  | { action: 'inspector' }
   | { action: 'card'; width?: number; viewHeight?: number }
   | { action: 'open-card'; id?: string; at?: [number, number] }
   | { action: 'close-card' }
@@ -57,6 +79,11 @@ export type PanelAction =
   // session too; the companion edits the policy and regenerates the IR.
   | { action: 'omit'; id: string }
   | { action: 'new-proposal'; name?: string }
+  // #44: DSH switched language; the resident lays its text out again.
+  | { action: 'language'; language: string }
+  // #53: the user dismissed a finished request; the host drops it from the
+  // session's request-status list and every panel of the session follows.
+  | { action: 'dismiss-request'; id: string }
 
 /** Presentation ownership, scoped by the Remote's authoritative agent lookup. */
 export interface PanelOwner {
@@ -76,14 +103,28 @@ export function parsePanelOwner(value: unknown): PanelOwner {
   return { pageId, holderId }
 }
 
+/**
+ * The DSH language a panel passes to its resident (#44): a locale tag such as
+ * `zh-CN` or `en`. The resident reads any Chinese tag as Chinese and the rest
+ * as English; the tag only has to be short and plain.
+ * @param value the tag, or nothing when an older panel passes none.
+ * @param label the field name used in failure messages.
+ * @returns the tag, or `null` for none.
+ */
+export function parsePanelLanguage(value: unknown, label = 'language'): string | null {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,35}$/.test(value)) {
+    throw new Error(`${label}: must be a locale tag of 1–35 ASCII letters, digits, underscores or hyphens`)
+  }
+  return value
+}
+
 /** One action's outcome; the events it caused arrive on the watch stream. */
 export interface PanelAck {
   accepted: boolean
   reason: string | null
-  /** The inspector model, when the action was `inspector`. */
-  inspector?: InspectorModel
-  /** The class card paint plan, when the action was `card`. */
-  card?: CardModel
+  /** The class card paint plan when the action was `card`; null when no card is open (#47). */
+  card?: CardModel | null
   /** The opened source, when the action was `open-source`. */
   source?: SourceModel
 }
@@ -91,8 +132,8 @@ export interface PanelAck {
 /**
  * The answer to the panel's explicit `close`. Only this call is a definite
  * close: a watch stream ending on its own is a carrier loss (a reconnect, an
- * HMR client swap, the sidebar/main reparent) and keeps the resident in its
- * bounded grace (D13, #32).
+ * HMR client swap, a panel body remount during a right-sidebar presentation
+ * change) and keeps the resident in its bounded grace (D13, #32).
  */
 export interface PanelCloseAck {
   /** Whether a resident was still there to close; false when it was already gone. */
@@ -185,7 +226,10 @@ export function parsePanelEvent(value: unknown, label = 'panel event'): PanelEve
         return { kind, context: parsed }
       }
       case 'state':
-        return { kind, state: validateSessionState(source.state, `${label}.state`) }
+        return { kind, state: validateSessionState(source.state, `${label}.state`),
+          breadcrumbs: validateBreadcrumbs(source.breadcrumbs, `${label}.breadcrumbs`),
+          status: validateSessionStatus(source.status, `${label}.status`),
+          proposals: validateProposalEntries(source.proposals, `${label}.proposals`) }
       case 'search':
         if (!Array.isArray(source.results)) at(`${label}.results`, 'must be an array')
         return { kind, query: str(source.query, `${label}.query`),
@@ -198,6 +242,8 @@ export function parsePanelEvent(value: unknown, label = 'panel event'): PanelEve
         return { kind, reason: str(source.reason, `${label}.reason`) }
       case 'failed':
         return { kind, reason: str(source.reason, `${label}.reason`) }
+      case 'request-status':
+        return { kind, requests: validateRequestStatusList(source.requests, `${label}.requests`) }
       default:
         return at(`${label}.kind`, `unknown panel event ${JSON.stringify(source.kind)}`)
     }
@@ -228,8 +274,19 @@ export function parsePanelAction(value: unknown, label = 'panel action'): PanelA
         const path = source.path === undefined ? undefined : normalizeRelativePath('path', source.path)
         return path === undefined ? { action } : { action, path }
       }
-      case 'reload': case 'back': case 'namespace-tree': case 'declutter': case 'save':
+      case 'reload': case 'namespace-tree': case 'save':
         return { action }
+      case 'declutter': {
+        if (source.mode === undefined || source.mode === null) return { action }
+        const mode = str(source.mode, `${label}.mode`)
+        if (!(DECLUTTER_MODES as readonly string[]).includes(mode)) at(`${label}.mode`, `unknown declutter mode ${JSON.stringify(mode)}`)
+        return { action, mode: mode as DeclutterMode }
+      }
+      case 'back': {
+        const target = source.target === undefined ? undefined
+          : source.target === null ? null : str(source.target, `${label}.target`)
+        return target === undefined ? { action } : { action, target }
+      }
       case 'drill-in': {
         const id = source.id === undefined || source.id === null ? undefined : str(source.id, `${label}.id`)
         const point = source.at === undefined || source.at === null ? undefined : pointOrNull(source.at, `${label}.at`)
@@ -247,7 +304,7 @@ export function parsePanelAction(value: unknown, label = 'panel action'): PanelA
           ? null : str(source.proposalId, `${label}.proposalId`)
         return { action, proposalId }
       }
-      case 'inspector': case 'close-card':
+      case 'close-card':
         return { action }
       case 'card': {
         const width = source.width === undefined || source.width === null ? undefined : num(source.width, `${label}.width`)
@@ -271,6 +328,13 @@ export function parsePanelAction(value: unknown, label = 'panel action'): PanelA
         return { action, id: parseElementId(source.id, `${label}.id`) }
       case 'new-proposal':
         return source.name === undefined || source.name === null ? { action } : { action, name: parseProposalName(source.name) }
+      case 'language': {
+        const language = parsePanelLanguage(source.language, `${label}.language`)
+        if (language === null) at(`${label}.language`, 'must be a locale tag')
+        return { action, language: language! }
+      }
+      case 'dismiss-request':
+        return { action, id: parseRequestStatusId(source.id, `${label}.id`) }
       case 'quality-request':
         return { action, request: parseQualityRequestOp(source.request, `${label}.request`),
           id: parseElementId(source.id, `${label}.id`) }
@@ -289,10 +353,8 @@ function parseAck(value: unknown, label = 'panel ack'): PanelAck {
   if (typeof accepted !== 'boolean') at(`${label}.accepted`, 'must be a boolean')
   const reason = source.reason === null || source.reason === undefined ? null : str(source.reason, `${label}.reason`)
   const ack: PanelAck = { accepted, reason }
-  if (source.inspector !== undefined && source.inspector !== null) {
-    ack.inspector = validateInspectorModel(source.inspector, `${label}.inspector`)
-  }
-  if (source.card !== undefined && source.card !== null) ack.card = validateCardModel(source.card, `${label}.card`)
+  if (source.card === null) ack.card = null
+  else if (source.card !== undefined) ack.card = validateCardModel(source.card, `${label}.card`)
   if (source.source !== undefined && source.source !== null) ack.source = validateSourceModel(source.source, `${label}.source`)
   return ack
 }
@@ -323,6 +385,15 @@ const agentId = (): RemoteCodec => ({
   typeSymbol: '@deepseek-ai/dsh-session/types#SessionId',
 })
 
+/**
+ * The DSH language the panel passes when it opens its owned stream (#44). The
+ * gateway calls the host method with the parameters in this order and the
+ * cancellation signal last: `watchOwned(agent, owner, language, signal)`.
+ */
+const language = (): RemoteParameter => ({
+  name: 'language', wire: 'language', source: 'json', codec: codec('PanelLanguage', value => parsePanelLanguage(value)),
+})
+
 /** One hand-written declaration of the panel's typed Remote. */
 export const REMOTE_DESCRIPTORS: readonly RemoteDescriptor[] = Object.freeze([
   ...(['watchOwned', 'closeOwned'] as const).map(method => ({
@@ -334,6 +405,7 @@ export const REMOTE_DESCRIPTORS: readonly RemoteDescriptor[] = Object.freeze([
     parameters: [
       { name: 'agent', wire: 'agentId', source: 'lookup' as const, lookup: 'agent', codec: agentId() },
       { name: 'owner', wire: 'owner', source: 'json' as const, codec: codec('PanelOwner', parsePanelOwner) },
+      ...(method === 'watchOwned' ? [language()] : []),
     ],
     result: method === 'watchOwned' ? codec('PanelEvent', value => parsePanelEvent(value)) : codec('PanelCloseAck', value => parseCloseAck(value)),
   })),

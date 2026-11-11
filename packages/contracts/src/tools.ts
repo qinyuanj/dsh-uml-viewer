@@ -1,4 +1,38 @@
+import type { PanelRequestTarget } from './requests.js'
+
 export type QualityOperation = 'crap' | 'mutate' | 'dry'
+
+/** A scene/IR id: one EDN keyword without whitespace or EDN delimiters. */
+const KEYWORD = /^:[^\s,()[\]{}"';@^`~\\:][^\s,()[\]{}"';@^`~\\]*$/
+
+/**
+ * Validate an element id the panel sends or a request carries.
+ * @param value the id.
+ * @param label the field name used in failure messages.
+ * @returns the same id.
+ */
+export function parseElementId(value: unknown, label: string): string {
+  if (typeof value !== 'string') throw new Error(`${label} must be a string`)
+  if (!KEYWORD.test(value)) throw new Error(`${label} must be one EDN keyword id such as :core.order`)
+  return value
+}
+
+/**
+ * Validate the element a panel request targets (#28, #54): one class or
+ * namespace component of the shown diagram.
+ * @param value the target, or null for a request that names no element.
+ * @param label the field name used in failure messages.
+ * @returns the same target, narrowed.
+ */
+export function parseElementTarget(value: unknown, label: string): PanelRequestTarget | null {
+  if (value === null) return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object or null`)
+  const source = value as Record<string, unknown>
+  const id = parseElementId(source.id, `${label} id`)
+  const kind = source.kind
+  if (kind !== 'class' && kind !== 'component') throw new Error(`${label} kind must be class or component`)
+  return { id, kind }
+}
 
 /** ADR 0001 version-1 fields. The operation value distinguishes IR from the
  * quality operations, so only the latter can participate in the #20 gate. */
@@ -294,6 +328,12 @@ export interface DisplayResult extends ToolResultRecord<'display'> {
   path: string | null
   status: 'ok' | 'error' | 'refused'
   reason: string | null
+  /**
+   * The element the panel request this display answered named (#54), so the
+   * conversation can open the panel on it; null when the display answered no
+   * request naming an element (the view then only opens the tab).
+   */
+  target: PanelRequestTarget | null
 }
 
 export function parseDisplayRequest(value: unknown): DisplayRequest {
@@ -315,13 +355,20 @@ export const DISPLAY_PARAMETERS = {
 
 export const DISPLAY_RESULT_SCHEMA = {
   type: 'object', additionalProperties: false,
-  required: ['version', 'operation', 'projectRoot', 'path', 'exitCode', 'validResult', 'crapScope', 'configured', 'tool', 'status', 'reason'],
+  required: ['version', 'operation', 'projectRoot', 'path', 'exitCode', 'validResult', 'crapScope', 'configured', 'tool', 'status', 'reason', 'target'],
   properties: {
     version: { type: 'integer', const: 1 }, operation: { type: 'string', const: 'display' }, projectRoot: { type: 'string' },
     path: { oneOf: [{ type: 'string' }, { type: 'null' }] },
     exitCode: { type: 'null', const: null }, validResult: { type: 'boolean' },
     crapScope: { type: 'null', const: null }, configured: { type: 'boolean' }, tool: { type: 'string' },
     status: { type: 'string', enum: ['ok', 'error', 'refused'] }, reason: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+    target: {
+      oneOf: [
+        { type: 'object', additionalProperties: false, required: ['id', 'kind'],
+          properties: { id: { type: 'string' }, kind: { type: 'string', enum: ['class', 'component'] } } },
+        { type: 'null' },
+      ],
+    },
   },
 }
 
@@ -344,5 +391,6 @@ export function validateDisplayResult(value: unknown): DisplayResult {
   if (typeof source.configured !== 'boolean') throw new Error('display result.configured: must be a boolean')
   if (typeof source.tool !== 'string') throw new Error('display result.tool: must be a string')
   if (source.reason !== null && typeof source.reason !== 'string') throw new Error('display result.reason: must be a string or null')
+  parseElementTarget(source.target, 'display result.target')
   return source as unknown as DisplayResult
 }

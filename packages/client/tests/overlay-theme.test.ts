@@ -3,7 +3,7 @@ import { DARK_HUES, hueOf, LIGHT_HUES, resolveTheme } from '../src/theme.js'
 import { fakeCanvas, DARK_TOKENS, LIGHT_TOKENS } from './fakes.js'
 
 /**
- * #27 S1: the overlays (inspector, class card) consume the same role resolver
+ * #27 S1: the overlays (class card, source window) consume the same role resolver
  * as the Canvas, so these roles are asserted at the resolver the overlay calls
  * (`roleStyle` delegates to `Theme.frame`; overlay-components.test.ts checks
  * that delegation). Rust computes grade/ratio; TypeScript only maps roles.

@@ -1,8 +1,12 @@
 # Scene frame, version 1
 
 The **scene frame** is one view of the diagram, fully drawable: every box,
-badge, port, relation and chrome line with its text, geometry, LOD tier,
-highlight state and color **role**. The `frame` crate (`crates/frame`)
+badge, port and relation, and the pointer's hover popup, with its text,
+geometry, LOD tier, highlight state and color **role**. It also carries the
+diagram's **legend** (#50): what those shapes and colors mean, worded in the
+language the frame was built in. The legend is not drawn on the canvas — the
+panel lays it out as its own DOM — but it is the resident's text, like the
+hover popup's rows. The `frame` crate (`crates/frame`)
 builds it from a `scene::ViewState` as typed draw lists (`frame::Layers`,
 `frame::frame::chrome`); the viewer panel (dsh-uml-viewer#21–#27), the only
 renderer since the egui window was deleted (#30), receives the JSON written
@@ -56,7 +60,8 @@ not carry the optional `hover` capability below; `--hover-metadata` adds it to a
 | `style` | object | fonts, widths, radii and thresholds below |
 | `world` | item[] | scene-space items, painted in order (packages first, then each class with its badges, text and ports) |
 | `edges` | edge[] | relation strokes, arrowheads and indicators, painted after `world` |
-| `chrome` | item[] | viewport-space items, painted last, in order |
+| `chrome` | item[] | viewport-space items, painted last: the hover popup, or nothing (#46) |
+| `legend` | object | the diagram's legend, in the frame's language (see Legend); `{sections: []}` when there is none |
 | `hover` | object | optional bounded hover metadata (see Hover metadata); absent from the goldens |
 
 ### `style`
@@ -65,7 +70,7 @@ not carry the optional `hover` capability below; `--hover-metadata` adds it to a
 |---|---|---|
 | `fonts.canvas` | 16 | class, member and package text (scaled by zoom) |
 | `fonts.level` / `marker` / `badge` / `port` | 11 / 12 / 9 / 10 | level number, α/I, C/M letter, port label (scaled) |
-| `fonts.chrome` | 18 | chrome text (not scaled) |
+| `fonts.chrome` | 18 | the hover popup's rows (not scaled) |
 | `widths.band` / `rule` / `dot` / `portLink` | 2 / 1 / 1 / 1.3 | stroke widths in points, never scaled by zoom |
 | `widths.dash` / `dashGap` | 6 / 4 | dashed outline of an unmeasured frame |
 | `radius.class` / `package` / `port` / `rowWash` | 4 / 8 / 3 / 2 | corner radii in world units (dropped under 2 screen px) |
@@ -88,16 +93,16 @@ The dark palette below is the reference palette (`frame::theme::rgba`), the colo
 |---|---|---|
 | `canvas` | canvas; interior of open arrowheads | `#161c20` |
 | `panel` | card and source window background | `#1a2428` |
-| `sidebar` | inspector | `#121618` |
+| `sidebar` | sidebar surface; the inspector that drew it was deleted (#47) | `#121618` |
 | `line` | hairlines, popup frame, bar tracks | `#2a3d36` |
 | `ink` | primary text; filled diamond | `#ecece4` |
-| `muted` | stereotypes, levels, hints, title, status | `#9db8a8` |
-| `accent` | package titles, CRAP lines, banner, return line, card headings | `#e8c448` |
+| `muted` | stereotypes, levels, popup rows | `#9db8a8` |
+| `accent` | package titles, CRAP lines, card headings | `#e8c448` |
 | `marker` | α/I, C/M letters, bright card figures | `#ffffff` |
 | `selected` | outline of the selected box or port | `#ffffff` |
 | `good` | no survived/uncovered mutants | `#5fb58a` |
 | `danger` | destructive control under the pointer | `#ff4030` |
-| `chrome-plate` | behind chrome text | canvas, alpha 235 |
+| `chrome-plate` | behind lifted text; no frame item uses it since the canvas chrome left (#46) | canvas, alpha 235 |
 | `popup` | dependency hover popup | `#121618`, alpha 240 |
 | `row-wash` / `row-bar` | marked row wash / its left rule | gold, alpha 32 / gold |
 | `quality-fill` *(grade)* | class box and dot fill (质量色) | red→mid→green ramp; unmeasured `#243430` |
@@ -114,7 +119,7 @@ The dark palette below is the reference palette (`frame::theme::rgba`), the colo
 | `indicator` | 精简依赖标记 without violations | `#9db8a8` |
 | `port-fill` / `port-fill-marked` | 依赖端口 fill / when selected | `#2a3834` / `#4a604e` |
 | `port-outline` / `port-link` | port frame / its arrow to the class | muted |
-| `button-hover` / `button-active` | inspector buttons | `#364c42` / `#425a4c` |
+| `button-hover` / `button-active` | sidebar buttons; the inspector that used them was deleted (#47) | `#364c42` / `#425a4c` |
 | `source-bg` / `source-ink` / `source-gutter-bg` / `source-gutter` / `source-selection` / `source-comment` / `source-string` / `source-keyword` | 源码窗口 | panel / ink / sidebar / muted / `#263646` / `#788c82` / `#e6a06e` / `#7aa2f7` |
 
 The ramps: for grade `g ≤ 5` mix the red end into the midpoint by `g/5`,
@@ -140,7 +145,7 @@ requests. Rects are `{x, y, w, h}`, points `[x, y]`, all in world units.
 | `band` | full | `owner from to stroke` | title band, width `widths.band` |
 | `rule` | full | `owner from to stroke` | member separator, width `widths.rule` |
 | `text` | name `frames`, else full | `owner line text x top slot size maxW italic bold center ink` | `line` is `name`, `stereo`, `crap`, `child`, …; draw at `px = round(slot * zoom)` (skip under `minTextPx`), vertically centred in `[top, top + slot]`; left at `x`, or centred on `x + maxW/2` when `center`; shrink to fit `maxW` counting bold `+0.05·px` and italic `+0.2·px`; bold is a second pass offset `0.05·px` |
-| `no-data` | full | `owner text right y size ink` | 无数据, right-aligned to `right` |
+| `no-data` | full | `owner text right y size ink` | the 无数据 marker ("No data" in English, #44), right-aligned to `right` |
 | `child-wash` | full | `owner rect marker{wash bar barWidth}` | marked member row: `rect` filled `wash` (radius `rowWash`), a `bar` rule `barWidth` (scaled) at its left |
 | `port-link` | full | `owner behind tip stroke` | line `behind → tip` at `widths.portLink`, open arrowhead of 10 screen px at ±20° |
 | `port` | full | `id owner rect text marked fill stroke strokeWidth ink` | 依赖端口: rect (`radius.port`), label centred at `fonts.port`, fitted to `rect.w - 6` |
@@ -186,6 +191,43 @@ native shaft mesh does. Closed heads always paint over their shafts, including
 at zoom 0.4–0.6. This deliberately avoids the native window's pre-existing
 low-zoom flush-order defect, which paints its shaft mesh after the heads.
 
+## Legend
+
+The legend explains the drawing rather than being part of it (#50, ADR 0015):
+`crates/frame/src/legend.rs` typesets the rows from the language table
+(`crates/frame/src/strings.rs`, #44), so the goldens carry one set of rows per
+language — `{name}.frame.json` in Chinese, `{name}.en.frame.json` in English,
+the same ids in both. A row's swatch names the same semantic **roles** the
+diagram is drawn with, so the panel resolves a legend color and a diagram color
+through one theme and the two cannot drift apart.
+
+```json
+"legend": {
+  "sections": [
+    {"id": "shapes", "title": "Shapes", "rows": [
+      {"id": "class-box", "label": "Class box: …",
+       "sample": {"kind": "box", "shape": "rect",
+                  "fill": {"role": "quality-fill", "grade": 3.0},
+                  "stroke": {"role": "quality-stroke", "grade": 3.0}, "dimmed": false}}
+    ]}
+  ]
+}
+```
+
+| sample kind | fields | drawing |
+|---|---|---|
+| `box` | `shape rect\|oval`, `fill`, `stroke`, `dimmed` | a miniature class, component or foreign-package box: `fill` inside, `stroke` frame, `oval` for an ellipse |
+| `line` | `stroke`, `dimmed` | a relation line in that state's color |
+| `dot` | `fill` | a marker dot, 无数据 |
+| `ramp` | `stops[{role, grade}]` | the continuous 质量色 ramp, its sample stops worst first |
+
+`dimmed` marks a swatch drawn at the frame's `style.dimAlpha` (关系淡化). An
+additive sample kind stays version 1: the validator keeps it and the panel
+shows the row's label without a swatch, like an unknown item kind. The legend
+is the same for every view of one language — it explains the drawing, not the
+current selection — so the rows never change with the camera, the view or a
+selection.
+
 ## Hover metadata (optional, version 1)
 
 Selection, 依赖链高亮 and 关系淡化 are the resident's: a `select` answers a frame
@@ -223,20 +265,23 @@ serialized metadata. Exceeding any bound yields `"complete": false` with empty
 arrays rather than silent truncation; without the field the client highlights by
 the relation's own endpoints and shows no dependency tooltip.
 
-## Shared inspector summaries
+## Deleted: shared inspector summaries
 
-The window-free `frame::inspector` API also supplies `class_summary(&detail::Model)`
-and `package_summary(&scene, &id)`. Each returns display-ordered `SummaryLine`s:
-`Label { text, color }` or `Segments { parts, color }`. Colors are semantic roles;
-metric segments wrap only between complete statistics. These functions own
-identity/member text, quality formatting, no-data lines and the current view's
-package class count. Native and panel adapters only render the supplied lines.
+`frame::inspector` and its `class_summary`/`package_summary` `SummaryLine`s
+were deleted with the inspector in #47 (ADR 0015). The class card
+(`frame::detail`) carries the class's quality figures; the discussion context's
+proposal list comes from `frame::discussion` on the `state` event.
 
 ## Chrome items (viewport points)
 
+Chrome left the frame with #46 (ADR 0015): the diagram's title, the proposal
+banner, the return line, the canvas status line and the centred hint are the
+panel's own DOM now — the breadcrumb path, the discussion-context switcher and the
+status bar. A frame that carries one of those five kinds is a resident the
+panel cannot draw, and the validator rejects it. The only kind left is the
+popup that follows the pointer, so a view without a pointer over something
+with rows carries no chrome at all.
+
 | kind | fields | drawing |
 |---|---|---|
-| `title` / `proposal-banner` / `back` | `text at ink plate` | text at `at`, size `fonts.chrome`, on a `plate` rect expanded 6 x 2 pt, radius 3 |
-| `status` | `text at ink plate(null)` | bottom-left status line |
-| `hint` | `text ink` | centred on the viewport |
 | `popup` | `rect fill border rows[{text violating ink}]` | radius 4, inside 1 pt `border`; row `i` top-anchored at `rect.x + 8, rect.y + 8 + 20·i`, size `fonts.chrome` |

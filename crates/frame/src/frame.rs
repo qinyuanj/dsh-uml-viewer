@@ -13,7 +13,9 @@ use scene::document::ViewState;
 use serde_json::{Map, Value as Json, json};
 
 use crate::commands::{self, Command, EdgeCommand, PopupRow};
+use crate::legend;
 use crate::lod::{self, Tier};
+use crate::strings::Lang;
 use crate::theme::{self, Role, RowMarker};
 
 /// The `schema` tag every frame carries.
@@ -30,35 +32,25 @@ pub struct Layers {
     pub edges: Vec<EdgeCommand>,
 }
 
-pub fn layers(scene: &Value, selected: Option<&Value>, hover: Option<&Value>) -> Layers {
+pub fn layers(
+    scene: &Value,
+    selected: Option<&Value>,
+    hover: Option<&Value>,
+    lang: Lang,
+) -> Layers {
     Layers {
-        world: commands::commands(scene, selected, hover),
+        world: commands::commands(scene, selected, hover, lang),
         edges: commands::edge_commands(scene, selected, hover),
     }
 }
 
-/// Screen-space chrome over the canvas: the scene banner, return line,
-/// hover popup, plus the caller's centred hint and status line.
-pub fn chrome(
-    state: &ViewState,
-    width: f64,
-    height: f64,
-    hint: Option<&str>,
-    status: Option<&str>,
-) -> Vec<Command> {
-    let mut out = commands::chrome(state, width, height);
-    if let Some(text) = hint {
-        out.push(commands::hint(text));
-    }
-    if let Some(text) = status {
-        out.push(Command::Status {
-            text: text.into(),
-            x: 12.0,
-            y: height - 30.0,
-            color: Role::Muted,
-        });
-    }
-    out
+/// Screen-space chrome over the canvas (#46, ADR 0015): the hover popup, and
+/// nothing else. The title, the proposal banner, the return line, the status
+/// line and the centred hint the resident used to draw live in the panel's own
+/// DOM now, so this list stays empty unless the pointer is over something with
+/// rows.
+pub fn chrome(state: &ViewState, width: f64, height: f64) -> Vec<Command> {
+    commands::popup(state, width, height).into_iter().collect()
 }
 
 /// One drawable view.
@@ -73,6 +65,9 @@ pub struct Frame {
     pub waiting: bool,
     pub layers: Layers,
     pub chrome: Vec<Command>,
+    /// The diagram's legend, worded in the language this frame was built in
+    /// (#50): what the drawing means, not part of the drawing.
+    pub legend: legend::Legend,
 }
 
 /// The zoom a view paints at: a non-positive zoom (never fitted) is 1.
@@ -80,14 +75,9 @@ pub fn paint_zoom(state: &ViewState) -> f64 {
     if state.zoom > 0.0 { state.zoom } else { 1.0 }
 }
 
-/// The frame of `state` in a `width` x `height` viewport (points).
-pub fn build(
-    state: &ViewState,
-    width: f64,
-    height: f64,
-    hint: Option<&str>,
-    status: Option<&str>,
-) -> Frame {
+/// The frame of `state` in a `width` x `height` viewport (points), with the
+/// resident-laid-out text in `lang`.
+pub fn build(state: &ViewState, width: f64, height: f64, lang: Lang) -> Frame {
     let zoom = paint_zoom(state);
     Frame {
         width,
@@ -103,9 +93,15 @@ pub fn build(
                 edges: Vec::new(),
             }
         } else {
-            layers(&state.scene, state.selected.as_ref(), state.hover.as_ref())
+            layers(
+                &state.scene,
+                state.selected.as_ref(),
+                state.hover.as_ref(),
+                lang,
+            )
         },
-        chrome: chrome(state, width, height, hint, status),
+        chrome: chrome(state, width, height),
+        legend: legend::legend(lang),
     }
 }
 
@@ -122,6 +118,7 @@ impl Frame {
             "world": self.layers.world.iter().map(world_json).collect::<Vec<_>>(),
             "edges": self.layers.edges.iter().map(edge_json).collect::<Vec<_>>(),
             "chrome": self.chrome.iter().map(chrome_json).collect::<Vec<_>>(),
+            "legend": legend::json(&self.legend),
         })
     }
 
@@ -525,28 +522,6 @@ fn command_fields(c: &Command) -> Json {
             ("strokeWidth", f32n(*stroke_width)),
             ("ink", role_json(*ink)),
             ("dimmed", json!(dimmed)),
-        ]),
-        Command::Title { text, x, y, color }
-        | Command::ProposalBanner { text, x, y, color }
-        | Command::Back { text, x, y, color }
-        | Command::Status { text, x, y, color } => object(vec![
-            kind,
-            ("text", json!(text)),
-            ("at", json!([x, y])),
-            ("ink", role_json(*color)),
-            (
-                "plate",
-                if matches!(c, Command::Status { .. }) {
-                    Json::Null
-                } else {
-                    role_json(Role::ChromePlate)
-                },
-            ),
-        ]),
-        Command::Hint { text, color } => object(vec![
-            kind,
-            ("text", json!(text)),
-            ("ink", role_json(*color)),
         ]),
         Command::Popup {
             x,

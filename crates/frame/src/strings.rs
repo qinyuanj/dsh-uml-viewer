@@ -1,69 +1,95 @@
-//! The single Chinese UI string table (port of
-//! `love/uml/application/strings.lua`). Terms follow GLOSSARY.md; metric and
-//! tool names (CRAP, CC, Cov, mutation, killed, survived, uncovered, IR) and
-//! key names stay English. EDN keywords, mail commands, stderr and the window
-//! title are not UI copy. The table keeps the LOVE viewer's full copy; the
-//! window's glyph-coverage probe and F3 performance line left with the
+//! The UI string tables (port of `love/uml/application/strings.lua`). Terms
+//! follow GLOSSARY.md; metric and tool names (CRAP, CC, Cov, mutation,
+//! killed, survived, uncovered, IR) and key names stay English. EDN keywords,
+//! mail commands, stderr and the window title are not UI copy.
+//!
+//! The text the resident lays out for the panel (#44, ADR 0015) — the class
+//! card, the class box's 无数据 and the source error — comes in Chinese and
+//! English through [`Lang::text`]; any other language falls back to English.
+//! The inspector's Chinese-only constants left with it (#47). The canvas
+//! chrome (title, proposal banner, return line, status, hint) left with #46, whose text lives in the panel's locale files.
+//! The window's glyph-coverage probe and F3 performance line left with the
 //! standalone window (dsh-uml-viewer#30).
 
-pub const REAL_DIAGRAM: &str = "源码图";
-pub const INSPECTOR: &str = "检查器";
-pub const SEARCH: &str = "搜索类名或命名空间";
-pub const SEARCH_OPEN: &str = "打开所选结果 (Enter)";
-pub const SEARCH_EMPTY: &str = "没有匹配的类";
-pub const TREE_AND_PROPOSALS: &str = "命名空间树 / 提案";
-pub const NEW_PROPOSAL: &str = "新建提案";
-pub const DECLUTTER: &str = "精简视图";
-/// Declutter control labels by current mode (`declutter_modes`).
-pub const DECLUTTER_MODES: [(&str, &str); 5] = [
-    ("full", "精简：无"),
-    ("arrows", "精简：箭头"),
-    ("triangles", "移除箭头"),
-    ("elements", "精简：元素"),
-    ("classes", "精简：类"),
-];
-pub const RENAME: &str = "重命名";
-pub const DELETE: &str = "删除";
-pub const PROPOSAL_NAME: &str = "提案名称";
-pub const RENAME_PROPOSAL: &str = "重命名提案";
-pub const CANCEL: &str = "取消";
-pub const P_HINT: &str = "P：返回命名空间树";
-pub const PROPOSALS_LABEL: &str = "提案";
-pub const CLASS_COUNT: &str = "类数：";
-pub const PACKAGE_CRAP: &str = "Crap μ %s max %s σ %s";
-pub const PACKAGE_MUTATION: &str = "%d killed / %d survived";
-pub const PACKAGE_UNCOVERED: &str = "   %d uncovered";
-pub const NO_DATA: &str = "无数据";
-pub const SELECT_CLASS: &str = "单击类或命名空间查看摘要；双击打开详情卡片。";
-pub const REGEN: &str = "重新生成 IR";
-pub const SOURCE_NOT_OPENED: &str = "未能打开源码：%s";
-pub const BACK: &str = "< 返回";
-pub const PROPOSAL_BANNER: &str = "提案（未在源码中实例化）";
-pub const PERFORMANCE: &str = "性能：%d FPS · 帧耗时 %.2f ms";
-pub const HELP: &str = "单击类或命名空间查看摘要。
-双击类打开详情卡片。
-双击命名空间进入下一层。
-Esc（或 ←）返回上一层。
-滚轮平移；Shift+滚轮横向平移。
-Ctrl+滚轮或 Ctrl+/− 以光标为中心缩放。
-空白处左键拖拽平移；Ctrl+0 适配全图。
-R 重新加载；F3 切换性能显示。
-单击上方列表中的图或提案即可切换。";
-/// Element menu labels; the mail operations themselves stay English.
-pub const MENU: [(&str, &str); 4] = [
-    ("refresh-crap", "刷新 CRAP"),
-    ("refresh-mutate", "刷新 mutation"),
-    ("refresh-mutate-all", "全量 mutation"),
-    ("omit", "隐藏"),
-];
-// Class card.
-pub const LEVEL: &str = "层级 ";
-pub const PACKAGE: &str = "包 ";
-pub const FIELDS: &str = "字段";
-pub const RELATIONSHIPS: &str = "关系";
-pub const NO_MUTATION_SITES: &str = "---无 mutation 位点---";
-pub const MEMBER: &str = "成员";
-pub const EMPTY_DETAIL: &str = "选择成员查看质量数据。";
+/// The language the resident lays text out in. The panel passes the DSH
+/// language; only Chinese and English are shipped and the rest read English.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Lang {
+    Zh,
+    #[default]
+    En,
+}
+
+impl Lang {
+    /// The language for a locale tag: any Chinese variant (`zh`, `zh-CN`,
+    /// `zh_TW`) is Chinese, everything else English.
+    pub fn from_tag(tag: &str) -> Lang {
+        let primary = tag.split(['-', '_']).next().unwrap_or_default();
+        if primary.eq_ignore_ascii_case("zh") {
+            Lang::Zh
+        } else {
+            Lang::En
+        }
+    }
+
+    /// This language's string table.
+    pub fn text(self) -> &'static Text {
+        match self {
+            Lang::Zh => &ZH,
+            Lang::En => &EN,
+        }
+    }
+}
+
+/// The text the resident lays out in one language.
+#[derive(Debug)]
+pub struct Text {
+    /// The class box marker for a class without CRAP or mutation data.
+    pub no_data: &'static str,
+    /// The source window's error; `%s` is the member or module asked for.
+    pub source_not_opened: &'static str,
+    // Class card.
+    pub level: &'static str,
+    pub package: &'static str,
+    pub fields: &'static str,
+    pub relationships: &'static str,
+    pub no_mutation_sites: &'static str,
+    pub member: &'static str,
+    pub column_tips: [(&'static str, &'static str); 6],
+    /// Relationship phrases: kind, outgoing, incoming.
+    pub phrases: [(&'static str, &'static str, &'static str); 6],
+    pub phrase_fallback: (&'static str, &'static str),
+    /// The legend's section titles and row labels (#50); the rows' swatches
+    /// are semantic roles, not words, and live in `legend.rs`.
+    pub legend: LegendText,
+}
+
+/// The legend's text (#50): the section titles and the label of each row, in
+/// the resident's language. The row identity (`class-box`, `relation`, …) and
+/// the color each swatch shows are model, not text, and stay in `legend.rs`.
+#[derive(Debug)]
+pub struct LegendText {
+    /// Section titles.
+    pub shapes: &'static str,
+    pub quality: &'static str,
+    pub relations: &'static str,
+    /// The shapes section: what the diagram's boxes are.
+    pub class_box: &'static str,
+    pub component_box: &'static str,
+    pub foreign_package: &'static str,
+    /// The quality section: 质量色, 无数据 and the selection.
+    pub quality_ramp: &'static str,
+    pub no_data: &'static str,
+    pub selected: &'static str,
+    /// The relations section: 关系连线 and the interactive states.
+    pub relation: &'static str,
+    pub violation: &'static str,
+    pub relation_hover: &'static str,
+    pub dependency_chain: &'static str,
+    pub dimmed: &'static str,
+}
+
+// The metric names read the same in every language.
 pub const CRAP_LINE: &str = "Crap μ %s max %s σ %s";
 pub const CRAP_SINGLE: &str = "Crap %s";
 pub const GROUP_CRAP: &str = "--crap--";
@@ -76,41 +102,98 @@ pub const COLUMNS: [(&str, &str); 6] = [
     ("survived", "survived"),
     ("uncovered", "uncovered"),
 ];
-pub const COLUMN_TIPS: [(&str, &str); 6] = [
-    ("crap", "CRAP 风险分数：圈复杂度与覆盖率的综合，越低越好"),
-    ("cc", "圈复杂度"),
-    ("cov", "行覆盖率"),
-    ("killed", "被测试杀死的变异体数"),
-    ("survived", "测试未能杀死的存活变异体数"),
-    ("uncovered", "没有测试覆盖的变异体数"),
-];
-/// Relationship phrases: outgoing, incoming.
-pub const PHRASES: [(&str, &str, &str); 6] = [
-    ("inheritance", "继承", "被继承"),
-    ("implements", "实现", "被实现"),
-    ("association", "关联", "被关联"),
-    ("dependency", "依赖", "被依赖"),
-    ("aggregation", "聚合", "被聚合"),
-    ("composition", "组合", "被组合"),
-];
-pub const PHRASE_FALLBACK: (&str, &str) = ("指向", "来自");
+
+pub const ZH: Text = Text {
+    no_data: "无数据",
+    source_not_opened: "未能打开源码：%s",
+    level: "层级 ",
+    package: "包 ",
+    fields: "字段",
+    relationships: "关系",
+    no_mutation_sites: "---无 mutation 位点---",
+    member: "成员",
+    column_tips: [
+        ("crap", "CRAP 风险分数：圈复杂度与覆盖率的综合，越低越好"),
+        ("cc", "圈复杂度"),
+        ("cov", "行覆盖率"),
+        ("killed", "被测试杀死的变异体数"),
+        ("survived", "测试未能杀死的存活变异体数"),
+        ("uncovered", "没有测试覆盖的变异体数"),
+    ],
+    phrases: [
+        ("inheritance", "继承", "被继承"),
+        ("implements", "实现", "被实现"),
+        ("association", "关联", "被关联"),
+        ("dependency", "依赖", "被依赖"),
+        ("aggregation", "聚合", "被聚合"),
+        ("composition", "组合", "被组合"),
+    ],
+    phrase_fallback: ("指向", "来自"),
+    legend: LegendText {
+        shapes: "形状",
+        quality: "质量色",
+        relations: "关系",
+        class_box: "类框：填充与框线取自质量色",
+        component_box: "组件框：可下钻的组件，质量取成员的汇总",
+        foreign_package: "外来包椭圆：只有依赖关系，没有质量数据",
+        quality_ramp: "质量色：红到绿，CRAP 越低越好",
+        no_data: "无数据：缺少 CRAP 或 mutation 数据",
+        selected: "选中：框线改用选中色",
+        relation: "关系连线：灰绿实线，头部形状表示关系种类",
+        violation: "违规关系色：红色，依赖方向违反架构规则",
+        relation_hover: "关系悬停高亮：悬停的关系变白",
+        dependency_chain: "依赖链高亮：选中类的依赖链变蓝",
+        dimmed: "关系淡化：不在依赖链上的元素变淡",
+    },
+};
+
+pub const EN: Text = Text {
+    no_data: "No data",
+    source_not_opened: "Could not open the source: %s",
+    level: "Level ",
+    package: "Package ",
+    fields: "Fields",
+    relationships: "Relationships",
+    no_mutation_sites: "---no mutation sites---",
+    member: "Member",
+    column_tips: [
+        (
+            "crap",
+            "CRAP risk score: cyclomatic complexity combined with coverage; lower is better",
+        ),
+        ("cc", "Cyclomatic complexity"),
+        ("cov", "Line coverage"),
+        ("killed", "Mutants the tests killed"),
+        ("survived", "Mutants that survived the tests"),
+        ("uncovered", "Mutants no test covers"),
+    ],
+    phrases: [
+        ("inheritance", "inherits", "inherited by"),
+        ("implements", "implements", "implemented by"),
+        ("association", "associates", "associated by"),
+        ("dependency", "depends on", "depended on by"),
+        ("aggregation", "aggregates", "aggregated by"),
+        ("composition", "composes", "composed by"),
+    ],
+    phrase_fallback: ("to", "from"),
+    legend: LegendText {
+        shapes: "Shapes",
+        quality: "Quality colors",
+        relations: "Relations",
+        class_box: "Class box: its fill and frame use the quality colors",
+        component_box: "Component box: a component you can drill into; quality pooled from its members",
+        foreign_package: "Foreign package: an ellipse with relations only, no quality data",
+        quality_ramp: "Quality color: red to green; lower CRAP is better",
+        no_data: "No data: CRAP or mutation data is missing",
+        selected: "Selected: the outline takes the selection color",
+        relation: "Relation: a grey-green solid line; the head shape names its kind",
+        violation: "Violating relation: red, the dependency points outward",
+        relation_hover: "Relation hover: the hovered relation turns white",
+        dependency_chain: "Dependency chain: the selected class's chain turns blue",
+        dimmed: "Dimmed: elements off the chain fade",
+    },
+};
+
 /// Non-table glyphs the canvas and cards draw: stereotype guillemets, the
 /// abstract marker, crap statistics and arrows.
 pub const EXTRA_GLYPHS: &str = "«»αμσ←→—…";
-
-/// The declutter control label for a mode name; unknown modes read as the
-/// generic 精简视图.
-pub fn declutter_label(mode: &str) -> &'static str {
-    DECLUTTER_MODES
-        .iter()
-        .find(|(m, _)| *m == mode)
-        .map_or(DECLUTTER, |(_, label)| label)
-}
-
-/// Empty canvas while a `--backend herdr` launch waits for mail (#139; the
-/// mailbox itself is #142).
-pub const WAITING_DISPLAY: &str = "等待 :display 命令加载图示…";
-/// The diagram file named on the command line does not exist.
-pub fn missing_file(path: &str) -> String {
-    format!("找不到 IR 文件：{path}")
-}

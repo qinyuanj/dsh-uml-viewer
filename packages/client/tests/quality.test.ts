@@ -18,9 +18,9 @@ describe('quality overlay from producer goldens', () => {
     const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true })
     paintFrame({ ...frame, world: dots, edges: [], chrome: [] }, canvas)
     const ops = canvas.recording.ops
-    // Camera -402,-167 zoom1: screen centers (584,316), (584,328).
+    // Camera -402,-149 zoom1: screen centers (584,298), (584,310).
     expect(ops.filter(o => o.op === 'arc').map(o => o.args)).toEqual([
-      [584, 316, 5, 0, Math.PI * 2], [584, 328, 5, 0, Math.PI * 2],
+      [584, 298, 5, 0, Math.PI * 2], [584, 310, 5, 0, Math.PI * 2],
     ])
     // Native frame::theme ramp, g=4.0375 and g=1; no TS metric aggregation.
     expect(ops.filter(o => o.op === 'fill').map(o => o.fillStyle)).toEqual(['#403718', '#472c18'])
@@ -28,7 +28,7 @@ describe('quality overlay from producer goldens', () => {
       ['#d6b357', 1], ['#de884d', 1],
     ])
     expect(ops.filter(o => o.op === 'fillText').map(o => [o.text, o.x, o.y, o.textAlign, o.globalAlpha])).toEqual([
-      ['C', 584, 316, 'center', 1], ['M', 584, 328, 'center', 1],
+      ['C', 584, 298, 'center', 1], ['M', 584, 310, 'center', 1],
     ])
   })
 

@@ -27,10 +27,10 @@ dsh plugin --profile web remove dsh-uml-viewer @dsh-uml-viewer/win32-x64
 Use the matching platform archive. The plugin pins its packaged binary under
 `<DSH_HOME>/dsh-uml-viewer/<version>/` (atomic, hash-verified copy) and records
 the current version in `current.json`; an open panel keeps its version across a
-plugin update. Unmounting, moving or hot-reloading the panel is not a close:
-the resident waits a short bounded window for the same page to re-attach. The
-panel's **Close viewer** button is the close, and **Open viewer** then runs the
-new version. A new page runs the new version when no other open page still uses
+plugin update. Collapsing the sidebar, switching fullscreen, moving or hot-reloading the
+panel is not a close: the resident waits a short bounded window for the same
+page to re-attach. Closing the UML tab is the close, and opening the tab again
+then runs the new version. A new page runs the new version when no other open page still uses
 that session; otherwise it shares the running one (see
 `docs/plugin-development.md`; browser behavior is not yet run-verified). Only an
 unused version directory is removed. Uninstall
@@ -197,29 +197,32 @@ a successful quality result with `validResult: true`.
 
 - First view: **namespace components** (layers). Dependencies between them
   collapse to one arrow. Each component lists nested namespaces.
-- Double-click a component to open the next level. Esc or the ← label goes
-  up a level, including after drilling a proposal group.
+- Double-click a component to open the next level. Esc goes up one level,
+  including after drilling a proposal group; the top bar's breadcrumb jumps
+  to any level on the path.
 - Hover an arrow for a popup of every `from -> to` it bundles, in any
   declutter mode. Violating pairs are red.
-- The element operations **刷新 CRAP**, **刷新 mutation**, **全量 mutation**
-  and **隐藏** (Refresh CRAP / Refresh Mutation / Refresh All Mutation / Omit)
-  are panel requests to the session's agent
-  ([docs/companion-rules.md](docs/companion-rules.md)).
-  CRAP runs on that class or the files under that component. Mutation is
-  differential on those src files; All Mutation passes `--mutate-all`. Omit
+- The element operations **刷新 CRAP**, **差量 mutation**, **全量 mutation**
+  and **隐藏** — Refresh CRAP, Differential mutation, Full mutation
+  (--mutate-all) and Hide in English — are panel requests to the session's
+  agent ([docs/companion-rules.md](docs/companion-rules.md)).
+  CRAP runs on that class or the files under that component. Differential
+  mutation runs on those src files; Full mutation passes `--mutate-all`. Omit
   adds the id to the current proposal's `:omit`, or to policy `:omit` on the
   real diagram.
 - Component titles paint **on top of** crossing arrows.
-- The viewer UI is Chinese (one string table, `crates/frame/src/strings.rs`);
-  metric and tool names stay English. The inspector (检查器) lists the
-  **real diagram** (源码图, the namespace tree) above
-  **Proposals**. Click the real row to return to the tree; click a proposal
-  to show it (marked as not in the code). Either click makes that diagram
-  the discussion context (the panel tells the agent). A new proposal is a
-  request to the agent, named with a timestamp by default; the agent edits
-  the policy in place. **Declutter** cycles Declutter arrows / Remove arrows / Declutter
-  elements / Declutter classes / Declutter none. **Remove arrows** hides
-  the lines and puts a triangle on the top (incoming) and bottom
+- Panel DOM text is Chinese or English from `locale/*.json`; resident-laid
+  rows come from `crates/frame/src/strings.rs`. Metric and tool names stay
+  English. The top bar's discussion-context switcher lists the **real
+  diagram** (源码图, the namespace tree) and then each **Proposal**; pick a
+  row to show it and make it the discussion context (the panel tells the
+  agent in the conversation). Its last row, **新建提案**, is a request to the
+  agent, named with a timestamp by default; the agent edits the policy in
+  place. **P** returns to the source diagram's tree root. The inspector that
+  used to list all this was deleted (#47). The **More** menu's
+  **Remove arrows** toggle switches between full arrows and the compact
+  triangles mode; it no longer cycles five declutter modes. **Remove arrows**
+  hides the lines and puts a triangle on the top (incoming) and bottom
   (outgoing) of each box, **including nested classes** as well as their
   packages. A triangle is red if any bundled pair is violating. Hover it
   for the `from -> to` list.
@@ -234,7 +237,9 @@ a successful quality result with `validResult: true`.
   rectangles that are not classes (components/layers, interfaces, enumerations,
   package banners) are italic. Foreign libraries listed in policy are ovals
   outside the components.
-- The panel can expand from the sidebar into the main area and back.
+- The panel uses the right sidebar's own fullscreen for a full-width view.
+  Closing the UML tab stops its resident; the tab's refresh command and **R**
+  reload the diagram.
 - Scroll to pan vertically; Shift-scroll (or left/right arrows) for
   horizontal; Ctrl+scroll zooms at the cursor. Pan can follow arrows that
   bow past the origin.
@@ -346,7 +351,7 @@ tree's namespace root. `src/model.ts` becomes `bookwriter.model`
 | `:hierarchical` | Namespace tree (default when `:packages` is omitted) |
 | `:order` | Order of **existing** top-level ns segments, not new component names |
 | `:levels` | Groups of those segments, **inner (higher-level) first**. Same group = same rank |
-| `:proposals` | Named groupings of real segments; **not** instantiated in source. Inspector **源码图** (real diagram) row returns to the ns tree |
+| `:proposals` | Named groupings of real segments; **not** instantiated in source. The switcher's **源码图** (real diagram) row returns to the ns tree; **P** does the same |
 | `:omit` | On a proposal or the policy: nses (and their children) left off the diagram |
 | `:edge-kinds` | Override parser kind for `[from to]` (usually `:association`) |
 | `:omit-edges` | Drop `[from to]` |
@@ -417,22 +422,21 @@ and `:proposals` is set, rank follows the first proposal's component order.
 Those names are not namespaces. Each item is `{:id :name :layers [...] :omit [...]}`
 (`:layers` here are named components; `:omit` keeps listed nses off
 **Unassigned**). The as-is diagram stays the ns tree.
-The inspector lists the real diagram (the namespace tree) just above
-**Proposals**; click it to return to the tree. Click a proposal to show it
-(canvas marked **PROPOSAL — not instantiated in code**). Either click
-makes that diagram the context of discussion (in the panel the agent is
-told). **新建提案** (New Proposal) asks the agent to add an empty proposal
-named with a timestamp; renaming or deleting a proposal is also a request
-to the agent, which edits the policy in place. Double-click a ns box to drill; **←** at the
-top returns to the proposal.
+The top bar's discussion-context switcher lists the real diagram (the
+namespace tree) and then **Proposals**; pick the source diagram to return to
+the tree (**P** does the same), or a proposal to show it. Either pick makes
+that diagram the context of discussion (in the panel the agent is told); the
+switcher always names the current context, and the breadcrumb shows the
+proposal's levels. **新建提案** (New Proposal), the switcher's last row, asks
+the agent to add an empty proposal named with a timestamp; renaming or
+deleting a proposal is also a request to the agent, which edits the policy in
+place. Double-click a ns box to drill; Esc goes up one level at a time, and
+the breadcrumb's proposal level returns to the proposal.
 
-The **Declutter** button cycles **Declutter arrows** (one arrow per
-component pair per direction) → **Remove arrows** (triangles on each box
-and on nested classes instead of lines; hover lists deps; red if any pair
-is violating) →
-**Declutter elements** (also hide nested names, members, and ports) →
-**Declutter classes** (also hide classes inside components) →
-**Declutter none**.
+The **More** menu's **Remove arrows** toggle switches between full arrows
+(one arrow per component pair per direction) and the compact triangles mode
+(triangles on each box and on nested classes instead of lines; hover lists
+deps; red if any pair is violating). The old five-step Declutter cycle is gone.
 
 When a proposal is shown, rank follows **that** proposal's component order
 and violating arrows are re-evaluated. The real diagram uses `:levels`.
@@ -764,6 +768,6 @@ not special-case languages in the class card.
 
 Drawing happens only in the panel (`packages/client`). Neither the scene
 core (`crates/scene`) nor the window-free viewer model (`crates/frame`: draw
-commands, theme roles, LOD, class card, inspector, source window, strings,
+commands, theme roles, LOD, class card, source window, discussion, strings,
 view snapshots, watch) links a window or GUI stack. The scene frame
 the viewer panel draws is `uml-viewer scene --frame` (`docs/scene-frame.md`).

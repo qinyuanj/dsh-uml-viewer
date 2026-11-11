@@ -58,6 +58,52 @@ dependency tooltip rows, and the overview class-name popup clearing on leave.
 The producer oracle accepts `hover`, `pointer` and `--hover-metadata`, so tooltip
 expectations come from Rust; no frames are injected.
 
+`queue.spec.mjs` (#53) drives the request queue in the status bar: three
+admitted refreshes show the current entry and 「还有 N 条」, the button opens
+the queue in list order outside the short `aria-live` region, Esc and an
+outside press close it, a refused refresh stays as a failed entry past the
+ten-second fade, and its dismissal shrinks the list, adds no message to the
+conversation and survives a page refresh (the host dropped the entry). Its
+scripted companion holds one turn open for that queue case; a second case runs
+`uml_ir`/`uml_display` and asserts the Done entry fades when the next request
+starts (F33). The ten-second timer path stays in
+`packages/client/tests/statusbar.test.ts`.
+
+`toolviews.spec.mjs` covers the conversation side (#54): a finished turn keeps
+its steps collapsed, so the spec opens the turn and its tool group the way a
+user does, then reads the quality rows (validity, the refusal's reason, the
+dispatched targets) in English and after a DSH language switch to Chinese; a
+configured `crapScope: "targets"` case proves an override is never described
+as the whole business scope. Its display case closes the UML tab and clicks
+「在面板中查看」 on a display result twice: once
+for a display that answered no panel request (the tab opens with nothing
+selected) and once for a display that answered a refresh asked for on
+`:core.order` (the tab opens and locates that class). The quality operations
+are a Node fixture declared in the scratch project, so no Cargo work runs
+inside the lane; IR, resident and display are the real binary's.
+
+`status.spec.mjs` (#52) covers the request line's two endings in the browser.
+Its scripted companion ends the turn that consumed the first admitted refresh
+without a tool call, so that request reads "Failed — the companion ended this
+turn without completing the display"; the next refresh runs `uml_ir` and
+`uml_display` and reads "Refresh CRAP :core: Done". A page refresh brings the
+session's whole list back from the host: the failure the new page has not seen
+is its current entry again, with the completed one behind "1 more" (#53's
+rule). The spec's browser evidence is one failure and one success; the
+transition table is a host-seam test and the `validResult: false` failure stays
+in `requests.spec.mjs`.
+
+`locale.spec.mjs` (#42) switches the DSH language through the real host UI
+(Account menu → Settings → General → Language) and asserts the panel's own DOM
+follows it without reopening the tab: the search button and its searchbox, the
+canvas label, the discussion-context switcher's trigger and its 源码图,
+proposal and 新建提案 rows, the element menu's four rows in both languages, the
+More menu's 移除箭头 checkbox and its `Ctrl+0` shortcut, and the breadcrumb
+navigation's name (#45). Its status-bar case reads the `waiting-display` code's
+text and its 面板状态 name before and after the switch (#46), and its resident
+case shows the `inspector` sample's class card rows (#44) switching in place,
+with no Chinese left in the English card.
+
 These cases have run in remote CI; see the [partial results below](#ci).
 The lane never builds, so a run needs an existing matching executable supplied from outside.
 Do not follow the build commands above to make one inside the lane. A run sets
@@ -147,7 +193,8 @@ remains unsupported. The host and document keep running throughout.
 The case requires the exact old resident PID, process creation identity,
 executable path and lease to survive; its canvas pixels and camera state must
 survive remount and another canvas gesture must work. It verifies both installed
-executables with `--version`, then clicks **Close viewer / Open viewer**, requires
+executables with `--version`, then closes the UML tab with the host's page
+close command and reopens it, requires
 a new PID on 1.0.1 and checks that the 1.0.0 lease and directory disappear.
 Windows write access to the mapped old executable must fail before the update.
 The platform CLI installation is bounded at 20 seconds, and the whole
@@ -289,19 +336,24 @@ the visible conversation's session id to change when the chosen workspace
 changes. The chooser label alone updates before the new conversation mounts.
 The delayed-transition check keeps those two states separate.
 
-The Shop DPI and metrics-reload cases pan left by the measured inspector width
-before asking the producer for a fresh frame. Their previous target was under
-the floating inspector, so a raw page click reached the inspector rather than
-the canvas. The gesture check replays the CI CSS geometry at both DPR values;
-the browser cases still require real selection, resize and metrics changes.
-Node fixture checks do not establish browser acceptance.
+Nothing floats over the canvas since the inspector was deleted (#47), so a
+fitted view's target is exposed where it is measured: `exposeTarget` refuses a
+point off the canvas instead of panning around it (#47 replaced the CI-era
+`panBesideInspector` workaround). The Shop DPI and metrics-reload cases ask the
+producer for a fresh frame after their own gesture. Node fixture checks do not
+establish browser acceptance.
 
 ## Sample projects
 
-`packages/e2e/projects.mjs` copies five TypeScript projects into the
-scratch home: `shop`, `ledger`, `deep`, `atlas` and `nexus`. `deep` (#23) has
+`packages/e2e/projects.mjs` copies seven TypeScript projects into the
+scratch home: `shop`, `ledger`, `deep`, `atlas`, `levels`, `inspector` and
+`nexus`. `inspector` (#27) is the class-card and source sample of the
+[overlay acceptance](#overlay-acceptance-27) below. `deep` (#23) has
 nested namespaces, cross-namespace dependencies and same-named CJK classes
-for navigation and search. `atlas` is the panel-primitives sample of
+for navigation and search. `levels` (#45) has two namespace levels to drill
+into and a proposal whose layer holds a nested group, so the top bar's
+breadcrumb path has the same depth in the source tree and in a proposal.
+`atlas` is the panel-primitives sample of
 #24: an interface, a CJK-named module, two architecture levels and `react` as
 a foreign package, all unmeasured. Each has its own `policy.edn`, source files
 and proposal where needed. `nexus` (#25) scans six imports from a hub and uses
@@ -331,13 +383,43 @@ default twice.
 - Ledger's full summary, including project, discussion context and camera, is
   byte-for-byte unchanged after Shop is driven.
 - Neither page emitted a `pageerror`.
+- The three-section skeleton (#46): the top bar, the canvas and the status bar
+  stack in the narrow sidebar, the canvas sits between the bars and is neither
+  behind them nor smaller than the diagram needs; the bar holds the breadcrumb
+  path, the discussion context's name, the search button and 「更多」; **Tab**
+  reaches the search button and then 「更多」 from the canvas; 「更多」 lists
+  Fit view with `Ctrl+0` and the Remove arrows toggle, keeps `role="menu"`
+  only while open (a hidden one would be read as a modal by the host's
+  shortcut service, #43) and closes on **Esc**.
+- A panel opened before any display (`openPanel(name, { display: false })`,
+  lane option) shows the waiting canvas and puts the localized
+  `waiting-display` text in the status bar, with `data-status` on the
+  summary; no chip of text is painted into the canvas.
+- Both bars resolve the host's own `--dsw-alias-*` tokens: their computed
+  background equals the token's resolved colour in the light theme and in
+  the dark theme, so a host theme switch repaints them and neither carries
+  a raw colour of its own.
 
 The summary is an accessibility surface. It is visually clipped but is a
 `role="status"` with class `uml-viewer-summary`, `data-kind` (`frame` or a
-failure kind), `data-context` (`real` or `proposal`), and text of the form
-`Diagram: … Discussion: … Camera: x, y, zoom`. It is populated from the same
-frame and context events that paint the Canvas. It gives later tickets a
-user-readable assertion seam without reaching into client internals.
+failure kind), `data-context` (`real` or `proposal`), `data-view` (`source` or
+`proposal`), `data-depth` (`root` or `drilled`), `data-breadcrumbs` (the path's
+length), `data-status` (the canvas status code, empty when there is none),
+`data-search`/`data-results`, `data-selected`, `data-chain` and `data-dimmed`,
+and text of the form `Diagram: … Discussion: … Camera: x, y, zoom`. It is
+populated from the same frame, context and state events that paint the Canvas.
+The view and the depth come from the `state` event (#46), not from chrome the
+frame no longer carries: `data-view` is `proposal` exactly while the state's
+`proposalId` names a proposal layer (the resident drops it on the way back to
+the source tree), and `data-depth` is `drilled` once the breadcrumb path has
+more than one level. A proposal's root is therefore `proposal`/`root`, a
+drilled namespace is `source`/`drilled`, and a proposal viewed from a source
+discussion reads `proposal` until **P**. It gives later tickets a user-readable assertion seam
+without reaching into client internals. `data-layout` is likewise the measured
+`drawer`/`docked` CSS hook. The request queue has no test-only dataset: specs
+read the visible status line, the "N more" button and the queue's visible list
+items; `data-state` on a request line/item remains only as the failed-color CSS
+selector.
 
 `primitives.spec.mjs` (#24) is the Playwright form of the deleted egui
 class-box driver scenarios (`class_boxes.edn`, `font_parity.edn`,
@@ -361,8 +443,33 @@ golden.
 real double-click drill-in, an in-browser painted dependency-port assertion,
 selection with dependency-chain highlighting and dimming, Escape/back, P,
 Ctrl+F, CJK typing/paste, same-name namespace disambiguation and Down/Enter
-locate. It also expands the sidebar to the root-scoped `main` page, asserts
-its original session id, and returns to the conversation.
+locate. It also covers the top bar's breadcrumb path (#45): two namespace
+levels down and clicked back to the middle and root level (with a painted
+check that the level's box is what is drawn), then the same in a proposal,
+where the path starts at the proposal and its root returns to the proposal
+rather than to the source diagram.
+
+`lifecycle.spec.mjs` (#43) drives the host tab lifecycle through the host's
+own controls: the tab refresh command and **R** each send `reload`; collapsing
+the right sidebar and toggling fullscreen keep the same resident process and
+the same view; the UML tab's own close button (`[data-dockkit-tab-close]`)
+runs the tab's close handler and the resident exits at once; reopening the tab
+restores the view and, for `ledger`, the proposal discussion context. It also
+asserts the panel has no `Expand`, `Conversation` or `Close viewer` button.
+Residents are observed through `/proc`, so the spec runs on Linux only.
+
+Two host facts the lane had to meet (`packages/e2e/lifecycle.mjs`). DSH
+0.2.2-rc.1 binds `page.refresh` and `page.close` only on Desktop and on Windows
+and macOS Web (Ctrl+Alt+R / Ctrl+Alt+W); Linux Web has no default, and its
+shortcut service admits only Ctrl+/, Ctrl+Shift+, and Ctrl+Shift+., so the page
+cannot reach the refresh command until the user saves an override. The lane
+therefore writes one into the page's own `dsh.keybindings.v1` preferences
+before it loads (`bindRefresh`, Ctrl+Shift+.), which is the document the
+shortcut reference writes, and it closes the tab through the host's close
+button instead of a key. Note that the host counts any `[role="menu"]` in the
+document as an open modal even when it is `hidden`, and a modal blocks the
+refresh command, whose modal list is empty; the panel's element menu therefore
+carries that role only while it is open (#43, `client/tests/quality-menu`).
 
 `session.spec.mjs` replaces the session/restore scenarios: navigate, select,
 zoom and pan; reload the Web client and compare its restored summary; then
@@ -383,8 +490,11 @@ must mask the shaft with opaque canvas/ink fill, including when the relation
 is dimmed and at the native mesh scale below 0.6. Triangles mode must paint
 both incoming and outgoing dependency indicators, retaining red for violations.
 The test clicks the isolated Observer class to dim relations, then uses the
-accessible declutter control to reach triangles mode; no frame is injected.
-The Ledger proposal case checks the proposal banner, its real `api → orders`
+「更多」 menu's Remove arrows toggle to reach triangles mode (it names
+`:triangles` instead of cycling, #46); no frame is injected.
+The Ledger proposal case checks that the frame carries no proposal banner (the
+proposal's name is the top bar's discussion context and the path's root, #46),
+the proposal's real `api → orders`
 shaft at the full and frames tiers, and its disappearance in blocks after
 real wheel gestures. The producer supplies geometry for each camera and tier.
 Failure evidence and the Playwright trace stay under the run's scratch root.
@@ -401,17 +511,17 @@ behavior. "Retired" marks window-only behavior with no panel counterpart.
 | deleted driver | Playwright case | not carried over |
 |---|---|---|
 | `class_boxes.edn` | `primitives.spec.mjs` › paints class boxes, component boxes, α/I, levels, CJK names and the foreign ellipse like the producer | egui italic glyph-vertex shear (italic font choice: `packages/client/tests/primitives.test.ts`) |
-| `detail_scroll.edn` | `overlays.spec.mjs` › class card wheel steps clamp at both ends, keep inspector visible, and resize columns; › inspector follows class selection, switches proposal, and P returns to the namespace tree (empty-inspector help) | right-click Rename/Delete menu: retired, the panel edits no policy; the New Proposal row is now a panel request, `view-requests.spec.mjs` › choosing a proposal tells the companion; 新建提案 sends a timestamp name; all in click order (#29) |
+| `detail_scroll.edn` | `overlays.spec.mjs` › class card wheel steps clamp at both ends, keep the top bar in place, and resize columns; › no inspector: the switcher changes the discussion, P returns to the source tree root (#47) | right-click Rename/Delete menu: retired, the panel edits no policy; the New Proposal row is now a panel request, `view-requests.spec.mjs` › choosing a proposal tells the companion; 新建提案 sends a timestamp name; all in click order (#29) |
 | `dpi_shots.edn`, `dpi_window.edn` | `display.spec.mjs` › scale-2 canvas rasterizes at device pixels, hits at CSS points and follows a resized page | window size limits and the 280 → 340 sidebar drag: retired, the host owns the panel size |
 | `font_parity.edn`, `font_parity_baseline.edn`, `fonts.edn` | `primitives.spec.mjs` (names inked inside their producer slots, no label past a box edge, Sarasa CJK/Latin advances) | window font lookup chain and the glyph-coverage probe: retired with the window's font loader |
-| `inspector.edn` | `overlays.spec.mjs` › inspector follows class selection, switches proposal, and P returns to the namespace tree; `session.spec.mjs` › restores the proposal discussion context after a DSH restart | proposal rename, its Chinese text input and policy/IR write-back: retired, the companion edits the policy in place (`docs/companion-rules.md`) |
+| `inspector.edn` | `overlays.spec.mjs` › no inspector: the switcher changes the discussion, P returns to the source tree root (#47); `navigation.spec.mjs` › the switcher's source-diagram row equals P; `session.spec.mjs` › restores the proposal discussion context after a DSH restart | proposal rename, its Chinese text input and policy/IR write-back: retired, the companion edits the policy in place (`docs/companion-rules.md`) |
 | `lod_shots.edn` | `primitives.spec.mjs` (full → frames tier); `edges.spec.mjs` › proposal relation stays solid in full and frames tiers and disappears in blocks | — |
 | `metrics.edn` | `reload.spec.mjs` › a metric-only snapshot edit reloads quality without rewriting the IR | — |
-| `navigation.edn` | `navigation.spec.mjs` › drills in and back, selects a dependency chain, searches and returns with P; › anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and cycles declutter in place | — |
-| `review_fixes.edn` | `overlays.spec.mjs` › module source, exact member line, native copy, same-file reuse and independent source windows | per-window retained selections after copying from another widget: the browser owns one document selection |
+| `navigation.edn` | `navigation.spec.mjs` › drills in and back, selects a dependency chain, searches and returns with P; › anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and toggles 移除箭头 from the 「更多」 menu in place | — |
+| `review_fixes.edn` | `overlays.spec.mjs` › a member source replaces the card in the same drawer at its line; back returns to the card | per-window retained selections after copying from another widget: the browser owns one document selection |
 | `route_library.edn`, `route_proposal.edn`, `route_shots.edn` | `edges.spec.mjs` (all four cases) | before/after screenshots only; they asserted nothing |
 | `search.edn` | `navigation.spec.mjs` › drills in and back, selects a dependency chain, searches and returns with P | — |
-| `source_jump.edn`, `source_window.edn` | `overlays.spec.mjs` › module source, exact member line, native copy, same-file reuse and independent source windows | — |
+| `source_jump.edn`, `source_window.edn` | `overlays.spec.mjs` › a member source replaces the card in the same drawer at its line; back returns to the card | — |
 | `standalone.edn` | `reload.spec.mjs` › an edited diagram.edn hot-reloads into the open panel | — |
 | `terminate.edn`, `window_controls.edn` | none | retired: WM_CLOSE/SIGTERM and undecorated-window close buttons belong to the deleted window; the panel's lifecycle is the host seams' and `package.spec.mjs` |
 
@@ -441,8 +551,8 @@ gating. Run them offline with `node --test packages/e2e/view-policy.test.mjs`.
 
 Browser assertions cover source/proposal class absence in the real producer
 frame after IR/display, source visibility after a proposal-only omit, the new
-proposal's actual inspector row, preserved discussion context until an explicit
-choice, and untouched composer drafts. A malformed scratch policy exercises
+proposal's actual row in the top bar's discussion-context switcher, preserved
+discussion context until an explicit choice, and untouched composer drafts. A malformed scratch policy exercises
 failed real IR: the mock emits no display, the generated IR bytes remain
 unchanged, and the displayed summary stays unchanged. These strengthened
 browser cases require CI runtime acceptance; local Node tests and Playwright
@@ -468,8 +578,8 @@ project data before either install or plugin load. It returns:
 | `home` | run-scoped `DSH_HOME` with projects, logs, traces |
 | `host` | `{ url, stop, exited, output }` for the isolated DSH |
 | `mock` | `{ url, requests, stop }`; inspect the exact model requests |
-| `projects` | `{ shop, ledger, deep, atlas, nexus, inspector }` absolute sample roots |
-| `openPanel(name, options?)` | create/select that session, open the sidebar tab, render IR, and return `{ page, panel, canvas, summary, sessionId, before, problems }`; optional `state` overrides the seeded persisted session state before panel open |
+| `projects` | `{ shop, ledger, deep, atlas, levels, nexus, inspector }` absolute sample roots |
+| `openPanel(name, options?)` | create/select that session, open the sidebar tab, render IR, and return `{ page, panel, canvas, summary, sessionId, before, problems }`; optional `state` overrides the seeded persisted session state before panel open; `display: false` stops before the display prompt, so the panel shows the waiting canvas and its status-bar text (#46) |
 | `pan(panel)` | real pointer drag on that panel's canvas |
 | `wheel(panel, notches)` | real Ctrl+wheel notches over the canvas centre; positive zooms out (plain wheel pans) |
 | `point(panel, [x,y], clicks?)` | real canvas-local click or double-click |
@@ -483,7 +593,10 @@ project data before either install or plugin load. It returns:
 
 `panel.before` is the summary text after display; use it to assert that another
 session was untouched. Add new assertions to `*.spec.mjs`; set
-`UML_VIEWER_E2E_SCRATCH` for an alternate scratch root. Failure captures land in
+`UML_VIEWER_E2E_SCRATCH` for an alternate scratch root. On a host with a flaky
+registry, set `UML_VIEWER_E2E_COREPACK_SEED` to a known-good Corepack home (for
+example `~/.cache/node/corepack`); each lane copies it into its fresh
+`COREPACK_HOME` before the plugin install. Failure captures land in
 the run home (`<project>-failure.txt` and `.png`), and the Playwright trace in
 `.scratch/e2e/results/`.
 
@@ -510,32 +623,39 @@ The file has 84 displayed rows including the trailing empty row.
 The cases port the applicable behavior of `source_jump.edn`,
 `source_window.edn`, `detail_scroll.edn` and `inspector.edn`:
 
-- The inspector explains an empty selection, refreshes to the selected class
-  and its no-data summary, selects the named proposal, and accepts **P** with
-  focus still on that proposal button to return to the source namespace tree.
+- There is no inspector (#47): the top bar's switcher lists the source diagram,
+  the proposal and 新建提案; picking the proposal switches the canvas and the
+  discussion context, and **P** returns to the source namespace tree.
 - A real canvas double-click opens the class card at coordinates from
   `producerFrame`, without injecting a frame or invoking a private controller.
-  Wheel gestures advance by 48 pixels and clamp at both ends while the
-  inspector and diagram camera stay put. End/Home native scrolling followed by
+  In a sidebar of about 400px (the window is narrowed when the host has no
+  width handle) the card is the bottom drawer (#49): it fills the lower half of
+  the canvas, the diagram stays visible above it, and the 560-pixel column plan
+  scrolls sideways. Wheel gestures advance by 48 pixels and clamp at both ends
+  while the diagram camera stays put. End/Home native scrolling followed by
   another wheel notch verifies the DOM and resident offsets stay synchronized.
-  Native CSS resize gestures exercise
-  horizontal overflow below the 560-pixel plan minimum and column layout at
-  the available sidebar width.
-- The module row opens the whole file without a marked line. The member row
-  reuses that source window, marks exactly line 82, and puts the full row
-  inside a genuinely scrolled source viewport. A native word selection and
-  copy put `function` on Chromium's clipboard; the line-number gutter remains
-  unselectable. A relationship row locates the second module; its source can
-  coexist with the first and close independently.
-- Switching `body[data-ds-dark-theme]` checks computed inspector, card, source,
+- The module row shows the whole file in the same drawer, in place of the card,
+  without a marked line; the back button returns to the card. The member row
+  then marks exactly line 82 and puts the full row inside a genuinely scrolled
+  source viewport. A native word selection and copy put `function` on
+  Chromium's clipboard; the line-number gutter remains unselectable. A
+  relationship row locates the second module, whose card and source take the
+  same drawer; there is never more than one `.dsh-uml-drawer`.
+- Esc closes the drawer first, from the canvas or from the source with focus
+  inside it, and only the next Esc goes back from the drilled `deep` level.
+- With the host's fullscreen toggle the panel container reaches 900px and the
+  card docks beside the canvas (`data-layout="docked"`): a right-hand flex
+  column reserves its width, the canvas and the resident viewport shrink, and
+  a ~960px screenshot checks that no class or edge is under the card while the
+  diagram keeps the larger share. Leaving fullscreen returns it to the bottom
+  drawer without remounting.
+- Switching `body[data-ds-dark-theme]` checks computed card, source,
   gutter, keyword and border colors against resolved host tokens in both
   modes, and requires the actual surface colors to change.
 
-Proposal creation, rename/delete and regeneration remain #28/#29 scope. Source
-window coexistence uses distinct files; repeated opens of the same file reuse
-its existing DOM window. The source window is resized to expose card controls
-while testing reuse. Browser clipboard permissions are scoped to that isolated
-context. No case attaches to the live GUI.
+Proposal creation, rename/delete and regeneration remain #28/#29 scope.
+Browser clipboard permissions are scoped to that isolated context. No case
+attaches to the live GUI.
 
 Run only these cases after the plugin and binary have been built and scratch
 Chromium has been installed. For the native Windows t27 scratch lane:
@@ -547,7 +667,52 @@ $env:UML_VIEWER_BIN = '<absolute path to an existing uml-viewer.exe>'
 pnpm --filter @dsh-uml-viewer/e2e test:e2e overlays.spec.mjs
 ```
 
+`packages/e2e/legend.spec.mjs` (#50) covers the diagram's legend in the same
+lane. Its rows are the resident's, so the spec reads them out of the panel's
+own DOM:
+
+- Below 900px the legend is closed until 「更多」 opens it as a popover
+  (`data-mode="popover"`), with the English rows the frame carries; **Esc**
+  closes the popover and stops there — the selected class survives, so the key
+  did not fall through to "clear the selection".
+- With the host's fullscreen toggle the panel container reaches 900px and the
+  legend stays resident (`data-mode="docked"`, no close button) as a strip of
+  the canvas row below the diagram: the legend and the canvas share no pixel,
+  the drawing keeps the row's full width, and the viewport the resident was
+  told matches the shrunken canvas. Leaving fullscreen returns it to the closed popover.
+- The swatches are the diagram's colors: the 质量色 ramp's stops resolve to the
+  documented fill ramp literals in the dark theme, 违规关系色, 依赖链高亮 and
+  the 无数据 dot to theirs, and 普通关系色 is compared with the pixels the
+  canvas painted for a plain relation in the same producer frame.
+- A DSH language switch (Settings → General → Language) rewords the rows from
+  the next frame: 依赖链高亮, 类框 and 无数据 replace their English rows while
+  the panel's own title becomes 图例.
+
 These cases have run in CI; see the [aggregate results and remaining failures](#ci).
+
+## Selection action bar (#48)
+
+`packages/e2e/action-bar.spec.mjs` covers the bar the panel fixes above the
+status bar for the selection (ADR 0015). Its quality requests use the shared
+`quality-lane.mjs` fixture and scripted companion:
+
+- A selected component's bar is a `toolbar` named "Selection actions" with
+  `data-kind="component"`: it shows the element's name and five buttons —
+  Drill in, Refresh CRAP, Differential mutation, Hide and More requests —
+  while Full mutation (--mutate-all) stays in the secondary menu, which has a
+  `menu` role only while open. Pan and zoom move the diagram and leave the
+  bar's box exactly where it was, the selection survives, and the right-click
+  element menu keeps the same four requests. Refresh CRAP from the bar sends
+  the visible panel request for `:core`'s two files, the conversation shows it
+  finished, and the fixture recorded one `crap` call.
+- A selected class's bar opens its card without moving the view; Escape clears
+  the selection and takes the bar with it. A foreign package's bar
+  (`data-kind="foreign"`) shows its name alone and has no buttons.
+- With the card as the narrow bottom drawer and as the just-docked right column
+  (920px), the bar's box shares no area with the drawer or the status bar.
+- The fourth case is the status bar's queue over the bar: two requests from the
+  bar leave "1 more", and the opened queue paints over the bar's own corner
+  (a higher `z-index`) instead of behind it.
 
 ## CI
 

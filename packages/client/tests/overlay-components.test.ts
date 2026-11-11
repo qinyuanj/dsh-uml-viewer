@@ -18,7 +18,9 @@ function elements() {
     },
     useRef: () => ({ current: null }), useState: (value: unknown) => [value, () => {}], useEffect: () => {},
   }
-  vm.runInNewContext(code, { module, exports: module.exports, require: () => hooks })
+  // `Overlays` resolves its first theme from the page; a light page with no tokens.
+  const page = { document: { body: {} }, getComputedStyle: () => ({ getPropertyValue: () => '' }) }
+  vm.runInNewContext(code, { module, exports: module.exports, require: () => hooks, ...page })
   return module.exports
 }
 function all(tree: Element, predicate: (e: Element) => boolean): Element[] {
@@ -28,46 +30,6 @@ function text(tree: Element): string {
   return tree.children.map(v => typeof v === 'object' ? text(v) : String(v)).join('')
 }
 const theme = () => resolveTheme(fakeCanvas({ tokens: DARK_TOKENS, dark: true }))
-const labels = { inspector: '检查器', proposals: '提案', pHint: 'P：返回命名空间树' }
-
-it('renders supplied inspector summary lines and proposal choices with host tokens', () => {
-  const choose = vi.fn(), namespaceTree = vi.fn()
-  const tree = elements().Inspector!({ theme: theme(), controller: { choose, namespaceTree }, state: { inspector: {
-    labels, declutterLabel: '精简：无',
-    entries: [{ id: null, label: 'Shop', active: false }, { id: ':plan', label: 'Plan', active: true }],
-    summary: { kind: 'class', lines: [
-      { type: 'segments', parts: ['Crap μ 4.0', 'max 8.0'], color: { role: 'accent' } },
-      { type: 'label', text: '无数据', color: { role: 'no-data' } },
-    ] },
-  } } })
-  expect(tree.props['aria-label']).toBe('检查器')
-  expect(text(tree)).toContain('Crap μ 4.0max 8.0无数据')
-  const plan = all(tree, e => e.type === 'button' && text(e) === 'Plan')[0]!
-  expect(plan.props['aria-pressed']).toBe(true)
-  plan.props.onClick()
-  expect(choose).toHaveBeenCalledWith(':plan')
-  all(tree, e => e.type === 'button' && text(e) === labels.pHint)[0]!.props.onClick()
-  expect(namespaceTree).toHaveBeenCalled()
-  // 无数据 is the fixed no-data red from the shared resolver, not a host error token.
-  expect(all(tree, e => e.type === 'p')[0]!.props.style.color).toBe(DARK_HUES.noData)
-  expect(all(tree, e => e.props.className === 'dsh-uml-summary-segments')[0]!.props.style.color).toBe('#e8c448')
-})
-
-it('offers 新建提案 below the proposals; a click asks for a timestamp-named proposal (#29)', () => {
-  const newProposal = vi.fn()
-  const tree = elements().Inspector!({ theme: theme(), controller: { choose: vi.fn(), namespaceTree: vi.fn(), newProposal }, state: { inspector: {
-    labels, declutterLabel: '精简：无',
-    entries: [{ id: null, label: 'Shop', active: true }],
-    summary: { kind: 'empty', lines: [] },
-  } } })
-  const button = all(tree, e => e.type === 'button' && text(e) === '新建提案')
-  expect(button).toHaveLength(1)
-  button[0]!.props.onClick()
-  expect(newProposal).toHaveBeenCalledTimes(1)
-  // The name is left to the controller, which reads the local clock.
-  expect(Object.prototype.toString.call(newProposal.mock.calls[0]![0])).toBe('[object Date]')
-})
-
 it('renders producer rows and sends member/module/relationship activations through the controller', () => {
   const openSource = vi.fn(), locate = vi.fn(), closeCard = vi.fn()
   const item = { kind: 'stats', y: 134, h: 18, text: '+ target()', color: { role: 'ink' }, titleFont: false,
@@ -78,7 +40,7 @@ it('renders producer rows and sends member/module/relationship activations throu
       { ...item, module: true, opName: null, text: 'order.rs' },
       { ...item, kind: 'rel', opName: null, rel: ':other', text: '依赖 other' }],
   } } })
-  expect(tree.props['aria-label']).toBe('类卡片 Order')
+  expect(tree.props['aria-label']).toBe('Class card Order')
   const member = all(tree, e => e.props['data-member'] === 'target')[0]!
   member.props.onClick()
   expect(openSource).toHaveBeenCalledWith(':order', 'target')
@@ -91,18 +53,39 @@ it('renders producer rows and sends member/module/relationship activations throu
   expect(text(cell)).toBe('4.0')
 })
 
+const sourceModel = {
+  title: 'src/order.rs:82', line: 82, rows: [{ number: 82, marked: true,
+    tokens: [{ kind: 'ink', text: '  ' }, { kind: 'keyword', text: 'pub' }, { kind: 'ink', text: ' fn target()' }] }],
+}
+
 it('renders source tokens, declaration marker and unselectable gutter without reading files', () => {
-  const closeSource = vi.fn()
-  const tree = elements().SourceView!({ index: 0, controller: { closeSource }, window: { serial: 7, model: {
-    title: 'src/order.rs:82', line: 82, rows: [{ number: 82, marked: true,
-      tokens: [{ kind: 'ink', text: '  ' }, { kind: 'keyword', text: 'pub' }, { kind: 'ink', text: ' fn target()' }] }],
-  } } })
-  expect(tree.props['aria-label']).toBe('源码窗口 src/order.rs:82')
+  const backToCard = vi.fn(), closeDrawer = vi.fn()
+  const tree = elements().SourceView!({ controller: { backToCard, closeDrawer }, model: sourceModel, back: true })
+  expect(tree.props['aria-label']).toBe('Source window src/order.rs:82')
+  expect(tree.props.className).toContain('dsh-uml-drawer')
   expect(all(tree, e => e.props['data-marked'] === true)[0]!.props['data-source-line']).toBe(82)
   expect(text(all(tree, e => e.type === 'code')[0]!)).toBe('  pub fn target()')
   expect(all(tree, e => e.props.className === 'dsh-uml-source-gutter')[0]!.props['aria-hidden']).toBe(true)
-  all(tree, e => e.props['aria-label'] === '关闭源码窗口')[0]!.props.onClick()
-  expect(closeSource).toHaveBeenCalledWith(7)
+  // The drawer's back button returns to the card; × closes the whole drawer.
+  all(tree, e => e.props['aria-label'] === 'Back to class card')[0]!.props.onClick()
+  expect(backToCard).toHaveBeenCalledTimes(1)
+  all(tree, e => e.props['aria-label'] === 'Close source window')[0]!.props.onClick()
+  expect(closeDrawer).toHaveBeenCalledTimes(1)
+  // A source with no card to return to has no back button.
+  const alone = elements().SourceView!({ controller: {}, model: sourceModel, back: false })
+  expect(all(alone, e => e.props['aria-label'] === 'Back to class card')).toEqual([])
+})
+
+it('draws one drawer: the source in place of the card, else the card, else nothing', () => {
+  const card = { id: ':order', title: 'Order', scroll: 0, contentHeight: 40, items: [] }
+  const overlays = (state: Record<string, unknown>) => elements().Overlays!({ controller: {
+    current: { inspector: null, failure: null, card: null, source: null, drawer: null, ...state }, subscribe: () => () => {},
+  } })
+  const drawers = (tree: Element) => all(tree, e => typeof e.props.className === 'string' && e.props.className.split(' ').includes('dsh-uml-drawer'))
+  const both = drawers(overlays({ card, source: sourceModel, drawer: 'source' }))
+  expect(both.map(e => e.props['aria-label'])).toEqual(['Source window src/order.rs:82'])
+  expect(drawers(overlays({ card, drawer: 'card' })).map(e => e.props['aria-label'])).toEqual(['Class card Order'])
+  expect(drawers(overlays({}))).toEqual([])
 })
 
 it('colours card cells, bars and swatches through the shared role resolver with producer grade/ratio', () => {
@@ -140,7 +123,7 @@ describe('bounded source DOM', () => {
 
   it('renders only a bounded row window of a long file, around the declaration line', () => {
     const view = elements() as unknown as Record<string, any>
-    const tree = view.SourceView({ index: 0, controller: {}, window: { serial: 1, model: big(4000, 3000) } })
+    const tree = view.SourceView({ controller: {}, model: big(4000, 3000), back: false })
     const rows = all(tree, e => e.props['data-source-line'] !== undefined)
     expect(rows.length).toBeGreaterThan(0)
     expect(rows.length).toBeLessThanOrEqual(view.SOURCE_MAX_RENDERED_ROWS)

@@ -65,11 +65,11 @@ describe('mounted resident lifetime (#32 D13)', () => {
     const aborts: AbortController[] = []
     const closes: string[] = []
     bridge = {
-      watchOwned(_sessionId: string, owner: { pageId: string; holderId: string }) {
+      watchOwned(_sessionId: string, owner: { pageId: string; holderId: string }, language: string) {
         owners.push(owner)
         const abort = new AbortController()
         aborts.push(abort)
-        const stream = viewer.watchOwned(agent, owner, abort.signal)[Symbol.asyncIterator]()
+        const stream = viewer.watchOwned(agent, owner, language, abort.signal)[Symbol.asyncIterator]()
         return { [Symbol.asyncIterator]: () => stream,
           // Pinned gateway: end() only half-closes the uplink; dispose() aborts
           // the generation and returns the iterator. close-first defers that.
@@ -85,7 +85,7 @@ describe('mounted resident lifetime (#32 D13)', () => {
     await settled()
     expect(connection.refs).toBe(1)
     let second: (() => void) | undefined
-    const mountAgain = () => mountPanel(new Element('host', doc) as unknown as HTMLElement, { sessionId: 'session', ctx, main: true })
+    const mountAgain = () => mountPanel(new Element('host', doc) as unknown as HTMLElement, { sessionId: 'session', ctx })
     if (order === 'overlap') { second = await mountAgain(); await settled(); expect(connection.refs).toBe(2) }
     first()
     await settled()
@@ -175,7 +175,7 @@ describe('mounted panel quality menu (#28)', () => {
     draft.focus()
     const event = canvas.fire('contextmenu', { offsetX: 400, offsetY: 300 })
     expect(event.defaultPrevented).toBe(true)
-    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    const menu = host.descendants().find(el => el.className.includes('dsh-uml-quality-menu'))!
     expect(menu).toBeDefined()
     expect(menu.children.map(el => el.textContent)).toEqual(['Refresh CRAP', 'Differential mutation', 'Full mutation (--mutate-all)', 'Hide'])
     const id = golden.world[0]!.kind === 'package' ? golden.world[0]!.id : ':core'
@@ -200,7 +200,7 @@ describe('mounted panel quality menu (#28)', () => {
     draft.value = 'my unfinished draft'
     draft.focus()
     canvas.fire('contextmenu', { offsetX: 400, offsetY: 300 })
-    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    const menu = host.descendants().find(el => el.className.includes('dsh-uml-quality-menu'))!
     const id = golden.world[0]!.kind === 'package' ? golden.world[0]!.id : ':core'
     menu.children[3]!.fire('click')
     await settled()
@@ -224,7 +224,7 @@ describe('mounted panel quality menu (#28)', () => {
           bounds: { x: 200, y: 10, w: 40, h: 18 }, dimmed: false },
       ] as SceneFrame['world'] }
     await emit({ kind: 'frame', seq: 2, frame })
-    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    const menu = host.descendants().find(el => el.className.includes('dsh-uml-quality-menu'))!
     canvas.fire('contextmenu', { offsetX: 50, offsetY: 25 })
     expect(menu.hidden).toBe(true)
     canvas.fire('contextmenu', { offsetX: 210, offsetY: 15 })
@@ -235,13 +235,127 @@ describe('mounted panel quality menu (#28)', () => {
   it('does not open a menu on blank canvas and closes with Escape', async () => {
     const { host, canvas } = await mount()
     canvas.fire('contextmenu', { offsetX: 400, offsetY: 300 })
-    const menu = host.descendants().find(el => el.attributes.role === 'menu')!
+    const menu = host.descendants().find(el => el.className.includes('dsh-uml-quality-menu'))!
     expect(menu.hidden).toBe(false)
     host.fire('keydown', { key: 'Escape' })
     expect(menu.hidden).toBe(true)
     canvas.fire('contextmenu', { offsetX: 6000, offsetY: 6000 })
     expect(menu.hidden).toBe(true)
     expect(actions.filter(a => a.action === 'quality-request')).toEqual([])
+  })
+})
+
+describe('mounted panel layout (#49 F28)', () => {
+  it('keeps the canvas area and reserved dock column as flex siblings, with the action bar in the canvas area', async () => {
+    const { host } = await mount()
+    const stage = host.descendants().find(el => el.className.includes('dsh-uml-viewer-canvas-stage'))!
+    const [area, dock] = stage.children
+    expect(area?.className).toContain('dsh-uml-viewer-canvas-area')
+    expect(dock?.className).toContain('dsh-uml-viewer-dock-space')
+    expect(host.descendants().find(el => el.className.includes('dsh-uml-viewer-action-bar'))?.parent).toBe(area)
+    expect(host.descendants().find(el => el.className.includes('dsh-uml-legend'))?.parent?.className)
+      .toContain('dsh-uml-viewer-canvas-row')
+  })
+})
+
+describe('mounted panel action bar (#48)', () => {
+  const state = (selected: string | null) => ({
+    kind: 'state', seq: 9, breadcrumbs: [], status: null,
+    state: { schema: 'dsh-uml-viewer/session-state', version: 1, diagram: null, context: null, focus: [], proposalId: null,
+      openLayer: null, declutter: null, camera: { x: 0, y: 0, zoom: 1 }, selected, detail: null },
+  }) as unknown as PanelEvent
+
+  it('follows the resident selection over the canvas area and drills into a selected component', async () => {
+    const { host } = await mount()
+    await emit({ kind: 'frame', seq: 2, frame: golden })
+    const bar = host.descendants().find(el => el.className.includes('dsh-uml-viewer-action-bar'))!
+    expect(bar.hidden).toBe(true)
+    // The bar overlays the canvas area: it never takes height from the canvas.
+    expect(bar.parent?.className).toBe('dsh-uml-viewer-canvas-area')
+    await emit(state('{:kind :class :id :core :drill? true}'))
+    expect(bar.hidden).toBe(false)
+    expect(bar.descendants().map(el => el.textContent)).toContain('Core')
+    bar.descendants().find(el => el.textContent === 'Drill in')!.fire('click')
+    await settled()
+    expect(actions.filter(a => a.action === 'drill-in')).toEqual([{ action: 'drill-in', id: ':core' }])
+    // A click on blank canvas selects the level's frame: no bar.
+    await emit(state('{:kind :package :id :view}'))
+    expect(bar.hidden).toBe(true)
+  })
+
+  it('opens a selected class card through the overlays, without moving the view', async () => {
+    const { host } = await mount()
+    await emit({ kind: 'frame', seq: 2, frame: golden })
+    await emit(state('{:kind :class :id :util :drill? false}'))
+    const bar = host.descendants().find(el => el.className.includes('dsh-uml-viewer-action-bar'))!
+    bar.descendants().find(el => el.textContent === 'Open class card')!.fire('click')
+    await settled()
+    expect(actions.filter(a => a.action === 'open-card')).toEqual([{ action: 'open-card', id: ':util' }])
+  })
+})
+
+describe('request dismissal refusals (#53)', () => {
+  it('surfaces a refused dismiss-request ack on the localized status line (F36)', async () => {
+    const { host } = await mount()
+    bridge = {
+      async action(_sessionId: string, action: PanelAction) {
+        return action.action === 'dismiss-request'
+          ? { accepted: false, reason: 'no finished request f in this session' }
+          : { accepted: true, reason: null }
+      },
+    }
+    await emit({ kind: 'request-status', requests: [
+      { id: 'a', op: 'refresh-crap', target: { id: ':core', kind: 'component' }, state: 'queued', reason: null, exitCode: null },
+      { id: 'f', op: 'omit', target: null, state: 'failed', reason: 'the request was refused', exitCode: null },
+    ] } as PanelEvent)
+    const status = host.descendants().find(el => el.className.includes('dsh-uml-viewer-statusbar'))!
+    const more = status.descendants().find(el => el.className.includes('dsh-uml-viewer-request-more'))!
+    more.fire('click')
+    const dismiss = status.descendants().find(el => el.className.includes('dsh-uml-viewer-request-dismiss'))!
+    dismiss.fire('click')
+    await settled()
+    const line = status.descendants().find(el => el.className.includes('dsh-uml-viewer-status-text'))!
+    expect(line.textContent).toBe('Could not dismiss the request: no finished request f in this session')
+    expect(line.hidden).toBe(false)
+  })
+})
+
+describe('mounted panel language (#42)', () => {
+  /** DSH's `ctx.locale` face: the active id and a change subscription. */
+  function dshLocale(active: string) {
+    const listeners = new Set<() => void>()
+    return {
+      getLocale: () => ({ active, locales: [], revision: 0 }),
+      subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn) } },
+      switch(next: string) { active = next; for (const fn of [...listeners]) fn() },
+    }
+  }
+
+  it('labels DOM text and accessible names in the DSH language and follows a switch without remounting', async () => {
+    const locale = dshLocale('zh-CN')
+    const localized = { get: (name: string) => name === 'locale' ? locale : ctx.get(name) } as unknown as ClientContext
+    const doc = makeDocument()
+    vi.stubGlobal('document', doc)
+    const host = new Element('host', doc)
+    dispose = await mountPanel(host as unknown as HTMLElement, { sessionId: 'session', ctx: localized })
+    await emit({ kind: 'frame', seq: 1, frame: { ...golden, viewport: { width: 800, height: 600 }, camera: { x: 200, y: 200, zoom: 1 },
+      world: [{ ...golden.world[0]!, bounds: { x: 0, y: 0, w: 4000, h: 4000 } }] } })
+    const menu = host.descendants().find(el => el.className.includes('dsh-uml-quality-menu'))!
+    const input = host.find('input')
+    const canvas = host.find('canvas')
+    expect(menu.children.map(el => el.textContent)).toEqual(['刷新 CRAP', '差量 mutation', '全量 mutation（--mutate-all）', '隐藏'])
+    expect(menu.attributes['aria-label']).toBe('元素请求')
+    expect(input.attributes['aria-label']).toBe('搜索类')
+    expect(canvas.attributes['aria-label']).toBe('UML 图画布')
+
+    locale.switch('en')
+    expect(menu.children.map(el => el.textContent)).toEqual(['Refresh CRAP', 'Differential mutation', 'Full mutation (--mutate-all)', 'Hide'])
+    expect(menu.attributes['aria-label']).toBe('Element requests')
+    expect(input.attributes['aria-label']).toBe('Search classes')
+    expect(canvas.attributes['aria-label']).toBe('UML diagram canvas')
+
+    locale.switch('fr')
+    expect(input.attributes['aria-label']).toBe('Search classes')
   })
 })
 

@@ -138,10 +138,10 @@ async function host(dshHome: string, packageRoot: string, wrappers = new Map<str
       watch(agent: Agent, signal: AbortSignal): AsyncIterable<PanelEvent>
       action(agent: Agent, action: unknown): Promise<{ accepted: boolean; reason: string | null }>
       close(agent: Agent): Promise<{ closed: boolean }>
-      watchOwned(agent: Agent, owner: PanelOwner, signal: AbortSignal): AsyncIterable<PanelEvent>
+      watchOwned(agent: Agent, owner: PanelOwner, language: string | null, signal: AbortSignal): AsyncIterable<PanelEvent>
       closeOwned(agent: Agent, owner: PanelOwner): Promise<{ closed: boolean }>
     }
-    const iterator = (owner ? viewer.watchOwned(agents[session]!, owner, controller.signal) : viewer.watch(agents[session]!, controller.signal))[Symbol.asyncIterator]()
+    const iterator = (owner ? viewer.watchOwned(agents[session]!, owner, null, controller.signal) : viewer.watch(agents[session]!, controller.signal))[Symbol.asyncIterator]()
     const ready = (await iterator.next()).value as PanelEvent
     expect(ready).toMatchObject({ kind: 'ready' })
     return {
@@ -167,37 +167,90 @@ async function host(dshHome: string, packageRoot: string, wrappers = new Map<str
   return { ctx, projects, children, fiber, panel, preparePanel, unload: () => fiber.dispose(), dispose: () => ctx.fiber.dispose() }
 }
 
-/** Real mount/controller → typed API bridge → real ViewerService/root pool. */
-async function mountedPanel(h: Awaited<ReturnType<typeof host>>, session: string, doc: ReturnType<typeof makeDocument>) {
-  const { project, agent } = await h.preparePanel(session)
-  // The real overlay controller asks for the inspector; give the fixture a valid model.
-  await writeFile(path.join(project, 'resident.json'), JSON.stringify({ framePath: goldenFrame, inspector: {
-    entries: [{ id: null, label: 'Shop', active: true }], summary: { kind: 'class', lines: [] },
-    declutterLabel: 'none', detail: null, selected: null, labels: { inspector: 'Inspector', proposals: 'Proposals', pHint: 'P' },
-  } }))
+type CloseHandler = (sessionId: string, tab: { id: string; kind: string }) => void
+type TabCommands = { refresh?: () => void }
+
+/**
+ * The real client plugin applied to a client context whose right sidebar
+ * records what the plugin registers: the tab-kind close handler and the
+ * page commands each mounted tab binds.
+ */
+async function clientPlugin(h: Awaited<ReturnType<typeof host>>, session: string) {
+  const { agent } = await h.preparePanel(session)
   const viewer = h.ctx.get('umlViewer') as unknown as ViewerService
   const api = {
-    watchOwned(_sessionId: string, owner: PanelOwner) {
+    watchOwned(_sessionId: string, owner: PanelOwner, language: string) {
       const abort = new AbortController()
       controllers.push(abort)
-      const stream = viewer.watchOwned(agent, owner, abort.signal)
+      const stream = viewer.watchOwned(agent, owner, language, abort.signal)
       return { [Symbol.asyncIterator]: () => stream[Symbol.asyncIterator](), end() { abort.abort() }, dispose() { abort.abort() } }
     },
     closeOwned: (_sessionId: string, owner: PanelOwner) => viewer.closeOwned(agent, owner),
     action: (_sessionId: string, action: any) => viewer.action(agent, action),
   }
-  const ctx = { get: (name: string) => name === 'remote' ? { $mount: async () => {} } : api } as unknown as ClientContext
+  const closeHandlers = new Map<string, CloseHandler>()
+  const ctx: Record<string, unknown> = {
+    slots: { register: () => () => {}, inject: (_name: string, callback: () => unknown) => callback() },
+    // The stylesheet effect needs a real document; this seam is the lifecycle.
+    effect: () => {},
+    inject: (_names: readonly string[], callback: (value: unknown) => unknown) => callback(ctx),
+    sidebarRightTabs: { register: () => () => {} },
+    sidebarRight: {
+      registerCloseHandler(kind: string, handler: CloseHandler) {
+        closeHandlers.set(kind, handler)
+        return () => { closeHandlers.delete(kind) }
+      },
+    },
+    get: (name: string) => name === 'remote' ? { $mount: async () => {} } : api,
+  }
+  const client = await import(CLIENT_ENTRY) as { apply(ctx: unknown): void }
+  client.apply(ctx)
+  return {
+    ctx: ctx as unknown as ClientContext,
+    /** What the host does when the user closes the UML tab or a replacement removes it. */
+    closeTab: (tabId: string) => closeHandlers.get('dsh-uml-viewer')!(session, { id: tabId, kind: 'dsh-uml-viewer' }),
+  }
+}
+
+/** Real mount/controller → typed API bridge → real ViewerService/root pool. */
+async function mountedPanel(h: Awaited<ReturnType<typeof host>>, session: string, doc: ReturnType<typeof makeDocument>,
+  tab?: { ctx: ClientContext; tabId: string }) {
+  const { project, agent } = await h.preparePanel(session)
+  // The real overlay controller asks for the card; with none open the fixture answers null.
+  await writeFile(path.join(project, 'resident.json'), JSON.stringify({ framePath: goldenFrame }))
+  const viewer = h.ctx.get('umlViewer') as unknown as ViewerService
+  const api = {
+    watchOwned(_sessionId: string, owner: PanelOwner, language?: string) {
+      const abort = new AbortController()
+      controllers.push(abort)
+      const stream = viewer.watchOwned(agent, owner, language ?? null, abort.signal)
+      return { [Symbol.asyncIterator]: () => stream[Symbol.asyncIterator](), end() { abort.abort() }, dispose() { abort.abort() } }
+    },
+    closeOwned: (_sessionId: string, owner: PanelOwner) => viewer.closeOwned(agent, owner),
+    action: (_sessionId: string, action: any) => viewer.action(agent, action),
+  }
+  const ctx = tab?.ctx ?? { get: (name: string) => name === 'remote' ? { $mount: async () => {} } : api } as unknown as ClientContext
   vi.stubGlobal('document', doc)
   const element = new Element('host', doc)
   const { mountPanel } = await import(CLIENT_ENTRY) as { mountPanel(host: unknown, options: Record<string, unknown>): Promise<() => void> }
-  const dispose = await mountPanel(element, { sessionId: session, ctx })
-  await vi.waitFor(() => expect(element.descendants().find(el => el.attributes['aria-label'] === 'UML panel summary')?.dataset.kind).toBe('frame'))
-  return { element, dispose, project, runs: async () => (await readFile(path.join(project, 'resident-versions.log'), 'utf8')).trim().split('\n').map(line => JSON.parse(line) as { version: string; binary: string }) }
+  const commands: TabCommands[] = []
+  const dispose = await mountPanel(element, { sessionId: session, ctx, ...(tab ? {
+    tabId: tab.tabId,
+    bindCommands: (bound: TabCommands) => {
+      commands.push(bound)
+      return () => { commands.splice(commands.indexOf(bound), 1) }
+    },
+  } : {}) })
+  const summary = () => element.descendants().find(el => el.attributes['aria-label'] === 'UML panel summary')
+  await vi.waitFor(() => expect(summary()?.dataset.kind).toBe('frame'))
+  return { element, dispose, project, commands, summary,
+    actions: async () => (await readFile(path.join(project, 'resident-actions.log'), 'utf8')).trim().split('\n').map(line => JSON.parse(line) as { action: string }),
+    runs: async () => (await readFile(path.join(project, 'resident-versions.log'), 'utf8')).trim().split('\n').map(line => JSON.parse(line) as { version: string; binary: string }) }
 }
 
 const sha256 = async (file: string) => createHash('sha256').update(await readFile(file)).digest('hex')
 
-it('actual mount disposal and a new controller retain the resident and lease, then explicit close/reopen chooses current', async () => {
+it('actual mount disposal and a new controller retain the resident and lease, then closing the UML tab and reopening it chooses current', async () => {
   const dshHome = await scratch('actual mount home')
   const home = path.join(dshHome, 'dsh-uml-viewer')
   const doc = makeDocument()
@@ -209,21 +262,81 @@ it('actual mount disposal and a new controller retain the resident and lease, th
   first.dispose()
   await vi.waitFor(() => expect(old.children.filter(child => child.alive())).toHaveLength(1))
   const updated = await host(dshHome, await install('1.1.0'), new Map(), old)
-  const second = await mountedPanel(updated, 'one-session', doc)
+  const client = await clientPlugin(updated, 'one-session')
+  const second = await mountedPanel(updated, 'one-session', doc, { ctx: client.ctx, tabId: 'uml-tab' })
   expect(await second.runs()).toEqual([{ version: '1.0.0', binary: path.join(home, '1.0.0', exe) }])
   expect(await readdir(path.join(home, 'leases', '1.0.0'))).toEqual(leases)
-  const close = second.element.descendants().find(el => el.textContent === 'Close viewer')!
-  close.fire('click')
-  await vi.waitFor(() => expect(close.textContent).toBe('Open viewer'))
-  expect(old.children.map(child => child.alive())).toEqual([false])
-  expect(existsSync(path.join(home, 'leases', '1.0.0'))).toBe(false)
-  close.fire('click')
-  await vi.waitFor(() => expect(updated.children.filter(child => child.alive())).toHaveLength(1))
-  await vi.waitFor(async () => expect(await second.runs()).toHaveLength(2))
-  expect((await second.runs()).at(-1)).toEqual({ version: '1.1.0', binary: path.join(home, '1.1.0', exe) })
+  // The user closes the UML tab: the host runs the close handler, then
+  // removes the tab and its body.
+  client.closeTab('uml-tab')
   second.dispose()
+  await vi.waitFor(() => expect(old.children.map(child => child.alive())).toEqual([false]))
+  await vi.waitFor(() => expect(existsSync(path.join(home, 'leases', '1.0.0'))).toBe(false))
+  // Reopening the UML tab is a fresh mount, and a fresh choice of version.
+  const reopened = await mountedPanel(updated, 'one-session', doc, { ctx: client.ctx, tabId: 'uml-tab-2' })
+  await vi.waitFor(() => expect(updated.children.filter(child => child.alive())).toHaveLength(1))
+  expect((await reopened.runs()).at(-1)).toEqual({ version: '1.1.0', binary: path.join(home, '1.1.0', exe) })
+  reopened.dispose()
   await updated.dispose()
   expect(updated.children.map(child => child.alive())).toEqual([false, false])
+})
+
+it('a replacement that removes the UML tab runs the close handler and stops the resident', async () => {
+  const dshHome = await scratch('replace tab home')
+  const h = await host(dshHome, await install('1.0.0'))
+  const client = await clientPlugin(h, 'one-session')
+  const panel = await mountedPanel(h, 'one-session', makeDocument(), { ctx: client.ctx, tabId: 'uml-tab' })
+  expect(h.children.map(child => child.alive())).toEqual([true])
+  // `replaceTab` lands another page in this tab's place: the host runs the
+  // close handler synchronously while the body is still mounted.
+  client.closeTab('uml-tab')
+  await vi.waitFor(() => expect(h.children.map(child => child.alive())).toEqual([false]))
+  panel.dispose()
+  expect((await panel.actions()).map(entry => entry.action)).toContain('save')
+})
+
+it('closing a UML tab whose body already unmounted still stops the withdrawn resident at once', async () => {
+  const dshHome = await scratch('withdrawn tab home')
+  const h = await host(dshHome, await install('1.0.0'))
+  const client = await clientPlugin(h, 'one-session')
+  const panel = await mountedPanel(h, 'one-session', makeDocument(), { ctx: client.ctx, tabId: 'uml-tab' })
+  // Collapsing or a presentation change withdraws: the resident waits out its grace.
+  panel.dispose()
+  await new Promise(resolve => setTimeout(resolve, 100))
+  expect(h.children.map(child => child.alive())).toEqual([true])
+  client.closeTab('uml-tab')
+  await vi.waitFor(() => expect(h.children.map(child => child.alive())).toEqual([false]))
+})
+
+it('closing one UML tab leaves another tab of the session alone', async () => {
+  const dshHome = await scratch('other tab home')
+  const h = await host(dshHome, await install('1.0.0'))
+  const client = await clientPlugin(h, 'one-session')
+  const doc = makeDocument()
+  const kept = await mountedPanel(h, 'one-session', doc, { ctx: client.ctx, tabId: 'kept' })
+  const closed = await mountedPanel(h, 'one-session', doc, { ctx: client.ctx, tabId: 'closed' })
+  client.closeTab('closed')
+  closed.dispose()
+  await vi.waitFor(() => expect(closed.summary()).toBeUndefined())
+  expect(h.children.map(child => child.alive())).toEqual([true])
+  expect(kept.summary()?.dataset.kind).toBe('frame')
+  client.closeTab('kept')
+  await vi.waitFor(() => expect(h.children.map(child => child.alive())).toEqual([false]))
+  kept.dispose()
+})
+
+it('the host tab refresh command reloads the diagram through the resident', async () => {
+  const dshHome = await scratch('refresh home')
+  const h = await host(dshHome, await install('1.0.0'))
+  const client = await clientPlugin(h, 'one-session')
+  const panel = await mountedPanel(h, 'one-session', makeDocument(), { ctx: client.ctx, tabId: 'uml-tab' })
+  expect(panel.commands).toHaveLength(1)
+  panel.commands[0]!.refresh!()
+  await vi.waitFor(async () => expect((await panel.actions()).map(entry => entry.action)).toContain('reload'))
+  panel.dispose()
+  // The binding ends with the body.
+  expect(panel.commands).toEqual([])
+  client.closeTab('uml-tab')
 })
 
 it('keeps the leased child when an already borrowed action finishes after the last owned withdrawal', async () => {
@@ -350,7 +463,8 @@ it('binds a second live panel of the same session to the same vN resident', asyn
   await old.unload()
   const updated = await host(dshHome, await install('1.1.0'), new Map(), old)
   // Two live panels of one session are one resident: the second binds vN. This
-  // is the sidebar/main reparent case, not a carrier loss (D13).
+  // is a panel body remount during a right-sidebar presentation change, not a
+  // carrier loss (D13).
   const attached = await updated.panel('one-session')
   expect((await attached.runs()).at(-1)).toEqual({ version: '1.0.0', binary: path.join(home, '1.0.0', exe) })
   await attached.close()

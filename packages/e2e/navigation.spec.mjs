@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
 import { panDeltaBounds } from './canvas-probes.mjs'
 import { inkCount, panelCamera, producerFrame, sample, screenRect, toScreen } from './canvas.mjs'
+import { exposeTarget } from './gestures.mjs'
+import { chooseContext } from './switcher.mjs'
 
 /**
  * The panel equivalents of the deleted window drivers navigation.edn and
@@ -17,6 +19,27 @@ test('drills in and back, selects a dependency chain, searches and returns with 
     const root = await producerFrame(deep, { root: lane.projects.deep, home: lane.home })
     const core = root.world.find(item => item.id === ':core' && (item.kind === 'class' || item.kind === 'package'))
     expect(core, 'the root has a drillable core component').toBeTruthy()
+
+    // At the root Escape has no level to leave and no search to close, so it
+    // clears the selection: the chain is search → back → clear (#46). This runs
+    // first, while the diagram is unobstructed and the camera is the fit.
+    const target = root.world
+      .filter(item => item.kind === 'class')
+      .map(item => {
+        const [x, y] = toScreen(root, item.rect.x + item.rect.w / 2, item.rect.y + item.rect.h / 2)
+        const inside = x > 24 && y > 24 && x < root.viewport.width - 24 && y < root.viewport.height - 24
+        return inside ? { id: item.id, x, y, area: item.rect.w * item.rect.h } : null
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.area - a.area)[0]
+    expect(target, 'the root view draws a class inside the canvas').toBeTruthy()
+    await lane.point(deep, [target.x, target.y])
+    await expect(deep.summary).toHaveAttribute('data-selected', target.id)
+    await deep.canvas.focus()
+    await deep.page.keyboard.press('Escape')
+    await expect(deep.summary).toHaveAttribute('data-selected', '')
+    await expect(deep.summary).toHaveAttribute('data-depth', 'root')
+
     await lane.point(deep, toScreen(root, core.rect.x + core.rect.w / 2, core.rect.y + core.rect.h / 2), 2)
     await expect(deep.summary).toHaveAttribute('data-depth', 'drilled', { timeout: 30_000 })
 
@@ -40,12 +63,20 @@ test('drills in and back, selects a dependency chain, searches and returns with 
     await deep.canvas.focus()
     await deep.page.keyboard.press('Escape')
     await expect(deep.summary).toHaveAttribute('data-depth', 'root')
-    await deep.panel.getByRole('button', { name: 'Namespace tree (P)' }).waitFor()
+    // The toolbar's `Namespace tree` button is gone (#46): P is the only entry,
+    // and the breadcrumb path names where the view is.
+    await expect(deep.panel.getByRole('button', { name: 'Namespace tree (P)' })).toHaveCount(0)
     await lane.point(deep, toScreen(root, core.rect.x + core.rect.w / 2, core.rect.y + core.rect.h / 2), 2)
     await expect(deep.summary).toHaveAttribute('data-depth', 'drilled')
     await deep.canvas.focus()
     await deep.page.keyboard.press('p')
     await expect(deep.summary).toHaveAttribute('data-depth', 'root')
+    // The switcher's source-diagram row is the same as P (#47).
+    await lane.point(deep, toScreen(root, core.rect.x + core.rect.w / 2, core.rect.y + core.rect.h / 2), 2)
+    await expect(deep.summary).toHaveAttribute('data-depth', 'drilled')
+    await chooseContext(deep, 'Source diagram')
+    await expect(deep.summary).toHaveAttribute('data-depth', 'root')
+    await expect(deep.summary).toHaveAttribute('data-context', 'real')
 
     // Ctrl+F, Chinese text input, same-name results, Down/Enter locate.
     await deep.canvas.focus()
@@ -73,7 +104,89 @@ test('drills in and back, selects a dependency chain, searches and returns with 
     await deep.canvas.focus()
     await deep.page.keyboard.press('p')
     await expect(deep.summary).toHaveAttribute('data-depth', 'root')
+
     expect(deep.problems).toEqual([])
+  } finally {
+    await lane.close()
+  }
+})
+
+/**
+ * The top bar's breadcrumb path (#45): the state event carries the tree path,
+ * every level above the current one returns straight to it, and a proposal's
+ * path starts at the proposal rather than at the source diagram.
+ */
+test('returns to any breadcrumb level of the source tree and of a proposal', async ({ browser }) => {
+  const lane = await launchViewerLane(browser)
+  const proposalContext = {
+    context: { kind: 'proposal', proposalId: ':p-levels', name: 'Levels proposal',
+      edn: '{:context :proposal :name "Levels proposal" :proposal-id :p-levels}' },
+    proposalId: ':p-levels',
+  }
+  /** Double-click a box of the view the producer describes, once it is on the canvas. */
+  const drill = async (panel, view) => {
+    const measure = async () => {
+      const frame = await producerFrame(panel, {
+        root: lane.projects.levels, home: lane.home,
+        ...(view.focus ? { focus: view.focus } : {}),
+        ...(view.extra ? { extra: view.extra } : {}),
+      })
+      const box = frame.world.find(entry => entry.id === view.id
+        && (entry.kind === 'class' || entry.kind === 'package'))
+      expect(box, `the view shows ${view.id}`).toBeTruthy()
+      return { frame, point: toScreen(frame, box.rect.x + box.rect.w / 2, box.rect.y + box.rect.h / 2) }
+    }
+    const measured = await exposeTarget(panel, measure)
+    await lane.point(panel, measured.point, 2)
+  }
+  const atRoot = panel => expect(panel.summary).toHaveAttribute('data-depth', 'root')
+  const current = path => path.locator('[aria-current="page"]')
+  try {
+    const levels = await lane.openPanel('levels')
+    const path = levels.panel.getByRole('navigation', { name: 'Breadcrumb path' })
+    // The path starts at the diagram; the level shown is not a button.
+    await expect(path).toContainText('Levels')
+    await expect(path.getByRole('button')).toHaveCount(0)
+
+    // Two namespace levels down: root → core → core.inner.
+    await drill(levels, { id: ':core' })
+    await expect(path.getByRole('button', { name: 'Go to Levels', exact: true })).toBeVisible()
+    await drill(levels, { id: ':core.inner', focus: ':core' })
+    await expect(levels.summary).toHaveAttribute('data-depth', 'drilled')
+    await expect(current(path)).toHaveText('inner')
+
+    // The middle level: one click back to `core`, from two levels below it.
+    await path.getByRole('button', { name: 'Go to core', exact: true }).click()
+    await expect(current(path)).toHaveText('core')
+    const atCore = await producerFrame(levels, { root: lane.projects.levels, home: lane.home, focus: ':core' })
+    const inner = atCore.world.find(entry => entry.id === ':core.inner' && entry.kind === 'class')
+    expect(inner, 'the core level is the one drawn').toBeTruthy()
+    const background = (await sample(levels, [[atCore.viewport.width - 6, atCore.viewport.height - 6]]))[0]
+    expect(await inkCount(levels, screenRect(atCore, inner.rect), background, 12), 'the core level is drawn').toBeGreaterThan(10)
+
+    // The root: the whole diagram again.
+    await path.getByRole('button', { name: 'Go to Levels', exact: true }).click()
+    await atRoot(levels)
+
+    // The proposal's path is the proposal's, with its layer and nested group.
+    const proposal = await lane.openPanel('levels', { state: proposalContext })
+    await expect(proposal.summary).toHaveAttribute('data-view', 'proposal')
+    const proposalPath = proposal.panel.getByRole('navigation', { name: 'Breadcrumb path' })
+    await expect(current(proposalPath)).toHaveText('Levels proposal')
+    const inProposal = '{:proposal true :proposal-id :p-levels}'
+    await drill(proposal, { id: ':proposal.domain', extra: inProposal })
+    await drill(proposal, { id: ':core-group', extra: '{:proposal true :proposal-id :p-levels :open-layer :proposal.domain}' })
+    await expect(proposal.summary).toHaveAttribute('data-depth', 'drilled')
+    await expect(current(proposalPath)).toHaveText('Core')
+
+    // Back to the layer, then to the proposal's root: never to the source tree.
+    await proposalPath.getByRole('button', { name: 'Go to Domain', exact: true }).click()
+    await expect(current(proposalPath)).toHaveText('Domain')
+    await proposalPath.getByRole('button', { name: 'Go to Levels proposal', exact: true }).click()
+    await atRoot(proposal)
+    await expect(proposal.summary).toHaveAttribute('data-view', 'proposal')
+    expect(levels.problems).toEqual([])
+    expect(proposal.problems).toEqual([])
   } finally {
     await lane.close()
   }
@@ -103,7 +216,7 @@ const world = (camera, [x, y]) => [camera.x + x / camera.zoom, camera.y + y / ca
  * cursor-anchored Ctrl+wheel zoom, blank-canvas drag pan, plain wheel pan,
  * Ctrl+0 fit and the five-step declutter cycle that keeps the view.
  */
-test('anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and cycles declutter in place', async ({ browser }) => {
+test('anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and toggles 移除箭头 in place', async ({ browser }) => {
   const lane = await launchViewerLane(browser)
   try {
     const deep = await lane.openPanel('deep')
@@ -152,40 +265,34 @@ test('anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and cycl
     await deep.page.keyboard.press('Control+0')
     await expect.poll(() => panelCamera(deep)).toEqual(fitted)
 
-    // Declutter is a rebuild: five clicks return to full and keep the view.
-    const control = deep.panel.getByRole('button', { name: /Declutter:/ })
+    // 移除箭头 is the 「更多」 menu's toggle now (#46): one click clears the
+    // arrows, the next brings them back, and the view is rebuilt in place.
     const view = await deep.summary.innerText()
     const selected = await deep.summary.getAttribute('data-selected')
-    for (const mode of ['arrows', 'triangles', 'elements', 'classes', 'full']) {
-      await control.click()
-      await expect(control).toHaveAttribute('data-mode', mode)
-      await expect(control).toBeEnabled()
+    const more = deep.panel.getByRole('button', { name: 'More actions', exact: true })
+    const menu = deep.panel.locator('.dsh-uml-viewer-more-menu')
+    const arrows = () => menu.getByRole('menuitemcheckbox', { name: 'Remove arrows', exact: true })
+    const toggleArrows = async () => {
+      await more.click()
+      await arrows().click()
     }
+    await toggleArrows()
+    await more.click()
+    await expect(arrows()).toHaveAttribute('aria-checked', 'true')
+    await deep.page.keyboard.press('Escape')
+    const arrowsRemoved = await producerFrame(deep, {
+      root: lane.projects.deep, home: lane.home, extra: '{:declutter :triangles}',
+    })
+    expect(arrowsRemoved.edges.length).toBeGreaterThan(0)
+    expect(arrowsRemoved.edges.every(edge => edge.kind === 'indicator')).toBe(true)
+    await toggleArrows()
+    await more.click()
+    await expect(arrows()).toHaveAttribute('aria-checked', 'false')
+    await deep.page.keyboard.press('Escape')
     await expect(deep.summary).toHaveText(view)
     await expect(deep.summary).toHaveAttribute('data-selected', selected ?? '')
     await expect(deep.summary).toHaveAttribute('data-depth', 'root')
     expect(deep.problems).toEqual([])
-  } finally {
-    await lane.close()
-  }
-})
-
-test('expands the same session into the root-scoped main page and back', async ({ browser }) => {
-  const lane = await launchViewerLane(browser)
-  try {
-    const shop = await lane.openPanel('shop')
-    await shop.panel.getByRole('button', { name: 'Expand to main area' }).click()
-    const main = shop.page.locator('.dsh-uml-viewer-panel[data-surface="main"]')
-    await expect(main).toBeVisible({ timeout: 30_000 })
-    await expect(main).toHaveAttribute('data-session-id', shop.sessionId)
-    await expect(main.locator('.dsh-uml-viewer-summary')).toContainText('Shop')
-    await expect(main.locator('canvas')).toBeVisible()
-    await expect(shop.page.locator('.dsh-uml-viewer-panel[data-surface="sidebar"]')).toBeHidden()
-    await main.getByRole('button', { name: 'Return to conversation' }).click()
-    await expect(main).toBeHidden()
-    await expect(shop.panel).toBeVisible()
-    await expect(shop.summary).toContainText('Shop')
-    expect(shop.problems).toEqual([])
   } finally {
     await lane.close()
   }

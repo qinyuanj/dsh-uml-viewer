@@ -24,17 +24,17 @@ describe('scene frame viewport transform', () => {
     {
       name: 'root.frame.json',
       boxes: [
-        { kind: 'package', id: ':view', screen: [474.7874, 82.7402] },
-        { kind: 'class', id: ':util', screen: [550.9565, 119.4646] },
-        { kind: 'class', id: ':api', screen: [484.8031, 363.1811] },
+        { kind: 'package', id: ':view', screen: [469.0472, 48.7244] },
+        { kind: 'class', id: ':util', screen: [548.45, 87.0079] },
+        { kind: 'class', id: ':api', screen: [479.4882, 341.0709] },
       ],
     },
     {
       name: 'core-selected.frame.json',
       boxes: [
-        { kind: 'package', id: ':view', screen: [458, 223] },
-        { kind: 'class', id: ':core.order', screen: [470, 307] },
-        { kind: 'class', id: ':core', screen: [630, 267] },
+        { kind: 'package', id: ':view', screen: [458, 205] },
+        { kind: 'class', id: ':core.order', screen: [470, 289] },
+        { kind: 'class', id: ':core', screen: [630, 249] },
       ],
     },
   ] as const)('maps $name world boxes to the native screen coordinates', ({ name, boxes }) => {
