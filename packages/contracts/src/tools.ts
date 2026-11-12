@@ -112,6 +112,41 @@ export function normalizeRelativePath(field: string, value: unknown): string {
   return value
 }
 
+/**
+ * Validate one `--copy` path: a path outside the project root that copy
+ * isolation must show beside every command's copy (ADR 0016, #69).
+ *
+ * This is deliberately not `normalizeRelativePath`: `--copy` requires exactly
+ * the one thing that rule refuses, a single leading `..` that leaves the
+ * project root. Everything after it must be a normalized component, so the
+ * value can never climb further, name a root, or be reinterpreted by Windows.
+ * The plugin checks the shape only: whether the path exists, and whether it
+ * resolves back inside the project root, is the binary's own decision.
+ *
+ * @param field the argument name used in messages.
+ * @param value the model's value.
+ * @returns the same path with `\` spelled as `/`.
+ */
+export function normalizeCopyPath(field: string, value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${field} must be a nonempty path`)
+  if (/[\u0000-\u001f\u007f]/.test(value)) throw new Error(`${field} must not contain control characters`)
+  if (value.startsWith('/') || /^[a-zA-Z]:/.test(value)) {
+    throw new Error(`${field} must be a path relative to the project root, not an absolute path`)
+  }
+  const parts = value.replaceAll('\\', '/').split('/')
+  if (parts[0] !== '..') throw new Error(`${field} must leave the project root with one leading ..`)
+  const rest = parts.slice(1)
+  if (rest.length === 0) throw new Error(`${field} must name a path in the parent directory, not the parent itself`)
+  if (rest.includes('..')) throw new Error(`${field} accepts at most one leading ..`)
+  if (rest.includes('') || rest.includes('.')) throw new Error(`${field} must be normalized, with no empty or . segments`)
+  if (value.includes(':')) throw new Error(`${field} must not name an alternate data stream`)
+  for (const part of rest) {
+    if (part.endsWith('.') || part.endsWith(' ')) throw new Error(`${field} must not end a path segment in a dot or a space`)
+    if (DEVICE_NAME.test(part)) throw new Error(`${field} must not be a Windows device name`)
+  }
+  return ['..', ...rest].join('/')
+}
+
 export function parseIrRequest(value: unknown): IrRequest {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('IR arguments must be an object')
   const request: IrRequest = {}
@@ -245,6 +280,12 @@ function targetPaths(field: string, value: unknown, required: boolean): string[]
   })
 }
 
+function copyPaths(value: unknown): string[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) throw new Error('copy must be an array of paths outside the project root')
+  return value.map((path, index) => normalizeCopyPath(`copy[${index}]`, path))
+}
+
 /**
  * Translate model-facing quality arguments into argv appended after
  * `uml-viewer quality <operation>`. All mutation targets stay in one argv:
@@ -264,13 +305,19 @@ export function parseQualityToolRequest(operation: QualityOperation, value: unkn
     return targetPaths('targets', request.targets, false)
   }
   for (const key of Object.keys(request)) {
-    if (key !== 'targets' && key !== 'mutateAll') throw new Error(`Unknown uml_mutate argument: ${key}`)
+    if (key !== 'targets' && key !== 'mutateAll' && key !== 'copy') {
+      throw new Error(`Unknown uml_mutate argument: ${key}`)
+    }
   }
   if (request.mutateAll !== undefined && typeof request.mutateAll !== 'boolean') {
     throw new Error('mutateAll must be a boolean')
   }
+  const copies = copyPaths(request.copy)
   const targets = targetPaths('targets', request.targets, true)
-  return request.mutateAll === true ? ['--mutate-all', ...targets] : targets
+  // The dispatcher knows `--copy` takes a value, so its order is not load
+  // bearing; it still goes before the targets so no path can read as one.
+  const options = request.mutateAll === true ? ['--mutate-all'] : []
+  return [...options, ...copies.flatMap(copy => ['--copy', copy]), ...targets]
 }
 
 const TARGETS_PARAMETER = {
@@ -293,6 +340,8 @@ export const MUTATE_PARAMETERS = {
       description: 'Every target file or directory for this differential mutation, in one call. They share one coverage run and baseline; each still gets its snapshot. Do not split them across calls.' },
     mutateAll: { type: 'boolean',
       description: 'Re-test all mutants in exactly these targets (the binary’s --mutate-all) instead of reusing previous outcomes.' },
+    copy: { type: 'array', items: { type: 'string' },
+      description: 'Paths beside the project root that copy isolation must show beside every command’s copy (the binary’s --copy), each relative to --root and leaving the project root through a single leading `..`; a path that stays inside the root is already in the copy. They must exist, which the binary checks; this tool checks only the shape. Omit when the project needs nothing outside its root.' },
   },
 } as const
 
