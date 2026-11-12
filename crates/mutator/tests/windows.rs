@@ -702,6 +702,84 @@ fn a_copy_path_inside_the_project_is_refused_before_any_command() {
     assert!(!marker.exists(), "no command may run");
 }
 
+/// The slot's own names are not free positions. In a real repository that has an
+/// `output` directory beside the project root, `--copy ../output` used to be
+/// accepted: the copy placed the tree at `<slot>/output`, then the command's
+/// capture file deleted it, so the suite lost a dependency before it ran and the
+/// exit 2 blamed only the test command. It is now a usage error before any
+/// command, naming the value.
+#[test]
+fn a_copy_path_named_after_the_slots_output_is_refused_before_any_command() {
+    let _serial = serial();
+    let fixture = Fixture::new();
+    let output = fixture.directory.join("output");
+    fs::create_dir_all(&output).unwrap();
+    fs::write(output.join("bundle.txt"), "bundle\n").unwrap();
+    let marker = fixture.directory.join("ran.txt");
+    let command = format!("echo ran > {}", quoted(&marker));
+    let refused = [
+        "--no-coverage",
+        "--mutate-all",
+        "--test-command",
+        &command,
+        "--copy",
+        "../output",
+        "app/src/lib.rs",
+    ];
+    assert_eq!(fixture.run(&refused), ExitCode::from(1));
+    assert!(!marker.exists(), "no command may run");
+    assert!(!fixture.root().join(".metrics/mutate").exists());
+}
+
+/// A directory junction is Windows' unprivileged directory link (symlinks need
+/// Developer Mode), so it is the link a copied dependency tree really contains.
+fn junction(link: &Path, target: &Path) {
+    let status = std::process::Command::new("cmd")
+        .args(["/d", "/c", "mklink", "/J"])
+        .arg(link)
+        .arg(target)
+        .stdout(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success(), "mklink /J failed");
+}
+
+/// A `--copy` path that cannot be placed is an isolation failure, not a test
+/// result: exit 1 (isolation unavailable), nothing published, and never the exit
+/// 2 a failing suite earns. The outside tree here holds a junction, which copy
+/// isolation refuses to freeze, so the placement itself fails before the
+/// (passing) command could run.
+#[test]
+fn an_outside_path_that_cannot_be_placed_exits_one_not_two() {
+    let _serial = serial();
+    let fixture = Fixture::new();
+    let contracts = fixture.directory.join("contracts");
+    let shared = fixture.directory.join("shared");
+    fs::create_dir_all(&contracts).unwrap();
+    fs::create_dir_all(&shared).unwrap();
+    fs::write(contracts.join("value.txt"), "copy-value\n").unwrap();
+    fs::write(shared.join("shared.txt"), "shared\n").unwrap();
+    junction(&contracts.join("nested"), &shared);
+    fs::write(
+        fixture.root().join("pass.cmd"),
+        "@echo off\r\nexit /b 0\r\n",
+    )
+    .unwrap();
+    let refused = [
+        "--copy",
+        "../contracts",
+        "--no-coverage",
+        "--mutate-all",
+        "--test-command",
+        "pass.cmd",
+        "app/src/lib.rs",
+    ];
+    assert_eq!(fixture.run(&refused), ExitCode::from(1));
+    assert!(!fixture.root().join(".metrics/mutate").exists());
+    // Remove the link before the fixture's own cleanup walks the tree.
+    fs::remove_dir(contracts.join("nested")).unwrap();
+}
+
 /// One coverage run and one baseline per (command, cwd), shared by every
 /// target file; each file still publishes its own snapshot.
 #[test]
