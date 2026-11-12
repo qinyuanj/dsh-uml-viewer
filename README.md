@@ -190,6 +190,46 @@ Windows, use `.\target\release\uml-viewer.exe` for each call. Follow the
 current user resource policy before building or refreshing. Only run IR after
 a successful quality result with `validResult: true`.
 
+A Lua project needs its own interpreter and rocks before CRAP or mutation can
+measure it: see [Lua prerequisites](#lua-prerequisites).
+
+## Lua prerequisites
+
+CRAP and mutation on a **Lua project** need a Lua toolchain that this binary
+does not install (the binary itself has no Lua dependency; see [Run](#run)).
+Without it, `uml-viewer crap` and `uml-viewer mutate` stop before any test
+runs and name the missing piece.
+
+- **`lua5.4` on `PATH`**, or a `lua` that prints `Lua 5.4` for
+  `lua -e "io.write(_VERSION)"`. `lua5.1` and LuaJIT are not substitutes:
+  Lua 5.4 is the analysis contract, so any other version is refused.
+- **Busted, LuaCov and `luacov-reporter-lcov` installed in the 5.4 tree**, the
+  one `luarocks --lua-version 5.4` reports, so the in-process Busted runner,
+  LuaCov and the `lcov` report all load:
+
+  ```sh
+  luarocks --lua-version=5.4 install busted
+  luarocks --lua-version=5.4 install luacov
+  luarocks --lua-version=5.4 install luacov-reporter-lcov
+  ```
+
+- **cluacov 1.0.0 exactly**:
+  `luarocks --lua-version=5.4 install cluacov 1.0.0-1`. Its C line hook decides
+  which lines are executable, so another version cannot produce the same
+  snapshot; the run refuses a different version instead of measuring with it.
+
+Mutation also redirects the child's `HOME` to the disposable view's
+`target/mutator-home` (with `XDG_CACHE_HOME` and `TMPDIR` beside it), so the
+suite does not run with your home directory. A project test that itself calls
+`luarocks` inside the child — for instance to locate a tree through
+`rocks_trees` — therefore sees an empty user tree, not the one you installed
+into. That is why the mutator hands the suite `LUA_PATH` and `LUA_CPATH`
+confined to `luarocks --lua-version 5.4 config rocks_trees`, and why the rocks
+must be in that 5.4 tree rather than only on your own `LUA_PATH`;
+`MUTATOR_LUA_NO_PIN=1` keeps Lua's own search path instead. A test that reads
+files under `$HOME` directly sees the empty redirected home for the same
+reason.
+
 ## Navigation
 
 **Layer** and **component** mean the same thing: a namespace grouping
