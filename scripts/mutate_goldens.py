@@ -65,9 +65,12 @@ def publish_help(destination: Path, text: str) -> None:
     """
     gaps = port_help_gaps(text)
     if gaps:
+        # Precomputed: a same-quote string nested in an f-string is PEP 701,
+        # which only Python 3.12+ parses, and this repository promises 3.11+.
+        missing = "; ".join(gaps)
         raise SystemExit(
             f"refusing to overwrite {destination}: the pinned original's HELP string "
-            f"lacks this port's rules ({"; ".join(gaps)}). Publish this port's own "
+            f"lacks this port's rules ({missing}). Publish this port's own "
             f"help text instead, re-applying the --copy entry and the bare .. rule; "
             f"see docs/adr/0016-copy-outside-paths.md.")
     destination.write_bytes(text.encode("utf-8"))

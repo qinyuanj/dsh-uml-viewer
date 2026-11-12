@@ -84,6 +84,29 @@ describe('quality tool request', () => {
     expect(() => parseQualityToolRequest('crap', { copy: ['../contracts'] })).toThrow(/Unknown/)
     expect(() => parseQualityToolRequest('dry', { copy: ['../contracts'] })).toThrow(/Unknown/)
   })
+
+  it('refuses a copy path for exactly what a project-relative path is refused for', () => {
+    // One component rule, two options: the copy validator must reject the
+    // Windows spellings the project-relative one rejects, in the same words.
+    const refused: [string, RegExp][] = [
+      ['../contracts/ab:c.ts', /alternate data stream/],
+      ['../CON', /device name/],
+      ['../contracts/con.edn', /device name/],
+      ['../lpt1/x.ts', /device name/],
+      ['../contracts/x.', /dot or a space/],
+      ['../contracts/x ', /dot or a space/],
+      ['../contracts/' + String.fromCharCode(1) + 'b', /control characters/],
+    ]
+    for (const [path, rule] of refused) {
+      expect(() => parseQualityToolRequest('mutate', { targets: ['src/a.rs'], copy: [path] }),
+        path).toThrow(rule)
+    }
+    // The ordinary spellings still pass, and keep the one normalized form.
+    expect(parseQualityToolRequest('mutate', { targets: ['src/a.rs'], copy: ['../docs/release'] }))
+      .toEqual(['--copy', '../docs/release', 'src/a.rs'])
+    expect(parseQualityToolRequest('mutate', { targets: ['src/a.rs'], copy: ['..\\server\\Cargo.toml'] }))
+      .toEqual(['--copy', '../server/Cargo.toml', 'src/a.rs'])
+  })
 })
 
 describe('quality tool result', () => {

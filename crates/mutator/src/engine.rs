@@ -215,6 +215,24 @@ pub(crate) fn relative_from(base: &Path, path: &Path) -> Option<PathBuf> {
     Some(relative)
 }
 
+/// A path as a generated command spells it: relative to the directory the
+/// command runs in when that directory is a copy of the project (native
+/// Windows), and the real absolute path otherwise.
+///
+/// A Windows command runs in a copy, so an absolute path would name the real
+/// project and write there. A Linux view is mounted at the real path, so its
+/// scripts keep the original's absolute ones.
+pub(crate) fn command_path(directory: &Path, path: &Path) -> String {
+    if cfg!(windows) {
+        relative_from(&resolve(directory), &resolve(path))
+            .unwrap_or_else(|| resolve(path))
+            .display()
+            .to_string()
+    } else {
+        path.to_string_lossy().into_owned()
+    }
+}
+
 /// A package as a generated Windows script's diagnostic names it: relative to
 /// the project root, so the copy never prints the real project's absolute path,
 /// and quoted for cmd.
@@ -2044,21 +2062,7 @@ pub fn mutate(
 #[path = "native_report_tests.rs"]
 mod native_report_tests;
 
-#[cfg(test)]
-mod reuse_tests {
-    use super::reuse_message;
-
-    #[test]
-    fn the_reuse_line_names_the_fresh_languages_sorted() {
-        assert_eq!(
-            reuse_message(&["python", "typescript"]).as_deref(),
-            Some("Reusing python, typescript coverage from crapper's last run.")
-        );
-        assert_eq!(
-            reuse_message(&["rust"]).as_deref(),
-            Some("Reusing rust coverage from crapper's last run.")
-        );
-        // Every language stale: the original prints nothing at all.
-        assert_eq!(reuse_message(&[]), None);
-    }
-}
+// The reuse line is asserted where a caller sees it, on the run's stderr:
+// `tests/coverage_reuse.rs::crapper_stamp_reuses_typescript_coverage_in_the_
+// standard_path`. A unit test of `reuse_message` would pin a private function
+// rather than the line the CLI prints.

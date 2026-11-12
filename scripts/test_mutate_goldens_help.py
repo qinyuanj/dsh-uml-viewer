@@ -9,7 +9,9 @@ protects.
 """
 from pathlib import Path
 import importlib.util
+import io
 import tempfile
+import tokenize
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
@@ -37,8 +39,44 @@ def goldens():
     return module
 
 
+def pep701_nesting(text):
+    """The lines of `text` holding an f-string that nests a string in its own quote.
+
+    That nesting is PEP 701, which only Python 3.12 and later parse. `compile`
+    cannot check for it: 3.12's tokenizer accepts the nesting whatever
+    `_feature_version` says, so the tokens are inspected instead. On 3.11 the
+    same source is a SyntaxError at import, which is the failure this prevents.
+    """
+    start = getattr(tokenize, 'FSTRING_START', None)
+    end = getattr(tokenize, 'FSTRING_END', None)
+    enclosing = []
+    found = []
+    for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        if token.type == start:
+            enclosing.append((token.string[-1], token.start[0]))
+        elif token.type == end:
+            enclosing.pop()
+        elif token.type == tokenize.STRING and enclosing:
+            quote, line = enclosing[-1]
+            if token.string.lstrip('rRbBuUfF').startswith(quote):
+                found.append(line)
+    return found
+
 def scratch():
     return Path(tempfile.mkdtemp()) / 'help.txt'
+
+
+class Grammar(unittest.TestCase):
+    def test_the_script_keeps_to_the_python_this_repository_promises(self):
+        # README and AGENTS.md promise Python 3.11+, and scripts/check.py runs
+        # this suite with whatever interpreter it is given. A PEP 701 f-string
+        # (a nested string in the f-string's own quote) parses on 3.12 and
+        # later only, so the regeneration script would be a SyntaxError for
+        # the interpreters the repository says it supports.
+        source = (REPO / 'scripts' / 'mutate_goldens.py').read_text(encoding='utf-8')
+        self.assertEqual(
+            pep701_nesting(source), [],
+            'PEP 701 f-string (Python 3.12+) in scripts/mutate_goldens.py')
 
 
 class HelpFixture(unittest.TestCase):

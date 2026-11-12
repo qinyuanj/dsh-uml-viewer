@@ -73,9 +73,15 @@ name both kinds, as a package whose tests read the repository root does:
   again for each command: a mutant's write under `..` cannot greet the next
   command, and nothing is left behind when the call ends, because the whole slot
   is inside the scratch root the pool removes.
-- The outside copy obeys the project copy's link rules: a linked directory is
-  refused (`Copy isolation cannot freeze linked directory: …`) and a linked file
-  is materialised as independent bytes.
+- The declared path itself is resolved first, then copied as ordinary bytes:
+  `resolve_outside` canonicalizes it, so `--copy ../contracts` where `contracts`
+  is a junction places the target directory's contents and `copy_tree`'s
+  linked-directory branch never fires for the declared path. That is safe — the
+  bytes still land inside the call's slot, and a write through them changes only
+  that command's copy — but it is what the option does, not a link refusal.
+  Links **inside** the declared path still obey the project copy's rules: a
+  linked directory is refused (`Copy isolation cannot freeze linked directory: …`)
+  and a linked file is materialised as independent bytes.
 - A path that cannot be placed fails that command with the path named
   (`Copy isolation cannot place <path> beside the copy: …`) instead of leaving a
   copy that silently lacks a dependency. Placement is not a test result, so it

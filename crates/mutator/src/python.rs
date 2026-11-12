@@ -160,21 +160,12 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Coverage {
     let data = directory.join(".coverage");
     // A Windows command runs in a copy of the project, so every path it writes
     // must be relative to the package it runs in: an absolute path would name
-    // the real project and write there. `rust_coverage` follows the same rule.
-    // The interpreter is a read, so it stays the real project's absolute path.
-    let command_path = |path: &Path| {
-        if cfg!(windows) {
-            crate::engine::relative_from(&resolve(package), &resolve(path))
-                .unwrap_or_else(|| resolve(path))
-                .display()
-                .to_string()
-        } else {
-            path.to_string_lossy().into_owned()
-        }
-    };
-    let directory_text = command_path(directory);
-    let report_text = command_path(&report);
-    let data_text = command_path(&data);
+    // the real project and write there. `engine::command_path` is the same rule
+    // the TypeScript script follows. The interpreter is a read, so it stays the
+    // real project's absolute path.
+    let directory_text = crate::engine::command_path(package, directory);
+    let report_text = crate::engine::command_path(package, &report);
+    let data_text = crate::engine::command_path(package, &data);
     // The Windows diagnostics quote the package and name it from the project
     // root; the POSIX script's text stays as the original wrote it.
     let package_label = if cfg!(windows) {

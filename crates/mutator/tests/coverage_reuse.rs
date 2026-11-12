@@ -7,12 +7,14 @@
 //! loud SKIP and a failure under `MUTATOR_REQUIRE_TOOLCHAINS=1`.
 #![cfg(any(target_os = "linux", windows))]
 #![allow(clippy::disallowed_methods)]
+mod support;
 use std::{
     fs,
     path::{Path, PathBuf},
     process::ExitCode,
     sync::atomic::{AtomicUsize, Ordering},
 };
+use support::child;
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 const CLOCK: &str = "2026-11-07T12:00:00+00:00";
@@ -195,9 +197,14 @@ fn crapper_stamp_reuses_typescript_coverage_in_the_standard_path() {
     fixture.write("src/book.ts", BOOK);
     fixture.write("test.js", TEST_JS);
     fixture.record_crapper_coverage();
-    assert_eq!(
-        fixture.run(&["--mutate-all", "src/book.ts"]),
-        ExitCode::SUCCESS
+    // The reuse line is the run's own report that crapper's reports were read
+    // instead of regenerated, so it is asserted where a caller sees it: on the
+    // stderr of a process, not on an internal function.
+    let (code, stderr) = child::run(&fixture.root(), &["--mutate-all", "src/book.ts"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stderr.contains("Reusing typescript coverage from crapper's last run."),
+        "{stderr}"
     );
     let snapshot = fixture.snapshot();
     assert!(snapshot.contains(":killed 1"), "{snapshot}");
@@ -393,10 +400,63 @@ process.exit(fs.readFileSync('src/book.ts', 'utf8') === pristine ? 0 : 1);
     assert!(snapshot.contains(":uncovered 0"), "{snapshot}");
 }
 
+/// The stub interpreter's source; `@PYTHON@` becomes the real interpreter.
+#[cfg(windows)]
+const STUB: &str = r#"
+use std::process::{Command, exit};
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    // The generated script asks exactly this before choosing a branch.
+    if args == ["-c", "import pytest"] {
+        exit(1);
+    }
+    let status = Command::new(r"@PYTHON@").args(&args).status().unwrap();
+    exit(status.code().unwrap_or(1));
+}
+"#;
+/// The interpreter the mutator uses for a package, replaced by a stub that
+/// answers the script's `import pytest` probe with a failure and forwards
+/// every other command to the real interpreter.
+///
+/// `pytest.ini` selects the pytest branch, which is the one carrying the
+/// package name in two more `echo` texts; the stub is what makes its unittest
+/// fallback the branch that really runs, on a host where pytest is installed.
+///
+/// The real interpreter is embedded by absolute path: a stub that launched
+/// `python` by name would find itself first, because Windows searches the
+/// launching executable's own directory before `PATH`.
+#[cfg(windows)]
+fn stub_interpreter(fixture: &Fixture, package: &str) {
+    let real = std::process::Command::new(python())
+        .args(["-c", "import sys; print(sys.executable)"])
+        .output()
+        .unwrap();
+    let real = String::from_utf8(real.stdout).unwrap().trim().to_string();
+    fixture.write(
+        &format!("{package}/.venv/stub.rs"),
+        &STUB.replace("@PYTHON@", &real),
+    );
+    let source = fixture.directory.join(package).join(".venv/stub.rs");
+    let stub = fixture
+        .directory
+        .join(package)
+        .join(".venv/Scripts/python.exe");
+    fs::create_dir_all(stub.parent().unwrap()).unwrap();
+    let status = std::process::Command::new("rustc")
+        .arg("--edition=2021")
+        .arg(&source)
+        .arg("-o")
+        .arg(&stub)
+        .status()
+        .unwrap();
+    assert!(status.success(), "compile the stub interpreter");
+}
+
 /// The same for Python, whose pytest branch carries the package name in two
-/// more `echo` texts. `pytest.ini` makes that the branch under test; a host
-/// without pytest runs its unittest fallback instead, and the assertion is the
-/// same either way: the script survived its own diagnostics and wrote LCOV.
+/// more `echo` texts. The stub interpreter makes the *fallback* the branch
+/// under test, so `pytest is missing in …` and `unittest discover` really run;
+/// the assertion is that the script survived its own diagnostics and still
+/// wrote LCOV, not that a host happens to have pytest.
 #[cfg(windows)]
 #[test]
 fn python_coverage_survives_metacharacters_in_the_package_path() {
@@ -413,10 +473,13 @@ fn python_coverage_survives_metacharacters_in_the_package_path() {
     fixture.write(&format!("{META_PACKAGE}/src/__init__.py"), "");
     fixture.write(&format!("{META_PACKAGE}/src/model.py"), MODEL_PY);
     fixture.write(&format!("{META_PACKAGE}/test_model.py"), TEST_PY);
+    stub_interpreter(&fixture, META_PACKAGE);
     let source = format!("{META_PACKAGE}/src/model.py");
-    assert_eq!(
-        fixture.run(&["--mutate-all", source.as_str()]),
-        ExitCode::SUCCESS
+    let (code, stderr) = child::run(&fixture.root(), &["--mutate-all", source.as_str()]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stderr.contains("pytest is missing in"),
+        "the unittest fallback must be the branch under test: {stderr}"
     );
     let snapshot = fixture.snapshot();
     assert!(snapshot.contains(":killed 1"), "{snapshot}");

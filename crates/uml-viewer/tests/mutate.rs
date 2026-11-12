@@ -347,6 +347,19 @@ fn mutate_help_documents_the_copy_option_and_the_bare_parent_refusal() {
         entry.contains("parent directory itself"),
         "the bare `..` refusal must be stated in --copy's entry: {entry:?}"
     );
+    // The slot's own names are refused (crate::isolation::RESERVED, #65), and a
+    // caller reads the rule in the option's own entry or not at all. Every name
+    // is spelled out: a help that named five of six would pass a spot check.
+    for name in ["project", "home", "temp", "appdata", "output", "mutation"] {
+        assert!(
+            entry.contains(name),
+            "the reserved name `{name}` must be stated in --copy's entry: {entry:?}"
+        );
+    }
+    assert!(
+        entry.contains("reserved"),
+        "the reserved-name refusal must be stated in --copy's entry: {entry:?}"
+    );
 }
 /// macOS: mutation refuses before selection and before any command, with the
 /// agreed isolation-refusal exit 1 and a reason. `crap` and `dry` are not

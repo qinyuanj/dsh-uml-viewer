@@ -80,6 +80,40 @@ export function parseRequestId(value: unknown, label: string): string {
 /** Windows device names cannot name a file, with or without an extension. */
 const DEVICE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
 
+/** A control character, NUL and DEL included: no host path may carry one. */
+const CONTROL = /[\u0000-\u001f\u007f]/
+
+/**
+ * Refuse a control character in a path.
+ * @param field the argument name used in messages.
+ * @param value the path.
+ */
+function assertPrintable(field: string, value: string): void {
+  if (CONTROL.test(value)) throw new Error(`${field} must not contain control characters`)
+}
+
+/**
+ * Refuse the spellings Windows would silently reinterpret: an NTFS alternate
+ * data stream (`a:b`) anywhere in `value`, and, in each of `parts`, a segment
+ * that ends in a dot or a space or names a reserved device (`CON`, `con.edn`).
+ *
+ * One rule, two validators: `normalizeRelativePath` applies it to every segment
+ * of a project-relative path, `normalizeCopyPath` to the segments after the one
+ * leading `..` a `--copy` path may carry. Choosing the other option cannot
+ * reintroduce a weaker spelling of the same path.
+ *
+ * @param field the argument name used in messages.
+ * @param value the whole path, for the stream rule.
+ * @param parts the segments the component rules apply to.
+ */
+function assertComponents(field: string, value: string, parts: string[]): void {
+  if (value.includes(':')) throw new Error(`${field} must not name an alternate data stream`)
+  for (const part of parts) {
+    if (part.endsWith('.') || part.endsWith(' ')) throw new Error(`${field} must not end a path segment in a dot or a space`)
+    if (DEVICE_NAME.test(part)) throw new Error(`${field} must not be a Windows device name`)
+  }
+}
+
 /**
  * Validate one project-relative path argument.
  *
@@ -99,16 +133,12 @@ export function normalizeRelativePath(field: string, value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || value.includes(String.fromCharCode(0))) {
     throw new Error(`${field} must be a nonempty path without NUL`)
   }
-  if (/[\u0001-\u001f\u007f]/.test(value)) throw new Error(`${field} must not contain control characters`)
+  assertPrintable(field, value)
   const parts = value.replaceAll('\\', '/').split('/')
   if (value.startsWith('/') || /^[a-zA-Z]:/.test(value) || parts.includes('..') || parts.includes('.') || parts.includes('')) {
     throw new Error(`${field} must be a normalized relative path inside the session cwd`)
   }
-  if (value.includes(':')) throw new Error(`${field} must not name an alternate data stream`)
-  for (const part of parts) {
-    if (part.endsWith('.') || part.endsWith(' ')) throw new Error(`${field} must not end a path segment in a dot or a space`)
-    if (DEVICE_NAME.test(part)) throw new Error(`${field} must not be a Windows device name`)
-  }
+  assertComponents(field, value, parts)
   return value
 }
 
@@ -119,7 +149,9 @@ export function normalizeRelativePath(field: string, value: unknown): string {
  * This is deliberately not `normalizeRelativePath`: `--copy` requires exactly
  * the one thing that rule refuses, a single leading `..` that leaves the
  * project root. Everything after it must be a normalized component, so the
- * value can never climb further, name a root, or be reinterpreted by Windows.
+ * value can never climb further, name a root, or be reinterpreted by Windows;
+ * those component rules are `assertComponents`, the ones every
+ * project-relative path gets, not a second copy of them.
  * The plugin checks the shape only: whether the path exists, and whether it
  * resolves back inside the project root, is the binary's own decision.
  *
@@ -129,7 +161,7 @@ export function normalizeRelativePath(field: string, value: unknown): string {
  */
 export function normalizeCopyPath(field: string, value: unknown): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${field} must be a nonempty path`)
-  if (/[\u0000-\u001f\u007f]/.test(value)) throw new Error(`${field} must not contain control characters`)
+  assertPrintable(field, value)
   if (value.startsWith('/') || /^[a-zA-Z]:/.test(value)) {
     throw new Error(`${field} must be a path relative to the project root, not an absolute path`)
   }
@@ -139,11 +171,7 @@ export function normalizeCopyPath(field: string, value: unknown): string {
   if (rest.length === 0) throw new Error(`${field} must name a path in the parent directory, not the parent itself`)
   if (rest.includes('..')) throw new Error(`${field} accepts at most one leading ..`)
   if (rest.includes('') || rest.includes('.')) throw new Error(`${field} must be normalized, with no empty or . segments`)
-  if (value.includes(':')) throw new Error(`${field} must not name an alternate data stream`)
-  for (const part of rest) {
-    if (part.endsWith('.') || part.endsWith(' ')) throw new Error(`${field} must not end a path segment in a dot or a space`)
-    if (DEVICE_NAME.test(part)) throw new Error(`${field} must not be a Windows device name`)
-  }
+  assertComponents(field, value, rest)
   return ['..', ...rest].join('/')
 }
 
