@@ -54,4 +54,13 @@ fn help_wins_over_unknown_options_and_usage_errors_fail() {
     );
     let missing = format!("../mutator-cli-missing-{}", std::process::id());
     assert_eq!(run(&["--copy", &missing]), ExitCode::from(1));
+    // Copy isolation recreates `output` and `mutation` and owns `project`, `home`,
+    // `temp` and `appdata` in the slot, so a `--copy` target there would be deleted
+    // or merged over before the command ran. Lexically reserved: the refusal does
+    // not depend on the path existing, and it comes before any command.
+    for name in ["project", "home", "temp", "appdata", "output", "mutation"] {
+        for value in [format!("../{name}"), format!("../{name}/nested")] {
+            assert_eq!(run(&["--copy", &value]), ExitCode::from(1), "{value}");
+        }
+    }
 }
