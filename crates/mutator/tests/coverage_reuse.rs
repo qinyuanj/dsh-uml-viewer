@@ -253,6 +253,101 @@ fn python_coverage_is_collected_when_the_stamp_is_missing() {
     assert!(snapshot.contains(":uncovered 0"), "{snapshot}");
 }
 
+/// A package directory whose name carries cmd metacharacters. An unquoted
+/// `echo` ends at `&` and runs the tail as a command; `(`/`)` make cmd reject
+/// the whole `/c` line before anything on it runs, so the coverage script never
+/// reaches its own command and the report is silently missing.
+#[cfg(windows)]
+const META_PACKAGE: &str = "client & (old)";
+
+/// The package's name and its report path reach the TypeScript script only in
+/// its diagnostics, and cmd parses those before the coverage command runs: an
+/// unquoted `(` rejects the whole `/c` line and an unquoted `&` ends the `echo`,
+/// so LCOV is never written and every site is uncovered. The Vitest branch is
+/// the one that emits both diagnostics; its stub also proves the reports
+/// directory stayed package-relative inside a path full of metacharacters.
+#[cfg(windows)]
+#[test]
+fn typescript_coverage_survives_metacharacters_in_the_package_path() {
+    if !node_available() {
+        skip("node and npm are not on PATH");
+        return;
+    }
+    let fixture = Fixture::new("typescript-metacharacters");
+    fixture.write(
+        &format!("{META_PACKAGE}/package.json"),
+        "{\"name\":\"fixture\",\"private\":true,\"scripts\":{\"test\":\"vitest run\"}}\n",
+    );
+    fixture.write(&format!("{META_PACKAGE}/src/book.ts"), BOOK);
+    fixture.write(
+        &format!("{META_PACKAGE}/node_modules/@vitest/coverage-v8/.keep"),
+        "",
+    );
+    fixture.write(
+        &format!("{META_PACKAGE}/node_modules/vitest-stub.js"),
+        r#"
+const fs = require('fs');
+const path = require('path');
+if (process.argv.includes('--coverage')) {
+  const reports = process.argv
+    .find((arg) => arg.startsWith('--coverage.reportsDirectory='))
+    .split('=')[1];
+  if (path.isAbsolute(reports)) {
+    console.error('the reports directory must be relative to the package, got ' + reports);
+    process.exit(1);
+  }
+  fs.mkdirSync(reports, {recursive: true});
+  fs.writeFileSync(path.join(reports, 'lcov.info'), 'SF:src/book.ts\nDA:2,1\nDA:3,1\nend_of_record\n');
+  process.exit(0);
+}
+const pristine = 'export function twice(x: number): number {\n  return x + x;\n}\n';
+process.exit(fs.readFileSync('src/book.ts', 'utf8') === pristine ? 0 : 1);
+"#,
+    );
+    fixture.write(
+        &format!("{META_PACKAGE}/node_modules/.bin/vitest.cmd"),
+        "@echo off\r\nnode \"%~dp0..\\vitest-stub.js\" %*\r\n",
+    );
+    let source = format!("{META_PACKAGE}/src/book.ts");
+    assert_eq!(
+        fixture.run(&["--mutate-all", source.as_str()]),
+        ExitCode::SUCCESS
+    );
+    let snapshot = fixture.snapshot();
+    assert!(snapshot.contains(":killed 1"), "{snapshot}");
+    assert!(snapshot.contains(":uncovered 0"), "{snapshot}");
+}
+
+/// The same for Python, whose pytest branch carries the package name in two
+/// more `echo` texts. `pytest.ini` makes that the branch under test; a host
+/// without pytest runs its unittest fallback instead, and the assertion is the
+/// same either way: the script survived its own diagnostics and wrote LCOV.
+#[cfg(windows)]
+#[test]
+fn python_coverage_survives_metacharacters_in_the_package_path() {
+    if !python_can("coverage") {
+        skip("python with coverage.py is not on PATH");
+        return;
+    }
+    let fixture = Fixture::new("python-metacharacters");
+    fixture.write(
+        &format!("{META_PACKAGE}/pyproject.toml"),
+        "[project]\nname = \"fixture\"\n",
+    );
+    fixture.write(&format!("{META_PACKAGE}/pytest.ini"), "[pytest]\n");
+    fixture.write(&format!("{META_PACKAGE}/src/__init__.py"), "");
+    fixture.write(&format!("{META_PACKAGE}/src/model.py"), MODEL_PY);
+    fixture.write(&format!("{META_PACKAGE}/test_model.py"), TEST_PY);
+    let source = format!("{META_PACKAGE}/src/model.py");
+    assert_eq!(
+        fixture.run(&["--mutate-all", source.as_str()]),
+        ExitCode::SUCCESS
+    );
+    let snapshot = fixture.snapshot();
+    assert!(snapshot.contains(":killed 1"), "{snapshot}");
+    assert!(snapshot.contains(":uncovered 0"), "{snapshot}");
+}
+
 /// The Vitest branch — no `coverage` script of the project's own, which is the
 /// branch a package like kacha's client takes. A stub `vitest.cmd` stands in for
 /// the tool: no install, no network, but the real command shape, an absolute

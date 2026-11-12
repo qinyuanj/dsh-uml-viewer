@@ -207,13 +207,17 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Option<Covera
         .collect::<Vec<_>>()
         .join(" ");
     if cfg!(windows) {
+        // cmd parses these diagnostics before it runs the coverage command, so
+        // both the package and the report path are quoted: see
+        // `engine::diagnostic_label`.
+        let package_label = crate::engine::diagnostic_label(root, package);
+        let report_echo = cmd_quote(&report_text);
         script.push_str(&format!(
-            " & {rendered} || (echo TypeScript coverage failed in {}. TypeScript coverage will be N/A. 1>&2 & exit /b 0)",
-            package.display()
+            " & {rendered} || (echo TypeScript coverage failed in {package_label}. TypeScript coverage will be N/A. 1>&2 & exit /b 0)"
         ));
         if !custom {
             script.push_str(&format!(
-                " & ( if not exist \"{report_text}\" (echo TypeScript coverage wrote no {report_text}. TypeScript coverage will be N/A. 1>&2) )"
+                " & ( if not exist \"{report_text}\" (echo TypeScript coverage wrote no {report_echo}. TypeScript coverage will be N/A. 1>&2) )"
             ));
         }
         script.push_str(" & exit /b 0");

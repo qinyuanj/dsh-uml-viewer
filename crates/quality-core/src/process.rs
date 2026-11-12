@@ -53,8 +53,10 @@ pub fn shlex_quote(arg: &str) -> String {
 /// itself, otherwise double quotes.
 ///
 /// cmd ends an argument at a metacharacter (`&`, `|`, `<`, `>`, `^`, `(`, `)`)
-/// even with no space, so those are quoted; `%` is quoted too, which keeps a
-/// literal percent out of cmd's variable expansion in the common case. A
+/// even with no space, so those are quoted; `%` is quoted too. The quotes do
+/// not stop cmd's `%VAR%` expansion: cmd expands variables before it strips the
+/// quotes, so an argument naming a real variable still expands, quoted or not.
+/// Quoting only keeps the metacharacters from splitting the command line. A
 /// double quote inside an argument cannot be expressed for both cmd and
 /// MSVCRT at once; the tools' own paths never contain one.
 pub fn cmd_quote(arg: &str) -> String {
