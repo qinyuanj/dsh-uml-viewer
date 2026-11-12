@@ -59,6 +59,11 @@ Python 的脚本没有跟上。
      则不会；
    - 脚本写入的每个路径都相对**包目录**（`relative_from`），绝不写真实树的绝对路径；
    - 参数按 cmd/MSVCRT 的规则引用（双引号），不是 `shlex` 的单引号；
+   - `echo` 文本里插的路径同样引用：cmd 在运行之前就解析整行，未引用的 `&` 会
+     截断 `echo` 并把后文当命令执行，未引用的 `(`/`)` 会让整条 `/c` 行以
+     `… was unexpected at this time.` 中止，覆盖率报告因此静默缺失（#66）。
+     诊断里的包名用相对**项目根**的写法（`relative_from`；跨盘时退回绝对路径），
+     报告路径本来就是相对包目录的；引号只挡元字符，不挡 `%VAR%` 展开；
    - Vitest 走 `node_modules\.bin\vitest.cmd`：cmd.exe 执行不了 npm 写出的 POSIX shim。
 6. 退出码语义保持原样：覆盖率脚本永远不让本次运行失败。Windows 上拿不到退出码，所以
    `TypeScript coverage exited N in <包>` 改成 `TypeScript coverage failed in <包>`，
@@ -90,9 +95,9 @@ Python 的脚本没有跟上。
   的语义选择，不是 Windows 缺陷。
 - Windows 上 `if … (块)` 的吞行行为是本 ADR 发现的坑：脚本里凡是跟 `&` 的条件块都
   必须括号化，`crates/mutator/src/{typescript,python}.rs` 的注释记录了这条规则。
-- 测试：`crates/mutator/tests/coverage_reuse.rs` 四个用例——stamp 新鲜时只读报告
+- 测试：`crates/mutator/tests/coverage_reuse.rs` 六个用例——stamp 新鲜时只读报告
   （变异体被杀证明数据来自 stamp）、没有 stamp 时 Windows 上自己的 TypeScript 脚本
   产出覆盖率、Python 同理（`coverage.py` 可导入时，`MUTATOR_REQUIRE_TOOLCHAINS=1`
-  下缺失即失败）。
+  下缺失即失败），以及包目录名含 `&`、`(`、`)` 时两种语言仍写出 LCOV（#66）。
 - CI：`windows-mutate` 在跑 mutator 套件前安装 `coverage`（`setup-python` 提前），
   否则 Python 用例在「缺工具链必须失败」的约定下只能算缺工具。

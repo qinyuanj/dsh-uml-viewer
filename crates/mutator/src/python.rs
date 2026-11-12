@@ -175,6 +175,13 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Coverage {
     let directory_text = command_path(directory);
     let report_text = command_path(&report);
     let data_text = command_path(&data);
+    // The Windows diagnostics quote the package and name it from the project
+    // root; the POSIX script's text stays as the original wrote it.
+    let package_label = if cfg!(windows) {
+        crate::engine::diagnostic_label(root, package)
+    } else {
+        package.display().to_string()
+    };
     let py_path = interpreter(package);
     let py = if cfg!(windows) {
         quality_core::process::cmd_quote(&py_path.display().to_string())
@@ -207,7 +214,7 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Coverage {
             // which cmd expands before the first command of the line runs.
             format!(
                 "{py} -c \"import pytest\" 2>nul & ( if not errorlevel 1 ({run} -m pytest) else (echo pytest is missing in {package}. Falling back to unittest. 1>&2 & {run} -m unittest discover -s .) )",
-                package = package.display(),
+                package = package_label,
             )
         } else {
             format!(
@@ -227,12 +234,13 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Coverage {
              {py} -c \"import coverage\" 2>nul || (echo coverage is missing in {package}; {interpreter} cannot import it. Python coverage will be N/A. 1>&2 & exit /b 0) & \
              {tests} & \
              {py} -m coverage lcov --data-file=\"{data}\" -o \"{report}\" & \
-             ( if not exist \"{report}\" (echo Python coverage wrote no {report}. Python coverage will be N/A. 1>&2) ) & exit /b 0",
+             ( if not exist \"{report}\" (echo Python coverage wrote no {report_echo}. Python coverage will be N/A. 1>&2) ) & exit /b 0",
             directory = directory_text,
             report = report_text,
+            report_echo = quality_core::process::cmd_quote(&report_text),
             data = data_text,
-            package = package.display(),
-            interpreter = py_path.display(),
+            package = package_label,
+            interpreter = py.as_str(),
         )
     } else {
         format!(

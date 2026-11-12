@@ -14,6 +14,7 @@ use quality_core::{
     coverage::{Records, parse_lcov},
     grammar::read_source,
     language::{Language, language_of},
+    paths::resolve,
     runner::{modules_with, nearest},
 };
 use std::{
@@ -212,6 +213,28 @@ pub(crate) fn relative_from(base: &Path, path: &Path) -> Option<PathBuf> {
     }
     relative.extend(path[common..].iter());
     Some(relative)
+}
+
+/// A package as a generated Windows script's diagnostic names it: relative to
+/// the project root, so the copy never prints the real project's absolute path,
+/// and quoted for cmd.
+///
+/// cmd parses an `echo`'s text before it runs the line: an unquoted `&` ends the
+/// `echo` and runs the rest as a command, and an unquoted `(`/`)` makes cmd
+/// reject the whole `/c` line, so the script never reaches its own coverage
+/// command and the report silently goes missing. The quotes do not stop
+/// `%VAR%` expansion; a project path containing a percent sign would still
+/// expand, quoted or not.
+pub(crate) fn diagnostic_label(root: &Path, package: &Path) -> String {
+    let root = resolve(root);
+    let package = resolve(package);
+    let relative = relative_from(&root, &package).unwrap_or(package);
+    let label = if relative.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        relative
+    };
+    quality_core::process::cmd_quote(&label.display().to_string())
 }
 
 fn quote(path: &Path) -> String {
