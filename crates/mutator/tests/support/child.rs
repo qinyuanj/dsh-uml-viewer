@@ -9,7 +9,7 @@
 //! `run` launches `run_driver`, which reads the arguments from the environment
 //! and reports the run's exit code on stderr beside the CLI's own lines.
 use std::{
-    ffi::{OsString},
+    ffi::OsString,
     fs,
     path::Path,
     process::{Command, ExitCode},
