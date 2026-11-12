@@ -53,10 +53,26 @@ exits 0, runs no test, republishes `app.edn` with both forms and the carried
 `:killed` outcome, and leaves the other two snapshots byte-identical. The Rust
 integration test performs the same edit and compares the republished bytes.
 
-`help.txt` contains the original CLI `HELP` string as UTF-8 bytes, starting
-with `Usage:` and retaining its final LF. It is suitable for Rust `include_str!`
-without changing the help contract. The regeneration script publishes it from
-the same pinned module.
+`help.txt` is **this port's** help text, as UTF-8 bytes starting with `Usage:`
+and retaining its final LF; the binary reads it through `include_str!`. It is
+the original CLI `HELP` string plus the options this port added, so it is not
+the pinned original's bytes and no longer claims that contract:
+
+- `--copy <path>` is this port's option (ADR 0016). The pinned original has no
+  such flag, so a text published straight from `mutator.cli.HELP` loses it from
+  `uml-viewer mutate --help` and from every usage error.
+- `--copy`'s entry also states the bare `..` refusal: `--copy ..` names the
+  project's parent directory itself, which is no path in it, so it is a usage
+  error like the other `--copy` errors.
+
+Regeneration must therefore not copy the pinned module's string over this file.
+`scripts/mutate_goldens.py` calls `publish_help`, which refuses to write a text
+that lacks `--copy <path>` or the bare `..` rule, and prints what is missing
+instead of overwriting. The refusal is pinned by
+`scripts/test_mutate_goldens_help.py`, and the published bytes by
+`mutate_help_documents_the_copy_option_and_the_bare_parent_refusal` in
+`crates/uml-viewer/tests/mutate.rs`: comparing the binary with this fixture
+cannot catch a regression, because both read the same file.
 
 The portable sibling layout was additionally copied to a fresh native `/tmp`
 directory and passed `cargo test --offline --workspace`.
