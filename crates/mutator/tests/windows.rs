@@ -4,6 +4,7 @@
 //! Test code is the outside harness; it launches the fixture tools itself.
 #![cfg(windows)]
 #![allow(clippy::disallowed_methods)]
+mod support;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -11,6 +12,7 @@ use std::{
     process::ExitCode,
     sync::atomic::{AtomicUsize, Ordering},
 };
+use support::child;
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
@@ -679,6 +681,9 @@ fn copy_brings_every_outside_path_beside_every_command_copy() {
             "the copy's {name} must stay beside it, not inside the project"
         );
     }
+    // No residue: the scratch root, and with it every placed copy, is gone
+    // after the call, as in the neighbouring scenarios.
+    fixture.assert_no_scratch();
 }
 
 /// The outside path cannot come back: a `--copy` path inside the project root
@@ -778,6 +783,60 @@ fn an_outside_path_that_cannot_be_placed_exits_one_not_two() {
     assert!(!fixture.root().join(".metrics/mutate").exists());
     // Remove the link before the fixture's own cleanup walks the tree.
     fs::remove_dir(contracts.join("nested")).unwrap();
+}
+
+/// The deletion a `--copy` placement test needs, run in its own process.
+///
+/// The mutator's own stderr and the fixture's commands share this process's
+/// streams, and a test binary's harness keeps a copy of them, so a command
+/// that removes the real outside tree is spawned here instead: a fresh process
+/// of this test binary that deletes the directory it is given.
+#[test]
+fn remove_directory_driver() {
+    let Some(directory) = std::env::var_os("MUTATOR_REMOVE_DIRECTORY") else {
+        return;
+    };
+    fs::remove_dir_all(&directory).unwrap();
+}
+
+/// An outside path that exists when the call is validated and is gone by the
+/// time a later command places it: the baseline removes the real tree, so the
+/// first mutant's placement finds nothing to copy. That is an isolation
+/// failure, not a test result, so it exits 1 and names the path — never the
+/// exit 2 a failing suite earns, and never a copy that silently lacks the
+/// dependency.
+#[test]
+fn an_outside_path_deleted_between_commands_exits_one_and_names_it() {
+    let _serial = serial();
+    let fixture = Fixture::new();
+    let contracts = fixture.directory.join("contracts");
+    fs::create_dir_all(&contracts).unwrap();
+    fs::write(contracts.join("value.txt"), "copy-value\n").unwrap();
+    // The path exists when the call is validated and when the baseline places
+    // it; the baseline then removes the real outside tree, so the next command
+    // to be placed — the first mutant — finds nothing to copy.
+    let exe = std::env::current_exe().unwrap();
+    let remove = format!(
+        "set MUTATOR_REMOVE_DIRECTORY={} && {} --exact remove_directory_driver --nocapture",
+        contracts.display(),
+        quoted(&exe)
+    );
+    let arguments = [
+        "--copy",
+        "../contracts",
+        "--no-coverage",
+        "--mutate-all",
+        "--test-command",
+        &remove,
+        "app/src/lib.rs",
+    ];
+    let (code, stderr) = child::run(&fixture.root(), &arguments);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(
+        stderr.contains("Copy isolation cannot place") && stderr.contains("contracts"),
+        "the placement failure must name the path: {stderr}"
+    );
+    assert!(!fixture.root().join(".metrics/mutate").exists());
 }
 
 /// One coverage run and one baseline per (command, cwd), shared by every
