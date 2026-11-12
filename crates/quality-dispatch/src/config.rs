@@ -57,7 +57,7 @@ pub const VALUES: &[&str] = &[
     "--min-nodes",
     "--format",
     // mutate only: a path outside the project root that copy isolation must
-    // show beside every copy (ADR 0015). Its value is not a target name.
+    // show beside every copy (ADR 0016). Its value is not a target name.
     "--copy",
 ];
 /// Scope and routing options only the dispatcher may set.

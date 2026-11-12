@@ -1,10 +1,10 @@
-# 0016 标准覆盖率路径复用 crapper 的 stamp，覆盖率脚本按平台生成
+# 0017 标准覆盖率路径复用 crapper 的 stamp，覆盖率脚本按平台生成
 
 **Status**: accepted
 
 ## 背景
 
-第一个撞上来的使用方还是 qinyuanj/kacha 的质量门禁（ADR 0015 的同一个调用）：
+第一个撞上来的使用方还是 qinyuanj/kacha 的质量门禁（[ADR 0016](0016-copy-outside-paths.md) 的同一个调用）：
 它先跑 `crap`，再按包跑 `mutator --root client`。`crap` 已经量过整个包，把各语言的
 报告写在 `target/coverage` 下，并写下 `target/coverage/crapper-stamp.json`；这个
 stamp 的用途，就是让 `mutator` 不必重跑一遍。
@@ -69,7 +69,7 @@ Python 的脚本没有跟上。
 - **Windows 上把 TypeScript/Python 标成覆盖率 N/A**：门禁会整批 `:uncovered`，而
   kacha 的 `client/src` 几乎全是被测的 TypeScript。这等于放弃两种语言，否决。
 - **副本里照旧用绝对路径，只把 POSIX 语法换成 cmd 语法**：报告会写进真实项目树，
-  正是 `rust_coverage` 与写契约（ADR 0010）禁止的事。否决。
+  正是 `rust_coverage` 与写契约（[ADR 0010](0010-native-windows-delivery-platform.md)）禁止的事。否决。
 - **把脚本写成真正的 `.cmd` 批处理文件**：要在副本里先写一个文件，而副本由隔离层
   创建，脚本本身没有写文件的时机；而且每个包都要一份，还得自己清理。否决。
 - **靠 `cmd /v:on` 延迟展开或用 `%ERRORLEVEL%` 取退出码**：本移植的进程边界固定
@@ -86,11 +86,11 @@ Python 的脚本没有跟上。
   不再重跑，本次运行也省下整轮工具时间。
 - help 文本的承诺现在真的成立，`fixtures/mutate/help.txt` 不需要改（它早就写了这句）。
 - `--coverage-command` 路径仍然总是执行命令：即便 stamp 里记着同一条命令，本移植也
-  不复用（原版会复用）。这是已知偏差，写在 `docs/mutation-linux.md`，因为它是跨平台
+  不复用（原版会复用）。这是已知偏差，写在 [docs/mutation-linux.md](../mutation-linux.md)，因为它是跨平台
   的语义选择，不是 Windows 缺陷。
 - Windows 上 `if … (块)` 的吞行行为是本 ADR 发现的坑：脚本里凡是跟 `&` 的条件块都
   必须括号化，`crates/mutator/src/{typescript,python}.rs` 的注释记录了这条规则。
-- 测试：`crates/mutator/tests/coverage_reuse.rs` 三个用例——stamp 新鲜时只读报告
+- 测试：`crates/mutator/tests/coverage_reuse.rs` 四个用例——stamp 新鲜时只读报告
   （变异体被杀证明数据来自 stamp）、没有 stamp 时 Windows 上自己的 TypeScript 脚本
   产出覆盖率、Python 同理（`coverage.py` 可导入时，`MUTATOR_REQUIRE_TOOLCHAINS=1`
   下缺失即失败）。

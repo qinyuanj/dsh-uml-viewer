@@ -58,7 +58,7 @@ it up front.
 A copy holds the project root and nothing beside it, so a relative path that
 leaves the root (a suite importing `../../../contracts/board-policy.json`, a
 fixture next to the package) does not resolve in the copy and the **baseline
-fails before any mutant runs**. `--copy <path>` (ADR 0015) places one such path
+fails before any mutant runs**. `--copy <path>` (ADR 0016) places one such path
 beside every command's copy at the position the copy's `..` reaches: with
 `--copy ../contracts`, a command running in `<slot>/project` reads
 `../contracts/value.txt` as `<slot>/contracts/value.txt`, copied from the real

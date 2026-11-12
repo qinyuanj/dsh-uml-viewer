@@ -583,7 +583,7 @@ fn mutant_writes_reach_neither_the_project_nor_the_user_nor_a_later_mutant() {
     fixture.assert_no_scratch();
 }
 
-/// `--copy` (ADR 0015): copy isolation shows paths **outside** the project root
+/// `--copy` (ADR 0016): copy isolation shows paths **outside** the project root
 /// beside every command's copy, at the position the copy's `..` reaches.
 ///
 /// The three declared paths are the shape a package's quality gate needs: two

@@ -1,6 +1,6 @@
 //! Coverage in the standard path: crapper's stamp decides what is regenerated,
 //! and the generated TypeScript/Python scripts run where the command runs — in
-//! a copy of the project on native Windows (ADR 0016).
+//! a copy of the project on native Windows (ADR 0017).
 //!
 //! Test code is the outside harness; the fixtures launch `npm`/`node` (and, when
 //! `coverage.py` is importable, `python`) themselves. A missing toolchain is a

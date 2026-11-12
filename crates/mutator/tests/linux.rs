@@ -181,7 +181,7 @@ fn rust_snapshots_match_original_bytes_and_unchanged_differential_keeps_them() {
     );
 }
 
-/// `--copy` (ADR 0015) is accepted and copies nothing on Linux: the namespace
+/// `--copy` (ADR 0016) is accepted and copies nothing on Linux: the namespace
 /// view is mounted over the real project root, so `..` already reaches the real
 /// parent directory and a path beside the project is readable without help. The
 /// snapshot must be the same bytes with and without the option.
