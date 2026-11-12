@@ -73,10 +73,19 @@ Windows 的 copy 隔离把项目根复制进私有 scratch slot（`<slot>/projec
   不是整个 checkout 的父目录。
 - dispatcher（`uml-viewer quality mutate`）必须知道 `--copy` 取一个值，否则那个路径
   会被当成 target 名；它已进入 `quality-dispatch` 的取值选项表。
-- 基线仍在真实项目树里跑，那里兄弟路径本来就可见，所以 `--copy` 不需要基线侧行为：
-  选项在两个平台上都在任何命令之前校验，只影响副本。
+- 两个平台的基线处境不同，这正是 `--copy` 存在的原因。Linux 的视图挂在真实项目根
+  上，基线就在真实树里跑，兄弟路径本来就可见，`--copy` 只做校验、不复制任何东西。
+  Windows 的 copy 隔离给覆盖率、基线和每个变异体各一份新副本（见
+  [mutation-windows.md](../mutation-windows.md)），基线也在副本里跑，所以不带
+  `--copy` 时未变异的基线就先失败——Windows 集成用例钉住了这一点。选项在两个平台上
+  都在任何命令之前校验，但只有副本真正需要它。
 - 副本是约定，不是沙箱（[ADR 0010](0010-native-windows-delivery-platform.md)）。`--copy` 不扩大这个断言：项目外的绝对路径对命令
   依然可见，而通过被复制路径的写入只改该命令的副本，不改真实树。
+- 外部路径先被解析、再按普通字节复制：`resolve_outside` 对声明路径做 canonicalize，
+  所以 `../contracts` 是 junction 时拿到的是它的目标目录，`copy_tree` 的「链接目录
+  拒绝」分支对**声明路径本身**不会触发。行为是安全的（放置位置仍在 slot 内，写入只
+  落在该命令的副本），所以按实际行为写文档，而不是改代码；声明路径**内部**的链接
+  目录仍按项目副本的同一套规则被拒。
 - 测试：解析器有一张参数矩阵（`isolation_outside_tests.rs`），含六个保留名及其嵌套
   路径、大小写变体；Windows 集成用例在**不带**开关时基线失败，在**带**两条目录加一个
   文件时杀死全部变异体，并证明 `../output` 在真实仓库里被拒、放置失败退 1；Linux 用例
