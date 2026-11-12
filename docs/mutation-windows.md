@@ -82,9 +82,12 @@ name both kinds, as a package whose tests read the repository root does:
 - The argument is a path relative to `--root` that leaves it through **one**
   leading `..`. An absolute path, a path inside the project root (the copy
   already has it), more than one leading `..` (it would reach outside the
-  call's scratch slot), a path that resolves back inside the project root, and a
-  missing path are all usage errors, refused before any command runs with exit
-  1, like every other option error.
+  call's scratch slot), the bare `..` that names the project's parent directory
+  itself rather than a path in it (there is no position for it beside the copy),
+  a path that resolves back inside the project root, and a missing path are all
+  usage errors, refused before any command runs with exit 1, like every other
+  option error. `--copy ..` and `--copy ../.` both fail with
+  `--copy path names the project's parent directory itself, not a path in it`.
 - Each command pays one extra tree copy per `--copy` path; name only what a
   command actually reads.
 
