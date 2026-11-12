@@ -132,6 +132,16 @@ impl Fixture {
             "the fixture must record a stamp"
         );
     }
+
+    /// crapper's report with a stamp the tree has since outgrown: the report is
+    /// still on disk and the stamp names the language, but it is stale.
+    fn stale_crapper_coverage(&self) {
+        self.record_crapper_coverage();
+        self.write(
+            "CHANGED.md",
+            "the tree moved on after crapper recorded it\n",
+        );
+    }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -193,6 +203,71 @@ fn crapper_stamp_reuses_typescript_coverage_in_the_standard_path() {
     assert!(snapshot.contains(":killed 1"), "{snapshot}");
     assert!(snapshot.contains(":uncovered 0"), "{snapshot}");
     assert!(snapshot.contains(":survived 0"), "{snapshot}");
+}
+
+/// crapper's report is still on disk, but the stamp no longer covers this
+/// tree: the report is not this run's result. The project's own coverage script
+/// writes nothing, so the site has no coverage at all — the old report must not
+/// mark it covered and let a mutant be "killed" by data from an earlier run.
+#[test]
+fn a_stale_stamp_leaves_the_old_typescript_report_unread() {
+    if !node_available() {
+        skip("node and npm are not on PATH");
+        return;
+    }
+    let fixture = Fixture::new("stale-report");
+    fixture.write(
+        "package.json",
+        "{\"name\":\"fixture\",\"private\":true,\"scripts\":{\"coverage\":\"node no-report.js\",\"test\":\"node test.js\"}}\n",
+    );
+    fixture.write("src/book.ts", BOOK);
+    fixture.write("test.js", TEST_JS);
+    fixture.write(
+        "no-report.js",
+        "// This run's coverage produces no report.\n",
+    );
+    fixture.stale_crapper_coverage();
+    assert_eq!(
+        fixture.run(&["--mutate-all", "src/book.ts"]),
+        ExitCode::SUCCESS
+    );
+    let snapshot = fixture.snapshot();
+    assert!(snapshot.contains(":uncovered 1"), "{snapshot}");
+    assert!(snapshot.contains(":killed 0"), "{snapshot}");
+}
+
+/// The same guard on the `--test-command`-only path, which reads the stamp
+/// too: a stale language's report on disk is not this run's coverage.
+#[test]
+fn a_stale_stamp_leaves_the_old_typescript_report_unread_with_a_test_command() {
+    if !node_available() {
+        skip("node and npm are not on PATH");
+        return;
+    }
+    let fixture = Fixture::new("stale-report-test-command");
+    fixture.write(
+        "package.json",
+        "{\"name\":\"fixture\",\"private\":true,\"scripts\":{\"coverage\":\"node no-report.js\",\"test\":\"node test.js\"}}\n",
+    );
+    fixture.write("src/book.ts", BOOK);
+    fixture.write("test.js", TEST_JS);
+    fixture.write(
+        "no-report.js",
+        "// This run's coverage produces no report.\n",
+    );
+    fixture.stale_crapper_coverage();
+    assert_eq!(
+        fixture.run(&[
+            "--mutate-all",
+            "--test-command",
+            "node test.js",
+            "src/book.ts"
+        ]),
+        ExitCode::SUCCESS
+    );
+    let snapshot = fixture.snapshot();
+    assert!(snapshot.contains(":uncovered 1"), "{snapshot}");
+    assert!(snapshot.contains(":killed 0"), "{snapshot}");
 }
 
 /// Without a stamp every language is stale, so the same project collects its
