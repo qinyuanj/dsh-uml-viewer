@@ -320,6 +320,34 @@ fn mutate_binary_exposes_original_help_and_usage_exit() {
             .starts_with(b"Unknown option: --nope\n\nUsage:")
     );
 }
+/// The help fixture is this port's help text, not the pinned original's bytes:
+/// it documents `--copy` (ADR 0016) and the bare `..` refusal. Comparing the
+/// binary with the fixture cannot catch a regeneration that republished the
+/// original `HELP` string, because both read that one fixture; this asserts the
+/// option rules themselves, so such a regeneration fails here.
+#[test]
+fn mutate_help_documents_the_copy_option_and_the_bare_parent_refusal() {
+    let output = binary(["mutate", "--help"]);
+    assert!(output.status.success());
+    let help = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        help.contains("--copy <path>"),
+        "help lost the --copy option this port added (ADR 0016)"
+    );
+    // The refusal belongs to --copy's own entry: from the option line to the
+    // next option or section. The text wraps, so compare on collapsed
+    // whitespace rather than on one line's exact break.
+    let entry = help
+        .split("  --copy <path>")
+        .nth(1)
+        .and_then(|rest| rest.split("\n  --").next())
+        .unwrap_or_default();
+    let entry = entry.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        entry.contains("parent directory itself"),
+        "the bare `..` refusal must be stated in --copy's entry: {entry:?}"
+    );
+}
 /// macOS: mutation refuses before selection and before any command, with the
 /// agreed isolation-refusal exit 1 and a reason. `crap` and `dry` are not
 /// gated by this; the macOS CI job runs their suites alongside this one.

@@ -35,6 +35,42 @@ ZERO_SITE_FUNCTION = b"\npub fn no_sites() {}\n"
 ZERO_SITE_COMMAND = "grep -q 'x + x' app/src/lib.rs"
 ZERO_SITE_GOLDEN = "app-no-sites.edn"
 EXPECTED_ZERO_SITE = (601, "49a18a35b755671f972712523d78187064c2924b3121273f920c0df458ac5433")
+# `fixtures/mutate/help.txt` is not the pinned original's `HELP` string: this port
+# added `--copy` (ADR 0016) and the bare `..` refusal to it, and the binary reads
+# the same fixture through `include_str!`, so a regeneration that republished the
+# original would delete both from `uml-viewer mutate --help` with no test going
+# red. These are the port-only rules the published text must still carry.
+PORT_HELP_RULES = {
+    "--copy <path>": "the --copy option (ADR 0016)",
+    "parent directory itself": "the bare .. refusal",
+}
+
+
+def port_help_gaps(text: str) -> list[str]:
+    """The port-only help rules `text` lacks, each as `<marker>: <what it is>`."""
+    # The help wraps its paragraphs, so a rule may break across lines: compare
+    # on collapsed whitespace, the way a reader sees the paragraph.
+    flattened = " ".join(text.split())
+    return [f"{marker}: {rule}" for marker, rule in PORT_HELP_RULES.items()
+            if marker not in flattened]
+
+
+def publish_help(destination: Path, text: str) -> None:
+    """Publish this port's help text, refusing the original's.
+
+    The pinned original module's `HELP` is an input to this oracle, not this
+    repository's help: it predates `--copy` and the bare `..` rule. Overwriting
+    the fixture with it would silently shrink `uml-viewer mutate --help`, so the
+    script stops and names what is missing instead of writing.
+    """
+    gaps = port_help_gaps(text)
+    if gaps:
+        raise SystemExit(
+            f"refusing to overwrite {destination}: the pinned original's HELP string "
+            f"lacks this port's rules ({"; ".join(gaps)}). Publish this port's own "
+            f"help text instead, re-applying the --copy entry and the bare .. rule; "
+            f"see docs/adr/0016-copy-outside-paths.md.")
+    destination.write_bytes(text.encode("utf-8"))
 
 
 def git(ref: Path, *args: str) -> str:
@@ -290,7 +326,7 @@ def main() -> None:
             destination = output / "rust" / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(data)
-        (output / "help.txt").write_bytes(HELP.encode("utf-8"))
+        publish_help(output / "help.txt", HELP)
         for name, data in snapshots.items():
             destination = output / "goldens" / name
             destination.parent.mkdir(parents=True, exist_ok=True)
