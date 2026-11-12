@@ -13,7 +13,9 @@ Every later argument is forwarded verbatim; in particular an `operations`
 command may receive its own `--root`. A value option the dispatcher knows
 (`VALUES` in `crates/quality-dispatch/src/config.rs`) keeps its value with it, so
 `quality mutate --copy ../contracts app.py` forwards one option and one target
-instead of reading the outside path as a target name.
+instead of reading the outside path as a target name. The plugin's
+`uml_mutate` takes those paths as its `copy` array and emits exactly that
+sequence — `--copy <path>` per value, before the targets (#69).
 
 The dispatcher reads `<root>/uml-quality.json` (default root: the current
 directory) and runs the requested operation:
@@ -112,6 +114,15 @@ A differential rerun of unchanged targets reuses their previous outcomes
 (`executed=0 reused=N`, or "No mutations selected; keeping the previous
 snapshots." when every target is reusable). Survived mutants are re-executed by
 mutator itself, as in the original tool.
+
+`uml_mutate` reaches the same `--copy` option (#69, ADR 0016) through its
+`copy` array: each value becomes one `--copy <path>`, forwarded before the
+targets, and a call without `copy` forwards exactly what it did before. A
+`copy` value is a path **outside** the project root, relative to `--root` and
+leaving it through a single leading `..` (`../contracts`); a value that stays
+inside the root, climbs twice, is absolute, is empty, or is not normalized
+is a parameter error before any quality call — the plugin checks that shape
+only, and the binary decides whether the path exists and where it resolves.
 
 ## Languages and platforms
 

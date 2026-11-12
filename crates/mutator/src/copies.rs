@@ -216,7 +216,7 @@ impl Slot {
     ) -> Result<Completed, Failure> {
         self.copy(root, mutation).map_err(|error| {
             let text = error.to_string();
-            if text.starts_with("Copy isolation cannot freeze") {
+            if isolation_failure(&text) {
                 Failure::Unavailable(text)
             } else {
                 Failure::Message(text)
@@ -312,6 +312,16 @@ impl Slot {
 
 fn message(error: io::Error) -> Failure {
     Failure::Message(error.to_string())
+}
+
+/// Whether a copy failure is an isolation failure rather than a test result.
+///
+/// Freezing the project and placing an outside path both fail before any command
+/// runs, so neither is a test outcome: the run exits 1 (isolation unavailable)
+/// instead of 2 (a failing suite). Every message either step writes starts with
+/// "Copy isolation cannot", and the placement failure names its path.
+fn isolation_failure(text: &str) -> bool {
+    text.starts_with("Copy isolation cannot")
 }
 
 /// A `--copy` path that could not be placed names itself: a missing dependency

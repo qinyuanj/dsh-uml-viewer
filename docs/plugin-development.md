@@ -239,16 +239,23 @@ signal always fails closed and its name appears in `reason`. No result files are
 stdout is bounded to 256 KiB, stderr to 64 KiB, with `truncated` reporting loss.
 Confinement runner failures and access denials have separate reasons.
 
-`uml_crap({targets?})`, `uml_mutate({targets, mutateAll?})` and `uml_dry({})`
-run `uml-viewer quality <operation>` in the same session cwd and under the same
-sandbox rules. The binary prints exactly one version-1 record on stdout, and
-that record is the tool return value: the host validates it with
-`parseQualityResult`, requires its operation, canonical project root and exit
-to match the invocation, and never reads a result file. A refusal, malformed
-record, signal termination or unavailable output reader returns the same
-fields with `validResult: false` and an explanatory reason; a host refusal has
-`exitCode: null`. Mutation takes every target in one array and forwards them in
-one argv, because mutator shares one coverage run and baseline across them.
+`uml_crap({targets?})`, `uml_mutate({targets, mutateAll?, copy?})` and
+`uml_dry({})` run `uml-viewer quality <operation>` in the same session cwd and
+under the same sandbox rules. The binary prints exactly one version-1 record
+on stdout, and that record is the tool return value: the host validates it
+with `parseQualityResult`, requires its operation, canonical project root and
+exit to match the invocation, and never reads a result file. A refusal,
+malformed record, signal termination or unavailable output reader returns the
+same fields with `validResult: false` and an explanatory reason; a host
+refusal has `exitCode: null`. Mutation takes every target in one array and
+forwards them in one argv, because mutator shares one coverage run and
+baseline across them. `copy` forwards each value as one `--copy <path>` ahead
+of the targets (#69, ADR 0016): a path outside the project root, relative to
+`--root`, leaving it through a single leading `..`, which copy isolation then
+shows beside every command's copy. The plugin validates only that shape and
+refuses the whole call as a parameter error when a value is empty, absolute,
+not normalized or does not leave the root exactly once; whether the path
+exists is the binary's own check.
 
 A tool that really ran and failed explains itself on stderr, which the record
 does not carry (#39). The host fills the same `reason` field from it — the last
