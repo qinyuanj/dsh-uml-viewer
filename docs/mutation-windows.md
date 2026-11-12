@@ -78,13 +78,20 @@ name both kinds, as a package whose tests read the repository root does:
   is materialised as independent bytes.
 - A path that cannot be placed fails that command with the path named
   (`Copy isolation cannot place <path> beside the copy: …`) instead of leaving a
-  copy that silently lacks a dependency.
+  copy that silently lacks a dependency. Placement is not a test result, so it
+  exits **1** (isolation unavailable), like every other isolation refusal — never
+  2, which means a suite failed.
 - The argument is a path relative to `--root` that leaves it through **one**
   leading `..`. An absolute path, a path inside the project root (the copy
   already has it), more than one leading `..` (it would reach outside the
-  call's scratch slot), a path that resolves back inside the project root, and a
-  missing path are all usage errors, refused before any command runs with exit
-  1, like every other option error.
+  call's scratch slot), a path that resolves back inside the project root, a
+  missing path, and a path whose first component names one of the slot's own
+  entries — `project`, `home`, `temp`, `appdata`, `output`, `mutation`, in any
+  case — are all usage errors, refused before any command runs with exit 1, like
+  every other option error. The reserved names are lexical: `../output` is
+  refused whether or not an `output` directory exists, because a copy that
+  placed it there would delete it (or merge it over the project copy) before the
+  command ran.
 - Each command pays one extra tree copy per `--copy` path; name only what a
   command actually reads.
 

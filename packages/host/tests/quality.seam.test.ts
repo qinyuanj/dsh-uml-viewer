@@ -160,6 +160,32 @@ it('forwards every mutation target and --mutate-all in one quality call', async 
     .toEqual([['quality', 'mutate', '--mutate-all', 'crates/engine/src/a.rs', 'src/dir with spaces/b.rs']])
 })
 
+it('forwards every copy path before the mutation targets (#69)', async () => {
+  const { tool, projects } = await setup()
+  expect(await tool('uml_mutate', {
+    targets: ['crates/engine/src/a.rs', 'src/dir with spaces/b.rs'],
+    copy: ['../contracts', '..\\shared\\fixtures'],
+  })).toMatchObject({ operation: 'mutate', validResult: true, reason: null })
+  expect((await events(projects['session-a']!)).filter(entry => entry.event === 'start').map(entry => entry.argv))
+    .toEqual([['quality', 'mutate', '--copy', '../contracts', '--copy', '../shared/fixtures',
+      'crates/engine/src/a.rs', 'src/dir with spaces/b.rs']])
+  // Without copy the call is the one it always was.
+  expect(await tool('uml_mutate', { targets: ['src/a.rs'] })).toMatchObject({ validResult: true })
+  expect((await events(projects['session-a']!)).filter(entry => entry.event === 'start').at(-1)?.argv)
+    .toEqual(['quality', 'mutate', 'src/a.rs'])
+})
+
+it('refuses a copy path it cannot validate without spawning a quality call (#69)', async () => {
+  const { tool, projects, spawnCount } = await setup()
+  for (const bad of ['..', '../..', '/abs', '', 'a/../b']) {
+    expect(await tool('uml_mutate', { targets: ['src/a.rs'], copy: [bad] }), JSON.stringify(bad))
+      .toMatchObject({ operation: 'mutate', exitCode: null, validResult: false,
+        reason: expect.stringMatching(/copy\[0\]/) })
+  }
+  expect(spawnCount()).toBe(0)
+  expect(existsSync(path.join(projects['session-a']!, 'quality-events.jsonl'))).toBe(false)
+})
+
 it('runs dry without arguments and returns its record', async () => {
   const { tool, projects } = await setup()
   expect(await tool('uml_dry', {})).toMatchObject({

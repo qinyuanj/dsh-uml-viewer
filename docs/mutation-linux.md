@@ -21,7 +21,9 @@ project (`../contracts`) already resolves, and the baseline that imports it
 passes without help. `--copy <path>` (ADR 0016) is nevertheless accepted and
 validated on Linux, with the same usage errors as on Windows — an absolute path,
 a path inside the project root, more than one leading `..`, a path that resolves
-back inside the project root, or a missing path. Nothing is copied and no
+back inside the project root, a missing path, or a first component naming one of
+the slot's own entries (`project`, `home`, `temp`, `appdata`, `output`, `mutation`,
+in any case). Nothing is copied and no
 snapshot changes: the option exists for copy isolation, where a copy of the
 project root has no siblings. Its acceptance test compares the snapshot bytes of
 a run with and without the option and asserts that `..` is the real parent
