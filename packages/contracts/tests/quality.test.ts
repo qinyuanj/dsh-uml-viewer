@@ -46,6 +46,20 @@ describe('quality tool request', () => {
     expect(parseQualityToolRequest('dry', {})).toEqual([])
   })
 
+  it('places every copy path before the targets and keeps argv unchanged without copy', () => {
+    expect(parseQualityToolRequest('mutate', { targets: ['src/a.rs'], copy: ['../contracts'] }))
+      .toEqual(['--copy', '../contracts', 'src/a.rs'])
+    expect(parseQualityToolRequest('mutate', {
+      targets: ['src/a.rs', 'src/b.rs'], copy: ['../contracts', '../docs/release'], mutateAll: true,
+    })).toEqual(['--mutate-all', '--copy', '../contracts', '--copy', '../docs/release', 'src/a.rs', 'src/b.rs'])
+    // A Windows spelling reaches argv in the one normalized form.
+    expect(parseQualityToolRequest('mutate', { targets: ['src/a.rs'], copy: ['..\\contracts'] }))
+      .toEqual(['--copy', '../contracts', 'src/a.rs'])
+    // Without copy the argv is byte for byte what it always was.
+    expect(parseQualityToolRequest('mutate', { targets: ['src/a.rs'] })).toEqual(['src/a.rs'])
+    expect(parseQualityToolRequest('mutate', { targets: ['src/a.rs'], copy: [] })).toEqual(['src/a.rs'])
+  })
+
   it('refuses an empty mutation, authority paths, options and unknown fields before spawn', () => {
     expect(() => parseQualityToolRequest('mutate', { targets: [] })).toThrow(/at least one/)
     expect(() => parseQualityToolRequest('mutate', { targets: ['../outside.rs'] })).toThrow(/inside/)
@@ -54,6 +68,21 @@ describe('quality tool request', () => {
     expect(() => parseQualityToolRequest('mutate', { targets: ['a.rs'], root: '/elsewhere' })).toThrow(/Unknown/)
     expect(() => parseQualityToolRequest('crap', { mutateAll: true })).toThrow(/Unknown/)
     expect(() => parseQualityToolRequest('dry', { targets: [] })).toThrow(/Unknown/)
+  })
+
+  it('refuses a copy path that cannot name a position beside the copy', () => {
+    for (const bad of ['..', '../..', '../../outside', '/abs', 'C:/outside', '', '  ', 'a/../b',
+      './a', '.././contracts', '../contracts/', '../contracts/.', '../contracts:stream',
+      '../contracts.', '../contracts ', '../CON', '../con.edn', '../a\u0001b']) {
+      expect(() => parseQualityToolRequest('mutate', { targets: ['src/a.rs'], copy: [bad] }),
+        JSON.stringify(bad)).toThrow(/copy\[0\]/)
+    }
+    expect(() => parseQualityToolRequest('mutate', { targets: ['src/a.rs'], copy: '../contracts' }))
+      .toThrow(/copy must be an array/)
+    expect(() => parseQualityToolRequest('mutate', { targets: ['src/a.rs'], copy: [42] }))
+      .toThrow(/copy\[0\]/)
+    expect(() => parseQualityToolRequest('crap', { copy: ['../contracts'] })).toThrow(/Unknown/)
+    expect(() => parseQualityToolRequest('dry', { copy: ['../contracts'] })).toThrow(/Unknown/)
   })
 })
 
