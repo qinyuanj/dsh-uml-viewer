@@ -45,10 +45,13 @@ Python 的脚本没有跟上。
    就带上该语言的全部文件），与原版 `_stale` 的判定一致。
 2. fresh 非空时，向 stderr 打印 `Reusing <languages> coverage from crapper's last
    run.`，语言名升序、逗号加空格分隔——与原版逐字节相同，也是 help 文本承诺的那行。
-3. fresh 语言的数据从 crapper 已经落盘的报告里读：项目根的 `coverage/lcov.info`、
-   `target/coverage/**/lcov.info`（LCOV 语言）与 Go/Java/Clojure 各自的 reader；只有
-   stale 语言才在视图（Linux overlay）/副本（Windows）里重跑。读取顺序是先读盘上报告
-   、再合并本次重跑的报告，同源条目以新报告为准。
+3. **只有 fresh 语言才读盘上报告。** fresh 语言的数据从 crapper 已经落盘的报告里读：
+   项目根的 `coverage/lcov.info`、`target/coverage/**/lcov.info`（LCOV 语言）与
+   Go/Java/Clojure 各自的 reader。stale 语言不读盘上任何报告，只认本次在视图（Linux
+   overlay）/副本（Windows）里重跑的结果：盘上那份是上一次运行的产物，而重跑可能静默
+   失败（生成的脚本永远不让本次运行失败），读它等于让旧 LCOV 冒充本次覆盖率、把站点
+   判成 covered。读取顺序是先读 fresh 语言的盘上报告、再合并本次重跑的报告，同源条目
+   以新报告为准。Lua 不在此列：它不查 stamp（第 4 条），盘上报告按原样读取。
 4. Lua 不查 stamp：它由本次运行自己的 instrumented suite 收集（原版
    `_prepare_coverage` 里 Lua 也在 `_stale` 之前）。
 5. TypeScript 与 Python 的覆盖率脚本按平台生成。Linux 保持原来的 POSIX 文本（与原版
@@ -90,9 +93,10 @@ Python 的脚本没有跟上。
   的语义选择，不是 Windows 缺陷。
 - Windows 上 `if … (块)` 的吞行行为是本 ADR 发现的坑：脚本里凡是跟 `&` 的条件块都
   必须括号化，`crates/mutator/src/{typescript,python}.rs` 的注释记录了这条规则。
-- 测试：`crates/mutator/tests/coverage_reuse.rs` 四个用例——stamp 新鲜时只读报告
-  （变异体被杀证明数据来自 stamp）、没有 stamp 时 Windows 上自己的 TypeScript 脚本
-  产出覆盖率、Python 同理（`coverage.py` 可导入时，`MUTATOR_REQUIRE_TOOLCHAINS=1`
-  下缺失即失败）。
+- 测试：`crates/mutator/tests/coverage_reuse.rs` 六个用例——stamp 新鲜时只读报告
+  （变异体被杀证明数据来自 stamp）、stamp 陈旧时盘上的旧报告不得冒充本次结果（标准
+  路径与只给 `--test-command` 的路径各一例，本次重跑不写报告，站点必须 `:uncovered`）、
+  没有 stamp 时 Windows 上自己的 TypeScript 脚本产出覆盖率、Python 同理（`coverage.py`
+  可导入时，`MUTATOR_REQUIRE_TOOLCHAINS=1` 下缺失即失败）。
 - CI：`windows-mutate` 在跑 mutator 套件前安装 `coverage`（`setup-python` 提前），
   否则 Python 用例在「缺工具链必须失败」的约定下只能算缺工具。

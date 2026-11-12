@@ -135,9 +135,13 @@ invoked through `node_modules\.bin\vitest.cmd`, the only shim cmd can execute.
 
 A TypeScript or Python package whose coverage toolchain is missing leaves that
 language uncovered with the original's `… will be N/A.` message; it never fails
-the run. When crapper ran first, neither script runs at all: the reports it
-already wrote are reused (see `docs/mutation-linux.md`, `crapper's coverage
-stamp`), and `Reusing <languages> coverage from crapper's last run.` says so.
+the run. When crapper ran first and its stamp still covers this tree, neither
+script runs at all: the reports it already wrote are reused (see
+`docs/mutation-linux.md`, `crapper's coverage stamp`), and
+`Reusing <languages> coverage from crapper's last run.` says so. A stale stamp
+regenerates the language instead, and that language's reports already on disk
+are not read: a script that quietly writes nothing leaves its sites uncovered
+rather than borrowing an earlier run's hits.
 
 ## Weaker than Linux, and honest about it
 

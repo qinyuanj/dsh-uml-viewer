@@ -222,11 +222,14 @@ Reusing typescript coverage from crapper's last run.
 
 Language names are sorted and comma-separated, one line, on stderr, as the
 original prints it. Only the other languages are regenerated, in the usual
-per-package views. One stale file makes every file of that language stale, so a
-language is measured for all of its files or none, exactly as the original's
-`_stale` decides. Lua is not part of this: its instrumented suite runs in this
-run's own views. When nothing is fresh (no stamp, or the tree changed since
-crapper ran) no line is printed and every language is regenerated as before.
+per-package views, and a stale language's reports already on disk are not read:
+that `lcov.info` is an earlier run's result, and a regeneration that silently
+writes nothing must leave its sites uncovered rather than borrow old hits. One
+stale file makes every file of that language stale, so a language is measured
+for all of its files or none, exactly as the original's `_stale` decides. Lua
+is not part of this: its instrumented suite runs in this run's own views.
+When nothing is fresh (no stamp, or the tree changed since crapper ran) no
+line is printed and every language is regenerated as before.
 
 `--coverage-command` never consults the stamp: the command is always run, even
 when a stamp recorded for the same command would match. That is a known
