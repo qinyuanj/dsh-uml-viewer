@@ -9,7 +9,7 @@
 //! `quality_core::process`; there is no second containment implementation.
 //!
 //! A call's `--copy` paths are placed beside the copy at their real
-//! project-relative position (ADR 0015): a dependency outside the project root,
+//! project-relative position (ADR 0016): a dependency outside the project root,
 //! such as the contracts a package imports from its repository's root, is
 //! otherwise missing from the copy and the baseline fails before any mutant.
 use crate::{

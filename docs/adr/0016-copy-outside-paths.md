@@ -1,4 +1,4 @@
-# 0015 把项目根之外的路径复制进每个 Windows 副本
+# 0016 把项目根之外的路径复制进每个 Windows 副本
 
 **Status**: accepted
 
@@ -68,7 +68,7 @@ Windows 的 copy 隔离把项目根复制进私有 scratch slot（`<slot>/projec
   会被当成 target 名；它已进入 `quality-dispatch` 的取值选项表。
 - 基线仍在真实项目树里跑，那里兄弟路径本来就可见，所以 `--copy` 不需要基线侧行为：
   选项在两个平台上都在任何命令之前校验，只影响副本。
-- 副本是约定，不是沙箱（ADR 0010）。`--copy` 不扩大这个断言：项目外的绝对路径对命令
+- 副本是约定，不是沙箱（[ADR 0010](0010-native-windows-delivery-platform.md)）。`--copy` 不扩大这个断言：项目外的绝对路径对命令
   依然可见，而通过被复制路径的写入只改该命令的副本，不改真实树。
 - 测试：解析器有一张参数矩阵（`isolation_outside_tests.rs`）；Windows 集成用例在
   **不带**开关时基线失败，在**带**两条目录加一个文件时杀死全部变异体；Linux 用例带
