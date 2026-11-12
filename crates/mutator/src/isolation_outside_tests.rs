@@ -119,15 +119,54 @@ fn a_missing_outside_path_is_a_usage_error() {
     assert!(error.contains("does not exist"), "{error}");
 }
 
+/// A project directory that is not named `project` still cannot be copied back
+/// in: resolving the path lands on the root itself, where the copy already has
+/// every byte.
 #[test]
 fn a_path_that_resolves_back_inside_the_project_is_a_usage_error() {
-    let (_temporary, project, _parent) = temporary();
-    // The project's own parent entry for the project is the root again.
-    let error = resolve_outside(&project, &request(&["../project"])).unwrap_err();
+    let temporary = scratch::Root::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let parent = temporary.path().to_path_buf();
+    let project = parent.join("workspace");
+    fs::create_dir(&project).unwrap();
+    let error = resolve_outside(&project, &request(&["../workspace"])).unwrap_err();
     assert!(
         error.contains("resolves back inside the project root"),
         "{error}"
     );
+    assert!(error.contains("../workspace"), "{error}");
+}
+
+/// The slot's own entries are never a `--copy` position: the copy places the
+/// project at `project`, redirects the homes to `home`, `temp` and `appdata`,
+/// and recreates `output` and `mutation` for every command. Whatever a
+/// `--copy` placed there would be deleted or merged over before the command
+/// that needs it read it, so the argument is a usage error. The decision is
+/// lexical, before any filesystem work, so a reserved name that does not exist
+/// is never reported as a missing path.
+#[test]
+fn a_reserved_slot_name_is_a_usage_error_not_a_missing_path() {
+    let (_temporary, project, _parent) = temporary();
+    for name in ["project", "home", "temp", "appdata", "output", "mutation"] {
+        for value in [format!("../{name}"), format!("../{name}/nested/file")] {
+            let error = resolve_outside(&project, &request(&[value.as_str()])).unwrap_err();
+            assert!(error.contains("reserves for its slot"), "{value}: {error}");
+            assert!(error.contains(&value), "{value}: {error}");
+            assert!(!error.contains("does not exist"), "{value}: {error}");
+        }
+    }
+}
+
+/// A Windows copy places the outside path on a case-insensitive filesystem, so
+/// `../Output` is the slot's `output` there; both platforms refuse it, because
+/// Linux validation exists to refuse the same arguments.
+#[test]
+fn a_reserved_slot_name_is_refused_in_any_case() {
+    let (_temporary, project, _parent) = temporary();
+    for value in ["../Output", "../PROJECT/nested", "../AppData"] {
+        let error = resolve_outside(&project, &request(&[value])).unwrap_err();
+        assert!(error.contains("reserves for its slot"), "{value}: {error}");
+        assert!(error.contains(value), "{value}: {error}");
+    }
 }
 
 /// A directory link outside the project that points back in, as a Windows
