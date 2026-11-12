@@ -250,6 +250,14 @@ fields with `validResult: false` and an explanatory reason; a host refusal has
 `exitCode: null`. Mutation takes every target in one array and forwards them in
 one argv, because mutator shares one coverage run and baseline across them.
 
+A tool that really ran and failed explains itself on stderr, which the record
+does not carry (#39). The host fills the same `reason` field from it — the last
+10 non-blank stderr lines, capped at 2000 characters — so `reason` names the
+failure without a second, direct run of the binary. The wording stays distinct
+from the refusal path (`uml-viewer quality <operation> failed (exit N)`), a tool
+that wrote only blank lines keeps `reason: null`, and no record field or ADR
+0001 version changes.
+
 Quality calls in one session are queued FIFO, and `uml_ir` joins the same
 queue, so it sees the outcome of a quality call already in progress. A
 terminated quality child is reported as terminated, never as valid, whatever

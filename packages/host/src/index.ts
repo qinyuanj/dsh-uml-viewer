@@ -218,13 +218,13 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
   }
 
   registerQuality('crap', 'uml_crap',
-    'Refresh CRAP quality snapshots for the session project by running `uml-viewer quality crap`. Writes project metrics; in a read-only sandbox it refuses without starting the binary. Returns the binary’s version-1 quality record, including the actual exit code, validResult and any refusal reason. A validResult false result blocks uml_ir until a later quality call succeeds.',
+    'Refresh CRAP quality snapshots for the session project by running `uml-viewer quality crap`. Writes project metrics; in a read-only sandbox it refuses without starting the binary. Returns the binary’s version-1 quality record, including the actual exit code, validResult and the reason it failed — a dispatcher refusal, or the bounded stderr tail of the tool itself. A validResult false result blocks uml_ir until a later quality call succeeds.',
     CRAP_PARAMETERS, 10 * 60_000)
   registerQuality('mutate', 'uml_mutate',
-    'Run differential mutation for the session project by running `uml-viewer quality mutate`. Pass every target file in the one `targets` array so they share one coverage run and baseline, as the binary requires. Writes mutation snapshots; in a read-only sandbox it refuses without starting the binary. Returns the binary’s version-1 quality record, including the actual exit code, validResult and any refusal reason. A validResult false result blocks uml_ir until a later quality call succeeds.',
+    'Run differential mutation for the session project by running `uml-viewer quality mutate`. Pass every target file in the one `targets` array so they share one coverage run and baseline, as the binary requires. Writes mutation snapshots; in a read-only sandbox it refuses without starting the binary. Returns the binary’s version-1 quality record, including the actual exit code, validResult and the reason it failed — a dispatcher refusal, or the bounded stderr tail of the tool itself. A validResult false result blocks uml_ir until a later quality call succeeds.',
     MUTATE_PARAMETERS, 60 * 60_000)
   registerQuality('dry', 'uml_dry',
-    'Report duplicate structure for the session project by running `uml-viewer quality dry`; the report is written to project metrics. In a read-only sandbox it refuses without starting the binary. Returns the binary’s version-1 quality record, including the actual exit code, validResult and any refusal reason. A validResult false result blocks uml_ir until a later quality call succeeds.',
+    'Report duplicate structure for the session project by running `uml-viewer quality dry`; the report is written to project metrics. In a read-only sandbox it refuses without starting the binary. Returns the binary’s version-1 quality record, including the actual exit code, validResult and the reason it failed — a dispatcher refusal, or the bounded stderr tail of the tool itself. A validResult false result blocks uml_ir until a later quality call succeeds.',
     DRY_PARAMETERS, 10 * 60_000)
 
   ctx.effect(() => services.tools.register({

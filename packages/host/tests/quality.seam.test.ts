@@ -198,13 +198,53 @@ it('returns a binary refusal record and blocks IR with its reason', async () => 
   const { tool } = await setup({
     quality: { exitCode: 1, validResult: false, reason },
   })
-  expect(await tool('uml_dry', {})).toMatchObject({
+  const refusal = await tool('uml_dry', {}) as unknown as Record<string, unknown>
+  expect(refusal).toMatchObject({
     operation: 'dry', exitCode: 1, validResult: false, reason,
   })
+  // The dispatcher's own wording travels unchanged; a failed tool is worded differently.
+  expect(refusal.reason).not.toMatch(/failed \(exit/)
   expect(await tool('uml_ir', {})).toMatchObject({
     status: 'refused', validResult: false,
     reason: expect.stringMatching(new RegExp(`latest quality call.*${reason}`)),
   })
+})
+
+it('carries the failed tool’s own stderr in reason, and IR names it too', async () => {
+  const { tool } = await setup({
+    quality: { exitCode: 1, stderr: 'busted: failed running the specified helper (test/busted_helper.lua)\nCoverage failed: Lua tests exited 1 in coverage shard 12 of 12\n' },
+  })
+  const result = await tool('uml_crap', {}) as unknown as Record<string, unknown>
+  expect(result).toMatchObject({ operation: 'crap', exitCode: 1, validResult: false })
+  expect(result.reason).toEqual(expect.stringMatching(/uml-viewer quality crap failed \(exit 1\)/))
+  expect(result.reason).toEqual(expect.stringContaining('busted: failed running the specified helper'))
+  expect(result.reason).toEqual(expect.stringContaining('Coverage failed: Lua tests exited 1 in coverage shard 12 of 12'))
+  expect(await tool('uml_ir', {})).toMatchObject({
+    status: 'refused', validResult: false,
+    reason: expect.stringContaining('Coverage failed: Lua tests exited 1 in coverage shard 12 of 12'),
+  })
+})
+
+it('bounds the stderr tail a failed tool contributes to reason', async () => {
+  const stderr = Array.from({ length: 40 }, (_, index) => `shard ${index + 1} failed`).join('\n') + '\n'
+  const { tool } = await setup({ quality: { exitCode: 2, stderr } })
+  const result = await tool('uml_crap', {}) as unknown as Record<string, unknown>
+  const reason = String(result.reason)
+  expect(reason).toContain('uml-viewer quality crap failed (exit 2)')
+  expect(reason).toContain('last 10 of 40 stderr lines')
+  expect(reason).toContain('shard 40 failed')
+  expect(reason).not.toContain('shard 30 failed')
+  expect(reason.length).toBeLessThan(4000)
+})
+
+it('keeps reason null when the tool itself succeeded, whatever it logged', async () => {
+  const { tool } = await setup({ quality: { exitCode: 0, stderr: 'warning: 3 classes have no CRAP data\n' } })
+  expect(await tool('uml_crap', {})).toMatchObject({ validResult: true, reason: null })
+})
+
+it('keeps reason null for a failed tool that wrote nothing to stderr', async () => {
+  const { tool } = await setup({ quality: { exitCode: 1, stderr: '\n\n' } })
+  expect(await tool('uml_crap', {})).toMatchObject({ exitCode: 1, validResult: false, reason: null })
 })
 
 it('never turns signal termination into a valid quality result', async () => {
