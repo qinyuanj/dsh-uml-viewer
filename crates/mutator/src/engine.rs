@@ -258,6 +258,25 @@ fn collect_reports(directory: &Path, records: &mut Records) {
     }
 }
 
+/// crapper's LCOV reports for the languages its stamp calls fresh.
+///
+/// Only a fresh language may be read from disk: a stale language's report is
+/// an earlier run's result, and reading it would let an old `lcov.info` decide
+/// this run's coverage when the regeneration silently wrote nothing. Lua is
+/// never gated — the stamp does not speak for it; its own instrumented suite
+/// ran in this run.
+fn collect_crapper_reports(directory: &Path, fresh: &[&str], records: &mut Records) {
+    let mut crapper = Records::default();
+    collect_reports(directory, &mut crapper);
+    for (source, lines) in crapper.iter() {
+        let reusable = language_of(Path::new(source))
+            .is_some_and(|language| language == Language::Lua || fresh.contains(&language.name()));
+        if reusable {
+            records.insert(source.clone(), lines.clone());
+        }
+    }
+}
+
 /// Everything one run's selection reads: the LCOV records of the languages
 /// that report through LCOV, and the Lua spec index per module.
 #[derive(Default)]
@@ -333,8 +352,8 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
             // crapper's stamp decides which of them are regenerated.
             let (stale, fresh) = stale_coverage_files(root, files, None);
             report_reused(&fresh);
-            collect_reports(&root.join("coverage"), &mut coverage.records);
-            collect_reports(&root.join("target/coverage"), &mut coverage.records);
+            collect_crapper_reports(&root.join("coverage"), &fresh, &mut coverage.records);
+            collect_crapper_reports(&root.join("target/coverage"), &fresh, &mut coverage.records);
             python_coverage(root, &stale, &mut coverage.records)?;
             typescript_coverage(root, &stale, &mut coverage.records)?;
             collect_native(root, files, Some(&stale), &mut coverage)?;
@@ -382,8 +401,8 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
     // the run says so, as the original and the help text promise.
     let (stale, fresh) = stale_coverage_files(root, files, None);
     report_reused(&fresh);
-    collect_reports(&root.join("coverage"), &mut coverage.records);
-    collect_reports(&root.join("target/coverage"), &mut coverage.records);
+    collect_crapper_reports(&root.join("coverage"), &fresh, &mut coverage.records);
+    collect_crapper_reports(&root.join("target/coverage"), &fresh, &mut coverage.records);
     rust_coverage(root, &stale, &mut coverage.records)?;
     python_coverage(root, &stale, &mut coverage.records)?;
     typescript_coverage(root, &stale, &mut coverage.records)?;
