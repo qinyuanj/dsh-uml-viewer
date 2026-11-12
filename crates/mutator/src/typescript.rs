@@ -91,25 +91,11 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Option<Covera
     let custom = scripts.is_some_and(|scripts| scripts.contains_key("coverage"));
     // A Windows command runs in a copy of the project, so every path it writes
     // must be relative to the package it runs in: an absolute path would name
-    // the real project and write there. `rust_coverage` follows the same rule.
-    // A Linux view is mounted at the real path, so its scripts keep absolute
-    // ones and the original's POSIX text.
-    let reports = if cfg!(windows) {
-        crate::engine::relative_from(&resolve(package), &resolve(directory))
-            .unwrap_or_else(|| resolve(directory))
-            .display()
-            .to_string()
-    } else {
-        directory.to_string_lossy().into_owned()
-    };
-    let report_text = if cfg!(windows) {
-        crate::engine::relative_from(&resolve(package), &resolve(&report))
-            .unwrap_or_else(|| resolve(&report))
-            .display()
-            .to_string()
-    } else {
-        report.to_string_lossy().into_owned()
-    };
+    // the real project and write there. `engine::command_path` is the same rule
+    // the Python script follows; a Linux view is mounted at the real path, so
+    // its scripts keep absolute ones and the original's POSIX text.
+    let reports = crate::engine::command_path(package, directory);
+    let report_text = crate::engine::command_path(package, &report);
     // `if ... (block)` before a `&` makes cmd read the rest of the line as the
     // block's tail, so every `if` here is parenthesized and sits last.
     let mut script = if cfg!(windows) {
