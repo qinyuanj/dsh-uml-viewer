@@ -4,7 +4,7 @@ use quality_core::{
     grammar::{Grammar, Node},
     language::{Language, is_test_file, language_of},
     paths::{relative_posix, resolve},
-    process::shlex_quote,
+    process::{cmd_quote, shlex_quote},
     runner::{modules_with, nearest},
     serde_json::{self, Value},
 };
@@ -89,7 +89,34 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Option<Covera
     let directory = report.parent().expect("coverage report directory");
     let quoted = |path: &Path| shlex_quote(&path.to_string_lossy());
     let custom = scripts.is_some_and(|scripts| scripts.contains_key("coverage"));
-    let mut script = format!("rm -rf -- {0} && mkdir -p {0}\n", quoted(directory));
+    // A Windows command runs in a copy of the project, so every path it writes
+    // must be relative to the package it runs in: an absolute path would name
+    // the real project and write there. `rust_coverage` follows the same rule.
+    // A Linux view is mounted at the real path, so its scripts keep absolute
+    // ones and the original's POSIX text.
+    let reports = if cfg!(windows) {
+        crate::engine::relative_from(&resolve(package), &resolve(directory))
+            .unwrap_or_else(|| resolve(directory))
+            .display()
+            .to_string()
+    } else {
+        directory.to_string_lossy().into_owned()
+    };
+    let report_text = if cfg!(windows) {
+        crate::engine::relative_from(&resolve(package), &resolve(&report))
+            .unwrap_or_else(|| resolve(&report))
+            .display()
+            .to_string()
+    } else {
+        report.to_string_lossy().into_owned()
+    };
+    // `if ... (block)` before a `&` makes cmd read the rest of the line as the
+    // block's tail, so every `if` here is parenthesized and sits last.
+    let mut script = if cfg!(windows) {
+        format!("rmdir /s /q \"{reports}\" 2>nul & mkdir \"{reports}\" 2>nul")
+    } else {
+        format!("rm -rf -- {0} && mkdir -p {0}\n", quoted(directory))
+    };
     let command = if custom {
         vec!["npm".into(), "run".into(), "coverage".into()]
     } else {
@@ -115,12 +142,24 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Option<Covera
                     || "@vitest/coverage-v8".into(),
                     |version| format!("@vitest/coverage-v8@{version}"),
                 );
-                script.push_str(&format!(
-                    "echo 'Installing {spec} so Vitest can write LCOV. The install happens in the view; package.json and the lockfile are never changed in the project.' >&2\n\
-                     npm install --no-save --no-package-lock {spec} || exit 0\n"
-                ));
+                if cfg!(windows) {
+                    script.push_str(&format!(
+                        " & echo Installing {spec} so Vitest can write LCOV. The install happens in the copy; package.json and the lockfile are never changed in the project. 1>&2 & npm install --no-save --no-package-lock {spec} || (exit /b 0)"
+                    ));
+                } else {
+                    script.push_str(&format!(
+                        "echo 'Installing {spec} so Vitest can write LCOV. The install happens in the view; package.json and the lockfile are never changed in the project.' >&2\n\
+                         npm install --no-save --no-package-lock {spec} || exit 0\n"
+                    ));
+                }
             }
-            let binary = package.join("node_modules/.bin/vitest");
+            // npm writes a `vitest.cmd` shim beside the POSIX one; cmd.exe can
+            // only run that one.
+            let binary = package.join("node_modules/.bin").join(if cfg!(windows) {
+                "vitest.cmd"
+            } else {
+                "vitest"
+            });
             let mut command = if binary.is_file() {
                 vec![binary.to_string_lossy().into_owned()]
             } else {
@@ -130,7 +169,7 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Option<Covera
                 "run".into(),
                 "--coverage".into(),
                 "--coverage.reporter=lcov".into(),
-                format!("--coverage.reportsDirectory={}", directory.display()),
+                format!("--coverage.reportsDirectory={reports}"),
                 "--coverage.reportOnFailure=true".into(),
             ]);
             let package = resolve(package);
@@ -150,30 +189,47 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Option<Covera
             ["npx", "--yes", "c8", "--reporter=lcov", "--reports-dir"]
                 .into_iter()
                 .map(str::to_string)
-                .chain([
-                    directory.to_string_lossy().into_owned(),
-                    "npm".into(),
-                    "test".into(),
-                ])
+                .chain([reports.clone(), "npm".into(), "test".into()])
                 .collect()
         }
     };
+    // cmd has no line separators inside one `/c` string, so the whole script is
+    // one `&` chain; each failure guard is a `||` block, which cmd keeps whole.
     let rendered = command
         .iter()
-        .map(|arg| shlex_quote(arg))
+        .map(|arg| {
+            if cfg!(windows) {
+                cmd_quote(arg)
+            } else {
+                shlex_quote(arg)
+            }
+        })
         .collect::<Vec<_>>()
         .join(" ");
-    script.push_str(&format!(
-        "{rendered}\ncode=$?\n\
-         if [ \"$code\" != 0 ]; then echo \"TypeScript coverage exited $code in {}. TypeScript coverage will be N/A.\" >&2; exit 0; fi\n",
-        package.display()
-    ));
-    if !custom {
+    if cfg!(windows) {
         script.push_str(&format!(
-            "if [ ! -f {} ]; then echo 'TypeScript coverage wrote no {}. TypeScript coverage will be N/A.' >&2; fi\n",
-            quoted(&report),
-            report.display()
+            " & {rendered} || (echo TypeScript coverage failed in {}. TypeScript coverage will be N/A. 1>&2 & exit /b 0)",
+            package.display()
         ));
+        if !custom {
+            script.push_str(&format!(
+                " & ( if not exist \"{report_text}\" (echo TypeScript coverage wrote no {report_text}. TypeScript coverage will be N/A. 1>&2) )"
+            ));
+        }
+        script.push_str(" & exit /b 0");
+    } else {
+        script.push_str(&format!(
+            "{rendered}\ncode=$?\n\
+             if [ \"$code\" != 0 ]; then echo \"TypeScript coverage exited $code in {}. TypeScript coverage will be N/A.\" >&2; exit 0; fi\n",
+            package.display()
+        ));
+        if !custom {
+            script.push_str(&format!(
+                "if [ ! -f {} ]; then echo 'TypeScript coverage wrote no {}. TypeScript coverage will be N/A.' >&2; fi\n",
+                quoted(&report),
+                report.display()
+            ));
+        }
     }
     Some(Coverage {
         script,

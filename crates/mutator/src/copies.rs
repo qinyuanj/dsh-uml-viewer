@@ -7,17 +7,24 @@
 //! `TEMP`, `TMP`, `APPDATA` and `LOCALAPPDATA` point beside the copy. The
 //! command's process tree is #3's kill-on-close Job Object in
 //! `quality_core::process`; there is no second containment implementation.
+//!
+//! A call's `--copy` paths are placed beside the copy at their real
+//! project-relative position (ADR 0015): a dependency outside the project root,
+//! such as the contracts a package imports from its repository's root, is
+//! otherwise missing from the copy and the baseline fails before any mutant.
 use crate::{
     interrupts,
-    isolation::{Completed, Failure},
+    isolation::{self, Completed, Failure},
     scratch,
 };
 use quality_core::process::{self, Ended, Program};
 use std::{
+    collections::BTreeMap,
     ffi::OsString,
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
+    sync::{Mutex, MutexGuard, OnceLock},
     time::{Duration, Instant},
 };
 
@@ -58,6 +65,35 @@ pub fn describe() -> &'static str {
     "copy (a fresh copy of the project per command)"
 }
 
+/// The outside paths one call declared, keyed by the project root it runs on.
+///
+/// Every view of a call must show the same `--copy` paths, and views are created
+/// in more places than the CLI reaches (coverage, baseline, mutants), so the set
+/// is recorded once per call instead of threaded through each one. A root keeps
+/// only its latest call: a call without `--copy` clears it, and a slot deletes
+/// its previous command's copies first, so nothing is inherited.
+pub fn remember_outside(root: &Path, outside: &[isolation::Outside]) {
+    let mut registered = registry();
+    if outside.is_empty() {
+        registered.remove(root);
+    } else {
+        registered.insert(root.to_path_buf(), outside.to_vec());
+    }
+}
+
+/// The outside paths this call declared for `root`; empty without `--copy`.
+pub fn outside(root: &Path) -> Vec<isolation::Outside> {
+    registry().get(root).cloned().unwrap_or_default()
+}
+
+fn registry() -> MutexGuard<'static, BTreeMap<PathBuf, Vec<isolation::Outside>>> {
+    static OUTSIDE: OnceLock<Mutex<BTreeMap<PathBuf, Vec<isolation::Outside>>>> = OnceLock::new();
+    OUTSIDE
+        .get_or_init(|| Mutex::new(BTreeMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// One slot of the pool: a copy per command, plus the file a mutant carries.
 pub struct Slot {
     directory: PathBuf,
@@ -89,6 +125,9 @@ impl Slot {
         let project = self.project();
         scratch::private_directory(&project)?;
         copy_tree(root, &project, &hide_build_output(root))?;
+        for outside in outside(root) {
+            self.place(&outside)?;
+        }
         for (_, folder) in REDIRECTED {
             fs::create_dir_all(self.home().join(folder))?;
         }
@@ -113,6 +152,34 @@ impl Slot {
             .strip_prefix(root)
             .map_err(|_| io::Error::other("the command's directory is outside the project"))?;
         Ok(self.project().join(relative))
+    }
+
+    /// Place one `--copy` path beside the copy, where the copy's `..` reaches it.
+    ///
+    /// The slot was just wiped, so the bytes are copied again from the real path
+    /// for every command: a mutant's write to `..` cannot greet the next
+    /// command, and an outside path that changed mid-call is seen as it is now.
+    /// Nothing is left behind when the call ends, because the whole slot is
+    /// inside the scratch root the pool removes.
+    fn place(&self, outside: &isolation::Outside) -> io::Result<()> {
+        let source = &outside.source;
+        let destination = self.directory.join(&outside.relative);
+        let target = format!("{} beside the copy", source.display());
+        // The same link rules as the project copy: a linked directory is
+        // refused, a linked file is materialised as independent bytes.
+        if fs::metadata(source)
+            .map_err(|error| cannot_place(&target, error))?
+            .is_dir()
+        {
+            fs::create_dir_all(&destination).map_err(|error| cannot_place(&target, error))?;
+            copy_tree(source, &destination, &[]).map_err(|error| cannot_place(&target, error))?;
+        } else {
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent).map_err(|error| cannot_place(&target, error))?;
+            }
+            fs::copy(source, &destination).map_err(|error| cannot_place(&target, error))?;
+        }
+        Ok(())
     }
 
     pub fn run(
@@ -245,6 +312,15 @@ impl Slot {
 
 fn message(error: io::Error) -> Failure {
     Failure::Message(error.to_string())
+}
+
+/// A `--copy` path that could not be placed names itself: a missing dependency
+/// must never look like a broken project.
+fn cannot_place(target: &str, error: io::Error) -> io::Error {
+    io::Error::new(
+        error.kind(),
+        format!("Copy isolation cannot place {target}: {error}"),
+    )
 }
 
 /// `copy_tree`: a hidden directory becomes empty, a linked directory is

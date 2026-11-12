@@ -12,6 +12,21 @@ in the original. Other mutation languages are not silently substituted.
 A snapshot is byte-identical whatever the worker count: outcomes are keyed by
 mutation id and forms are sorted, so parallel execution cannot reorder the EDN.
 The acceptance test compares every published snapshot under `--max-workers 3`
+
+## Paths outside the project root (`--copy`)
+
+A Linux view is mounted **over the real project root** in its own namespace, so
+`..` from the view reaches the real parent directory: a relative path beside the
+project (`../contracts`) already resolves, and the baseline that imports it
+passes without help. `--copy <path>` (ADR 0015) is nevertheless accepted and
+validated on Linux, with the same usage errors as on Windows — an absolute path,
+a path inside the project root, more than one leading `..`, a path that resolves
+back inside the project root, or a missing path. Nothing is copied and no
+snapshot changes: the option exists for copy isolation, where a copy of the
+project root has no siblings. Its acceptance test compares the snapshot bytes of
+a run with and without the option and asserts that `..` is the real parent
+directory inside the view.
+
 ## Lua suites (Busted + LuaCov/cluacov)
 
 For a `.lua` source the test command is the generated Busted argv, not a shell
@@ -187,7 +202,35 @@ A custom `npm run coverage` report is read from the root's `coverage/lcov.info`
 without anchoring, as the original's `load_bundle` does. A run with only
 `--test-command` still measures Python and TypeScript coverage with the
 project's own suite, as the original's `_prepare_coverage` does; the Rust path
-keeps this port's earlier behavior.
+keeps this port's earlier behavior. Both paths consult crapper's stamp first
+(next section), so only the languages it did not already measure are rerun.
+
+## crapper's coverage stamp
+
+The standard path (no `--coverage-command`, no `--test-command`) and the
+`--test-command`-only path read `target/coverage/crapper-stamp.json` before
+collecting anything — the version-1 record `crap` writes after its own coverage
+run. A language whose reports crapper produced for these files, with the same
+`--coverage-command`, from the tree as it is now is reused: its LCOV reports are
+read from the project's `coverage/lcov.info` and `target/coverage/**/lcov.info`,
+and Go/Java/Clojure read their native reports exactly as the baseline does. The
+run names what it reused:
+
+```text
+Reusing typescript coverage from crapper's last run.
+```
+
+Language names are sorted and comma-separated, one line, on stderr, as the
+original prints it. Only the other languages are regenerated, in the usual
+per-package views. One stale file makes every file of that language stale, so a
+language is measured for all of its files or none, exactly as the original's
+`_stale` decides. Lua is not part of this: its instrumented suite runs in this
+run's own views. When nothing is fresh (no stamp, or the tree changed since
+crapper ran) no line is printed and every language is regenerated as before.
+
+`--coverage-command` never consults the stamp: the command is always run, even
+when a stamp recorded for the same command would match. That is a known
+deviation from the original, which reuses it.
 
 `fixtures/mutate/{python,typescript}` hold the oracle projects and the pinned
 original's raw snapshot bytes; `scripts/mutate_goldens_python_ts.py` regenerates

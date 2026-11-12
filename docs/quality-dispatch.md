@@ -10,7 +10,10 @@ uml-viewer quality <crap|mutate|dry> [--root <path>] [args]
 
 `--root` is the dispatcher's option and must directly follow the operation.
 Every later argument is forwarded verbatim; in particular an `operations`
-command may receive its own `--root`.
+command may receive its own `--root`. A value option the dispatcher knows
+(`VALUES` in `crates/quality-dispatch/src/config.rs`) keeps its value with it, so
+`quality mutate --copy ../contracts app.py` forwards one option and one target
+instead of reading the outside path as a target name.
 
 The dispatcher reads `<root>/uml-quality.json` (default root: the current
 directory) and runs the requested operation:

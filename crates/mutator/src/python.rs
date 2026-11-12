@@ -158,43 +158,97 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Coverage {
     let report = quality_core::runner::coverage_report(root, package, "python");
     let directory = report.parent().expect("coverage report directory");
     let data = directory.join(".coverage");
-    let py = posix(&interpreter(package));
-    let py = quality_core::process::shlex_quote(&py);
+    // A Windows command runs in a copy of the project, so every path it writes
+    // must be relative to the package it runs in: an absolute path would name
+    // the real project and write there. `rust_coverage` follows the same rule.
+    // The interpreter is a read, so it stays the real project's absolute path.
+    let command_path = |path: &Path| {
+        if cfg!(windows) {
+            crate::engine::relative_from(&resolve(package), &resolve(path))
+                .unwrap_or_else(|| resolve(path))
+                .display()
+                .to_string()
+        } else {
+            path.to_string_lossy().into_owned()
+        }
+    };
+    let directory_text = command_path(directory);
+    let report_text = command_path(&report);
+    let data_text = command_path(&data);
+    let py_path = interpreter(package);
+    let py = if cfg!(windows) {
+        quality_core::process::cmd_quote(&py_path.display().to_string())
+    } else {
+        quality_core::process::shlex_quote(&posix(&py_path))
+    };
     let source = coverage_sources(package, files);
     let source = if source.is_empty() {
         String::new()
+    } else if cfg!(windows) {
+        format!(" --source={}", quality_core::process::cmd_quote(&source))
     } else {
         format!(" --source={}", quality_core::process::shlex_quote(&source))
     };
     // One command per branch, so the generated script never re-parses an
     // argument list: no shell word splitting of a test command.
-    let run = format!(
-        "{py} -m coverage run --data-file={data}{source}",
-        data = quote(&data)
-    );
+    let run = if cfg!(windows) {
+        format!("{py} -m coverage run --data-file=\"{data_text}\"{source}")
+    } else {
+        format!(
+            "{py} -m coverage run --data-file={data}{source}",
+            data = quote(&data)
+        )
+    };
     let tests = if uses_pytest(package) {
         // Mutator never installs tools: without pytest the original's install
         // fallback becomes crapper's unittest fallback.
-        format!(
-            "if {py} -c 'import pytest' >/dev/null 2>&1; then\n  {run} -m pytest\nelse\n  echo 'pytest is missing in {package}. Falling back to unittest.' >&2\n  {run} -m unittest discover -s .\nfi",
-            package = package.display(),
-        )
+        if cfg!(windows) {
+            // `if not errorlevel 1` is read when it runs, unlike `%ERRORLEVEL%`,
+            // which cmd expands before the first command of the line runs.
+            format!(
+                "{py} -c \"import pytest\" 2>nul & ( if not errorlevel 1 ({run} -m pytest) else (echo pytest is missing in {package}. Falling back to unittest. 1>&2 & {run} -m unittest discover -s .) )",
+                package = package.display(),
+            )
+        } else {
+            format!(
+                "if {py} -c 'import pytest' >/dev/null 2>&1; then\n  {run} -m pytest\nelse\n  echo 'pytest is missing in {package}. Falling back to unittest.' >&2\n  {run} -m unittest discover -s .\nfi",
+                package = package.display(),
+            )
+        }
     } else {
         format!("{run} -m unittest discover -s .")
     };
-    let script = format!(
-        "mkdir -p {directory}\nrm -f -- {report} {data}\n\
-         if ! {py} -c 'import coverage' >/dev/null 2>&1; then echo 'coverage is missing in {package}; {interpreter} cannot import it. Python coverage will be N/A.' >&2; exit 0; fi\n\
-         {tests}\ncode=$?\n\
-         if [ ! -f {data} ]; then if [ \"$code\" != 0 ]; then echo \"Python coverage exited $code in {package}. Python coverage will be N/A.\" >&2; fi; exit 0; fi\n\
-         if ! {py} -m coverage lcov --data-file={data} -o {report}; then echo 'coverage lcov failed in {package}. Python coverage will be N/A.' >&2; exit 0; fi\n\
-         if [ \"$code\" != 0 ]; then echo \"Python tests exited $code in {package}. Coverage was still recorded.\" >&2; fi\n",
-        directory = quote(directory),
-        report = quote(&report),
-        data = quote(&data),
-        package = package.display(),
-        interpreter = posix(&interpreter(package)),
-    );
+    let script = if cfg!(windows) {
+        // cmd has no line separators inside one `/c` string, so the script is
+        // one `&` chain; each failure guard is a `||` block, which cmd keeps
+        // whole, and the last check is a parenthesized `if`.
+        format!(
+            "mkdir \"{directory}\" 2>nul & del /f /q \"{report}\" \"{data}\" 2>nul & \
+             {py} -c \"import coverage\" 2>nul || (echo coverage is missing in {package}; {interpreter} cannot import it. Python coverage will be N/A. 1>&2 & exit /b 0) & \
+             {tests} & \
+             {py} -m coverage lcov --data-file=\"{data}\" -o \"{report}\" & \
+             ( if not exist \"{report}\" (echo Python coverage wrote no {report}. Python coverage will be N/A. 1>&2) ) & exit /b 0",
+            directory = directory_text,
+            report = report_text,
+            data = data_text,
+            package = package.display(),
+            interpreter = py_path.display(),
+        )
+    } else {
+        format!(
+            "mkdir -p {directory}\nrm -f -- {report} {data}\n\
+             if ! {py} -c 'import coverage' >/dev/null 2>&1; then echo 'coverage is missing in {package}; {interpreter} cannot import it. Python coverage will be N/A.' >&2; exit 0; fi\n\
+             {tests}\ncode=$?\n\
+             if [ ! -f {data} ]; then if [ \"$code\" != 0 ]; then echo \"Python coverage exited $code in {package}. Python coverage will be N/A.\" >&2; fi; exit 0; fi\n\
+             if ! {py} -m coverage lcov --data-file={data} -o {report}; then echo 'coverage lcov failed in {package}. Python coverage will be N/A.' >&2; exit 0; fi\n\
+             if [ \"$code\" != 0 ]; then echo \"Python tests exited $code in {package}. Coverage was still recorded.\" >&2; fi\n",
+            directory = quote(directory),
+            report = quote(&report),
+            data = quote(&data),
+            package = package.display(),
+            interpreter = posix(&interpreter(package)),
+        )
+    };
     Coverage {
         script,
         report: report

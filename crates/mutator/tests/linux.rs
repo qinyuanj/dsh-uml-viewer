@@ -181,6 +181,57 @@ fn rust_snapshots_match_original_bytes_and_unchanged_differential_keeps_them() {
     );
 }
 
+/// `--copy` (ADR 0015) is accepted and copies nothing on Linux: the namespace
+/// view is mounted over the real project root, so `..` already reaches the real
+/// parent directory and a path beside the project is readable without help. The
+/// snapshot must be the same bytes with and without the option.
+#[test]
+fn copy_is_accepted_and_copies_nothing_in_the_namespace_view() {
+    let command = |fixture: &Fixture| {
+        let parent = quality_core::process::shlex_quote(&fixture.directory.display().to_string());
+        format!(
+            // The parent is the real one, not an overlay above it; the outside
+            // bytes are readable; and nothing was copied into the view.
+            "test \"$(readlink -f ..)\" = {parent} && \
+             grep -q copy-value ../contracts/value.txt && \
+             test ! -e \"$MUTATOR_VIEW/contracts\" && \
+             ! test -f \"$MUTATOR_VIEW/mutation\""
+        )
+    };
+    let plain = Fixture::new();
+    fs::create_dir_all(plain.directory.join("contracts")).unwrap();
+    fs::write(plain.directory.join("contracts/value.txt"), "copy-value\n").unwrap();
+    let without = command(&plain);
+    assert_eq!(
+        plain.run(&[
+            "--no-coverage",
+            "--mutate-all",
+            "--test-command",
+            &without,
+            "app/src/lib.rs"
+        ]),
+        ExitCode::SUCCESS
+    );
+    let copied = Fixture::new();
+    fs::create_dir_all(copied.directory.join("contracts")).unwrap();
+    fs::write(copied.directory.join("contracts/value.txt"), "copy-value\n").unwrap();
+    let with = command(&copied);
+    assert_eq!(
+        copied.run(&[
+            "--no-coverage",
+            "--mutate-all",
+            "--copy",
+            "../contracts",
+            "--test-command",
+            &with,
+            "app/src/lib.rs"
+        ]),
+        ExitCode::SUCCESS
+    );
+    let snapshot = |fixture: &Fixture| fs::read(fixture.root().join(".metrics/mutate/app.edn"));
+    assert_eq!(snapshot(&plain).unwrap(), snapshot(&copied).unwrap());
+}
+
 /// Acceptance: with `--max-workers N` for N > 1 every published snapshot is
 /// byte-identical to the single-worker run with the same injected clock. The
 /// comparison covers every file the two runs published, not a sample.

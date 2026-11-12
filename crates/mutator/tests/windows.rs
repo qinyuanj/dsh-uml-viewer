@@ -583,6 +583,125 @@ fn mutant_writes_reach_neither_the_project_nor_the_user_nor_a_later_mutant() {
     fixture.assert_no_scratch();
 }
 
+/// `--copy` (ADR 0015): copy isolation shows paths **outside** the project root
+/// beside every command's copy, at the position the copy's `..` reaches.
+///
+/// The three declared paths are the shape a package's quality gate needs: two
+/// directories (`../contracts`, `../docs/release`) and one file
+/// (`../server/Cargo.toml`), all beside the real project root and all missing
+/// from a copy without the option — that is the failing baseline the option
+/// exists to fix. One path is declared twice, which must stay one copy. As a
+/// mutant the command also writes under `../contracts`, and the real file must
+/// keep its bytes, because the write lands in that command's own copy.
+#[test]
+fn copy_brings_every_outside_path_beside_every_command_copy() {
+    let _serial = serial();
+    let fixture = Fixture::new();
+    let contracts = fixture.directory.join("contracts");
+    fs::create_dir_all(&contracts).unwrap();
+    fs::write(contracts.join("value.txt"), "copy-value\n").unwrap();
+    fs::create_dir_all(fixture.directory.join("docs/release")).unwrap();
+    fs::write(
+        fixture.directory.join("docs/release/web-changelog.md"),
+        "web-changelog\n",
+    )
+    .unwrap();
+    // A single file, whose parent directory does not exist beside the project
+    // yet: the copy has to create `server/` for it.
+    fs::create_dir_all(fixture.directory.join("server")).unwrap();
+    fs::write(
+        fixture.directory.join("server/Cargo.toml"),
+        "[package]\nversion = \"1.0.0\"\n",
+    )
+    .unwrap();
+    // A batch file, not one `&` line: `cmd` reads the rest of such a line as an
+    // `if`'s command, which would silently skip every check after the first.
+    let check = [
+        "@echo off",
+        r#"findstr /c:"copy-value" "..\contracts\value.txt" >nul"#,
+        "if errorlevel 1 exit /b 3",
+        r#"findstr /c:"web-changelog" "..\docs\release\web-changelog.md" >nul"#,
+        "if errorlevel 1 exit /b 3",
+        r#"findstr /c:"version" "..\server\Cargo.toml" >nul"#,
+        "if errorlevel 1 exit /b 3",
+        r#"if not exist "%MUTATOR_VIEW%\mutation" exit /b 0"#,
+        r#"echo mutant >> "..\contracts\value.txt""#,
+        "exit /b 1",
+        "",
+    ]
+    .join("\r\n");
+    fs::write(fixture.root().join("check.cmd"), check).unwrap();
+    let target = [
+        "--no-coverage",
+        "--mutate-all",
+        "--test-command",
+        "check.cmd",
+        "app/src/lib.rs",
+    ];
+    // Without the option a copy has no `contracts` beside it, so the baseline
+    // fails before any mutant runs. This is the failure the option fixes.
+    assert_eq!(fixture.run(&target), ExitCode::from(2));
+    assert!(!fixture.root().join(".metrics/mutate").exists());
+    // With them the baseline passes and every mutant is killed; the repeated
+    // value is one outside copy, not a usage error.
+    let with_copy = [
+        "--copy",
+        "../contracts",
+        "--copy",
+        "../docs/release",
+        "--copy",
+        "../server/Cargo.toml",
+        "--copy",
+        "../contracts",
+        "--no-coverage",
+        "--mutate-all",
+        "--test-command",
+        "check.cmd",
+        "app/src/lib.rs",
+    ];
+    assert_eq!(fixture.run(&with_copy), ExitCode::SUCCESS);
+    let snapshot = fs::read_to_string(fixture.root().join(".metrics/mutate/app.edn")).unwrap();
+    assert!(snapshot.contains(":isolation :copy"), "{snapshot}");
+    assert!(snapshot.contains(":killed 1"), "{snapshot}");
+    assert!(snapshot.contains(":survived 0"), "{snapshot}");
+    // Nothing reached the real tree: not the project, not an outside path.
+    assert_eq!(
+        fs::read_to_string(contracts.join("value.txt")).unwrap(),
+        "copy-value\n"
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.directory.join("server/Cargo.toml")).unwrap(),
+        "[package]\nversion = \"1.0.0\"\n"
+    );
+    for name in ["contracts", "docs", "server"] {
+        assert!(
+            !fixture.root().join(name).exists(),
+            "the copy's {name} must stay beside it, not inside the project"
+        );
+    }
+}
+
+/// The outside path cannot come back: a `--copy` path inside the project root
+/// is a usage error, and nothing runs before it is refused.
+#[test]
+fn a_copy_path_inside_the_project_is_refused_before_any_command() {
+    let _serial = serial();
+    let fixture = Fixture::new();
+    let marker = fixture.directory.join("ran.txt");
+    let command = format!("echo ran > {}", quoted(&marker));
+    let refused = [
+        "--no-coverage",
+        "--mutate-all",
+        "--test-command",
+        &command,
+        "--copy",
+        "app/src",
+        "app/src/lib.rs",
+    ];
+    assert_eq!(fixture.run(&refused), ExitCode::from(1));
+    assert!(!marker.exists(), "no command may run");
+}
+
 /// One coverage run and one baseline per (command, cwd), shared by every
 /// target file; each file still publishes its own snapshot.
 #[test]

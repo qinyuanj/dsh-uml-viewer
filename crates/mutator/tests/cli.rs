@@ -42,4 +42,16 @@ fn help_wins_over_unknown_options_and_usage_errors_fail() {
         ExitCode::from(1)
     );
     assert_eq!(run(&["--exclude", "../outside"]), ExitCode::from(1));
+    // `--copy` names a path outside the project root; the usage errors below are
+    // the same exit as every other usage error, on every platform.
+    assert_eq!(run(&["--copy"]), ExitCode::from(1));
+    assert_eq!(run(&["--copy", "../.."]), ExitCode::from(1));
+    assert_eq!(run(&["--copy", "contracts"]), ExitCode::from(1));
+    let absolute = std::env::temp_dir();
+    assert_eq!(
+        run(&["--copy", absolute.to_str().unwrap()]),
+        ExitCode::from(1)
+    );
+    let missing = format!("../mutator-cli-missing-{}", std::process::id());
+    assert_eq!(run(&["--copy", &missing]), ExitCode::from(1));
 }
