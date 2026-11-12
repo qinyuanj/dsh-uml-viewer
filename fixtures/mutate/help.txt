@@ -24,24 +24,28 @@ Options:
   --exclude <glob>              Leave out this project-relative path or glob.
                                 May be repeated. Applies to every selection.
   --copy <path>                 Show this outside path beside every command's
-                                copy at the same relative position: with
-                                --copy ../contracts, a command in the copy reads
+                                copy at the same relative position: with --copy
+                                ../contracts, a command in the copy reads
                                 ../contracts. May be repeated, in any order, and
                                 a path declared twice is one copy. The path is
                                 relative to --root, must exist, and must leave
                                 --root through a single leading ..; a path
-                                inside --root is a usage error because the
-                                copy already holds it, and so is the bare ..
-                                that names the project's parent directory
-                                itself rather than a path in it. A directory
-                                is copied as a tree, a file as one file, so
-                                ../server/Cargo.toml works on its own. Copy
-                                isolation needs this when a test reads a
-                                dependency beside the project, as a package
+                                inside --root is a usage error because the copy
+                                already holds it, and so is the bare .. that
+                                names the project's parent directory itself
+                                rather than a path in it. The slot's own names
+                                are reserved and refused too: a path whose first
+                                component is project, home, temp, appdata,
+                                output or mutation, in any case, would be
+                                deleted or merged over before the command reads
+                                it. A directory is copied as a tree, a file as
+                                one file, so ../server/Cargo.toml works on its
+                                own. Copy isolation needs this when a test reads
+                                a dependency beside the project, as a package
                                 whose tests read the repository root. Linux
-                                accepts and validates it, and copies nothing:
-                                a view is mounted over the real project root,
-                                so .. already reaches the real parent.
+                                accepts and validates it, and copies nothing: a
+                                view is mounted over the real project root, so
+                                .. already reaches the real parent.
   --scan                        List mutation sites. Do not run tests or
                                 write metrics.
   --mutate-all                  Run every covered site, including ones the
