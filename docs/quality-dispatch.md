@@ -51,7 +51,7 @@ caller reads one parseable line and keeps the report separate.
 | `crapScope` | `whole-tree` for a standard CRAP run; the declared `targets`/`whole-tree` for a CRAP override; `null` for mutate and dry. |
 | `configured` | `true` on the `operations` route, `false` on the standard route. |
 | `tool` | `crapper`, `mutator` or `dryer` on the standard route (also the tool a refusal attempted); `configured` on the `operations` route. |
-| `reason` | `null` when the tool ran; a nonempty explanation when the dispatcher refused before running it. |
+| `reason` | `null` when the tool ran and succeeded; a nonempty explanation when the dispatcher refused before running it. The host plugin fills it for a failed tool too (#39) — see below. |
 
 **`reason` distinguishes a refusal from a tool that really exited 1.** The
 Python dispatch wrote the record only after a command completed and so had no
@@ -59,6 +59,23 @@ such marker: a config, launch or scope refusal raised before any record was
 published. Here the record is the invocation's return value, so a refusal also
 produces one, with `reason` set, `validResult: false`, `exitCode: 1` and `tool`
 naming the attempted tool. Only `validResult: true` permits `uml_ir`.
+
+The binary's line leaves `reason` null for a tool that ran and failed: the
+tool's own report is on stderr, and the binary keeps the one stdout line a
+record. The plugin host (`packages/host/src/quality.ts`) therefore fills the
+same field from stderr when a tool really ran and `validResult` is false (#39),
+so the agent does not have to run the binary directly to learn why:
+
+```json
+{"version":1,"operation":"crap","projectRoot":"/p","exitCode":1,"validResult":false,"crapScope":"whole-tree","configured":false,"tool":"crapper","reason":"uml-viewer quality crap failed (exit 1)\nlast 10 of 40 stderr lines:\n…"}
+```
+
+The wording is deliberately not the refusal wording: a refusal reads as the
+dispatcher's own sentence, while a failed tool reads `uml-viewer quality
+<operation> failed (exit N)` followed by at most the last 10 non-blank stderr
+lines, capped at 2000 characters. A tool that wrote nothing but blank lines
+keeps `reason: null`. No field is added and ADR 0001 stays version 1; a
+non-null `reason` still always has `validResult: false`.
 
 `validResult` is per tool, never a generic rule: crapper `0`/`2` (2 = threshold
 finding after a valid snapshot), mutator `0`/`3` (3 = survivors with published

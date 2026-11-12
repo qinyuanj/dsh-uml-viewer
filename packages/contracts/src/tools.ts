@@ -149,9 +149,14 @@ export const IR_RESULT_SCHEMA = {
 }
 
 /** The stdout line of `uml-viewer quality <crap|mutate|dry>` (docs/quality-dispatch.md):
- * the version-1 record plus `reason`. A non-null `reason` means the dispatcher
- * refused before running `tool` (exit 1); null means the tool ran and
- * `exitCode` is its real exit (128+n after signal n). */
+ * the version-1 record plus `reason`. In the binary's own line a non-null
+ * `reason` means the dispatcher refused before running `tool` (exit 1); null
+ * means the tool ran and `exitCode` is its real exit (128+n after signal n).
+ *
+ * The host fills `reason` for one further case (#39): a tool that really ran
+ * and failed carries the bounded tail of its stderr there, so the record alone
+ * explains the failure. That never makes a failed record valid — `validResult`
+ * stays false, which is what the assertion below requires. */
 export interface QualityResult extends ToolResultRecord<QualityOperation> {
   exitCode: number
   reason: string | null
