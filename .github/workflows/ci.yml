@@ -174,8 +174,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      # The metacharacter fixture's stub fakes only the coverage script's
+      # pytest probe; its baseline really runs -m pytest, so pytest is a fixture
+      # toolchain too.
       - name: Python coverage fixture toolchain
-        run: python -m pip install coverage
+        run: python -m pip install coverage pytest
       - name: Mutation native Windows tests
         run: cargo test -p mutator --locked
       - name: Mutation integration tests

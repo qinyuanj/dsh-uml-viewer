@@ -114,7 +114,13 @@ impl Fixture {
     /// crapper's two products for this project: its LCOV report and the
     /// version-1 stamp that says the language is fresh for this tree.
     fn record_crapper_coverage(&self) {
-        let source = self.directory.join("src/book.ts");
+        // Record as crapper itself does: its runner resolves the root first, so
+        // the stamp's covered files are root-relative. An unresolved root — a
+        // Windows 8.3 name in TEMP, as on some runners — would store the files
+        // absolute, and the mutator's resolved-root freshness check would then
+        // call this fresh stamp stale and never read the report.
+        let root = quality_core::paths::resolve(&self.directory);
+        let source = root.join("src/book.ts");
         self.write(
             "target/coverage/typescript/lcov.info",
             &format!(
@@ -123,11 +129,11 @@ impl Fixture {
             ),
         );
         quality_core::stamp::record(
-            &self.directory,
+            &root,
             &[source],
             None,
             &[],
-            &quality_core::stamp::fingerprint(&self.directory),
+            &quality_core::stamp::fingerprint(&root),
         );
         assert!(
             quality_core::stamp::stamp_path(&self.directory).is_file(),
@@ -462,6 +468,14 @@ fn stub_interpreter(fixture: &Fixture, package: &str) {
 fn python_coverage_survives_metacharacters_in_the_package_path() {
     if !python_can("coverage") {
         skip("python with coverage.py is not on PATH");
+        return;
+    }
+    // The stub only fakes the coverage script's probe. The baseline still runs
+    // this package's real command, which pytest.ini selects: -m pytest on the
+    // real interpreter. Without pytest on the host that baseline exits 1, so
+    // the run reports a placement/baseline failure instead of the coverage.
+    if !python_can("pytest") {
+        skip("python with pytest is not on PATH: the baseline runs -m pytest");
         return;
     }
     let fixture = Fixture::new("python-metacharacters");
