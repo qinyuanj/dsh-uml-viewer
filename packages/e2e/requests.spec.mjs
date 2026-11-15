@@ -69,9 +69,16 @@ test('validResult false stops the request before IR/display and reports why', as
     const before = lane.mock.requests.length
     await clickRefresh(a, frame, ':api', 'Refresh CRAP')
     // #52: the companion's quality call failed the request, with a reason and
-    // the exit code the version-1 record reported.
+    // the exit code the version-1 record reported. The fixture tool itself ran
+    // and failed, so (#39) that reason is the host's tool-failure line plus the
+    // tool's own stderr tail, not a dispatcher refusal.
     const bar = a.panel.locator('.dsh-uml-viewer-statusbar')
-    await expect(bar).toContainText('Refresh CRAP :api: Failed — the quality run reported validResult false (exit code 1)')
+    // The tail is the tool's last non-blank stderr lines, so assert the host's
+    // line and the fixture's own line rather than the whole text: a host whose
+    // Node prints a warning adds a line that is not this tool's diagnosis.
+    await expect(bar).toContainText('Refresh CRAP :api: Failed — uml-viewer quality crap failed (exit 1)')
+    await expect(bar).toContainText('controlled quality refusal')
+    await expect(bar).toContainText('(exit code 1)')
     await expect(a.page.getByText('Stopped refresh-crap: quality returned validResult false; no IR or display.', { exact: true }).last()).toBeVisible()
     const requests = lane.mock.requests.slice(before).map(r => JSON.parse(r.body))
     // Only the failed quality call follows the visible request: no IR, no display.
