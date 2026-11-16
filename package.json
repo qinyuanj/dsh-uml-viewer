@@ -1,6 +1,6 @@
 {
   "name": "dsh-uml-viewer",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "UML diagrams with CRAP and mutation quality for the session's project, as a DeepSeek Harness plugin.",
   "license": "UNLICENSED",
   "private": true,

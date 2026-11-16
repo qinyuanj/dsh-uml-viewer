@@ -87,7 +87,7 @@ dependencies = [
 
 [[package]]
 name = "crapper"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "quality-core",
 ]
@@ -114,14 +114,14 @@ dependencies = [
 
 [[package]]
 name = "dryer"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "quality-core",
 ]
 
 [[package]]
 name = "edn"
-version = "1.0.0"
+version = "1.1.0"
 
 [[package]]
 name = "equivalent"
@@ -143,7 +143,7 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "frame"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "edn",
  "scene",
@@ -226,7 +226,7 @@ dependencies = [
 
 [[package]]
 name = "ir"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "edn",
  "platform",
@@ -269,7 +269,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "mutator"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "quality-core",
 ]
@@ -291,7 +291,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "platform"
-version = "1.0.0"
+version = "1.1.0"
 
 [[package]]
 name = "proc-macro2"
@@ -304,7 +304,7 @@ dependencies = [
 
 [[package]]
 name = "quality-core"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "chrono",
  "edn",
@@ -325,7 +325,7 @@ dependencies = [
 
 [[package]]
 name = "quality-dispatch"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "crapper",
  "dryer",
@@ -390,7 +390,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "scene"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "edn",
 ]
@@ -577,7 +577,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "uml-viewer"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "crapper",
  "dryer",
@@ -605,7 +605,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "viewer-session"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "edn",
  "frame",

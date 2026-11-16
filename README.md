@@ -14,13 +14,14 @@ The main package includes the Host and Web client, Sarasa font and one Cordis
 row. Its four exact-version optional dependencies target Windows x64, Linux
 x64, macOS arm64 and macOS x64. Unsupported combinations refuse activation with
 a reason. End users need DSH (`>=0.2.2-rc.1 <0.3.0`) and git; native packages
-require no Rust, Python or Herdr installation. Version 1.0.0 is published;
-local package assembly also remains available.
+require no Rust, Python or Herdr installation. Version 1.0.0 is the last
+published release; `v1.1.0` is tagged and its publish waits for the `release`
+environment approval. Local package assembly also remains available.
 
 Install local archives through DSH plugin management (use absolute paths):
 
 ```sh
-dsh plugin --profile web add /absolute/dsh-uml-viewer-1.0.0.tgz /absolute/dsh-uml-viewer-win32-x64-1.0.0.tgz
+dsh plugin --profile web add /absolute/dsh-uml-viewer-1.1.0.tgz /absolute/dsh-uml-viewer-win32-x64-1.1.0.tgz
 dsh plugin --profile web remove dsh-uml-viewer @dsh-uml-viewer/win32-x64
 ```
 
@@ -68,8 +69,10 @@ tag and inventory verification, all five archives must pass
 contents and package metadata before anything is published.
 [Release CI7 at `7fbace6`](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42600985433)
 passed all four native builds, archive-content inventory and the then-current
-`npm publish --dry-run`. Version 1.0.0 was published manually; tag-driven
-publishing and provenance have not run (#34). Browser acceptance is
+`npm publish --dry-run`. Version 1.0.0 was published manually; `v1.1.0` is the
+first tag-driven release, so its publish waits for the `release` environment
+approval and provenance and the trusted-publisher handshake stay unverified
+until that run (#34). Browser acceptance is
 [partial, with a separate passing packaged lifecycle case](docs/e2e-harness.md#ci);
 installed-profile update acceptance remains unverified (#32).
 
@@ -81,7 +84,7 @@ all four optional dependency constraints. To verify an assembled archive:
 
 ```sh
 UML_VIEWER_PACKAGE_REPORT=/absolute/scratch/packages/package-report.json pnpm test:package
-UML_VIEWER_PACKAGE_MAIN=/absolute/scratch/packages/dsh-uml-viewer-1.0.0.tgz UML_VIEWER_PACKAGE_PLATFORM=/absolute/scratch/packages/dsh-uml-viewer-win32-x64-1.0.0.tgz UML_VIEWER_E2E_SCRATCH=/absolute/scratch/e2e pnpm test:e2e package.spec.mjs
+UML_VIEWER_PACKAGE_MAIN=/absolute/scratch/packages/dsh-uml-viewer-1.1.0.tgz UML_VIEWER_PACKAGE_PLATFORM=/absolute/scratch/packages/dsh-uml-viewer-win32-x64-1.1.0.tgz UML_VIEWER_E2E_SCRATCH=/absolute/scratch/e2e pnpm test:e2e package.spec.mjs
 ```
 
 Set explicit `npm_config_cache`, `npm_config_store_dir`, `PNPM_CACHE_DIR`,

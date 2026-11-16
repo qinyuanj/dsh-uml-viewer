@@ -1,5 +1,9 @@
 # Release packaging and publishing
 
+Status (2026-11-16): the `v1.1.0` tag was pushed from `main`; its `assemble`,
+`inventory` and `publish` jobs wait on that run, and the publish itself waits
+for the `release` environment approval.
+
 Historical CI7 evidence (2026-11-09): **remote packaging and publish dry-run
 passed**. Each run below passed all four native platform builds, real
 archive-content inventory verification and `npm publish --dry-run`, establishing
@@ -15,8 +19,10 @@ platforms.
 | [42595826538](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42595826538) | `6147980` | Success |
 | [42600985433](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42600985433) | `7fbace6` | Success |
 
-All five `1.0.0` packages were subsequently published manually. Tag-driven
-publishing and npm provenance remain **NOT RUN**, pending #34.
+All five `1.0.0` packages were subsequently published manually. `v1.1.0` is the
+first tag-driven release; its publish waits for the `release` environment
+approval, so tag-driven publishing and npm provenance remain **NOT RUN** until
+that run finishes (#34).
 
 The files involved are `.github/workflows/package-release.yml`,
 `scripts/package.mjs` (assembler), `scripts/archive.mjs` (bounded gzip/ustar
@@ -180,8 +186,8 @@ ticket ran none of them.
 git switch main
 git pull --ff-only
 node scripts/version.mjs --check    # prints the single release version
-git tag -s v1.0.0 -m "dsh-uml-viewer 1.0.0"   # substitute the printed version
-git push origin v1.0.0
+git tag -s v1.1.0 -m "dsh-uml-viewer 1.1.0"   # substitute the printed version
+git push origin v1.1.0
 ```
 
 Pushing the tag starts the only publishing path. Never create the tag on a fork,
@@ -193,7 +199,7 @@ Node only, no network, no archive mocking beyond the controlled fixtures:
 
 ```sh
 pnpm test:package                              # contract, stale payload, release guards
-node scripts/release.mjs check-tag v1.0.0      # tag/version guard
+node scripts/release.mjs check-tag v1.1.0      # tag/version guard
 ```
 
 `scripts/release.test.mjs` drives the real `stage`, `verify` and `plan` commands
@@ -239,9 +245,10 @@ binary, real font or plugin bundle.
 
 ## Remaining acceptance gaps
 
-- The five `1.0.0` packages were published manually. The tag-driven
-  `npm publish`, provenance attestation and trusted publisher handshake have not
-  run (#34); historical and future dry-runs do not establish them.
+- The five `1.0.0` packages were published manually. The `v1.1.0` tag is the
+  first tag-driven release: its `npm publish`, provenance attestation and
+  trusted publisher handshake have not run yet (#34); dry-runs do not
+  establish them.
 - Native builds and archive verification do not establish installed runtime
   behavior on every platform. The separate Windows real-tarball
   [install/display/uninstall case](e2e-harness.md#ci) passed in CI6 (#31).

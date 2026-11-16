@@ -4,11 +4,14 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
+import { releaseVersion } from './version.mjs'
 
 // Run this suite only with an explicit disposable scratch parent.
 const parent = process.env.UML_VIEWER_PACKAGE_TEST_SCRATCH
 if (!parent || !path.isAbsolute(parent)) throw new Error('Set absolute UML_VIEWER_PACKAGE_TEST_SCRATCH')
 const source = path.resolve(import.meta.dirname, '..')
+const version = await releaseVersion(source)
+const versionPattern = version.replaceAll('.', '\\.')
 async function fixture(run) {
   const scratch = await mkdtemp(path.join(parent, 'payload-gate-'))
   try {
@@ -42,7 +45,7 @@ test('existing package contract tests pass inside the explicit scratch mirror', 
 
 test('exact workspace identity assembles both controlled fixture artifacts', async () => {
   await fixture(async ({ module, binary, output }) => {
-    await writeFile(binary, "console.log('uml-viewer 1.0.0')\n")
+    await writeFile(binary, `console.log('uml-viewer ${version}')\n`)
     const report = await module.assemblePackage({ binary, output }, (file, args, options) => {
       assert.equal(file, binary)
       assert.deepEqual(args, ['--version'])
@@ -51,7 +54,7 @@ test('exact workspace identity assembles both controlled fixture artifacts', asy
       assert.equal(options.shell, false)
       return spawnSync(process.execPath, [file, ...args], options)
     })
-    assert.equal(report.version, '1.0.0')
+    assert.equal(report.version, version)
     await access(report.main.path)
     await access(report.binary.path)
   })
@@ -59,8 +62,8 @@ test('exact workspace identity assembles both controlled fixture artifacts', asy
 
 for (const [name, result] of [
   ['missing', { stdout: '' }],
-  ['malformed', { stdout: '1.0.0\n' }],
-  ['wrong product', { stdout: 'other-tool 1.0.0\n' }],
+  ['malformed', { stdout: `${version}\n` }],
+  ['wrong product', { stdout: `other-tool ${version}\n` }],
   ['stderr', { stderr: 'warning' }],
   ['failed', { status: 1 }],
   ['signalled', { signal: 'SIGTERM' }],
@@ -69,7 +72,7 @@ for (const [name, result] of [
   ['oversized output', { stdout: 'x'.repeat(4097) }],
 ]) test(`${name} identity leaves both artifacts absent`, async () => {
   await fixture(async ({ module, binary, output }) => {
-    await assert.rejects(module.assemblePackage({ binary, output }, () => ({ status: 0, signal: null, stdout: 'uml-viewer 1.0.0\n', stderr: '', ...result })), /version/i)
+    await assert.rejects(module.assemblePackage({ binary, output }, () => ({ status: 0, signal: null, stdout: `uml-viewer ${version}\n`, stderr: '', ...result })), /version/i)
     await assert.rejects(access(output), { code: 'ENOENT' })
   })
 })
@@ -77,8 +80,8 @@ for (const [name, result] of [
 for (const [name, script] of [
   ['deadline', 'setInterval(() => {}, 1000)'],
   ['output limit', "process.stdout.write('x'.repeat(8192))"],
-  ['nonzero exit', "console.log('uml-viewer 1.0.0'); process.exitCode = 7"],
-  ['signal termination', "console.log('uml-viewer 1.0.0'); process.kill(process.pid, 'SIGTERM')"],
+  ['nonzero exit', `console.log('uml-viewer ${version}'); process.exitCode = 7`],
+  ['signal termination', `console.log('uml-viewer ${version}'); process.kill(process.pid, 'SIGTERM')`],
 ]) test(`real Node fixture ${name} refuses both artifacts`, async () => {
   await fixture(async ({ module, binary, output }) => {
     await writeFile(binary, script)
@@ -97,14 +100,14 @@ test('production CLI cannot package interpreter fixture bytes as a native binary
 
 test('extra output after binary identity refuses both artifacts', async () => {
   await fixture(async ({ module, binary, output }) => {
-    await assert.rejects(module.assemblePackage({ binary, output }, () => ({ status: 0, signal: null, stdout: 'uml-viewer 1.0.0\n\n', stderr: '' })), /malformed/)
+    await assert.rejects(module.assemblePackage({ binary, output }, () => ({ status: 0, signal: null, stdout: `uml-viewer ${version}\n\n`, stderr: '' })), /malformed/)
     await assert.rejects(access(output), { code: 'ENOENT' })
   })
 })
 
 test('stale binary identity refuses both artifacts before creating output', async () => {
   await fixture(async ({ module, binary, output }) => {
-    await assert.rejects(module.assemblePackage({ binary, output }, (file, args, options) => spawnSync(process.execPath, [file, ...args], options)), /version.*0\.1\.0.*1\.0\.0/i)
+    await assert.rejects(module.assemblePackage({ binary, output }, (file, args, options) => spawnSync(process.execPath, [file, ...args], options)), new RegExp(`version.*0\\.1\\.0.*${versionPattern}`, 'i'))
     await assert.rejects(access(output), { code: 'ENOENT' })
   })
 })
