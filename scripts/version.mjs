@@ -14,6 +14,14 @@ export async function releaseVersion(directory = root) {
   }
   return version
 }
+// The upgrade acceptance case needs a second version that differs from the one
+// under test. Derive it from the release version so a version bump never leaves
+// a stale literal behind in the CI producer or its assertions.
+export function nextPatch(version) {
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/)
+  if (!match) throw new Error(`${version} is not a SemVer`)
+  return `${match[1]}.${match[2]}.${Number(match[3]) + 1}`
+}
 export async function checkVersions(write = false) {
   const version = await releaseVersion()
   const manifests = ['package.json', 'dsh-plugin.json']

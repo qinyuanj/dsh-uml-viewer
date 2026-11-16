@@ -67,6 +67,13 @@ export function viewerBinary() {
   throw new Error('Build the real binary with `cargo build --locked -p uml-viewer`, or set UML_VIEWER_BIN to its absolute path.')
 }
 
+/** The version an assembler archive carries, from its `-<version>.tgz` name. */
+export function packageVersion(file) {
+  const match = path.basename(file).match(/-(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\.tgz$/)
+  if (!match) throw new Error(`${file} is not an assembler archive named with its version`)
+  return match[1]
+}
+
 /** Both tarballs are explicit inputs; a partial pair never falls back to the checkout. */
 export function packageInputs(options = {}) {
   const main = options.packageMain ?? process.env.UML_VIEWER_PACKAGE_MAIN

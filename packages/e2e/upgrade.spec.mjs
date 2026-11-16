@@ -4,7 +4,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { test, expect } from '@playwright/test'
-import { packageInputs } from './dsh-web.mjs'
+import { packageInputs, packageVersion } from './dsh-web.mjs'
 import { launchViewerLane } from './lane.mjs'
 import { closeTab } from './lifecycle.mjs'
 import { UPGRADE_PROMPTS, upgradeReply } from './upgrade-reply.mjs'
@@ -13,6 +13,10 @@ import { installEvidence } from './upgrade-evidence.mjs'
 const initial = packageInputs()
 const next = process.env.UML_VIEWER_UPGRADE_MAIN || process.env.UML_VIEWER_UPGRADE_PLATFORM
   ? packageInputs({ packageMain: process.env.UML_VIEWER_UPGRADE_MAIN, packagePlatform: process.env.UML_VIEWER_UPGRADE_PLATFORM }) : null
+// Both versions come from the archives themselves, so a version bump never
+// leaves a stale literal in this case.
+const oldVersion = initial ? packageVersion(initial.main) : null
+const nextVersion = next ? packageVersion(next.main) : null
 
 async function leases(home, version) {
   const dir = path.join(home, 'plugin-state', 'leases', version)
@@ -75,21 +79,21 @@ test('installed update keeps the busy vN resident until the UML tab is closed an
   const lane = await launchViewerLane(browser, {
     packageMain: initial.main, packagePlatform: initial.platform, reply: upgradeReply(observed, { main: next.main }),
   })
-  const evidence = { versions: ['1.1.0', '1.1.1'] }
+  const evidence = { versions: [oldVersion, nextVersion] }
   const home = path.join(lane.home, 'plugin-state')
-  const oldBinary = path.join(home, '1.1.0', 'uml-viewer.exe')
-  const newBinary = path.join(home, '1.1.1', 'uml-viewer.exe')
+  const oldBinary = path.join(home, oldVersion, 'uml-viewer.exe')
+  const newBinary = path.join(home, nextVersion, 'uml-viewer.exe')
   try {
     let shop = await lane.openPanel('shop')
-    expect(JSON.parse(await fs.readFile(path.join(home, 'current.json'), 'utf8')).version).toBe('1.1.0')
+    expect(JSON.parse(await fs.readFile(path.join(home, 'current.json'), 'utf8')).version).toBe(oldVersion)
     const old = resident(oldBinary)
     expect(old).toHaveLength(1)
     const oldPid = old[0].ProcessId
     expect(alive(oldPid)).toBe(true)
     evidence.oldResident = old[0]
     evidence.oldBinaryVersion = binaryVersion(oldBinary)
-    expect(evidence.oldBinaryVersion).toBe('uml-viewer 1.1.0')
-    evidence.oldLeases = await leases(lane.home, '1.1.0')
+    expect(evidence.oldBinaryVersion).toBe(`uml-viewer ${oldVersion}`)
+    evidence.oldLeases = await leases(lane.home, oldVersion)
     expect(Object.keys(evidence.oldLeases).length).toBeGreaterThanOrEqual(1)
     // An actual mapped Windows executable must refuse write access.
     expect(() => { const fd = openSync(oldBinary, 'r+'); closeSync(fd) }).toThrow()
@@ -111,17 +115,17 @@ test('installed update keeps the busy vN resident until the UML tab is closed an
     evidence.removal = observed.removal
     evidence.afterRemoval = await installEvidence(lane.home)
     expect(observed.removal?.application).toBe('applied')
-    // 2. The 1.1.1 platform tarball as a plain dependency. With the bundle
+    // 2. The next platform tarball as a plain dependency. With the bundle
     // removed nothing maps it, so replacing it cannot be `package-moved`; it
     // activates nothing by itself (CI11: an external CLI add never did).
     lane.installPlatform(next.platform)
     evidence.afterPlatform = await installEvidence(lane.home)
-    expect(JSON.parse(await fs.readFile(path.join(home, 'current.json'), 'utf8')).version).toBe('1.1.0')
-    // 3. Public plugin_manager install_bundle with the absolute 1.1.1 main
+    expect(JSON.parse(await fs.readFile(path.join(home, 'current.json'), 'utf8')).version).toBe(oldVersion)
+    // 3. Public plugin_manager install_bundle with the absolute next main
     // tarball. The profile's direct dependencies then differ only in
     // `dsh-uml-viewer` (the manager refuses any other count as
     // ambiguous-install); the plugin's activation still requires the exact
-    // 1.1.1 platform package it finds. The manager selects the bundle and
+    // next platform package it finds. The manager selects the bundle and
     // reconciles the live profile itself, answering `applied` only after the
     // bundle's rows started.
     await lane.sendPrompt(shop, UPGRADE_PROMPTS.install)
@@ -129,7 +133,7 @@ test('installed update keeps the busy vN resident until the UML tab is closed an
     // Record before asserting, so a refused install leaves its diagnostic.
     evidence.install = observed.install
     expect(observed.install?.application).toBe('applied')
-    expect(observed.install).toMatchObject({ bundle: 'dsh-uml-viewer', version: '1.1.1' })
+    expect(observed.install).toMatchObject({ bundle: 'dsh-uml-viewer', version: nextVersion })
     evidence.afterInstall = await installEvidence(lane.home)
     // CI13: what the Host itself said while applying, and which store the
     // activation recorded for itself (an unpinned activation leaves no pin).
@@ -138,7 +142,7 @@ test('installed update keeps the busy vN resident until the UML tab is closed an
     // No host restart, page reload, private ctx or installed-file copying.
     try {
       await expect.poll(async () => JSON.parse(await fs.readFile(path.join(home, 'current.json'), 'utf8')).version,
-        { timeout: 10_000 }).toBe('1.1.1')
+        { timeout: 10_000 }).toBe(nextVersion)
     } catch (error) {
       // CI12/CI13: which store the activation pinned, which store it recorded
       // its own activation in, and which package copy the re-inserted row could
@@ -156,14 +160,14 @@ test('installed update keeps the busy vN resident until the UML tab is closed an
     await expect(shop.canvas).toBeVisible()
     expect(resident(oldBinary)).toEqual(old)
     expect(alive(oldPid)).toBe(true)
-    expect(await leases(lane.home, '1.1.0')).toEqual(evidence.oldLeases)
+    expect(await leases(lane.home, oldVersion)).toEqual(evidence.oldLeases)
     expect(resident(newBinary)).toEqual([])
     evidence.retainedState = await shop.summary.innerText()
     await shop.page.mouse.move(1, 1)
     await expect.poll(() => canvasDigest(shop)).toBe(evidence.beforeCanvas)
     evidence.retainedCanvas = await canvasDigest(shop)
     evidence.newBinaryVersion = binaryVersion(newBinary)
-    expect(evidence.newBinaryVersion).toBe('uml-viewer 1.1.1')
+    expect(evidence.newBinaryVersion).toBe(`uml-viewer ${nextVersion}`)
     await lane.screenshot(shop, 'upgrade-retains-old')
     // A new zoom gesture after replacement proves that the old child still
     // serves actions through the real canvas, beyond a retained DOM summary.
@@ -173,14 +177,14 @@ test('installed update keeps the busy vN resident until the UML tab is closed an
     await closeTab(shop)
     await expect(shop.page.locator('.dsh-uml-viewer-panel')).toHaveCount(0)
     await expect.poll(() => alive(oldPid), { timeout: 10_000 }).toBe(false)
-    await expect.poll(() => leases(lane.home, '1.1.0')).toEqual({})
+    await expect.poll(() => leases(lane.home, oldVersion)).toEqual({})
     shop = await lane.reopenTab(shop)
     await expect(shop.summary).toHaveAttribute('data-kind', 'frame')
     await expect(shop.canvas).toBeVisible()
     await expect.poll(() => resident(newBinary).length).toBe(1)
     evidence.newResident = resident(newBinary)[0]
     expect(evidence.newResident.ProcessId).not.toBe(oldPid)
-    evidence.newLeases = await leases(lane.home, '1.1.1')
+    evidence.newLeases = await leases(lane.home, nextVersion)
     expect(Object.keys(evidence.newLeases)).toHaveLength(1)
     const owner = records => JSON.parse(Object.values(records)[0]).pid
     expect(owner(evidence.newLeases)).toBe(owner(evidence.oldLeases))

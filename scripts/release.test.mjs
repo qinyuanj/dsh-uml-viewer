@@ -328,6 +328,17 @@ test('the tagged publish job is the only holder of an OIDC token and a release e
   assert.doesNotMatch(text, /secrets\.|NODE_AUTH_TOKEN|_authToken|npm_token/)
 })
 
+// A tag can be moved, and this workflow grants id-token: write, so a tag ref
+// would let a replaced action publish under the repository's identity.
+test('every action in the release workflow is pinned to a full commit SHA', async () => {
+  const text = await workflow()
+  const uses = [...text.matchAll(/uses:\s*(\S+)/g)].map(match => match[1])
+  assert.ok(uses.length > 0, 'the workflow uses at least one action')
+  for (const use of uses) {
+    assert.match(use, /^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/, `${use} must be pinned to a full commit SHA`)
+  }
+})
+
 test('pull requests stop at offline package dry runs', async () => {
   const text = await workflow()
   const inventory = jobBlock(text, 'inventory')

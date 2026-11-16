@@ -165,7 +165,7 @@ including inline policy proposals and their formatting. The run home retains
 
 `upgrade.spec.mjs` is a separate Windows CI case. Alongside the initial main and
 platform tarballs above it requires absolute `UML_VIEWER_UPGRADE_MAIN` and
-`UML_VIEWER_UPGRADE_PLATFORM` paths for disposable version 1.1.1. With no upgrade
+`UML_VIEWER_UPGRADE_PLATFORM` paths for the disposable next-patch version. With no upgrade
 pair it skips; the ordinary panel and package lifecycle cases are unchanged.
 
 The pinned DSH 0.2.2-rc.1 manager documents updates as removal followed by
@@ -178,13 +178,15 @@ button when approval is requested:
 
 1. a scripted prompt calls the public `plugin_manager` tool (`list_bundles`,
    then `remove_bundle`); the real result must be `application: applied`;
-2. the CLI adds only the 1.1.1 platform tarball, a plain dependency that no
+2. the CLI adds only the next platform tarball, a plain dependency that no
    selected bundle maps any more, so it cannot cause `package-moved`;
 3. a second scripted prompt calls `plugin_manager` `install_bundle` with the
-   absolute 1.1.1 main tarball; the real result must be `application: applied`
-   for bundle `dsh-uml-viewer` version 1.1.1, after which `current.json` must
-   read 1.1.1. The manager refuses an installation that changes more than one
-   direct dependency, and activation requires the exact 1.1.1 platform package.
+   absolute next-patch main tarball; the real result must be `application:
+   applied` for bundle `dsh-uml-viewer` at that version, after which
+   `current.json` must read it. The manager refuses an installation that changes
+   more than one direct dependency, and activation requires the exact matching
+   platform package. Both versions come from the archive names, so a release
+   bump needs no edit here.
 
 The scripted replies live in `upgrade-reply.mjs` with offline unit tests.
 Directly replacing a mapped platform package while the bundle is selected
@@ -195,7 +197,7 @@ executable path and lease to survive; its canvas pixels and camera state must
 survive remount and another canvas gesture must work. It verifies both installed
 executables with `--version`, then closes the UML tab with the host's page
 close command and reopens it, requires
-a new PID on 1.1.1 and checks that the 1.1.0 lease and directory disappear.
+a new PID on the next version and checks that the previous lease and directory disappear.
 Windows write access to the mapped old executable must fail before the update.
 The platform CLI installation is bounded at 20 seconds, and the whole
 removal-to-install sequence must finish soon enough for the real panel to rejoin within the unchanged 30-second withdrawal grace. A slow
@@ -205,11 +207,11 @@ screenshots, under the existing explicit CI artifact whitelist.
 
 CI runs `scripts/ci-upgrade-package.mjs` only after ordinary panel/package checks.
 It copies tracked sources to an owned disposable directory, changes that copy's
-Cargo authority to 1.1.1, runs the existing npm version writer, rebuilds both
+Cargo authority to the next patch version, runs the existing npm version writer, rebuilds both
 plugin libraries against the copy's contracts and builds the real second native
 binary with jobs 4, debug information off and incremental compilation off. Cargo
 updates only the copy's lockfile. Reusing the CI target is safe at this point:
-all ordinary binary consumers have finished and the 1.1.0 tarballs are already
+all ordinary binary consumers have finished and the release tarballs are already
 immutable. The real package producer rejects a binary whose version differs.
 The source copy is removed afterward. No release versions, tags or registry
 publication are involved. The script refuses execution outside GitHub Actions.

@@ -39,7 +39,7 @@ test('existing package contract tests pass inside the explicit scratch mirror', 
       cwd: mirror, encoding: 'utf8', env: { ...env, UML_VIEWER_PACKAGE_REPORT: '' },
     })
     assert.equal(result.status, 0, result.stdout + result.stderr)
-    assert.match(result.stdout, /# pass 3/)
+    assert.match(result.stdout, /# pass 4/)
   })
 })
 

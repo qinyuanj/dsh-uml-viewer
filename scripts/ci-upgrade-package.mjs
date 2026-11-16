@@ -1,15 +1,17 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { root, releaseVersion } from './version.mjs'
+import { root, releaseVersion, nextPatch } from './version.mjs'
 
 // This producer deliberately cannot compile locally. Run after ordinary panel
-// and package acceptance: the shared target's executable becomes 1.1.1, while
-// the already assembled 1.1.0 tarballs remain immutable acceptance inputs.
+// and package acceptance: the shared target's executable becomes the next patch
+// version, while the already assembled release tarballs remain immutable
+// acceptance inputs.
 if (process.env.CI !== 'true' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('The second native version may only be built in GitHub Actions')
 }
-if (await releaseVersion() !== '1.1.0') throw new Error('Upgrade fixture expects the committed 1.1.0 authority')
+const current = await releaseVersion()
+const next = nextPatch(current)
 const scratch = path.join(root, '.scratch')
 await fs.mkdir(scratch, { recursive: true })
 const copy = await fs.mkdtemp(path.join(scratch, 'upgrade-source-'))
@@ -29,7 +31,7 @@ try {
   }
   const cargo = path.join(copy, 'Cargo.toml')
   const original = await fs.readFile(cargo, 'utf8')
-  const changed = original.replace(/(\[workspace\.package\][\s\S]*?^version\s*=\s*)"1\.1\.0"/m, '$1"1.1.1"')
+  const changed = original.replace(/(\[workspace\.package\][\s\S]*?^version\s*=\s*)"[^"]+"/m, `$1"${next}"`)
   if (changed === original) throw new Error('Missing workspace version authority')
   await fs.writeFile(cargo, changed)
   run(process.execPath, ['scripts/version.mjs', '--write'])
@@ -52,7 +54,7 @@ try {
   // The actual producer executes --version and refuses a relabelled old binary.
   run(process.execPath, ['scripts/package.mjs', '--binary', binary, '--out', output])
   const report = JSON.parse(await fs.readFile(path.join(output, 'package-report.json'), 'utf8'))
-  if (report.version !== '1.1.1') throw new Error('Second producer returned the wrong version')
+  if (report.version !== next) throw new Error(`Second producer returned ${report.version}, not ${next}`)
   await fs.appendFile(process.env.GITHUB_OUTPUT, `version=${report.version}\n`)
 } finally {
   // copy was created by mkdtemp under this exact owned scratch prefix.

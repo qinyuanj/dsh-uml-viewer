@@ -3,7 +3,7 @@ import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { test } from 'node:test'
 import { spawnSync } from 'node:child_process'
-import { releaseVersion } from './version.mjs'
+import { releaseVersion, nextPatch } from './version.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const run = args => spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8' })
@@ -19,6 +19,13 @@ test('release version rejects an invalid SemVer prerelease before assembling pac
     await writeFile(path.join(scratch, 'Cargo.toml'), '[workspace.package]\nversion = "1.0.0-01"\n')
     await assert.rejects(releaseVersion(scratch), /must be a SemVer/)
   } finally { await rm(scratch, { recursive: true, force: true }) }
+})
+
+test('the disposable upgrade version is the next patch of the release version', () => {
+  assert.equal(nextPatch('1.1.0'), '1.1.1')
+  assert.equal(nextPatch('2.0.9'), '2.0.10')
+  assert.equal(nextPatch('1.0.0-rc.1'), '1.0.1')
+  for (const bad of ['1.0', 'v1.0.0', '', 'x.y.z']) assert.throws(() => nextPatch(bad), /not a SemVer/)
 })
 
 test('package build refuses absent native input without emitting archives', async () => {

@@ -93,8 +93,8 @@ jobs:
           UML_VIEWER_PACKAGE_PLATFORM: ${{ github.workspace }}/.scratch/panel-packages/dsh-uml-viewer-win32-x64-${{ steps.panel-version.outputs.version }}.tgz
         run: pnpm --filter @dsh-uml-viewer/e2e exec playwright test package.spec.mjs --output ../../.scratch/e2e/package-results
       # Run last: the disposable version build reuses target only after every
-      # ordinary lane finished; the immutable 1.1.0 tarballs remain unchanged.
-      - name: Build and assemble disposable 1.1.1 upgrade packages
+      # ordinary lane finished; the immutable release tarballs remain unchanged.
+      - name: Build and assemble disposable next-patch upgrade packages
         id: upgrade-packages
         if: ${{ !cancelled() && steps.packaged-acceptance.outcome == 'success' }}
         timeout-minutes: 12
