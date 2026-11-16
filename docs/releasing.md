@@ -1,8 +1,10 @@
 # Release packaging and publishing
 
-Status (2026-11-16): the `v1.1.0` tag was pushed from `main`; its `assemble`,
-`inventory` and `publish` jobs wait on that run, and the publish itself waits
-for the `release` environment approval.
+Status (2026-11-16): `v1.1.0` is **published**. [Run 43828881235](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/43828881235)
+assembled all four platforms, verified the inventory and published all five
+archives with SLSA provenance from GitHub Actions. The first attempt failed with
+`ENEEDAUTH` because no package had a trusted publisher yet; after the five were
+configured, the failed `publish` job was rerun and succeeded without a rebuild.
 
 Historical CI7 evidence (2026-11-09): **remote packaging and publish dry-run
 passed**. Each run below passed all four native platform builds, real
@@ -19,10 +21,10 @@ platforms.
 | [42595826538](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42595826538) | `6147980` | Success |
 | [42600985433](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42600985433) | `7fbace6` | Success |
 
-All five `1.0.0` packages were subsequently published manually. `v1.1.0` is the
-first tag-driven release; its publish waits for the `release` environment
-approval, so tag-driven publishing and npm provenance remain **NOT RUN** until
-that run finishes (#34).
+All five `1.0.0` packages were published manually. `v1.1.0` is the first
+**tag-driven** release: the tag pushed the four native builds and the publish,
+which waited for the `release` environment approval and then signed provenance
+for every archive (#34).
 
 The files involved are `.github/workflows/package-release.yml`,
 `scripts/package.mjs` (assembler), `scripts/archive.mjs` (bounded gzip/ustar
@@ -151,7 +153,9 @@ None of this is in the repository and none of it ran here.
    maintainers can create release tags.
 2. Package trust, after the package exists on the registry: for each of the five
    packages (`dsh-uml-viewer` and the four `@dsh-uml-viewer/*`), open npmjs.com
-   package settings and add a GitHub Actions trusted publisher with
+   package settings and add a GitHub Actions trusted publisher. **Done for all
+   five on 2026-11-16**, with `npm trust github <pkg> --file package-release.yml
+   --repo qinyuanj/dsh-uml-viewer --env release --allow-publish`. The settings are
    - organization or user `qinyuanj`,
    - repository `dsh-uml-viewer`,
    - workflow filename `package-release.yml` (filename only, case sensitive;
@@ -162,7 +166,8 @@ None of this is in the repository and none of it ran here.
      becomes public.
 
    `package.json` `repository.url` must keep matching the GitHub repository
-   exactly, otherwise npm refuses the OIDC exchange.
+   exactly, otherwise npm refuses the OIDC exchange. `--allow-publish` is
+   required: the default configuration only permits `npm stage publish`.
 3. First publish of each package is the bootstrap: a trusted publisher cannot be
    configured before the package exists, so an owner publishes the first
    version manually from the assembled archives with 2FA,
@@ -245,10 +250,11 @@ binary, real font or plugin bundle.
 
 ## Remaining acceptance gaps
 
-- The five `1.0.0` packages were published manually. The `v1.1.0` tag is the
-  first tag-driven release: its `npm publish`, provenance attestation and
-  trusted publisher handshake have not run yet (#34); dry-runs do not
-  establish them.
+- The five `1.0.0` packages were published manually. `v1.1.0` ran the full
+  tag-driven path — `npm publish` through OIDC trusted publishing, with a SLSA
+  provenance attestation on each archive (#34). A tag run's registry state is
+  still only what the registry reports; the run itself proves packaging, not
+  installed behavior on every platform.
 - Native builds and archive verification do not establish installed runtime
   behavior on every platform. The separate Windows real-tarball
   [install/display/uninstall case](e2e-harness.md#ci) passed in CI6 (#31).

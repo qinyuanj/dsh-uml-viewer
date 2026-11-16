@@ -14,9 +14,9 @@ The main package includes the Host and Web client, Sarasa font and one Cordis
 row. Its four exact-version optional dependencies target Windows x64, Linux
 x64, macOS arm64 and macOS x64. Unsupported combinations refuse activation with
 a reason. End users need DSH (`>=0.2.2-rc.1 <0.3.0`) and git; native packages
-require no Rust, Python or Herdr installation. Version 1.0.0 is the last
-published release; `v1.1.0` is tagged and its publish waits for the `release`
-environment approval. Local package assembly also remains available.
+require no Rust, Python or Herdr installation. Version 1.1.0 is published, with
+SLSA provenance from the tag-driven release. Local package assembly also
+remains available.
 
 Install local archives through DSH plugin management (use absolute paths):
 
@@ -70,9 +70,8 @@ contents and package metadata before anything is published.
 [Release CI7 at `7fbace6`](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42600985433)
 passed all four native builds, archive-content inventory and the then-current
 `npm publish --dry-run`. Version 1.0.0 was published manually; `v1.1.0` is the
-first tag-driven release, so its publish waits for the `release` environment
-approval and provenance and the trusted-publisher handshake stay unverified
-until that run (#34). Browser acceptance is
+first tag-driven release and published all five packages with provenance after
+the `release` environment approval (#34). Browser acceptance is
 [partial, with a separate passing packaged lifecycle case](docs/e2e-harness.md#ci);
 installed-profile update acceptance remains unverified (#32).
 
