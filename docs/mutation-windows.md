@@ -205,6 +205,44 @@ regenerates the language instead, and that language's reports already on disk
 are not read: a script that quietly writes nothing leaves its sites uncovered
 rather than borrowing an earlier run's hits.
 
+## Lua suites
+
+A Lua suite does not report through a coverage tool the project depends on. The
+collection ships its own instrumented Busted bootstrap (`lua_coverage.lua`,
+embedded in the binary), splits the suite into coverage shards and reads the
+LuaCov LCOV report. Everything it writes — the collector, each shard's
+`luacov.shard-N.stats.out`, each shard's spec publication, the merged stats and
+the conversion config — is the collection's own scratch beside the slot, not
+inside the project copy (`View::lua_collection`). The slot is still wiped before
+every command, so the collector is openable by the shard that `dofile`s it, a
+later shard still reads the earlier shards' publications, and the LCOV
+conversion still reads the merged stats after the last shard. The project tree
+is never a write target, and the scratch belongs to that one collection.
+
+`MUTATOR_LUA_SHARDS=1` and the default count take the same path; only the shard
+count differs, and the report prints one `Busted in N coverage shards` line per
+launch. #73's LF normalisation is what makes the merged (default-count) form
+work on Windows at all.
+
+The collection reports a dead bootstrap and a failing suite with the same words,
+`Lua tests exited N` (with the shard position when there is more than one), so a
+caller cannot tell them apart from that line. Busted's own summary — `2 successes
+/ 0 failures / 0 errors / 0 pending` — is the evidence that the suite was
+entered, and `crates/uml-viewer/tests/mutate_lua.rs` judges a run by it: one
+coverage shard and the default count each run without `--reuse-coverage`, the
+baseline's summary and the shard launches are asserted, and the published
+outcomes are compared with the committed golden, so a mutant that was not judged
+fails the case. `--reuse-coverage` still skips this collection entirely, which
+the same file asserts (no Busted process, no shard).
+
+`windows-mutate` installs that toolchain with `scripts/setup-windows-lua.ps1`:
+Lua 5.4.8 built with the pinned winlibs MinGW-w64, LuaRocks 3.12.0, Busted 2.3.0,
+LuaCov 0.17.0, cluacov 1.0.0 and the LCOV reporter, every download SHA-256
+pinned, then it proves the modules load. It exports `PATH`, `LUA_PATH` and
+`LUA_CPATH` to the later steps (and to `$GITHUB_ENV` in Actions). This is the
+same recipe a maintainer's Windows host uses, and `MUTATOR_REQUIRE_TOOLCHAINS=1`
+makes a missing toolchain a failure rather than a skip.
+
 ## Weaker than Linux, and honest about it
 
 A copy is a convention, not an OS-enforced sandbox: an absolute path outside
@@ -238,8 +276,9 @@ improvement, not parity. `crap` and `dry` are unchanged.
 `windows-mutate` (windows-latest) installs the pinned toolchain's `llvm-tools`
 and `cargo-llvm-cov`, sets `MUTATOR_REQUIRE_TOOLCHAINS=1` so a missing
 toolchain fails instead of skipping, installs `coverage.py` for the Python
-coverage test (the same rule: a missing tool fails), and runs the mutator suite
-plus the `uml-viewer` mutate tests. `macos-quality` (macos-latest) asserts the refusal
+coverage test and the whole Lua 5.4 toolchain for the Lua suite (the same rule:
+a missing tool fails), and runs the mutator suite plus the `uml-viewer` mutate
+tests, including the Lua cases that prove the suite is really entered. `macos-quality` (macos-latest) asserts the refusal
 and runs the crap and dry suites.
 
 In [main CI6 at `6147980`](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42595826593),
