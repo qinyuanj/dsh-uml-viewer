@@ -4,10 +4,14 @@
 //! previous command's project copy, its redirected homes, its capture file and
 //! its mutated source are removed before the next command starts, so a write
 //! through the copy's `..` reaches nothing a later command can see. This
-//! declaration is that layout, and its names are also the `--copy` positions a
-//! call may never name (`crate::isolation::resolve_outside`): the slot creates
-//! an entry and `--copy` refuses it from the same place, so adding a reserved
-//! location is one edit here and neither list can drift from the other.
+//! declaration names those entries, and the same names are the `--copy`
+//! positions a call may never name (`crate::isolation::resolve_outside`), so a
+//! reserved location is one edit here. The layout itself — which entries a slot
+//! creates and wipes — is written out by hand in `crate::copies::Slot::copy`,
+//! which takes the names from here; it is not derived from `Entry::ALL`.
+//! `Entry::LuaScratch` is the exception on both counts: it is a reserved name
+//! and a slot position, but a collection's view places it above the wiped
+//! region, so `Slot::copy` neither creates nor wipes it.
 //!
 //! Whole-slot freshness is the rule for every command but one. A previous
 //! non-collection command's `lua-coverage` directory, and anything it wrote
@@ -20,7 +24,8 @@
 //! entry by name. See `docs/mutation-windows.md`.
 use std::ffi::OsStr;
 
-/// One entry a command's slot owns.
+/// One reserved name: a position beside a command's copy, and a first
+/// component `--copy` may never name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Entry {
     /// The copy of the project itself.
@@ -38,12 +43,15 @@ pub enum Entry {
     /// The scratch one Lua collection publishes into: the collector, the shard
     /// stats and configs, the merged stats and its conversion config
     /// (`crate::lua::collect`). The only entry a command's preparation keeps,
-    /// and it is kept by sitting above the wiped region.
+    /// and it is kept by sitting above the wiped region — so unlike every other
+    /// entry, `crate::copies::Slot::copy` neither creates nor wipes it.
     LuaScratch,
 }
 
 impl Entry {
-    /// Every entry, in the order a copy places them.
+    /// Every entry: the whole reserved-name list, in the order a slot places
+    /// them, with `LuaScratch` last because it sits above the wiped region
+    /// rather than inside it.
     pub const ALL: [Entry; 7] = [
         Entry::Project,
         Entry::Home,
@@ -54,9 +62,9 @@ impl Entry {
         Entry::LuaScratch,
     ];
 
-    /// The name the entry has in the slot: the position beside the copy
-    /// (`..`) that every command wipes, and therefore the first component a
-    /// `--copy` target may never name.
+    /// The name the entry has in the slot: the first component a `--copy`
+    /// target may never name, and — for every entry but `LuaScratch` — the
+    /// position beside the copy (`..`) that every command wipes.
     pub fn name(self) -> &'static str {
         match self {
             Entry::Project => "project",

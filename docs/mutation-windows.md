@@ -68,11 +68,15 @@ so the wipe removes it with everything else. The exception above is a
 **position**, not a name: preparation skips nothing, because the collection's
 scratch sits outside the region the wipe covers.
 
-The entries a slot holds are one declaration, `crate::slot::Entry`: the project
-copy, the redirected homes, the capture file, the mutated source, and the
-collection's scratch. The same list is the set of first components a `--copy`
-target may never name (below), so adding a reserved location there adds the
-entry the slot owns and the argument the option refuses, with no second edit.
+The reserved names are one declaration, `crate::slot::Entry`: the project copy,
+the redirected homes, the capture file, the mutated source, and the collection's
+scratch. `Entry::ALL` is the set of first components a `--copy` target may never
+name (below), so a new reserved name is one edit. The slot layout is not derived
+from it: which entries a slot creates and wipes is still written out by hand in
+`copies.rs` (`Slot::copy`), which consumes those names through `Entry::name()`.
+An entry `Slot::copy` places is therefore a second, deliberate edit — and
+`Entry::LuaScratch` is not one of them: it names the collection's scratch, which
+sits above the wiped region and is created by `isolation::View::lua_collection`.
 
 Build output named in the original's `HIDDEN` list (`.git`, `target`,
 `coverage`, `.metrics`, …) becomes an empty directory in the copy. A directory
@@ -157,11 +161,12 @@ name both kinds, as a package whose tests read the repository root does:
   `temp`, `appdata`, `output`, `mutation` and `lua-coverage` (the collection's
   scratch), in any case — are all usage errors, refused before any command runs
   with exit 1, like every other option error. That list is `crate::slot::Entry`,
-  the same declaration that gives the slot its layout (above), so the two cannot
-  drift apart. `--copy ../lua-coverage` is a usage error in every spelling: a
-  copy would place it beside the command and the next command's preparation
-  would delete it (or merge it over the project copy) before the command that
-  asked for it read it. `../Lua-Coverage` is the same position on Windows, and
+  the same declaration whose names the slot's layout consumes (above), so the
+  reserved names cannot drift from the entries a slot creates.
+  `--copy ../lua-coverage` is a usage error in every spelling: a copy would
+  place it beside the command and the next command's preparation would delete it
+  (or merge it over the project copy) before the command that asked for it read
+  it. `../Lua-Coverage` is the same position on Windows, and
   Linux refuses the same arguments.
   `--copy ..` and `--copy ../.` both fail with
   `--copy path names the project's parent directory itself, not a path in it`.
@@ -257,9 +262,13 @@ fails the case. `--reuse-coverage` still skips this collection entirely, which
 the same file asserts (no Busted process, no shard).
 
 `windows-mutate` installs that toolchain with `scripts/setup-windows-lua.ps1`:
-Lua 5.4.8 built with the pinned winlibs MinGW-w64, LuaRocks 3.12.0, Busted 2.3.0,
-LuaCov 0.17.0, cluacov 1.0.0 and the LCOV reporter, every download SHA-256
-pinned, then it proves the modules load. It exports `PATH`, `LUA_PATH` and
+Lua 5.4.8 built with winlibs MinGW-w64 GCC 16.2.0, LuaRocks 3.12.0, then the
+rocks. The three archive downloads — the Lua source, LuaRocks and the MinGW-w64
+build — are SHA-256 pinned. The rocks are not: `luafilesystem`, `busted`,
+`luacov` and `luacov-reporter-lcov` are installed unpinned from LuaRocks and
+only `cluacov 1.0.0-1` names a version, which is exactly what
+`crapper/scripts/setup-windows.ps1` does, so the two are re-pinned together.
+The script then proves the modules load. It exports `PATH`, `LUA_PATH` and
 `LUA_CPATH` to the later steps (and to `$GITHUB_ENV` in Actions). This is the
 same recipe a maintainer's Windows host uses, and `MUTATOR_REQUIRE_TOOLCHAINS=1`
 makes a missing toolchain a failure rather than a skip.
