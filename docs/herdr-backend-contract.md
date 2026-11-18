@@ -3,7 +3,9 @@
 > **历史记录**：本文描述的 Herdr companion、邮件与 `./uml` / `get-uml-viewer` 入口已在 qinyuanj/dsh-uml-viewer#18 删除，只在冻结的 qinyuanj/uml-viewer 中保留；本文不再是本仓库的现行契约或验收清单。
 
 本文档记录 Herdr 的能力证据和生命周期契约。**平台以 ADR 0007 / ADR 0010 为准：交付目标为
-WSL2 + Ubuntu 24.04 + WSLg、macOS 与原生 Windows 10 22H2（build 19045）及以上。**
+WSL2 + Ubuntu 24.04 + WSLg、macOS 与原生 Windows。** ADR 0010 原文里的“Windows 10 22H2
+（build 19045）及以上”构建号下限已由 [ADR 0018](adr/0018-remove-windows-build-floor.md) 取消；
+现行实现不按构建号设门，本文中的 Windows 验收记录是历史证据，不是一条现行的构建号条件。
 文中 Java/JVM 与旧 Windows/macOS 验收记录是历史证据，不代表当前实现。当前实现是
 `crates/companion` 的 Rust runner/controller（#144 删除了 LOVE/Lua 实现），进程创建、
 等待、身份与 OS 单例 lock 由编译目标一次选定的 POSIX / Windows adapter 提供；
@@ -101,7 +103,8 @@ checkpoint。**
 - fresh 默认 Herdr；`--backend herdr` 兼容，tmux/psmux 明确拒绝。
   restart、wake、close 必须具有显式 `:backend :herdr` ownership，身份核实后
   才操作；legacy、无 backend、未知或不完整记录保留并拒绝接管。
-  WSL/Linux、macOS 与通过 build 19045 门槛的原生 Windows 可启动（ADR 0010），
+  WSL/Linux、macOS 与原生 Windows 可启动（ADR 0010；其中的 build 19045 门槛已由
+  ADR 0018 取消），
   旧 tmux 路径已退役。
   Herdr 创建项目独占的命名 server；预检本身仍不创建任何资源。
 
