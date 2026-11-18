@@ -23,8 +23,8 @@ attach 各平台各有一套。DeepSeek Harness（DSH）已经提供会话、消
 - **包布局**（参考 dsh-ops 与 dsh-claude-style）：`crates/` 为 Cargo workspace；
   `packages/host`、`packages/client`、`packages/contracts` 为不单独发布的 TypeScript
   工作区包，构建合成主包 `dsh-uml-viewer`（含 Sarasa 字体）。只有平台二进制包
-  `@dsh-uml-viewer/{win32-x64,linux-x64,darwin-arm64,darwin-x64}` 单独发布，作为主包
-  的 `optionalDependencies`，由 CI 交叉编译并以 npm provenance 发布。
+  `@dsh-uml-viewer/win32-x64` 单独发布，作为主包的 `optionalDependencies`，由 CI
+  交叉编译并以 npm provenance 发布。
 - **二进制定位**：插件加载时把当前版本的二进制复制到 `<DSH_HOME>/dsh-uml-viewer/<version>/`
   并记录当前版本；全新启动才切换版本，无进程使用的旧版本才清理。Windows 不能覆盖运行中
   的 exe，运行中的会话也不换版本。
@@ -44,7 +44,10 @@ attach 各平台各有一套。DeepSeek Harness（DSH）已经提供会话、消
   被查看项目的 AGENTS.md 不再需要 uml-viewer 规则。
 - **状态**：视图状态与讨论上下文随 DSH 会话保存；项目内只留 policy、提案与 `.metrics/`。
 - **前提条件**：DSH 宿主与 git。不再需要 Rust 工具链、Python、Herdr。
-- **交付平台**：运行 DSH 的 Windows x64、Linux x64、macOS arm64 与 macOS x64。
+- **交付平台**：运行 DSH 的原生 Windows x64（2026-11-18 起；此前列出的 Linux x64、
+  macOS arm64 与 macOS x64 已移出交付面）。理由与代价见 qinyuanj/home-uml-viewer
+  的 ADR 0002：Linux 的 namespace 视图保留在代码里但不可达，Windows 的 `mutate`
+  因此天然较慢，这是设计而非缺陷。
 - **过渡**：插件不读、不迁移、不删除旧的 `.uml-viewer/`。`get-uml-viewer` 保留一个
   发行版本周期，只提示关闭旧 viewer 与 companion、可手动删除 `.uml-viewer/`，并给出
   插件安装命令；之后删除。

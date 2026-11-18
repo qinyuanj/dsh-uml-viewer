@@ -239,7 +239,7 @@ viewer 面板上显示并改变**讨论上下文**的控件：列出源码图与
 _Avoid_: 检查器, 提案横幅
 
 **交付平台**:
-承诺可运行并经验收的宿主：运行 DeepSeek Harness 的 Windows x64、Linux x64、macOS arm64 与 macOS x64。不在其中的宿主上插件不启用并说明原因。
+承诺可运行并经验收的宿主，只有一个：运行 DeepSeek Harness 的原生 Windows x64。Linux x64 与 macOS 已移出交付面（qinyuanj/home-uml-viewer ADR 0002）；不在其中的宿主上插件不启用并说明原因。
 _Avoid_: 支持平台, 目标系统
 
 **场景核心**:
