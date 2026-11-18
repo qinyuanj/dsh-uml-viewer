@@ -45,7 +45,7 @@
   Use a scratch DSH home; keep the user's live profile untouched.
 - Prerequisites are the Rust toolchain pinned by `rust-toolchain.toml`,
   git, Node 24 and pnpm (the plugin packages), and Python 3.11+ for
-  `scripts/check.py` and the pre-commit hook. The single Rust binary runs
+  `scripts/check.py`. The single Rust binary runs
   the panel's `resident` session (the only viewer; the standalone egui
   window was deleted in #30), IR generation, the four
   scanners and the three quality tools (`crap`, `mutate`, `dry`, or

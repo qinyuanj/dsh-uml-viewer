@@ -9,8 +9,6 @@ fixtures/mutate/sites/gjc/src/demo/crlf.clj -text
 # The plugin prompt section embeds this document verbatim; a CR would reach
 # the model's system prompt.
 docs/companion-rules.md text eol=lf
-# sh reads a CR as part of the command; the enabled hook must stay LF.
-.githooks/* text eol=lf
 
 # The packaged Sarasa face is binary; never convert its bytes.
 *.ttf binary

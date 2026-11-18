@@ -155,7 +155,7 @@ read from the terminal.
 
 Needs the Rust toolchain pinned by `rust-toolchain.toml` (1.99.1 with
 `rustfmt` and `clippy`), `git`, and for the plugin Node 24 and pnpm.
-Development checks and the pre-commit hook require Python 3.11+; the binary
+Development checks require Python 3.11+; the binary
 itself has no Python, Herdr, Java, Clojure, Lua, LOVE or PowerShell dependency.
 
 ```sh
@@ -163,16 +163,16 @@ cargo build --release --locked
 target/release/uml-viewer ir examples/uml-viewer.policy.edn   # policy → IR
 cargo test --workspace --locked          # pure and integration suites
 python -I scripts/check.py               # source rules + the two above
-git config core.hooksPath .githooks      # once per clone: enable the pre-commit hook
 ```
 
 The diagram is viewed in the DeepSeek Harness panel, which hot-reloads the
 diagram and its `.metrics/` snapshots (see
 [docs/plugin-development.md](docs/plugin-development.md); its browser checks
-are [docs/e2e-harness.md](docs/e2e-harness.md)). The versioned
-`.githooks/pre-commit` runs `cargo fmt --all -- --check`, the static source
-rules and `cargo clippy --workspace --all-targets --locked -- -D warnings`; a
-failure blocks the commit.
+are [docs/e2e-harness.md](docs/e2e-harness.md)). CI runs
+`cargo fmt --all -- --check`, `python -I scripts/check.py` (the static source
+rules, the release build and the workspace tests) and `cargo clippy
+--workspace --all-targets --locked -- -D warnings`; run them by hand before a
+commit that touches the rules or the files they cover.
 
 Quality data comes from the same binary. `uml-viewer quality crap|mutate|dry`
 applies the declared scope in `uml-quality.json` (ADR 0001;
