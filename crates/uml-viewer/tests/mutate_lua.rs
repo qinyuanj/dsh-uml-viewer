@@ -145,11 +145,10 @@ fn shard_launches(stderr: &str, count: usize) -> usize {
 }
 
 /// What the console says about a run that never reached the suite. Every arm is
-/// a different cause than a test verdict, and the message says which.
+/// a different cause than a test verdict, and the message says which. None is a
+/// platform refusal: ADR 0018 removed the build gate, so no host is refused
+/// before a command runs and nothing can print a build number here.
 fn never_entered(stderr: &str) -> String {
-    if stderr.contains("Windows 10 22H2") {
-        return "the platform gate refused this host before any command ran".into();
-    }
     if let Some(line) = stderr
         .lines()
         .find(|line| line.contains("Lua tests exited"))
