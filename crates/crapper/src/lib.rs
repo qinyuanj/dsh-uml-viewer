@@ -25,16 +25,24 @@ use crate::cli::{HELP, Options, Parsed};
 use crate::crap::{Entry, analyze, format_report, metrics_path, render_edn};
 
 pub fn run(args: &[OsString]) -> ExitCode {
+    run_on(platform::Host::current(), args)
+}
+
+/// The same contract with the host declared, the seam `crates/dryer` already
+/// takes from the pinned tests' monkeypatch of `sys.platform`: whether a build
+/// below the deleted floor is refused has to be a test's input, never the
+/// machine the test happens to run on (ADR 0018).
+fn run_on(host: platform::Host, args: &[OsString]) -> ExitCode {
     let args: Vec<String> = args
         .iter()
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
-    ExitCode::from(status_on(&args))
+    ExitCode::from(status_on(host, &args))
 }
 
 /// crapper refuses no host: the shared WSL2 warning is its only platform
 /// decision before selection (crapper#18, ADR 0018).
-fn status_on(args: &[String]) -> u8 {
+fn status_on(host: platform::Host, args: &[String]) -> u8 {
     match cli::parse(args) {
         Parsed::Help => {
             print!("{HELP}");
@@ -44,18 +52,18 @@ fn status_on(args: &[String]) -> u8 {
             eprint!("{message}\n\n{HELP}");
             1
         }
-        Parsed::Analyze(options) => analyze_project(&options),
+        Parsed::Analyze(options) => analyze_project(host, &options),
     }
 }
 
-fn analyze_project(options: &Options) -> u8 {
+fn analyze_project(host: platform::Host, options: &Options) -> u8 {
     let scope = Scope {
         root: options.project_root.clone(),
         source_roots: options.source_roots.clone(),
         exclusions: options.exclusions.clone(),
     };
     let root = scope.project_root();
-    if let Some(warning) = platform::warning(platform::Host::current(), &root) {
+    if let Some(warning) = platform::warning(host, &root) {
         eprintln!("{warning}");
     }
     if options.full_tree
@@ -215,7 +223,8 @@ mod tests {
     /// The old build-number gate refused this host before selection; the OS
     /// alone decides now, so a build below the deleted floor analyses normally
     /// and still publishes nothing for an empty selection (ADR 0018,
-    /// crapper#18).
+    /// crapper#18). The host is declared, not read, so this asserts the same
+    /// thing on Linux, on this 19042 machine and on any Windows 11 host.
     #[test]
     fn a_build_below_the_deleted_floor_is_not_refused() {
         let root = scratch("any-windows-build");
@@ -224,7 +233,7 @@ mod tests {
             root.as_os_str().to_owned(),
             OsString::from("--no-coverage"),
         ];
-        assert_eq!(ExitCode::SUCCESS, run(&args));
+        assert_eq!(ExitCode::SUCCESS, run_on(platform::Host::Windows, &args));
         assert!(!root.join(".metrics").exists());
         std::fs::remove_dir_all(&root).unwrap();
     }
