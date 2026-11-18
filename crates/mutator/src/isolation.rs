@@ -870,3 +870,65 @@ mod scratch_tests;
 #[cfg(test)]
 #[path = "isolation_outside_tests.rs"]
 mod outside_tests;
+
+/// The slot layout behind the Windows Lua scratch guarantee, checked without a
+/// Lua toolchain. `lua::windows_collect_tests` pins the same guarantee end to
+/// end (the collector is `dofile`d, every shard's stats stay readable, the
+/// conversion still reads the merged stats), but it skips when busted or
+/// cluacov is missing, so on such a host nothing would fail if the collection's
+/// scratch started being wiped again. These tests need only a command that
+/// exits 0.
+#[cfg(all(test, windows))]
+mod scratch_survival_tests {
+    use super::*;
+    use std::fs;
+
+    fn project() -> (crate::scratch::Root, PathBuf) {
+        let root = crate::scratch::Root::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let project = root.path().join("project");
+        fs::create_dir_all(project.join("src")).unwrap();
+        fs::write(project.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
+        (root, project)
+    }
+
+    /// Runs one command in `view`, failing the test if it cannot start.
+    fn run(view: &View, project: &Path) {
+        if view.run(project, project, "exit 0", None, None).is_err() {
+            panic!("the command did not run");
+        }
+    }
+
+    /// The collection publishes its scratch beside the command slot, so
+    /// preparing the next command's copy leaves the collector every command
+    /// `dofile`s, the shard configs and stats, and the conversion input.
+    #[test]
+    fn a_collections_published_scratch_survives_slot_preparation() {
+        let (_root, project) = project();
+        let view = View::lua_collection(&project).unwrap();
+        let scratch = view.lua_coverage_scratch().to_path_buf();
+        fs::create_dir_all(&scratch).unwrap();
+        fs::write(scratch.join("lua_coverage.lua"), "collector bytes").unwrap();
+        run(&view, &project);
+        assert!(
+            scratch.join("lua_coverage.lua").is_file(),
+            "collection scratch was wiped by slot preparation"
+        );
+    }
+
+    /// Every other command still keeps its whole slot fresh: the entry the
+    /// previous command left — even one named `lua-coverage` — is gone before
+    /// this one, so the collection's exemption never becomes a channel.
+    #[test]
+    fn a_plain_views_slot_preparation_wipes_the_previous_commands_entries() {
+        let (_root, project) = project();
+        let view = View::new(&project).unwrap();
+        let scratch = view.lua_coverage_scratch().to_path_buf();
+        fs::create_dir_all(&scratch).unwrap();
+        fs::write(scratch.join("lua_coverage.lua"), "collector bytes").unwrap();
+        run(&view, &project);
+        assert!(
+            !scratch.exists(),
+            "a non-collect command left the previous command's entry in its slot"
+        );
+    }
+}
