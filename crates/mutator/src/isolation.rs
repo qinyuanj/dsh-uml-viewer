@@ -10,6 +10,7 @@ use crate::interrupts;
 #[cfg(target_os = "linux")]
 use crate::scratch;
 use crate::scratch::Root;
+use crate::slot::{self, Entry};
 #[cfg(target_os = "linux")]
 use std::{
     fs,
@@ -46,9 +47,6 @@ impl std::fmt::Display for Failure {
         }
     }
 }
-
-/// The directory name one Lua collection's scratch has inside its view.
-const LUA_SCRATCH: &str = "lua-coverage";
 
 pub struct View {
     pub directory: PathBuf,
@@ -129,15 +127,17 @@ pub fn resolve_outside(root: &Path, requested: &[String]) -> Result<Vec<Outside>
                 "--copy path names the project's parent directory itself, not a path in it: {value}"
             ));
         }
-        // The slot's own entries are not free positions. Copy isolation places the
-        // project at `project`, redirects HOME/TEMP/APPDATA to `home`, `temp` and
-        // `appdata`, and recreates `output` and `mutation` for every command, so a
-        // `--copy` target there is deleted or merged over before the command that
-        // needs it reads it. Refusing keeps the option's promise: a placed path is
-        // visible to every command, or the argument is a usage error.
+        // The slot's own entries are not free positions, and the list is the
+        // slot's declaration (`crate::slot`): copy isolation places the project
+        // at `project`, redirects HOME/TEMP/APPDATA to `home`, `temp` and
+        // `appdata`, recreates `output` and `mutation` for every command, and
+        // wipes the `lua-coverage` position a collection's scratch is named
+        // after. A `--copy` target there is deleted or merged over before the
+        // command that needs it reads it, so it is a usage error. Refusing keeps
+        // the option's promise: a placed path is visible to every command.
         if let Some(first) = relative.components().next()
             && let Component::Normal(name) = first
-            && is_reserved(name)
+            && slot::is_reserved(name)
         {
             return Err(format!(
                 "--copy path is in a name copy isolation reserves for its slot: {value}"
@@ -181,24 +181,6 @@ pub fn resolve_outside(root: &Path, requested: &[String]) -> Result<Vec<Outside>
     Ok(resolved)
 }
 
-/// The slot's own entries, which a `--copy` target may never name: the project
-/// copy, the redirected homes, and the per-command capture files
-/// (`crate::copies::Slot` and its `run_program`).
-const RESERVED: [&str; 6] = ["project", "home", "temp", "appdata", "output", "mutation"];
-
-/// Whether one normal component names a slot entry.
-///
-/// A Windows copy places the path on a case-insensitive filesystem, where
-/// `../Output` is the slot's `output`; the comparison ignores ASCII case on
-/// both platforms, because Linux validation exists to refuse the same arguments.
-fn is_reserved(name: &std::ffi::OsStr) -> bool {
-    name.to_str().is_some_and(|name| {
-        RESERVED
-            .iter()
-            .any(|reserved| name.eq_ignore_ascii_case(reserved))
-    })
-}
-
 /// Commands that need the JVM's private home and a seeded dependency cache.
 #[cfg(target_os = "linux")]
 const JVM_COMMANDS: [&str; 3] = ["mvn", "clj", "clojure"];
@@ -219,7 +201,7 @@ impl View {
     pub fn new(root: &Path) -> io::Result<Self> {
         let scratch = Root::new(root)?;
         let directory = scratch.path().to_path_buf();
-        let lua_scratch = directory.join(LUA_SCRATCH);
+        let lua_scratch = directory.join(Entry::LuaScratch.name());
         Ok(Self {
             directory,
             lua_scratch,
@@ -236,9 +218,12 @@ impl View {
         #[cfg(windows)]
         let view = {
             // The slot is wiped on every command. It is a child of this view
-            // so the published scratch beside it survives the wipe, and the
-            // copy is nested inside the slot so `../..` from the project
-            // cannot reach that scratch or anything the next command keeps.
+            // so `Entry::LuaScratch` — the one entry the declaration keeps —
+            // sits above the wiped region, and the copy is nested inside the
+            // slot so `../..` from the project cannot reach that scratch or
+            // anything the next command keeps. Keeping it by position, never by
+            // name, is why a mutant's own `lua-coverage` directory is still
+            // wiped.
             let command_slot = view.directory.join("slot");
             crate::scratch::private_directory(&command_slot)?;
             Self {
@@ -265,7 +250,7 @@ impl View {
     pub fn reused(directory: &Path) -> Self {
         Self {
             directory: directory.to_path_buf(),
-            lua_scratch: directory.join(LUA_SCRATCH),
+            lua_scratch: directory.join(Entry::LuaScratch.name()),
             _root: None,
             #[cfg(windows)]
             command_slot: None,

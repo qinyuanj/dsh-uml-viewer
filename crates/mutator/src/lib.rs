@@ -24,6 +24,7 @@ mod python;
 pub mod queue;
 mod scratch;
 pub mod sites;
+pub mod slot;
 mod typescript;
 mod workers;
 

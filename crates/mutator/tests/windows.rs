@@ -313,6 +313,18 @@ fn main() {
         fs::write(escaped.join("leak"), "x").unwrap();
         std::process::exit(1);
     }
+    if mode == "slot-entries" {
+        // The slot beside the copy, listed for the declaration test. Only the
+        // baseline lists and succeeds; a mutant exits 1, so every mutant dies.
+        if mutated() { std::process::exit(1); }
+        let view = env::var("MUTATOR_VIEW").unwrap();
+        let mut names: Vec<String> = fs::read_dir(&view).unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        fs::write(arg(2), names.join("\n")).unwrap();
+        return;
+    }
     if mode == "write-link" {
         if !mutated() { return; }
         fs::write("alias.txt", "changed").unwrap();
@@ -625,6 +637,61 @@ fn non_collect_commands_wipe_sibling_entries_and_lua_coverage_directories() {
     assert_eq!(code, ExitCode::SUCCESS, "every mutant fails its own test");
     assert!(!fixture.root().join("slot-leak").exists());
     assert!(!fixture.root().join("lua-coverage").exists());
+}
+
+/// The entries a command's slot holds are the ones `mutator::slot` declares, and
+/// that declaration is also the list `--copy` refuses: a position the copy
+/// creates beside the command and a position the option rejects cannot be two
+/// separate lists, so adding a reserved location is one edit, not two.
+///
+/// The two entries that are not beside the copy are the other half of the rule:
+/// `mutation` belongs to a mutant only, and the collection's scratch sits above
+/// the wiped region — which is why the wipe itself keeps no name exemption and a
+/// mutant's own `lua-coverage` directory is removed like any other write.
+#[test]
+fn slot_entries_beside_the_copy_are_the_declared_ones() {
+    let _serial = serial();
+    let fixture = Fixture::new();
+    let helper = helper(&fixture.directory);
+    let listing = fixture.directory.join("slot-entries.txt");
+    let command = format!("{} slot-entries {}", quoted(&helper), quoted(&listing));
+    let code = fixture.run(&[
+        "--no-coverage",
+        "--mutate-all",
+        "--test-command",
+        &command,
+        "app/src/lib.rs",
+    ]);
+    assert_eq!(code, ExitCode::SUCCESS, "every mutant fails its own test");
+    let listed: Vec<String> = fs::read_to_string(&listing)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let declared = |name: &str| {
+        mutator::slot::Entry::ALL
+            .iter()
+            .any(|entry| entry.name().eq_ignore_ascii_case(name))
+    };
+    for name in &listed {
+        assert!(
+            declared(name),
+            "{name} is beside the copy but no slot entry declares it: {listed:?}"
+        );
+    }
+    for entry in mutator::slot::Entry::ALL {
+        let expected = !matches!(
+            entry,
+            mutator::slot::Entry::Mutation | mutator::slot::Entry::LuaScratch
+        );
+        assert_eq!(
+            listed
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(entry.name())),
+            expected,
+            "{entry:?} in {listed:?}"
+        );
+    }
 }
 
 /// `--copy` (ADR 0016): copy isolation shows paths **outside** the project root

@@ -347,10 +347,12 @@ fn mutate_help_documents_the_copy_option_and_the_bare_parent_refusal() {
         entry.contains("parent directory itself"),
         "the bare `..` refusal must be stated in --copy's entry: {entry:?}"
     );
-    // The slot's own names are refused (crate::isolation::RESERVED, #65), and a
+    // The slot's own names are refused (mutator::slot, #65 and #75), and a
     // caller reads the rule in the option's own entry or not at all. Every name
-    // is spelled out: a help that named five of six would pass a spot check.
-    for name in ["project", "home", "temp", "appdata", "output", "mutation"] {
+    // is spelled out, read from the declaration itself: a help that named five
+    // of six would pass a spot check.
+    for reserved in mutator::slot::Entry::ALL {
+        let name = reserved.name();
         assert!(
             entry.contains(name),
             "the reserved name `{name}` must be stated in --copy's entry: {entry:?}"

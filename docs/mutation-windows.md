@@ -60,6 +60,20 @@ created nor needed; and `--reuse-coverage` skips the collection altogether.
 Linux needs no such layout: its collection resets only the overlay layers, so
 the scratch published in the view directory is already outside them.
 
+Whole-slot freshness keeps no exemption by name. Nothing a previous
+**non-collection** command left beside the copy survives: not a file it wrote
+through `..`, and not a directory it happened to name `lua-coverage` — a
+mutant's same-named directory is a channel between mutants like any other write,
+so the wipe removes it with everything else. The exception above is a
+**position**, not a name: preparation skips nothing, because the collection's
+scratch sits outside the region the wipe covers.
+
+The entries a slot holds are one declaration, `crate::slot::Entry`: the project
+copy, the redirected homes, the capture file, the mutated source, and the
+collection's scratch. The same list is the set of first components a `--copy`
+target may never name (below), so adding a reserved location there adds the
+entry the slot owns and the argument the option refuses, with no second edit.
+
 Build output named in the original's `HIDDEN` list (`.git`, `target`,
 `coverage`, `.metrics`, …) becomes an empty directory in the copy. A directory
 symlink or junction is **refused** with exit 1 before any command runs: it
@@ -140,8 +154,15 @@ name both kinds, as a package whose tests read the repository root does:
   itself rather than a path in it (there is no position for it beside the copy),
   a path that resolves back inside the project root, a missing path, and a path
   whose first component names one of the slot's own entries — `project`, `home`,
-  `temp`, `appdata`, `output`, `mutation`, in any case — are all usage errors,
-  refused before any command runs with exit 1, like every other option error.
+  `temp`, `appdata`, `output`, `mutation` and `lua-coverage` (the collection's
+  scratch), in any case — are all usage errors, refused before any command runs
+  with exit 1, like every other option error. That list is `crate::slot::Entry`,
+  the same declaration that gives the slot its layout (above), so the two cannot
+  drift apart. `--copy ../lua-coverage` is a usage error in every spelling: a
+  copy would place it beside the command and the next command's preparation
+  would delete it (or merge it over the project copy) before the command that
+  asked for it read it. `../Lua-Coverage` is the same position on Windows, and
+  Linux refuses the same arguments.
   `--copy ..` and `--copy ../.` both fail with
   `--copy path names the project's parent directory itself, not a path in it`.
   The reserved names are lexical: `../output` is refused whether or not an
