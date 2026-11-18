@@ -579,6 +579,30 @@ pub fn collect(view: &View, request: &Request<'_>) -> Result<Index, String> {
             "-c".into(),
             format!("--coverage-config-file={}", config.display()),
         ]);
+        // Test-only: a later command of this collection records whether the
+        // first shard's publication is still readable after this command's
+        // slot was prepared. Absent unless the regression test asked for it.
+        #[cfg(all(test, windows))]
+        if index > 0
+            && let Ok(witness) = std::env::var("MUTATOR_LUA_SCRATCH_WITNESS")
+            && !witness.is_empty()
+        {
+            let earlier_stats = scratch.join("luacov.shard-1.stats.out");
+            let earlier_publication = scratch.join("spec-coverage.pending-1.json");
+            let chunk = format!(
+                "local ok = io.open({}, 'rb') and io.open({}, 'rb'); local out = io.open({}, 'wb'); if out then out:write(ok and 'readable' or 'wiped') out:close() end",
+                lua_string(&earlier_stats.to_string_lossy()),
+                lua_string(&earlier_publication.to_string_lossy()),
+                lua_string(&witness)
+            );
+            let mut witnessed = argv.clone();
+            let Some(loader_at) = witnessed.iter().position(|arg| arg == "-e") else {
+                return Err(error("Unsupported Busted bootstrap"));
+            };
+            witnessed.insert(loader_at, chunk);
+            witnessed.insert(loader_at, "-e".into());
+            argv = witnessed;
+        }
         argv.extend(group.clone());
         let result = view
             .run_argv(&root, &module, &argv, None, None)
@@ -712,6 +736,9 @@ mod windows_collect_tests {
         let original = fs::read(&source).unwrap();
         for shards in [Some(1), Some(2), None] {
             let view = View::lua_collection(&root).unwrap();
+            let witness = view.directory.join("earlier-shard-still-readable.txt");
+            let _ = fs::remove_file(&witness);
+            unsafe { std::env::set_var("MUTATOR_LUA_SCRATCH_WITNESS", &witness) };
             let index = collect(
                 &view,
                 &Request {
@@ -723,6 +750,28 @@ mod windows_collect_tests {
                 },
             )
             .unwrap_or_else(|error| panic!("coverage with shards {shards:?}: {error}"));
+            unsafe { std::env::remove_var("MUTATOR_LUA_SCRATCH_WITNESS") };
+            if shards != Some(1) {
+                // Written by the later shard's own command, after that
+                // command's slot was prepared. A wipe makes it say wiped.
+                assert_eq!(
+                    fs::read_to_string(&witness).unwrap_or_default().trim(),
+                    "readable",
+                    "shards {shards:?}: the later command could not read the first shard after slot preparation"
+                );
+                let scratch = view.directory.join("lua-coverage");
+                for name in [
+                    "luacov.shard-1.stats.out",
+                    "spec-coverage.pending-1.json",
+                    "luacov.stats.out",
+                    "luacov.cfg.lua",
+                ] {
+                    assert!(
+                        scratch.join(name).is_file(),
+                        "shards {shards:?} left no {name} after the later command"
+                    );
+                }
+            }
             assert_eq!(
                 index.specs.keys().map(String::as_str).collect::<Vec<_>>(),
                 ["spec/add_spec.lua", "spec/double unit_spec.lua"]

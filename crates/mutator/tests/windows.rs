@@ -296,15 +296,20 @@ fn main() {
     }
     if mode == "write-scratch" {
         if !mutated() { return; }
-        let scratch = Path::new("..");
-        let coverage = scratch.join("lua-coverage");
-        if scratch.join("slot-leak").exists() || coverage.exists() {
+        // The copy is <slot>/project. One `..` is the wiped slot; two `..`
+        // is the view that owns it. A write that lands in either place and
+        // is still there for the next mutant is a channel.
+        let slot = Path::new("..");
+        let view = Path::new("../..");
+        let sibling = slot.join("slot-leak");
+        let escaped = view.join("lua-coverage");
+        if sibling.exists() || escaped.exists() {
             println!("saw an earlier mutant's slot entries");
             return;
         }
-        fs::create_dir(&coverage).unwrap();
-        fs::write(scratch.join("slot-leak"), "x").unwrap();
-        fs::write(coverage.join("leak"), "x").unwrap();
+        fs::write(&sibling, "x").unwrap();
+        fs::create_dir(&escaped).unwrap();
+        fs::write(escaped.join("leak"), "x").unwrap();
         std::process::exit(1);
     }
     if mode == "write-link" {
@@ -598,8 +603,10 @@ fn mutant_writes_reach_neither_the_project_nor_the_user_nor_a_later_mutant() {
     fixture.assert_no_scratch();
 }
 
-/// Collection scratch is view-specific: a mutant-created directory with the
-/// same name is still an ordinary slot entry and never reaches the next mutant.
+/// A mutant's writes beside the copy, and one directory further out, are
+/// gone before the next mutant. A directory named `lua-coverage` is not
+/// special: escaping the wiped region through `..` must not greet the next
+/// mutant either.
 #[test]
 fn non_collect_commands_wipe_sibling_entries_and_lua_coverage_directories() {
     let _serial = serial();

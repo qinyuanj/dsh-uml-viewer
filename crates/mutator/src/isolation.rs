@@ -62,11 +62,12 @@ pub struct Completed {
 
 /// A path outside the project root that a call declared with `--copy`.
 ///
-/// On Windows the copy sits at `<slot>/project`, so `..` from it is the slot and
-/// `relative` is where the path must appear: the same position it has beside the
-/// real project root. Linux records the same validated paths and copies nothing,
-/// because its view is mounted over the real project root and `..` already
-/// reaches the real parent directory.
+/// On Windows the copy sits at `<slot>/beside/project`, so `..` from it reaches
+/// the paths placed beside the copy and `../..` is still inside the slot the next
+/// command wipes. `relative` is where the path must appear: the same position it
+/// has beside the real project root. Linux records the same validated paths and
+/// copies nothing, because its view is mounted over the real project root and
+/// `..` already reaches the real parent directory.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Outside {
     /// The real path on this host, symlinks resolved.
@@ -224,9 +225,10 @@ impl View {
         let view = Self::new(root)?;
         #[cfg(windows)]
         let view = {
-            // Slot preparation deletes everything beside the project copy.
-            // Make the slot a child so collection scratch stays in the view
-            // and cannot collide with `--copy` paths inside the slot.
+            // The slot is wiped on every command. It is a child of this view
+            // so the published scratch beside it survives the wipe, and the
+            // copy is nested inside the slot so `../..` from the project
+            // cannot reach that scratch or anything the next command keeps.
             let command_slot = view.directory.join("slot");
             crate::scratch::private_directory(&command_slot)?;
             Self {

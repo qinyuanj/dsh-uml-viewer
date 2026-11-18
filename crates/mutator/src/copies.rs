@@ -104,24 +104,33 @@ impl Slot {
             directory: directory.to_path_buf(),
         }
     }
+    /// The directory the copy's `..` resolves to. It sits one level under the
+    /// wiped slot, so both `..` and `../..` from the project land inside the
+    /// slot and the next command's wipe removes them. A collection's published
+    /// scratch lives outside this slot and is opened by absolute path.
+    fn beside(&self) -> PathBuf {
+        self.directory.join("beside")
+    }
     fn project(&self) -> PathBuf {
-        self.directory.join("project")
+        self.beside().join("project")
     }
     fn home(&self) -> PathBuf {
-        self.directory.join("home")
+        self.beside().join("home")
     }
     fn mark(&self) -> PathBuf {
-        self.directory.join("mutation")
+        self.beside().join("mutation")
     }
 
     /// Reset the slot and copy the project into it. `relative` and `data` are
     /// the mutated source this command must see, if any.
     fn copy(&self, root: &Path, mutation: Option<(&Path, &str)>) -> io::Result<()> {
-        // The whole slot is fresh for every command, including the copy's
-        // parent: a mutant's `..` write must not greet the next mutant.
+        // The whole slot is fresh for every command. The copy sits one
+        // level down, so a `..` write and a `../..` write both land here and
+        // are gone before the next command starts.
         for entry in fs::read_dir(&self.directory)? {
             scratch::force_remove(&entry?.path())?;
         }
+        scratch::private_directory(&self.beside())?;
         let project = self.project();
         scratch::private_directory(&project)?;
         copy_tree(root, &project, &hide_build_output(root))?;
@@ -163,7 +172,7 @@ impl Slot {
     /// inside the scratch root the pool removes.
     fn place(&self, outside: &isolation::Outside) -> io::Result<()> {
         let source = &outside.source;
-        let destination = self.directory.join(&outside.relative);
+        let destination = self.beside().join(&outside.relative);
         let target = format!("{} beside the copy", source.display());
         // The same link rules as the project copy: a linked directory is
         // refused, a linked file is materialised as independent bytes.
@@ -225,7 +234,7 @@ impl Slot {
         let cwd = self
             .cwd(root, cwd)
             .map_err(|error| Failure::Message(error.to_string()))?;
-        let output_path = self.directory.join("output");
+        let output_path = self.beside().join("output");
         scratch::force_remove(&output_path).map_err(message)?;
         let output = scratch::private_file(&output_path).map_err(message)?;
         let home = self.home();
@@ -274,10 +283,7 @@ impl Slot {
                 format!("{previous} -Duser.home=\"{}\"", jvm_home.display()).into(),
             ));
         }
-        environment.push((
-            "MUTATOR_VIEW".into(),
-            self.directory.clone().into_os_string(),
-        ));
+        environment.push(("MUTATOR_VIEW".into(), self.beside().into_os_string()));
         let started = Instant::now();
         let running = process::start_supervised_with_env_removals(
             program,

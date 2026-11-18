@@ -135,7 +135,11 @@ fn assert_environment(view: &View, project: &std::path::Path, output: &str, own_
         Some("keep-me")
     );
     #[cfg(windows)]
-    let target = view.directory.join("project").join("target/mutator-build");
+    let target = view
+        .directory
+        .join("beside")
+        .join("project")
+        .join("target/mutator-build");
     #[cfg(target_os = "linux")]
     let target = {
         let _ = view;
