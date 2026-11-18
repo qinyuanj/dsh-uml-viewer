@@ -16,6 +16,7 @@ use crate::{
     interrupts,
     isolation::{self, Completed, Failure},
     scratch,
+    slot::Entry,
 };
 use quality_core::process::{self, Ended, Program};
 use std::{
@@ -51,14 +52,16 @@ const HIDDEN: &[&str] = &[
     ".toolcache",
 ];
 
-/// Home, profile, temp and app-data beside the copy, never inside it.
-const REDIRECTED: &[(&str, &str)] = &[
-    ("HOME", "home"),
-    ("USERPROFILE", "home"),
-    ("TEMP", "temp"),
-    ("TMP", "temp"),
-    ("APPDATA", "appdata/Roaming"),
-    ("LOCALAPPDATA", "appdata/Local"),
+/// Home, profile, temp and app-data beside the copy, never inside it: each
+/// environment variable and the slot entry (`crate::slot`) it points at, plus
+/// the sub-path inside that entry.
+const REDIRECTED: &[(&str, Entry, &str)] = &[
+    ("HOME", Entry::Home, ""),
+    ("USERPROFILE", Entry::Home, ""),
+    ("TEMP", Entry::Temp, ""),
+    ("TMP", Entry::Temp, ""),
+    ("APPDATA", Entry::AppData, "Roaming"),
+    ("LOCALAPPDATA", Entry::AppData, "Local"),
 ];
 
 pub fn describe() -> &'static str {
@@ -111,22 +114,42 @@ impl Slot {
     fn beside(&self) -> PathBuf {
         self.directory.join("beside")
     }
+
+    /// One slot entry, named by the declaration that also makes it a `--copy`
+    /// reservation (`crate::slot`), so a slot the copy creates and a name the
+    /// option refuses can never be two separate lists.
+    fn entry(&self, entry: Entry) -> PathBuf {
+        self.beside().join(entry.name())
+    }
+
+    /// One redirected variable's directory: a slot entry, plus the sub-path the
+    /// variable uses inside it.
+    fn redirected(&self, entry: Entry, folder: &str) -> PathBuf {
+        match folder {
+            "" => self.entry(entry),
+            folder => self.entry(entry).join(folder),
+        }
+    }
+
     fn project(&self) -> PathBuf {
-        self.beside().join("project")
+        self.entry(Entry::Project)
     }
     fn home(&self) -> PathBuf {
-        self.beside().join("home")
+        self.entry(Entry::Home)
     }
     fn mark(&self) -> PathBuf {
-        self.beside().join("mutation")
+        self.entry(Entry::Mutation)
     }
 
     /// Reset the slot and copy the project into it. `relative` and `data` are
     /// the mutated source this command must see, if any.
     fn copy(&self, root: &Path, mutation: Option<(&Path, &str)>) -> io::Result<()> {
-        // The whole slot is fresh for every command. The copy sits one
-        // level down, so a `..` write and a `../..` write both land here and
-        // are gone before the next command starts.
+        // The whole slot is fresh for every command: every entry, with no
+        // exemption by name. The copy sits one level down, so a `..` write and a
+        // `../..` write both land here and are gone before the next command
+        // starts, and a mutant's own `lua-coverage` directory is removed like
+        // any other. The one entry a command keeps (`Entry::LuaScratch`) is
+        // kept by a collection's view nesting this slot under it, never here.
         for entry in fs::read_dir(&self.directory)? {
             scratch::force_remove(&entry?.path())?;
         }
@@ -137,8 +160,8 @@ impl Slot {
         for outside in outside(root) {
             self.place(&outside)?;
         }
-        for (_, folder) in REDIRECTED {
-            fs::create_dir_all(self.home().join(folder))?;
+        for (_, entry, folder) in REDIRECTED {
+            fs::create_dir_all(self.redirected(*entry, folder))?;
         }
         let mark = self.mark();
         scratch::force_remove(&mark)?;
@@ -234,16 +257,16 @@ impl Slot {
         let cwd = self
             .cwd(root, cwd)
             .map_err(|error| Failure::Message(error.to_string()))?;
-        let output_path = self.beside().join("output");
+        let output_path = self.entry(Entry::Output);
         scratch::force_remove(&output_path).map_err(message)?;
         let output = scratch::private_file(&output_path).map_err(message)?;
         let home = self.home();
         let mut environment: Vec<(OsString, OsString)> = REDIRECTED
             .iter()
-            .map(|(name, folder)| {
+            .map(|(name, entry, folder)| {
                 (
                     OsString::from(name),
-                    home.join(folder).as_os_str().to_os_string(),
+                    self.redirected(*entry, folder).into_os_string(),
                 )
             })
             .collect();

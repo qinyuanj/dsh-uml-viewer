@@ -10,6 +10,7 @@ use crate::interrupts;
 #[cfg(target_os = "linux")]
 use crate::scratch;
 use crate::scratch::Root;
+use crate::slot::{self, Entry};
 #[cfg(target_os = "linux")]
 use std::{
     fs,
@@ -49,6 +50,11 @@ impl std::fmt::Display for Failure {
 
 pub struct View {
     pub directory: PathBuf,
+    // The scratch one Lua collection publishes into. It is the view's own
+    // layout, decided when the view is opened: the collector, the shard stats
+    // and configs, the merged stats and its conversion config all live here,
+    // and a collection only uses the path it is given.
+    lua_scratch: PathBuf,
     // A slot borrows its pool's root, so only the pool removes the tree.
     _root: Option<Root>,
     #[cfg(windows)]
@@ -121,15 +127,17 @@ pub fn resolve_outside(root: &Path, requested: &[String]) -> Result<Vec<Outside>
                 "--copy path names the project's parent directory itself, not a path in it: {value}"
             ));
         }
-        // The slot's own entries are not free positions. Copy isolation places the
-        // project at `project`, redirects HOME/TEMP/APPDATA to `home`, `temp` and
-        // `appdata`, and recreates `output` and `mutation` for every command, so a
-        // `--copy` target there is deleted or merged over before the command that
-        // needs it reads it. Refusing keeps the option's promise: a placed path is
-        // visible to every command, or the argument is a usage error.
+        // The slot's own entries are not free positions, and the list is the
+        // slot's declaration (`crate::slot`): copy isolation places the project
+        // at `project`, redirects HOME/TEMP/APPDATA to `home`, `temp` and
+        // `appdata`, recreates `output` and `mutation` for every command, and
+        // wipes the `lua-coverage` position a collection's scratch is named
+        // after. A `--copy` target there is deleted or merged over before the
+        // command that needs it reads it, so it is a usage error. Refusing keeps
+        // the option's promise: a placed path is visible to every command.
         if let Some(first) = relative.components().next()
             && let Component::Normal(name) = first
-            && is_reserved(name)
+            && slot::is_reserved(name)
         {
             return Err(format!(
                 "--copy path is in a name copy isolation reserves for its slot: {value}"
@@ -173,24 +181,6 @@ pub fn resolve_outside(root: &Path, requested: &[String]) -> Result<Vec<Outside>
     Ok(resolved)
 }
 
-/// The slot's own entries, which a `--copy` target may never name: the project
-/// copy, the redirected homes, and the per-command capture files
-/// (`crate::copies::Slot` and its `run_program`).
-const RESERVED: [&str; 6] = ["project", "home", "temp", "appdata", "output", "mutation"];
-
-/// Whether one normal component names a slot entry.
-///
-/// A Windows copy places the path on a case-insensitive filesystem, where
-/// `../Output` is the slot's `output`; the comparison ignores ASCII case on
-/// both platforms, because Linux validation exists to refuse the same arguments.
-fn is_reserved(name: &std::ffi::OsStr) -> bool {
-    name.to_str().is_some_and(|name| {
-        RESERVED
-            .iter()
-            .any(|reserved| name.eq_ignore_ascii_case(reserved))
-    })
-}
-
 /// Commands that need the JVM's private home and a seeded dependency cache.
 #[cfg(target_os = "linux")]
 const JVM_COMMANDS: [&str; 3] = ["mvn", "clj", "clojure"];
@@ -211,8 +201,10 @@ impl View {
     pub fn new(root: &Path) -> io::Result<Self> {
         let scratch = Root::new(root)?;
         let directory = scratch.path().to_path_buf();
+        let lua_scratch = directory.join(Entry::LuaScratch.name());
         Ok(Self {
             directory,
+            lua_scratch,
             _root: Some(scratch),
             #[cfg(windows)]
             command_slot: None,
@@ -226,9 +218,12 @@ impl View {
         #[cfg(windows)]
         let view = {
             // The slot is wiped on every command. It is a child of this view
-            // so the published scratch beside it survives the wipe, and the
-            // copy is nested inside the slot so `../..` from the project
-            // cannot reach that scratch or anything the next command keeps.
+            // so `Entry::LuaScratch` — the one entry the declaration keeps —
+            // sits above the wiped region, and the copy is nested inside the
+            // slot so `../..` from the project cannot reach that scratch or
+            // anything the next command keeps. Keeping it by position, never by
+            // name, is why a mutant's own `lua-coverage` directory is still
+            // wiped.
             let command_slot = view.directory.join("slot");
             crate::scratch::private_directory(&command_slot)?;
             Self {
@@ -244,10 +239,18 @@ impl View {
         crate::copies::Slot::reused(self.command_slot.as_deref().unwrap_or(&self.directory))
     }
 
+    /// The scratch one Lua collection publishes into: the view names it, so
+    /// the collection never composes the view's layout itself. The directory
+    /// is not created here; the collection creates what it writes.
+    pub fn lua_coverage_scratch(&self) -> &Path {
+        &self.lua_scratch
+    }
+
     /// A view of a worker slot whose scratch root another owner removes.
     pub fn reused(directory: &Path) -> Self {
         Self {
             directory: directory.to_path_buf(),
+            lua_scratch: directory.join(Entry::LuaScratch.name()),
             _root: None,
             #[cfg(windows)]
             command_slot: None,
@@ -846,5 +849,71 @@ mod tests {
 }
 
 #[cfg(test)]
+#[path = "isolation_scratch_tests.rs"]
+mod scratch_tests;
+
+#[cfg(test)]
 #[path = "isolation_outside_tests.rs"]
 mod outside_tests;
+
+/// The slot layout behind the Windows Lua scratch guarantee, checked without a
+/// Lua toolchain. `lua::windows_collect_tests` pins the same guarantee end to
+/// end (the collector is `dofile`d, every shard's stats stay readable, the
+/// conversion still reads the merged stats), but it skips when busted or
+/// cluacov is missing, so on such a host nothing would fail if the collection's
+/// scratch started being wiped again. These tests need only a command that
+/// exits 0.
+#[cfg(all(test, windows))]
+mod scratch_survival_tests {
+    use super::*;
+    use std::fs;
+
+    fn project() -> (crate::scratch::Root, PathBuf) {
+        let root = crate::scratch::Root::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let project = root.path().join("project");
+        fs::create_dir_all(project.join("src")).unwrap();
+        fs::write(project.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
+        (root, project)
+    }
+
+    /// Runs one command in `view`, failing the test if it cannot start.
+    fn run(view: &View, project: &Path) {
+        if view.run(project, project, "exit 0", None, None).is_err() {
+            panic!("the command did not run");
+        }
+    }
+
+    /// The collection publishes its scratch beside the command slot, so
+    /// preparing the next command's copy leaves the collector every command
+    /// `dofile`s, the shard configs and stats, and the conversion input.
+    #[test]
+    fn a_collections_published_scratch_survives_slot_preparation() {
+        let (_root, project) = project();
+        let view = View::lua_collection(&project).unwrap();
+        let scratch = view.lua_coverage_scratch().to_path_buf();
+        fs::create_dir_all(&scratch).unwrap();
+        fs::write(scratch.join("lua_coverage.lua"), "collector bytes").unwrap();
+        run(&view, &project);
+        assert!(
+            scratch.join("lua_coverage.lua").is_file(),
+            "collection scratch was wiped by slot preparation"
+        );
+    }
+
+    /// Every other command still keeps its whole slot fresh: the entry the
+    /// previous command left — even one named `lua-coverage` — is gone before
+    /// this one, so the collection's exemption never becomes a channel.
+    #[test]
+    fn a_plain_views_slot_preparation_wipes_the_previous_commands_entries() {
+        let (_root, project) = project();
+        let view = View::new(&project).unwrap();
+        let scratch = view.lua_coverage_scratch().to_path_buf();
+        fs::create_dir_all(&scratch).unwrap();
+        fs::write(scratch.join("lua_coverage.lua"), "collector bytes").unwrap();
+        run(&view, &project);
+        assert!(
+            !scratch.exists(),
+            "a non-collect command left the previous command's entry in its slot"
+        );
+    }
+}

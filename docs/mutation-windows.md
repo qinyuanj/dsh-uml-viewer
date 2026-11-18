@@ -1,8 +1,13 @@
 # Windows mutation isolation, and the macOS refusal
 
-Native Windows 10 22H2 (build 19045) and later run `uml-viewer mutate`; older
-builds are refused before any work, as in the original. Linux keeps the
-overlay views described in [mutation-linux.md](mutation-linux.md).
+Native Windows runs `uml-viewer mutate` on any build. No capability here is
+newer than Windows 10, which the toolchain already requires, so the OS alone
+decides (ADR 0018) — as in the pinned original after
+[mutator#30](https://github.com/qinyuanj/mutator/issues/30), which dropped its
+build floor for the same reason. macOS is still refused with a reason, because
+it has neither isolation mechanism; that refusal is this port's own, not a
+build-number gate. Linux keeps the overlay views described in
+[mutation-linux.md](mutation-linux.md).
 
 ## A fresh copy per command, a Job Object per command
 
@@ -10,9 +15,68 @@ One call owns one private scratch root under the temporary directory (an
 unpredictable `mutator-<pid>-<counter>-<16 hex>` name, refused when the
 temporary directory is inside the project) and a pool of reusable
 `worker-<n>` slots. Coverage, the baseline and every mutant each get a **fresh
-copy of the project** at the slot: the previous command's copy and redirected
-home are deleted first, so a mutant's writes reach neither the project nor the
-next mutant, including a write to the copy's parent directory.
+copy of the project** at the slot: the whole slot is deleted before the copy is
+made — the previous command's copy, its redirected home and temporary
+directories, its capture files and its `--copy` placements — so a mutant's
+writes reach neither the project nor the next mutant, including a write to the
+copy's parent directory.
+
+### The one exception: a Lua coverage collection
+
+A Lua suite reports through its own instrumented collection, which needs a few
+files to outlive a single command: the embedded collector that every command's
+`-e` bootstrap `dofile`s, each shard's LuaCov config and stats, each shard's
+spec publication, and the merged stats with the config the LCOV conversion
+reads. None of them may live in the project tree — a copy is rebuilt for every
+command and the project itself is never written — so a collection gets a view
+of its own whose **slot is a child** directory of that view:
+
+```text
+<view>/                       the collection's own private scratch root
+  lua-coverage/               published scratch: collector, per-shard config and
+                              stats, spec publications, merged stats, LCOV config
+  slot/                       wiped before every command
+    beside/
+      project/                the command's fresh copy
+      home/                   the command's redirected home
+```
+
+Preparing a command deletes everything inside `<view>/slot`: the copy, the
+redirected home, the capture files and the `--copy` placements, the same wipe
+every other command gets. The view names that scratch
+(`View::lua_coverage_scratch`), so the collection never composes the layout
+itself, and `lua-coverage/` sits beside the slot, so it survives
+the wipe, and `..` and `../..` from `<view>/slot/beside/project` both stay
+inside the wiped region: a test cannot stumble onto that scratch, and it is read
+only through the absolute path the collection itself puts in the command line
+(`dofile('<view>/lua-coverage/lua_coverage.lua')`,
+`--coverage-config-file=<view>/lua-coverage/luacov.shard-1.cfg.lua`).
+
+That scratch belongs to **that one collection**. The view is removed when the
+collection ends, so no later command of the same call (the baseline, a mutant,
+another language's coverage command) can see it; nothing is written to the
+project tree, so an empty `lua-coverage/` at the project root is neither
+created nor needed; and `--reuse-coverage` skips the collection altogether.
+Linux needs no such layout: its collection resets only the overlay layers, so
+the scratch published in the view directory is already outside them.
+
+Whole-slot freshness keeps no exemption by name. Nothing a previous
+**non-collection** command left beside the copy survives: not a file it wrote
+through `..`, and not a directory it happened to name `lua-coverage` — a
+mutant's same-named directory is a channel between mutants like any other write,
+so the wipe removes it with everything else. The exception above is a
+**position**, not a name: preparation skips nothing, because the collection's
+scratch sits outside the region the wipe covers.
+
+The reserved names are one declaration, `crate::slot::Entry`: the project copy,
+the redirected homes, the capture file, the mutated source, and the collection's
+scratch. `Entry::ALL` is the set of first components a `--copy` target may never
+name (below), so a new reserved name is one edit. The slot layout is not derived
+from it: which entries a slot creates and wipes is still written out by hand in
+`copies.rs` (`Slot::copy`), which consumes those names through `Entry::name()`.
+An entry `Slot::copy` places is therefore a second, deliberate edit — and
+`Entry::LuaScratch` is not one of them: it names the collection's scratch, which
+sits above the wiped region and is created by `isolation::View::lua_collection`.
 
 Build output named in the original's `HIDDEN` list (`.git`, `target`,
 `coverage`, `.metrics`, …) becomes an empty directory in the copy. A directory
@@ -94,8 +158,16 @@ name both kinds, as a package whose tests read the repository root does:
   itself rather than a path in it (there is no position for it beside the copy),
   a path that resolves back inside the project root, a missing path, and a path
   whose first component names one of the slot's own entries — `project`, `home`,
-  `temp`, `appdata`, `output`, `mutation`, in any case — are all usage errors,
-  refused before any command runs with exit 1, like every other option error.
+  `temp`, `appdata`, `output`, `mutation` and `lua-coverage` (the collection's
+  scratch), in any case — are all usage errors, refused before any command runs
+  with exit 1, like every other option error. That list is `crate::slot::Entry`,
+  the same declaration whose names the slot's layout consumes (above), so the
+  reserved names cannot drift from the entries a slot creates.
+  `--copy ../lua-coverage` is a usage error in every spelling: a copy would
+  place it beside the command and the next command's preparation would delete it
+  (or merge it over the project copy) before the command that asked for it read
+  it. `../Lua-Coverage` is the same position on Windows, and
+  Linux refuses the same arguments.
   `--copy ..` and `--copy ../.` both fail with
   `--copy path names the project's parent directory itself, not a path in it`.
   The reserved names are lexical: `../output` is refused whether or not an
@@ -159,6 +231,48 @@ regenerates the language instead, and that language's reports already on disk
 are not read: a script that quietly writes nothing leaves its sites uncovered
 rather than borrowing an earlier run's hits.
 
+## Lua suites
+
+A Lua suite does not report through a coverage tool the project depends on. The
+collection ships its own instrumented Busted bootstrap (`lua_coverage.lua`,
+embedded in the binary), splits the suite into coverage shards and reads the
+LuaCov LCOV report. Everything it writes — the collector, each shard's
+`luacov.shard-N.stats.out`, each shard's spec publication, the merged stats and
+the conversion config — is the collection's own scratch beside the slot, not
+inside the project copy (`View::lua_collection`). The slot is still wiped before
+every command, so the collector is openable by the shard that `dofile`s it, a
+later shard still reads the earlier shards' publications, and the LCOV
+conversion still reads the merged stats after the last shard. The project tree
+is never a write target, and the scratch belongs to that one collection.
+
+`MUTATOR_LUA_SHARDS=1` and the default count take the same path; only the shard
+count differs, and the report prints one `Busted in N coverage shards` line per
+launch. #73's LF normalisation is what makes the merged (default-count) form
+work on Windows at all.
+
+The collection reports a dead bootstrap and a failing suite with the same words,
+`Lua tests exited N` (with the shard position when there is more than one), so a
+caller cannot tell them apart from that line. Busted's own summary — `2 successes
+/ 0 failures / 0 errors / 0 pending` — is the evidence that the suite was
+entered, and `crates/uml-viewer/tests/mutate_lua.rs` judges a run by it: one
+coverage shard and the default count each run without `--reuse-coverage`, the
+baseline's summary and the shard launches are asserted, and the published
+outcomes are compared with the committed golden, so a mutant that was not judged
+fails the case. `--reuse-coverage` still skips this collection entirely, which
+the same file asserts (no Busted process, no shard).
+
+`windows-mutate` installs that toolchain with `scripts/setup-windows-lua.ps1`:
+Lua 5.4.8 built with winlibs MinGW-w64 GCC 16.2.0, LuaRocks 3.12.0, then the
+rocks. The three archive downloads — the Lua source, LuaRocks and the MinGW-w64
+build — are SHA-256 pinned. The rocks are not: `luafilesystem`, `busted`,
+`luacov` and `luacov-reporter-lcov` are installed unpinned from LuaRocks and
+only `cluacov 1.0.0-1` names a version, which is exactly what
+`crapper/scripts/setup-windows.ps1` does, so the two are re-pinned together.
+The script then proves the modules load. It exports `PATH`, `LUA_PATH` and
+`LUA_CPATH` to the later steps (and to `$GITHUB_ENV` in Actions). This is the
+same recipe a maintainer's Windows host uses, and `MUTATOR_REQUIRE_TOOLCHAINS=1`
+makes a missing toolchain a failure rather than a skip.
+
 ## Weaker than Linux, and honest about it
 
 A copy is a convention, not an OS-enforced sandbox: an absolute path outside
@@ -192,8 +306,9 @@ improvement, not parity. `crap` and `dry` are unchanged.
 `windows-mutate` (windows-latest) installs the pinned toolchain's `llvm-tools`
 and `cargo-llvm-cov`, sets `MUTATOR_REQUIRE_TOOLCHAINS=1` so a missing
 toolchain fails instead of skipping, installs `coverage.py` for the Python
-coverage test (the same rule: a missing tool fails), and runs the mutator suite
-plus the `uml-viewer` mutate tests. `macos-quality` (macos-latest) asserts the refusal
+coverage test and the whole Lua 5.4 toolchain for the Lua suite (the same rule:
+a missing tool fails), and runs the mutator suite plus the `uml-viewer` mutate
+tests, including the Lua cases that prove the suite is really entered. `macos-quality` (macos-latest) asserts the refusal
 and runs the crap and dry suites.
 
 In [main CI6 at `6147980`](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42595826593),

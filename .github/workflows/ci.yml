@@ -179,6 +179,12 @@ jobs:
       # toolchain too.
       - name: Python coverage fixture toolchain
         run: python -m pip install coverage pytest
+      # A Lua suite reports through Busted, LuaCov and cluacov 1.0.0, and the
+      # mutation collector adds the LuaCov LCOV reporter. The pinned installer
+      # proves all of them and exports PATH, LUA_PATH and LUA_CPATH to the later
+      # steps; MUTATOR_REQUIRE_TOOLCHAINS above makes it missing a failure.
+      - name: Lua 5.4 fixture toolchain
+        run: ./scripts/setup-windows-lua.ps1
       - name: Mutation native Windows tests
         run: cargo test -p mutator --locked
       - name: Mutation integration tests

@@ -157,13 +157,12 @@ pub fn scans(language: quality_core::language::Language) -> bool {
 
 /// The binary's dry role. It preserves the original argument and exit contract.
 pub fn run(args: &[OsString]) -> ExitCode {
-    run_on(platform::Host::current(), platform::windows_build(), args)
+    run_on(platform::Host::current(), args)
 }
 
-/// The same contract with the host declared. The pinned tests monkeypatch
-/// `sys.platform` and `windows_build` the same way to reach the older-Windows
-/// refusal on a supported host.
-fn run_on(host: platform::Host, build: Option<u32>, args: &[OsString]) -> ExitCode {
+/// The same contract with the host declared, matching the pinned tests'
+/// monkeypatch of `sys.platform`.
+fn run_on(host: platform::Host, args: &[OsString]) -> ExitCode {
     let args: Vec<_> = args
         .iter()
         .map(|s| s.to_string_lossy().into_owned())
@@ -179,10 +178,6 @@ fn run_on(host: platform::Host, build: Option<u32>, args: &[OsString]) -> ExitCo
         }
         Parsed::Scan(options) => options,
     };
-    if let Some(refusal) = platform::refusal(platform::Tool::Dryer, host, build) {
-        eprintln!("{refusal}");
-        return ExitCode::FAILURE;
-    }
     let scope = options.scope;
     let root = scope.project_root();
     if let Some(warning) = platform::warning(host, &root) {
@@ -256,24 +251,15 @@ mod tests {
         vec!["--root".into(), root.as_os_str().to_owned()]
     }
 
+    /// The old build-number gate refused this host before selection; the OS
+    /// alone decides now, so native Windows scans on any build (ADR 0018,
+    /// dryer#5).
     #[test]
-    fn an_older_windows_build_is_refused_before_selection_and_publishes_nothing() {
-        let root = scratch("old-windows");
-        let exit = run_on(platform::Host::Windows, Some(19044), &root_args(&root));
-        assert_eq!(ExitCode::FAILURE, exit);
-        assert!(!root.join(".metrics").exists());
-        std::fs::remove_dir_all(&root).unwrap();
-    }
-
-    #[test]
-    fn the_minimum_supported_windows_build_scans_normally() {
-        let root = scratch("supported-windows");
-        let exit = run_on(
-            platform::Host::Windows,
-            Some(platform::MINIMUM_WINDOWS_BUILD),
-            &root_args(&root),
-        );
+    fn native_windows_scans_on_any_build() {
+        let root = scratch("any-windows-build");
+        let exit = run_on(platform::Host::Windows, &root_args(&root));
         assert_eq!(ExitCode::SUCCESS, exit);
+        assert!(!root.join(".metrics").exists());
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

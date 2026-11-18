@@ -513,8 +513,9 @@ pub fn collect(view: &View, request: &Request<'_>) -> Result<Index, String> {
     // A missing or other cluacov version cannot produce this baseline, so the
     // refusal happens before any test runs.
     lua::require_cluacov(&interpreter).map_err(|found| found.0)?;
-    let scratch = view.directory.join("lua-coverage");
-    fs::create_dir_all(&scratch)
+    // The view names the scratch; the collection never composes its layout.
+    let scratch = view.lua_coverage_scratch();
+    fs::create_dir_all(scratch)
         .map_err(|err| error(format!("Cannot prepare Lua coverage: {err}")))?;
     let collector = scratch.join("lua_coverage.lua");
     fs::write(&collector, COLLECTOR)
@@ -716,15 +717,31 @@ mod windows_collect_tests {
         }
     }
 
+    /// A missing toolchain is a loud SKIP, and under `MUTATOR_REQUIRE_TOOLCHAINS=1`
+    /// (CI) a failure: a skip that reports `ok` reads like a pass, and this test
+    /// is the only native-Windows evidence that the Lua suite is entered.
+    fn skip(reason: &str) {
+        if std::env::var_os("MUTATOR_REQUIRE_TOOLCHAINS").as_deref()
+            == Some(std::ffi::OsStr::new("1"))
+        {
+            panic!("required mutation toolchain unavailable: {reason}");
+        }
+        // libtest captures `eprintln!`; write to the process's real stderr so the
+        // skip is visible in a CI log.
+        use std::io::Write;
+        let _ = std::io::stderr().write_all(
+            format!("SKIP: {reason}; set MUTATOR_REQUIRE_TOOLCHAINS=1 to make this a failure\n")
+                .as_bytes(),
+        );
+    }
+
     #[test]
     fn collect_scratch_survives_slot_preparation_through_shards_and_lcov_conversion() {
         let Some(interpreter) = lua::interpreter() else {
-            eprintln!("SKIP: Lua 5.4 is not installed");
-            return;
+            return skip("Lua 5.4 is not installed");
         };
         if let Err(reason) = lua::require_cluacov(&interpreter) {
-            eprintln!("SKIP: {}", reason.0);
-            return;
+            return skip(&reason.0);
         }
         let fixture = crate::scratch::Root::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
         let root = fixture.path().join("project");
@@ -759,7 +776,7 @@ mod windows_collect_tests {
                     "readable",
                     "shards {shards:?}: the later command could not read the first shard after slot preparation"
                 );
-                let scratch = view.directory.join("lua-coverage");
+                let scratch = view.lua_coverage_scratch();
                 for name in [
                     "luacov.shard-1.stats.out",
                     "spec-coverage.pending-1.json",

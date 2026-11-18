@@ -136,17 +136,22 @@ fn a_path_that_resolves_back_inside_the_project_is_a_usage_error() {
     assert!(error.contains("../workspace"), "{error}");
 }
 
-/// The slot's own entries are never a `--copy` position: the copy places the
-/// project at `project`, redirects the homes to `home`, `temp` and `appdata`,
-/// and recreates `output` and `mutation` for every command. Whatever a
-/// `--copy` placed there would be deleted or merged over before the command
-/// that needs it read it, so the argument is a usage error. The decision is
-/// lexical, before any filesystem work, so a reserved name that does not exist
-/// is never reported as a missing path.
+/// Every entry the slot declares (`crate::slot`) is never a `--copy` position:
+/// the copy places the project at `project`, redirects the homes to `home`,
+/// `temp` and `appdata`, recreates `output` and `mutation` for every command,
+/// and wipes the `lua-coverage` position a collection's scratch is named after.
+/// Whatever a `--copy` placed there would be deleted or merged over before the
+/// command that needs it read it, so the argument is a usage error. Reading the
+/// list from the declaration is the point: a new reserved location is one edit
+/// there, and this test covers it with no second list to keep in step.
+///
+/// The decision is lexical, before any filesystem work, so a reserved name that
+/// does not exist is never reported as a missing path.
 #[test]
 fn a_reserved_slot_name_is_a_usage_error_not_a_missing_path() {
     let (_temporary, project, _parent) = temporary();
-    for name in ["project", "home", "temp", "appdata", "output", "mutation"] {
+    for entry in crate::slot::Entry::ALL {
+        let name = entry.name();
         for value in [format!("../{name}"), format!("../{name}/nested/file")] {
             let error = resolve_outside(&project, &request(&[value.as_str()])).unwrap_err();
             assert!(error.contains("reserves for its slot"), "{value}: {error}");
@@ -157,12 +162,26 @@ fn a_reserved_slot_name_is_a_usage_error_not_a_missing_path() {
 }
 
 /// A Windows copy places the outside path on a case-insensitive filesystem, so
-/// `../Output` is the slot's `output` there; both platforms refuse it, because
-/// Linux validation exists to refuse the same arguments.
+/// `../Output` is the slot's `output` and `../Lua-Coverage` the slot's
+/// `lua-coverage` there; both platforms refuse them, because Linux validation
+/// exists to refuse the same arguments.
 #[test]
 fn a_reserved_slot_name_is_refused_in_any_case() {
     let (_temporary, project, _parent) = temporary();
-    for value in ["../Output", "../PROJECT/nested", "../AppData"] {
+    for entry in crate::slot::Entry::ALL {
+        let shouted = entry.name().to_ascii_uppercase();
+        let value = format!("../{shouted}");
+        let error = resolve_outside(&project, &request(&[value.as_str()])).unwrap_err();
+        assert!(error.contains("reserves for its slot"), "{value}: {error}");
+        assert!(error.contains(&value), "{value}: {error}");
+    }
+    for value in [
+        "../Output",
+        "../PROJECT/nested",
+        "../AppData",
+        "../Lua-Coverage",
+        "../lua-coverage/luacov.stats.out",
+    ] {
         let error = resolve_outside(&project, &request(&[value])).unwrap_err();
         assert!(error.contains("reserves for its slot"), "{value}: {error}");
         assert!(error.contains(value), "{value}: {error}");

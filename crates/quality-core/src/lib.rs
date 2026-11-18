@@ -14,7 +14,9 @@
 //! - [`atomic`]: atomic snapshot publication.
 //! - [`snapshot`]: the `.metrics` EDN writer (number format, key order).
 //! - [`paths`]: Python-compatible `resolve` / `as_posix`.
-//! - [`platform`]: the shared pre-selection refusal and WSL `/mnt` warning.
+//! - [`platform`]: the shared WSL `/mnt` warning, and the host both pinned
+//!   originals decide on; neither refuses an OS or reads a build number
+//!   (ADR 0018).
 //! - [`number`]: Python `float()` for number options; [`digits`] is the
 //!   Unicode decimal digit table it shares with dryer's `int()` counts.
 

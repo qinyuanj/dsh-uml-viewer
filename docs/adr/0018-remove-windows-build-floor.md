@@ -45,23 +45,32 @@ Windows 10 22H2（build 19045）起交付"的版本下限条款：**取消构建
   被本决定取代。
 - **保留检查、降为一行 stderr 警告**：仍要为产出一个没人据以行动的数字而保留整套 FFI；
   警告通道只在有可执行动作时才有价值。
-- **只降我们自己的 crate、`quality-core` 保持不动**：这是本决定的实际形态（见下），
-  但它不是完整答案，完整答案要等上游。
+- **只降我们自己的 crate、`quality-core` 保持不动**：曾是本决定的实际形态（见下），
+  但它不是完整答案，完整答案要等上游；上游 ticket 把同一处改动写进各自的提交后，
+  `quality-core` 随之移除。
 
 ## 后果
 
 - 原生 Windows 上不再有"构建号过低"的拒绝；真正不支持的 OS 仍以一行明确原因拒绝。
-- 质量三件套（crapper、dryer、mutator 的 Rust 端口）**仍保留 19045 拒绝**：
-  `crates/quality-core` 的边界是从 pinned Python 原件逐字节复现的，fixture 由
-  `scripts/*_platform_oracle.py` 从 pin 生成并写明 do not edit。移除它需上游先改
-  （qinyuanj/crapper#18、qinyuanj/dryer#5、qinyuanj/mutator#30），本仓库随重新 pin 跟进
-  （qinyuanj/dsh-uml-viewer#77）。
-- 低于 22H2 的机器上 viewer / IR 可用，质量刷新仍报 19045 并建议改用 WSL2。
+- 质量三件套（crapper、dryer、mutator 的 Rust 端口）**的 fixture 钉在承载该改动的提交上**：
+  改动本身由上游 ticket qinyuanj/crapper#18、qinyuanj/dryer#5、qinyuanj/mutator#30 承载，
+  而这些提交由各自的 pull request 携带（分支已推送，尚未合入 main），所以下面引用的 SHA 可以在
+  远端解析，但还不属于 main；三张上游 PR 合入后需再 pin 一次，把它们对齐到 main 上的提交。本仓库在 qinyuanj/dsh-uml-viewer#77 按这些提交
+  重新 pin（crapper `91cd10c`、dryer `d452700`、mutator `436d5d3`）并重生成
+  `fixtures/{crap,dry}/platform/cases.tsv`；`crates/quality-core` 不再有
+  `MINIMUM_WINDOWS_BUILD`、构建号参数、拒绝分支与 `RtlGetVersion`。
+- fixture 仍由 `scripts/*_platform_oracle.py` 从 pin 生成并写明 do not edit，而每个 oracle
+  在生成前先断言被钉仓库的 `HEAD` 等于 `PIN`：一个不含该改动的仓库会让 oracle 立刻失败退出，
+  而不是安静地产出另一批行。现在钉的是两个原件仅剩的平台决定——WSL `/mnt` 警告（原件已无
+  拒绝可钉）。dryer 的 pin 具体是 `d452700`：它在 dryer#5 之后撤掉了自己新增的“其它 OS
+  拒绝”，所以 dryer 的唯一行为变化就是“任何 Windows 构建都跑”。
+- 低于 22H2 的机器上 viewer、IR 与质量刷新都可用；`quality mutate` 仍拒绝 macOS，那是
+  本端口自己的隔离决定（macOS 没有 namespace view 也没有 copy），与构建号无关。
 
 ## 验收
 
 - `cargo test -p platform` 通过：三个交付 OS 接受、其他 OS 拒绝并指名交付平台、本机是
   交付平台。
 - 本机 10.0.19042.630：`uml-viewer ir examples/uml-viewer.policy.edn` 产出 IR。
-- 工作区不再有 `RtlGetVersion` 绑定与 `MINIMUM_WINDOWS_BUILD`（`crates/quality-core`
-  的 pinned 常量除外）。
+- 工作区不再有 `RtlGetVersion` 绑定与 `MINIMUM_WINDOWS_BUILD`，`crates/quality-core`
+  也不例外：本机 10.0.19042.630 上 `quality crap|dry|mutate` 均不再因平台被拒。

@@ -24,6 +24,7 @@ mod python;
 pub mod queue;
 mod scratch;
 pub mod sites;
+pub mod slot;
 mod typescript;
 mod workers;
 
@@ -66,14 +67,7 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String + Sync) -> E
         eprint!("{error}\n\n{HELP}");
         return ExitCode::from(1);
     }
-    if let Some(refusal) = platform_refusal(
-        std::env::consts::OS,
-        if cfg!(windows) {
-            quality_core::platform::windows_build().unwrap_or(0)
-        } else {
-            0
-        },
-    ) {
+    if let Some(refusal) = platform_refusal(std::env::consts::OS) {
         eprintln!("{refusal}");
         return ExitCode::from(1);
     }
@@ -125,7 +119,11 @@ fn validate_outside(root: &Path, requested: &[String]) -> Result<(), String> {
 /// `unshare`, which does not exist there, so the pinned Python crashes with a
 /// traceback. This port says so on one line instead; exit 1 is the original's
 /// isolation-refusal code, and `crap`/`dry` are unaffected.
-fn platform_refusal(os: &str, build: u32) -> Option<String> {
+///
+/// No Windows build number reaches this decision (ADR 0018, mutator#30): Linux
+/// and native Windows run on any build, and the volume the isolation summary
+/// names describes which copy method a volume supports, not whether it may run.
+fn platform_refusal(os: &str) -> Option<String> {
     if os == "macos" {
         return Some(
             "Mutation testing is not supported on macOS: mutator runs every mutant in a \
@@ -135,19 +133,10 @@ fn platform_refusal(os: &str, build: u32) -> Option<String> {
                 .into(),
         );
     }
-    let host = if os == "windows" {
-        quality_core::platform::Host::Windows
-    } else {
-        quality_core::platform::Host::Unix
-    };
     if os != "windows" && os != "linux" {
         return Some(format!("Mutation testing is not supported on {os}."));
     }
-    quality_core::platform::refusal(
-        quality_core::platform::Tool::Mutator,
-        host,
-        (os == "windows").then_some(build),
-    )
+    None
 }
 
 /// Full-suite Lua files share one worker queue; every other file runs on its
@@ -215,16 +204,16 @@ mod tests {
     use super::platform_refusal;
 
     #[test]
-    fn macos_is_refused_with_a_reason_and_linux_is_not() {
-        let refusal = platform_refusal("macos", 0).unwrap();
+    fn macos_is_refused_with_a_reason_and_the_other_oses_are_not() {
+        let refusal = platform_refusal("macos").unwrap();
         assert!(refusal.contains("not supported on macOS"), "{refusal}");
         assert!(refusal.contains("CRAP and dry work"), "{refusal}");
-        assert_eq!(platform_refusal("linux", 0), None);
-        assert_eq!(platform_refusal("windows", 19045), None);
-        assert!(
-            platform_refusal("windows", 19044)
-                .unwrap()
-                .contains("19045")
+        assert_eq!(platform_refusal("linux"), None);
+        // Any Windows build runs: this host is 19042, below the deleted floor.
+        assert_eq!(platform_refusal("windows"), None);
+        assert_eq!(
+            Some("Mutation testing is not supported on freebsd.".to_string()),
+            platform_refusal("freebsd")
         );
     }
 }
