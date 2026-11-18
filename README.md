@@ -57,18 +57,20 @@ a toolchain or builds other platforms. It writes deterministic npm tarballs
 and a SHA-256/inventory report, with no install scripts or registry calls.
 The source checkout stays private; the assembler removes development-only
 fields from the installable main package.
-Keep generated archives, binaries, IR and metrics out of commits. The four
-platform builds and the npm provenance release are configured in
-[release packaging](docs/releasing.md): a pull request assembles the archives and
-runs `npm pack <tgz> --dry-run --ignore-scripts` on all five in plan order. This
+Keep generated archives, binaries, IR and metrics out of commits. The single
+platform build and the npm provenance release are configured in
+[release packaging](docs/releasing.md): a pull request assembles the two archives
+(the platform package and the main package) and
+runs `npm pack <tgz> --dry-run --ignore-scripts` on both in plan order. This
 is offline package-content acceptance, not a registry publishability check. A
 `v<version>` tag on the canonical repository is the only publishing path: after
-tag and inventory verification, all five archives must pass
-`npm publish --dry-run` before the same five are really published in plan order.
+tag and inventory verification, both archives must pass
+`npm publish --dry-run` before the same two are really published in plan order.
 `scripts/release.mjs verify` opens every staged archive and checks its real
 contents and package metadata before anything is published.
 [Release CI7 at `7fbace6`](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42600985433)
-passed all four native builds, archive-content inventory and the then-current
+passed all four native builds the pipeline then shipped, archive-content
+inventory and the then-current
 `npm publish --dry-run`. Version 1.0.0 was published manually; `v1.1.0` is the
 first tag-driven release and published all five packages with provenance after
 the `release` environment approval (#34). Browser acceptance is
@@ -79,7 +81,7 @@ installed-profile update acceptance remains unverified (#32).
 every crate inherits it. Change it, run `pnpm version:sync`, update the Cargo
 lockfile, then run `pnpm version:check`; CI checks npm and Cargo consistency.
 The assembler writes the same version into main and platform manifests and
-all four optional dependency constraints. To verify an assembled archive:
+the one optional dependency constraint. To verify an assembled archive:
 
 ```sh
 UML_VIEWER_PACKAGE_REPORT=/absolute/scratch/packages/package-report.json pnpm test:package

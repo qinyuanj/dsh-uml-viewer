@@ -126,7 +126,9 @@ function flip(bytes, index) {
 // A controlled assembler output read by the real `stage` command: real small
 // archives whose inventory and hashes are exactly the report's claim.
 async function assembled(directory, { version, platform, corrupt = false, main, binary }) {
-  const entry = platforms.find(item => item.platform === platform)
+  // A foreign platform is assembled here only to prove that `stage` refuses a
+  // report from another platform; the platform table itself has one entry.
+  const entry = platforms.find(item => item.platform === platform) ?? { platform, os: platform.split('-')[0], cpu: platform.split('-')[1] }
   const packageDir = path.join(directory, `assembled-${platform}`)
   await mkdir(packageDir, { recursive: true })
   const mainName = `dsh-uml-viewer-${version}.tgz`
@@ -150,7 +152,7 @@ async function assembled(directory, { version, platform, corrupt = false, main, 
   return { packageDir, main: inventory(mainContent), platform: inventory(binaryContent) }
 }
 
-// Staged upload trees for all four runners, optionally mutated to reproduce a
+// Staged upload trees for the delivered runner, optionally mutated to reproduce a
 // release-guard violation. Every archive is a real gzip/ustar archive.
 async function inventoryFixture(directory, options = {}) {
   const version = options.version ?? await releaseVersion()
@@ -161,7 +163,10 @@ async function inventoryFixture(directory, options = {}) {
   const mainHash = sha(mainBytes)
   const mainList = options.mainReport ?? inventory(mainContent)
   const optionalDependencies = dependencies(version)
-  if (options.optionalShift) optionalDependencies['@dsh-uml-viewer/linux-x64'] = options.optionalShift
+  if (options.optionalShift) optionalDependencies['@dsh-uml-viewer/win32-x64'] = options.optionalShift
+  // Created even when no runner is staged, so "no assemble report at all" fails
+  // on the inventory count instead of on a missing directory.
+  await mkdir(artifactsDir, { recursive: true })
   for (const entry of platforms) {
     if (entry.platform === options.omit) continue
     const upload = path.join(artifactsDir, `package-${entry.platform}`)
@@ -171,9 +176,10 @@ async function inventoryFixture(directory, options = {}) {
       : `dsh-uml-viewer-${entry.platform}-${version}.tgz`
     const content = platformMembers(version, entry, options.platform?.[entry.platform])
     const binary = options.platformBytes?.[entry.platform] ?? archiveOf(content)
-    await writeFile(path.join(upload, platformName), binary)
+    // dropArchive keeps the assembler report but removes the archive it names.
+    if (!options.dropArchive) await writeFile(path.join(upload, platformName), binary)
     const platformList = options.platformReport?.[entry.platform] ?? inventory(content)
-    const stagesMain = entry.platform === (options.mainRunner ?? mainPlatform) || entry.platform === options.secondMain
+    const stagesMain = entry.platform === mainPlatform
     const record = {
       platform: entry.platform, runner: entry.runner, version,
       optionalDependencies,
@@ -288,19 +294,17 @@ async function runStep(directory, script, limits = stepLimits, { failCall = 0 } 
   return { result, calls }
 }
 
-test('each delivered platform is assembled on a runner of the same OS and CPU', async () => {
-  assert.deepEqual(platforms.map(entry => entry.platform), ['win32-x64', 'linux-x64', 'darwin-arm64', 'darwin-x64'])
-  assert.equal(mainPlatform, 'linux-x64')
+test('the one delivered platform is assembled on a runner of the same OS and CPU', async () => {
+  assert.deepEqual(platforms.map(entry => entry.platform), ['win32-x64'])
+  assert.equal(mainPlatform, 'win32-x64')
   for (const entry of platforms) {
     assert.equal(entry.platform, `${entry.os}-${entry.cpu}`)
     assert.ok(entry.runner.startsWith({ win32: 'windows-', linux: 'ubuntu-', darwin: 'macos-' }[entry.os]), entry.runner)
-    // macos-latest is arm64, so the Intel build needs an explicit -intel label.
-    if (entry.os === 'darwin') assert.equal(entry.runner.endsWith('-intel'), entry.cpu === 'x64')
     assert.equal(entry.main, entry.platform === mainPlatform)
   }
 })
 
-test('the workflow matrix is exactly the four release platforms on native runners', async () => {
+test('the workflow matrix is exactly the delivered platforms on native runners', async () => {
   const text = await workflow()
   const entries = [...text.matchAll(/-\s+platform:\s*(\S+)\s*\r?\n\s+runner:\s*(\S+)\s*\r?\n\s+binary:\s*(\S+)/g)]
     .map(([, platform, runner, binary]) => ({ platform, runner, binary }))
@@ -371,7 +375,7 @@ test('the publish job guards the tag, verifies, dry-runs, then publishes platfor
   }
   // A shorter plan must fail instead of silently publishing fewer archives.
   assert.match(publish, /wc -l < "\$RUNNER_TEMP\/publish-order\.txt"/)
-  assert.match(publish, /test "\$planned" -eq 5/)
+  assert.match(publish, /test "\$planned" -eq 2/)
   assert.match(publish, /while IFS= read -r archive; do/)
   assert.doesNotMatch(publish, /--force|retry/i)
 })
@@ -384,7 +388,7 @@ async function tagPublishScript() {
   ].join('\n')
 }
 
-test('the tag job dry-runs all five archives before really publishing the same five', async t => {
+test('the tag job dry-runs both archives before really publishing the same two', async t => {
   if (hostShell() === null) {
     t.skip("no bash shares this host's paths and environment, so the workflow shell cannot be executed here")
     return
@@ -395,12 +399,12 @@ test('the tag job dry-runs all five archives before really publishing the same f
     await inventoryFixture(directory)
     const { result, calls } = await runStep(directory, await tagPublishScript())
     assert.equal(result.status, 0, stepFailure(result, stepLimits))
-    assert.equal(calls.length, 10)
+    assert.equal(calls.length, 4)
     assert.ok(calls.every(call => call.command === 'publish'))
-    for (const call of calls.slice(0, 5)) {
+    for (const call of calls.slice(0, 2)) {
       assert.deepEqual(call.args.slice(1), ['--dry-run', '--access', 'public', '--ignore-scripts', '--provenance=false'])
     }
-    for (const call of calls.slice(5)) {
+    for (const call of calls.slice(2)) {
       assert.deepEqual(call.args.slice(1), ['--provenance', '--access', 'public', '--ignore-scripts'])
     }
     const archives = path.join(directory, 'artifacts')
@@ -420,10 +424,10 @@ test('a tag dry-run conflict prevents every real publish', async t => {
   const directory = await scratch()
   try {
     await inventoryFixture(directory)
-    const { result, calls } = await runStep(directory, await tagPublishScript(), stepLimits, { failCall: 3 })
+    const { result, calls } = await runStep(directory, await tagPublishScript(), stepLimits, { failCall: 2 })
     assert.notEqual(result.status, 0, 'a dry-run conflict must fail the tag job')
-    assert.match(result.stderr, /injected failure on call 3/)
-    assert.equal(calls.length, 3)
+    assert.match(result.stderr, /injected failure on call 2/)
+    assert.equal(calls.length, 2)
     assert.ok(calls.every(call => call.command === 'publish' && call.args.includes('--dry-run')))
     assert.equal(calls.filter(call => call.args.includes('--provenance')).length, 0)
   } finally { await rm(directory, { recursive: true, force: true }) }
@@ -438,21 +442,23 @@ test('a real publish conflict stops the remaining publishes', async t => {
   try {
     const version = await releaseVersion()
     await inventoryFixture(directory)
-    const { result, calls } = await runStep(directory, await tagPublishScript(), stepLimits, { failCall: 8 })
+    const { result, calls } = await runStep(directory, await tagPublishScript(), stepLimits, { failCall: 3 })
     assert.notEqual(result.status, 0, 'a real publish conflict must fail the tag job')
-    assert.match(result.stderr, /injected failure on call 8/)
-    assert.equal(calls.length, 8)
-    assert.ok(calls.slice(0, 5).every(call => call.args.includes('--dry-run')))
-    const real = calls.slice(5)
-    assert.equal(real.length, 3)
+    assert.match(result.stderr, /injected failure on call 3/)
+    assert.equal(calls.length, 3)
+    assert.ok(calls.slice(0, 2).every(call => call.args.includes('--dry-run')))
+    const real = calls.slice(2)
+    assert.equal(real.length, 1)
     for (const call of real) {
       assert.deepEqual(call.args.slice(1), ['--provenance', '--access', 'public', '--ignore-scripts'])
     }
-    assert.match(real.at(-1).args[0], new RegExp(`dsh-uml-viewer-darwin-arm64-${version}\\.tgz$`))
+    // The platform package is published before the main package, so a real
+    // publish conflict on it leaves the main package unpublished.
+    assert.match(real.at(-1).args[0], new RegExp(`dsh-uml-viewer-win32-x64-${version}\\.tgz$`))
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
-test('the pull-request step packs all five staged archives in plan order without publishing', async t => {
+test('the pull-request step packs both staged archives in plan order without publishing', async t => {
   if (hostShell() === null) {
     t.skip("no bash shares this host's paths and environment, so the workflow shell cannot be executed here")
     return
@@ -464,7 +470,7 @@ test('the pull-request step packs all five staged archives in plan order without
     const script = stepScript(await workflow(), 'npm pack dry run')
     const { result, calls } = await runStep(directory, script)
     assert.equal(result.status, 0, stepFailure(result, stepLimits))
-    assert.equal(calls.length, 5)
+    assert.equal(calls.length, 2)
     for (const call of calls) {
       assert.equal(call.command, 'pack')
       assert.deepEqual(call.args.slice(1), ['--dry-run', '--ignore-scripts'])
@@ -487,12 +493,12 @@ test('a pull-request pack failure stops before the remaining archives', async t 
     const version = await releaseVersion()
     await inventoryFixture(directory)
     const script = stepScript(await workflow(), 'npm pack dry run')
-    const { result, calls } = await runStep(directory, script, stepLimits, { failCall: 3 })
+    const { result, calls } = await runStep(directory, script, stepLimits, { failCall: 2 })
     assert.notEqual(result.status, 0, 'a pack failure must fail the pull-request step')
-    assert.match(result.stderr, /injected failure on call 3/)
-    assert.equal(calls.length, 3)
+    assert.match(result.stderr, /injected failure on call 2/)
+    assert.equal(calls.length, 2)
     assert.ok(calls.every(call => call.command === 'pack'))
-    assert.match(calls.at(-1).args[0], new RegExp(`dsh-uml-viewer-darwin-arm64-${version}\\.tgz$`))
+    assert.match(calls.at(-1).args[0], new RegExp(`dsh-uml-viewer-${version}\\.tgz$`))
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
@@ -504,20 +510,17 @@ test('a short publish plan stops the workflow before any publish', async t => {
   const directory = await scratch()
   try {
     await inventoryFixture(directory)
-    // A plan with four lines must fail instead of publishing four archives.
+    // A plan with one line must fail instead of publishing one archive.
     const version = await releaseVersion()
     const artifacts = path.join(directory, 'artifacts')
     const plan = path.join(directory, 'publish-order.txt')
     await writeFile(plan, [
       path.join(artifacts, 'package-win32-x64', `dsh-uml-viewer-win32-x64-${version}.tgz`),
-      path.join(artifacts, 'package-linux-x64', `dsh-uml-viewer-linux-x64-${version}.tgz`),
-      path.join(artifacts, 'package-darwin-arm64', `dsh-uml-viewer-darwin-arm64-${version}.tgz`),
-      path.join(artifacts, 'package-darwin-x64', `dsh-uml-viewer-darwin-x64-${version}.tgz`),
     ].join('\n') + '\n')
     const script = stepScript(await workflow(), 'Publish the platform packages, then the main package')
       .replace(/node scripts\/release\.mjs plan[^\n]*\n/, '')
     const { result, calls } = await runStep(directory, script)
-    assert.notEqual(result.status, 0, 'a four-line plan must fail the step')
+    assert.notEqual(result.status, 0, 'a one-line plan must fail the step')
     assert.deepEqual(calls, [])
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
@@ -574,36 +577,35 @@ test('stage uploads the current platform archive and the main archive only on th
   const directory = await scratch()
   try {
     const version = await releaseVersion()
-    const { packageDir, main, platform } = await assembled(directory, { version, platform: 'linux-x64' })
-    const platformOnly = await stageArchives({ packageDir, platform: 'linux-x64', uploadDir: path.join(directory, 'linux') })
+    const { packageDir, main, platform } = await assembled(directory, { version, platform: 'win32-x64' })
+    const platformOnly = await stageArchives({ packageDir, platform: 'win32-x64', uploadDir: path.join(directory, 'only') })
     assert.deepEqual(platformOnly.staged, ['platform'])
     assert.deepEqual(platformOnly.inventory, { main, platform })
     assert.equal(platformOnly.artifacts.main.sha256, sha(await readFile(path.join(packageDir, `dsh-uml-viewer-${version}.tgz`))))
-    const upload = path.join(directory, 'linux')
-    assert.match((await readFile(path.join(upload, 'assemble-report.json'), 'utf8')), /linux-x64/)
+    const upload = path.join(directory, 'only')
+    assert.match((await readFile(path.join(upload, 'assemble-report.json'), 'utf8')), /win32-x64/)
 
-    const withMain = await stageArchives({ packageDir, platform: 'linux-x64', uploadDir: path.join(directory, 'mains'), main: true })
+    const withMain = await stageArchives({ packageDir, platform: 'win32-x64', uploadDir: path.join(directory, 'mains'), main: true })
     assert.deepEqual(withMain.staged, ['main', 'platform'])
-    for (const file of [`dsh-uml-viewer-${version}.tgz`, `dsh-uml-viewer-linux-x64-${version}.tgz`]) {
+    for (const file of [`dsh-uml-viewer-${version}.tgz`, `dsh-uml-viewer-win32-x64-${version}.tgz`]) {
       await readFile(path.join(directory, 'mains', file))
     }
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
-test('stage refuses a foreign main runner, an unknown platform and a stale assembler report', async () => {
+test('stage refuses an unknown platform, a stale assembler report and a corrupted archive', async () => {
   const directory = await scratch()
   try {
     const version = await releaseVersion()
-    const { packageDir: arm } = await assembled(directory, { version, platform: 'darwin-arm64' })
+    // A report for a platform this release no longer ships proves the platform
+    // table, not a fixture quirk: win32-x64 must refuse it.
+    const { packageDir: other } = await assembled(directory, { version, platform: 'linux-x64' })
     await assert.rejects(
-      stageArchives({ packageDir: arm, platform: 'darwin-arm64', uploadDir: path.join(directory, 'arm'), main: true }),
-      /main archive must be staged on linux-x64/)
-    await assert.rejects(
-      stageArchives({ packageDir: arm, platform: 'plan9-x64', uploadDir: path.join(directory, 'plan9') }),
+      stageArchives({ packageDir: other, platform: 'plan9-x64', uploadDir: path.join(directory, 'plan9') }),
       /Unknown platform plan9-x64/)
     await assert.rejects(
-      stageArchives({ packageDir: arm, platform: 'linux-x64', uploadDir: path.join(directory, 'mismatch') }),
-      /Assembled report is for darwin-arm64, not linux-x64/)
+      stageArchives({ packageDir: other, platform: 'win32-x64', uploadDir: path.join(directory, 'mismatch') }),
+      /Assembled report is for linux-x64, not win32-x64/)
     const { packageDir: corrupt } = await assembled(directory, { version, platform: 'win32-x64', corrupt: true })
     await assert.rejects(
       stageArchives({ packageDir: corrupt, platform: 'win32-x64', uploadDir: path.join(directory, 'corrupt') }),
@@ -621,12 +623,12 @@ test('a plausible large payload stays inside the default archive limits', async 
       main: { members: { 'lib/payload.bin': Buffer.alloc(8 * 1024 * 1024, 7) } },
     })
     const release = await verifyInventory({ artifactsDir })
-    assert.equal(release.artifacts.length, 5)
+    assert.equal(release.artifacts.length, 2)
     assert.ok(release.artifacts.at(-1).files.includes('lib/payload.bin'))
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
-test('the staged inventory of four platforms and one main archive verifies and plans platforms first', async () => {
+test('the staged inventory of the delivered platform and one main archive verifies and plans the platform first', async () => {
   const directory = await scratch()
   try {
     const version = await releaseVersion()
@@ -635,7 +637,7 @@ test('the staged inventory of four platforms and one main archive verifies and p
     const release = await verifyInventory({ artifactsDir })
     assert.deepEqual(release.artifacts.map(artifact => artifact.platform), [...platforms.map(entry => entry.platform), null])
     assert.deepEqual(release.publishOrder, release.artifacts)
-    assert.equal(release.reproducibleMain.runners, 4)
+    assert.equal(release.reproducibleMain.runners, 1)
     assert.deepEqual(release.reproducibleMain.files, expectedMain)
     // Every runner's main hash is evidence; only the staged one is published.
     assert.deepEqual(release.mainHashes.map(item => item.platform), platforms.map(entry => entry.platform))
@@ -660,19 +662,17 @@ test('the staged inventory of four platforms and one main archive verifies and p
 // Options may be a function of the release version, for a fixture that has to
 // corrupt or over-size a real archive of this workspace's version.
 for (const [name, options, message] of [
-  ['a missing platform archive', { omit: 'darwin-x64' }, /assemble reports, found 3/],
-  ['two runners staging the main archive', { secondMain: 'win32-x64' }, /Exactly one runner must stage the main archive, found 2/],
-  ['a main archive staged on the wrong runner', { mainRunner: 'darwin-arm64' }, /main archive must be staged on linux-x64/],
-  ['a main archive with different contents on one runner', { divergentInventory: 'darwin-x64' }, /Main archive inventory differs between runners: darwin-x64/],
+  ['a platform archive that is not staged at all', { dropArchive: true }, /platform archive is missing/],
+  ['no runner reporting an assemble report', { omit: 'win32-x64' }, /assemble reports, found 0/],
   ['a platform archive that bundles an extra file', { extraPlatformFile: 'win32-x64' }, /platform archive inventory/],
   ['a platform archive whose bytes do not match the report', { tampered: 'win32-x64' }, /recorded sha256 does not match the staged bytes/],
-  ['a platform archive named for another version', { stalePlatform: 'linux-x64' }, /platform archive dsh-uml-viewer-linux-x64-0\.9\.0\.tgz is not/],
-  ['a stray fifth archive', { extraArchive: 'dsh-uml-viewer-src-1.0.0.tgz' }, /Expected exactly 5 release archives, found 6/],
+  ['a platform archive named for another version', { stalePlatform: 'win32-x64' }, /platform archive dsh-uml-viewer-win32-x64-0\.9\.0\.tgz is not/],
+  ['a stray third archive', { extraArchive: 'dsh-uml-viewer-src-1.0.0.tgz' }, /Expected exactly 2 release archives, found 3/],
   ['optional dependencies that drift from the workspace version', { optionalShift: '0.9.0' }, /optional dependencies must pin exactly/],
   ['a report from another release version', { version: '9.9.9' }, /platform package version 9\.9\.9 != workspace version/],
   // An archive that is not really an archive is refused instead of trusted.
   ['a plaintext main file named .tgz', { mainBytes: Buffer.from('controlled main archive\n') }, /not gzip data/],
-  ['a plaintext platform file named .tgz', { platformBytes: { 'linux-x64': Buffer.from('controlled archive\n') } }, /not gzip data/],
+  ['a plaintext platform file named .tgz', { platformBytes: { 'win32-x64': Buffer.from('controlled archive\n') } }, /not gzip data/],
   ['a corrupt gzip header', version => ({ mainBytes: flip(validMain(version), 0) }), /not gzip data/],
   ['a corrupt gzip stream', version => ({ mainBytes: flip(validMain(version), 40) }), /gzip data is corrupt/],
   ['a corrupt gzip checksum', version => ({ mainBytes: flip(validMain(version), -6) }), /gzip data is corrupt/],
@@ -712,7 +712,7 @@ for (const [name, options, message] of [
   ['a main package name that lies', { main: { manifest: { name: 'not-the-viewer' } } }, /main package name .* is not/],
   ['a main package version that lies', { main: { manifest: { version: '9.9.9' } } }, /main package version .* != workspace version/],
   ['main optional dependencies that lie', {
-    main: { manifest: { optionalDependencies: { '@dsh-uml-viewer/linux-x64': '0.9.0' } } },
+    main: { manifest: { optionalDependencies: { '@dsh-uml-viewer/win32-x64': '0.9.0' } } },
   }, /main package optional dependencies must pin exactly/],
   ['a private main manifest', { main: { manifest: { private: true } } }, /main package\.json is private/],
   ['a main manifest that still ships scripts', { main: { manifest: { scripts: { install: 'x' } } } }, /must not ship scripts/],
@@ -731,24 +731,24 @@ for (const [name, options, message] of [
     mainReport: inventory(mainMembers(version)).map(name => name === 'README.md' ? { name, sha256: sha(Buffer.from('other')) } : name),
   }), /main archive entry README\.md does not match its reported sha256/],
   ['a platform package name that lies', {
-    platform: { 'linux-x64': { manifest: { name: '@dsh-uml-viewer/darwin-arm64' } } },
-  }, /platform package name .* is not @dsh-uml-viewer\/linux-x64/],
+    platform: { 'win32-x64': { manifest: { name: '@dsh-uml-viewer/linux-x64' } } },
+  }, /platform package name .* is not @dsh-uml-viewer\/win32-x64/],
   ['a platform package version that lies', {
-    platform: { 'darwin-x64': { manifest: { version: '9.9.9' } } },
+    platform: { 'win32-x64': { manifest: { version: '9.9.9' } } },
   }, /platform package version .* != workspace version/],
   ['a platform package os that lies', {
-    platform: { 'darwin-arm64': { manifest: { os: ['linux'] } } },
-  }, /platform package os .* is not \["darwin"\] for darwin-arm64/],
+    platform: { 'win32-x64': { manifest: { os: ['linux'] } } },
+  }, /platform package os .* is not \["win32"\] for win32-x64/],
   ['a platform package cpu that lies', {
     platform: { 'win32-x64': { manifest: { cpu: ['arm64'] } } },
   }, /platform package cpu .* is not \["x64"\] for win32-x64/],
   ['a platform archive with no binary entry', {
-    platform: { 'linux-x64': { members: { 'bin/uml-viewer': null } } },
-    platformReport: { 'linux-x64': ['bin/uml-viewer', 'package.json'] },
-  }, /platform archive has no bin\/uml-viewer/],
+    platform: { 'win32-x64': { members: { 'bin/uml-viewer.exe': null } } },
+    platformReport: { 'win32-x64': ['bin/uml-viewer.exe', 'package.json'] },
+  }, /platform archive has no bin\/uml-viewer\.exe/],
   ['a platform archive with an empty binary entry', {
-    platform: { 'linux-x64': { members: { 'bin/uml-viewer': '' } } },
-  }, /platform archive bin\/uml-viewer is empty/],
+    platform: { 'win32-x64': { members: { 'bin/uml-viewer.exe': '' } } },
+  }, /platform archive bin\/uml-viewer\.exe is empty/],
 ]) {
   test(`the release inventory refuses ${name}`, async () => {
     const directory = await scratch()
@@ -778,14 +778,14 @@ test('stage and verify run end to end through the command line, as CI calls them
     assert.equal(verified.status, 0, verified.stderr)
     const inventory = JSON.parse(await readFile(out, 'utf8'))
     assert.equal(inventory.version, version)
-    assert.equal(inventory.artifacts.length, 5)
+    assert.equal(inventory.artifacts.length, 2)
     assert.match(inventory.reproducibleMain.sha256, /^[0-9a-f]{64}$/)
 
     const orderFile = path.join(directory, 'publish-order.txt')
     const planned = spawnSync(process.execPath, ['scripts/release.mjs', 'plan', '--artifacts', artifactsDir, '--out', orderFile], { cwd: root, encoding: 'utf8' })
     assert.equal(planned.status, 0, planned.stderr)
     const lines = (await readFile(orderFile, 'utf8')).trim().split(/\r?\n/)
-    assert.equal(lines.length, 5)
+    assert.equal(lines.length, 2)
     assert.match(lines[0], /dsh-uml-viewer-win32-x64-/)
     assert.match(lines.at(-1), /[\\/]dsh-uml-viewer-\d+\.\d+\.\d+\.tgz$/)
   } finally { await rm(directory, { recursive: true, force: true }) }
@@ -816,7 +816,9 @@ test('test:package runs the stale-payload guard and the release guards', async (
 
 test('the existing CI keeps the package contract step and its jobs', async () => {
   const text = await readFile(path.join(root, '.github/workflows/ci.yml'), 'utf8')
-  for (const job of ['typescript', 'panel-e2e', 'windows-crap', 'windows-mutate', 'macos-quality', 'linux']) {
+  // The jobs that survive #11's one-host CI. The guard is that every gate is
+  // still attached to a job, not that the old job names survive.
+  for (const job of ['typescript', 'panel-e2e', 'windows-crap', 'windows-mutate', 'windows-quality']) {
     assert.match(text, new RegExp(`^  ${job}:`, 'm'), `ci.yml job ${job}`)
   }
   assert.match(text, /pnpm test:package/)

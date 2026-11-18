@@ -1,6 +1,6 @@
 // Release packaging guards (#33): one native runner per delivered platform, a
 // single version authority, exactly one platform-independent main archive, and
-// a publish order that puts the four platform packages before the main package.
+// a publish order that puts the platform package before the main package.
 //
 // The assembler (scripts/package.mjs) runs the supplied binary as `--version`,
 // so a platform package must be built on the OS and CPU it ships to; no foreign
@@ -18,15 +18,12 @@ import { pathToFileURL } from 'node:url'
 import { entryPrefix, readArchive } from './archive.mjs'
 import { releaseVersion, root } from './version.mjs'
 
-// Runner labels come from GitHub's hosted-runner reference (GitHub Docs,
-// "Supported runners and hardware resources"): `macos-latest` is arm64, so
-// Intel macOS needs an explicit `-intel` label. The `main` entry is the single
-// runner whose assembled main archive is published.
+// One delivered platform (ADR 0002, #5, #12): native Windows x64. Runner labels
+// come from GitHub's hosted-runner reference (GitHub Docs, "Supported runners and
+// hardware resources"). The `main` entry is the single runner whose assembled
+// main archive is published.
 export const platforms = [
-  { platform: 'win32-x64', os: 'win32', cpu: 'x64', runner: 'windows-latest', binary: 'target/release/uml-viewer.exe', main: false },
-  { platform: 'linux-x64', os: 'linux', cpu: 'x64', runner: 'ubuntu-latest', binary: 'target/release/uml-viewer', main: true },
-  { platform: 'darwin-arm64', os: 'darwin', cpu: 'arm64', runner: 'macos-latest', binary: 'target/release/uml-viewer', main: false },
-  { platform: 'darwin-x64', os: 'darwin', cpu: 'x64', runner: 'macos-15-intel', binary: 'target/release/uml-viewer', main: false },
+  { platform: 'win32-x64', os: 'win32', cpu: 'x64', runner: 'windows-latest', binary: 'target/release/uml-viewer.exe', main: true },
 ]
 export const mainPlatform = platforms.find(entry => entry.main).platform
 
@@ -253,9 +250,9 @@ export async function stageArchives({ packageDir, platform, uploadDir, main = fa
   return record
 }
 
-// Verify everything that must be true before a publish: four distinct platform
-// archives at the workspace version, one main archive built on the main runner,
-// the same main archive inventory on every runner, no stray or stale archive,
+// Verify everything that must be true before a publish: the delivered platform
+// archive at the workspace version, one main archive built on the main runner,
+// the main archive inventory that runner reported, no stray or stale archive,
 // and the real contents of every staged archive. Byte identity of the main
 // archive is recorded per runner rather than required, because checkout line
 // endings are not pinned for packaged text.
