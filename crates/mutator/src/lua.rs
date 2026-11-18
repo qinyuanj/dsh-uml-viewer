@@ -513,8 +513,9 @@ pub fn collect(view: &View, request: &Request<'_>) -> Result<Index, String> {
     // A missing or other cluacov version cannot produce this baseline, so the
     // refusal happens before any test runs.
     lua::require_cluacov(&interpreter).map_err(|found| found.0)?;
-    let scratch = view.directory.join("lua-coverage");
-    fs::create_dir_all(&scratch)
+    // The view names the scratch; the collection never composes its layout.
+    let scratch = view.lua_coverage_scratch();
+    fs::create_dir_all(scratch)
         .map_err(|err| error(format!("Cannot prepare Lua coverage: {err}")))?;
     let collector = scratch.join("lua_coverage.lua");
     fs::write(&collector, COLLECTOR)
@@ -759,7 +760,7 @@ mod windows_collect_tests {
                     "readable",
                     "shards {shards:?}: the later command could not read the first shard after slot preparation"
                 );
-                let scratch = view.directory.join("lua-coverage");
+                let scratch = view.lua_coverage_scratch();
                 for name in [
                     "luacov.shard-1.stats.out",
                     "spec-coverage.pending-1.json",
