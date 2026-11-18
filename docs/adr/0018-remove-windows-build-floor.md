@@ -54,16 +54,16 @@ Windows 10 22H2（build 19045）起交付"的版本下限条款：**取消构建
 - 原生 Windows 上不再有"构建号过低"的拒绝；真正不支持的 OS 仍以一行明确原因拒绝。
 - 质量三件套（crapper、dryer、mutator 的 Rust 端口）**的 fixture 钉在承载该改动的提交上**：
   改动本身由上游 ticket qinyuanj/crapper#18、qinyuanj/dryer#5、qinyuanj/mutator#30 承载，
-  而这些提交由各自的 pull request 携带（分支已推送，尚未合入 main），所以下面引用的 SHA 可以在
-  远端解析，但还不属于 main；三张上游 PR 合入后需再 pin 一次，把它们对齐到 main 上的提交。本仓库在 qinyuanj/dsh-uml-viewer#77 按这些提交
-  重新 pin（crapper `91cd10c`、dryer `d452700`、mutator `436d5d3`）并重生成
-  `fixtures/{crap,dry}/platform/cases.tsv`；`crates/quality-core` 不再有
+  三张单已分别合入各自的 main（crapper#19、dryer#6、mutator#31），本仓库随后把它们重新 pin 到
+  合入后的 main 提交（crapper `3982965`、dryer `fb3d759`）并重生成
+  `fixtures/{crap,dry}/platform/cases.tsv`——两次重生成只有 header 的 SHA 行变化，数据行逐字节相同；
+  `crates/quality-core` 不再有
   `MINIMUM_WINDOWS_BUILD`、构建号参数、拒绝分支与 `RtlGetVersion`。
 - fixture 仍由 `scripts/*_platform_oracle.py` 从 pin 生成并写明 do not edit，而每个 oracle
   在生成前先断言被钉仓库的 `HEAD` 等于 `PIN`：一个不含该改动的仓库会让 oracle 立刻失败退出，
   而不是安静地产出另一批行。现在钉的是两个原件仅剩的平台决定——WSL `/mnt` 警告（原件已无
-  拒绝可钉）。dryer 的 pin 具体是 `d452700`：它在 dryer#5 之后撤掉了自己新增的“其它 OS
-  拒绝”，所以 dryer 的唯一行为变化就是“任何 Windows 构建都跑”。
+  拒绝可钉）。dryer 在 dryer#5 之后撤掉了自己新增的“其它 OS 拒绝”（`d452700`），所以 dryer 的
+  唯一行为变化就是“任何 Windows 构建都跑”。
 - 低于 22H2 的机器上 viewer、IR 与质量刷新都可用；`quality mutate` 仍拒绝 macOS，那是
   本端口自己的隔离决定（macOS 没有 namespace view 也没有 copy），与构建号无关。
 
