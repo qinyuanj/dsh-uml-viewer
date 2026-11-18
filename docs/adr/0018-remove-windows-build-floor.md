@@ -54,8 +54,8 @@ Windows 10 22H2（build 19045）起交付"的版本下限条款：**取消构建
 - 原生 Windows 上不再有"构建号过低"的拒绝；真正不支持的 OS 仍以一行明确原因拒绝。
 - 质量三件套（crapper、dryer、mutator 的 Rust 端口）**的 fixture 钉在承载该改动的提交上**：
   改动本身由上游 ticket qinyuanj/crapper#18、qinyuanj/dryer#5、qinyuanj/mutator#30 承载，
-  而这些提交目前只存在于本地的 integration 分支上——没有推到任何远端，所以下面引用的 SHA
-  只在本地可解析，不能当作已发布的上游事实。本仓库在 qinyuanj/dsh-uml-viewer#77 按这些提交
+  而这些提交由各自的 pull request 携带（分支已推送，尚未合入 main），所以下面引用的 SHA 可以在
+  远端解析，但还不属于 main；三张上游 PR 合入后需再 pin 一次，把它们对齐到 main 上的提交。本仓库在 qinyuanj/dsh-uml-viewer#77 按这些提交
   重新 pin（crapper `91cd10c`、dryer `d452700`、mutator `436d5d3`）并重生成
   `fixtures/{crap,dry}/platform/cases.tsv`；`crates/quality-core` 不再有
   `MINIMUM_WINDOWS_BUILD`、构建号参数、拒绝分支与 `RtlGetVersion`。
