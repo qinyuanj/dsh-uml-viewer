@@ -17,7 +17,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// A copy of the committed fixture: a two-module Busted project with an untested
-/// source, so these cases need no checkout outside this repository.
+/// source, so these cases need no working tree outside this repository.
 fn lua_project(name: &str) -> PathBuf {
     fn copy(from: &Path, to: &Path) {
         fs::create_dir_all(to).unwrap();
@@ -162,10 +162,12 @@ fn never_entered(stderr: &str) -> String {
         );
     }
     if let Some(line) = stderr.lines().find(|line| {
-        line.contains("Cannot prepare Lua") || line.contains("Invalid Lua spec coverage")
+        line.contains("Cannot prepare Lua")
+            || line.contains("Invalid Lua spec coverage")
+            || line.contains("Busted did not complete any spec files")
     }) {
         return format!(
-            "the collection could not prepare or read its scratch ({})",
+            "the collection could not prepare, publish or read its scratch ({})",
             line.trim()
         );
     }
