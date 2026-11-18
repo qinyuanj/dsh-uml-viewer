@@ -6,7 +6,9 @@ import { pathToFileURL } from 'node:url'
 import { writeArchive } from './archive.mjs'
 import { checkVersions, root } from './version.mjs'
 
-const supported = ['win32-x64', 'linux-x64', 'darwin-arm64', 'darwin-x64']
+// The one delivery host (#12): the main package's optionalDependencies is
+// exactly this set, so the assembled main archive names a single platform.
+const supported = ['win32-x64']
 const platform = `${process.platform}-${process.arch}`
 function option(args, name) {
   const index = args.indexOf(name)
@@ -17,7 +19,7 @@ function option(args, name) {
 // The runner seam is for controlled Node tests; the CLI never accepts a runner override.
 export async function assemblePackage({ binary, output }, runVersion = spawnSync) {
   if (!path.isAbsolute(binary) || !path.isAbsolute(output)) throw new Error('--binary and --out must be absolute paths')
-  if (!supported.includes(platform)) throw new Error(`Unsupported package platform ${platform}; supported: ${supported.join(', ')}`)
+  if (!supported.includes(platform)) throw new Error(`Unsupported package platform ${platform}; dsh-uml-viewer ships only ${supported.join(', ')}`)
   if (!(await stat(binary).catch(() => null))?.isFile()) throw new Error(`Native binary does not exist: ${binary}`)
   const version = await checkVersions()
   const identity = runVersion(binary, ['--version'], {

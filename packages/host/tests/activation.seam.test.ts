@@ -15,8 +15,9 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 
-it.each([['freebsd', 'x64'], ['linux', 'arm64'], ['win32', 'arm64'], ['darwin', 'ia32']])(
-  'rejects unsupported %s/%s before registering tools, routes or the Remote service', async (platform, arch) => {
+it.each([['linux', 'x64'], ['darwin', 'arm64'], ['darwin', 'x64'], ['win32', 'arm64'],
+  ['linux', 'arm64'], ['freebsd', 'x64']])(
+  'refuses %s/%s before registering tools, routes or the Remote service, with a stated reason', async (platform, arch) => {
   const ctx = new Context()
   contexts.push(ctx)
   const registrations: string[] = []
@@ -36,7 +37,14 @@ it.each([['freebsd', 'x64'], ['linux', 'arm64'], ['win32', 'arm64'], ['darwin', 
     },
   })
   await expect(Promise.resolve(fiber)).rejects.toThrow(/Unsupported/)
+  // This activation also supplies a trusted config.binary, so the host gate is
+  // proven to run ahead of the override. The words below are the delivered
+  // refusal a macOS or Linux profile sees: dropping the reason fails this test.
   expect(reason).toContain(`Unsupported uml-viewer platform: ${platform}/${arch}`)
+  expect(reason).toContain('only native Windows x64 (win32-x64) is supported')
+  expect(reason).toContain('ships one platform package')
+  expect(reason).toContain('macOS has no mutant isolation path')
+  expect(reason).toContain('Linux x64 is not a delivery host')
   expect(registrations).toEqual([])
   expect(ctx.get('umlViewer')).toBeUndefined()
 })
@@ -80,10 +88,9 @@ async function setup(platform = 'win32', arch = 'x64', installed = true) {
   return { root, home, definitions, spawns, load, call }
 }
 
-it.each([['win32', 'x64', 'uml-viewer.exe'], ['linux', 'x64', 'uml-viewer'],
-  ['darwin', 'arm64', 'uml-viewer'], ['darwin', 'x64', 'uml-viewer']])(
-  'copies the %s/%s executable to the host plugin home before publishing tools', async (platform, arch, name) => {
-  const { home, definitions, load, call, spawns } = await setup(platform, arch)
+it('copies the win32-x64 executable to the host plugin home before publishing tools', async () => {
+  const name = 'uml-viewer.exe'
+  const { home, definitions, load, call, spawns } = await setup('win32', 'x64')
   await load()
   const binary = path.join(home, 'dsh-uml-viewer', '1.0.0', name)
   expect(await readFile(binary, 'utf8')).toBe('packaged executable bytes')

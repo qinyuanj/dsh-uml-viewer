@@ -11,13 +11,10 @@
     "url": "git+https://github.com/qinyuanj/dsh-uml-viewer.git"
   },
   "os": [
-    "win32",
-    "linux",
-    "darwin"
+    "win32"
   ],
   "cpu": [
-    "x64",
-    "arm64"
+    "x64"
   ],
   "main": "lib/host.js",
   "exports": {
