@@ -38,7 +38,9 @@ of its own whose **slot is a child** directory of that view:
 
 Preparing a command deletes everything inside `<view>/slot`: the copy, the
 redirected home, the capture files and the `--copy` placements, the same wipe
-every other command gets. `lua-coverage/` sits beside the slot, so it survives
+every other command gets. The view names that scratch
+(`View::lua_coverage_scratch`), so the collection never composes the layout
+itself, and `lua-coverage/` sits beside the slot, so it survives
 the wipe, and `..` and `../..` from `<view>/slot/beside/project` both stay
 inside the wiped region: a test cannot stumble onto that scratch, and it is read
 only through the absolute path the collection itself puts in the command line

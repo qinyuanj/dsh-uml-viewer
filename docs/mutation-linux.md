@@ -59,6 +59,10 @@ view redirects `HOME`, the suite and the LCOV conversion get `LUA_PATH` and
 the original's `_pinned_lua_paths` does. The collector, the shard configs, the
 LuaCov stats and the LCOV report all live in the disposable view scratch: no
 coverage artifact is written to, or removed from, the production project.
+The scratch's position is the view's: `View::lua_coverage_scratch` names the
+`lua-coverage` directory a collection publishes into, and the collection writes
+only there instead of composing the view's layout, so both platforms keep the
+same file names in the same place even though a prepared view differs.
 
 A site's line covered in the LCOV report is selected; a line with no hit is
 uncovered and counted, not executed. A source absent from the report warns
