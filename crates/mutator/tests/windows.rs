@@ -296,13 +296,14 @@ fn main() {
     }
     if mode == "write-scratch" {
         if !mutated() { return; }
-        // The copy is <slot>/project. One `..` is the wiped slot; two `..`
-        // is the view that owns it. A write that lands in either place and
-        // is still there for the next mutant is a channel.
-        let slot = Path::new("..");
-        let view = Path::new("../..");
-        let sibling = slot.join("slot-leak");
-        let escaped = view.join("lua-coverage");
+        // The copy is <slot>/beside/project. One `..` is the `beside`
+        // directory and two `..` is the slot itself, and the next command wipes
+        // both. A write that lands in either place and is still there for the
+        // next mutant is a channel.
+        let beside = Path::new("..");
+        let slot = Path::new("../..");
+        let sibling = beside.join("slot-leak");
+        let escaped = slot.join("lua-coverage");
         if sibling.exists() || escaped.exists() {
             println!("saw an earlier mutant's slot entries");
             return;
