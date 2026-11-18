@@ -39,6 +39,12 @@
     repeats the split and deletes any deploy-tree copy, so both platforms have
     one shape; LUA_PATH starts with ./?.lua, so a stub is reached first anyway.
 
+    Provenance: this is a port of crapper's scripts/setup-windows.ps1, which is
+    the reference recipe for the same toolchain (crapper#3, ADR 0004 there), and
+    the two install the same versions. Re-pin them together: a download hash,
+    the Lua or LuaRocks version, or a rock version changed in one and not the
+    other leaves this repository and crapper running different toolchains.
+
     Re-running is safe: a component already at the pinned version is kept, the
     rocks are reinstalled over themselves, and the environment variables are not
     duplicated.
