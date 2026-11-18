@@ -15,9 +15,50 @@ One call owns one private scratch root under the temporary directory (an
 unpredictable `mutator-<pid>-<counter>-<16 hex>` name, refused when the
 temporary directory is inside the project) and a pool of reusable
 `worker-<n>` slots. Coverage, the baseline and every mutant each get a **fresh
-copy of the project** at the slot: the previous command's copy and redirected
-home are deleted first, so a mutant's writes reach neither the project nor the
-next mutant, including a write to the copy's parent directory.
+copy of the project** at the slot: the whole slot is deleted before the copy is
+made — the previous command's copy, its redirected home and temporary
+directories, its capture files and its `--copy` placements — so a mutant's
+writes reach neither the project nor the next mutant, including a write to the
+copy's parent directory.
+
+### The one exception: a Lua coverage collection
+
+A Lua suite reports through its own instrumented collection, which needs a few
+files to outlive a single command: the embedded collector that every command's
+`-e` bootstrap `dofile`s, each shard's LuaCov config and stats, each shard's
+spec publication, and the merged stats with the config the LCOV conversion
+reads. None of them may live in the project tree — a copy is rebuilt for every
+command and the project itself is never written — so a collection gets a view
+of its own whose **slot is a child** directory of that view:
+
+```text
+<view>/                       the collection's own private scratch root
+  lua-coverage/               published scratch: collector, per-shard config and
+                              stats, spec publications, merged stats, LCOV config
+  slot/                       wiped before every command
+    beside/
+      project/                the command's fresh copy
+      home/                   the command's redirected home
+```
+
+Preparing a command deletes everything inside `<view>/slot`: the copy, the
+redirected home, the capture files and the `--copy` placements, the same wipe
+every other command gets. The view names that scratch
+(`View::lua_coverage_scratch`), so the collection never composes the layout
+itself, and `lua-coverage/` sits beside the slot, so it survives
+the wipe, and `..` and `../..` from `<view>/slot/beside/project` both stay
+inside the wiped region: a test cannot stumble onto that scratch, and it is read
+only through the absolute path the collection itself puts in the command line
+(`dofile('<view>/lua-coverage/lua_coverage.lua')`,
+`--coverage-config-file=<view>/lua-coverage/luacov.shard-1.cfg.lua`).
+
+That scratch belongs to **that one collection**. The view is removed when the
+collection ends, so no later command of the same call (the baseline, a mutant,
+another language's coverage command) can see it; nothing is written to the
+project tree, so an empty `lua-coverage/` at the project root is neither
+created nor needed; and `--reuse-coverage` skips the collection altogether.
+Linux needs no such layout: its collection resets only the overlay layers, so
+the scratch published in the view directory is already outside them.
 
 Build output named in the original's `HIDDEN` list (`.git`, `target`,
 `coverage`, `.metrics`, …) becomes an empty directory in the copy. A directory
