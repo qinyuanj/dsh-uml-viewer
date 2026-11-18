@@ -1,10 +1,12 @@
 //! Python and TypeScript mutation runs against the pinned original's bytes.
 //!
-//! Linux is the acceptance platform: the runs need real coverage.py/pytest and
-//! Node/npm. A missing toolchain is a loud SKIP (and a failure when
-//! `MUTATOR_REQUIRE_TOOLCHAINS=1`), never a silent pass. The site and form
-//! parity tests live in `python_ts_sites.rs` and run natively too.
-#![cfg(target_os = "linux")]
+//! Both delivered hosts run this: native Windows x64 through per-command project
+//! copies, and Linux (kept, not delivered) through overlay views. The runs need
+//! real coverage.py/pytest and Node/npm. A missing toolchain is a loud SKIP (and
+//! a failure when `MUTATOR_REQUIRE_TOOLCHAINS=1`), never a silent pass: the
+//! `windows-quality` job runs this file with that variable set. The site and
+//! form parity tests live in `python_ts_sites.rs` and run natively too.
+#![cfg(any(target_os = "linux", windows))]
 // Test code is the outside harness; it creates the fixture tool links itself.
 #![allow(clippy::disallowed_methods)]
 use std::{
@@ -43,27 +45,58 @@ fn skip(reason: &str) {
     ));
 }
 
-/// The isolated project virtualenv that supplies coverage.py and pytest.
-fn python_venv() -> Option<PathBuf> {
-    let Some(venv) = std::env::var_os("MUTATOR_TEST_PYTHON_VENV").map(PathBuf::from) else {
-        skip("MUTATOR_TEST_PYTHON_VENV is not set (no isolated coverage.py/pytest venv)");
-        return None;
-    };
-    let interpreter = venv.join("bin/python");
-    let available = std::process::Command::new(&interpreter)
+/// Whether `interpreter` can import the two tools a Python fixture needs.
+fn imports_coverage_and_pytest(interpreter: &Path) -> bool {
+    std::process::Command::new(interpreter)
         .args(["-c", "import coverage, pytest"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
-        .is_ok_and(|status| status.success());
-    if !available {
-        skip(&format!(
-            "{} cannot import coverage and pytest",
-            interpreter.display()
-        ));
-        return None;
+        .is_ok_and(|status| status.success())
+}
+
+/// The isolation level a snapshot records here: the two values of the crate's
+/// private `isolation::level`, which this integration test cannot call.
+const LEVEL: &str = if cfg!(windows) {
+    "copy"
+} else {
+    "namespace-view"
+};
+
+/// The interpreter that supplies coverage.py and pytest to a Python fixture.
+///
+/// Linux takes the isolated venv named by `MUTATOR_TEST_PYTHON_VENV`, which the
+/// fixture links into the project at `.venv` so the mounted view carries it.
+/// Native Windows cannot use that link: a worker copy shows `.venv` as an empty
+/// directory and materialises no directory link, so the fixture takes the
+/// `python` on PATH instead, where the `windows-quality` job installs
+/// coverage.py and pytest.
+fn python_interpreter() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        let interpreter = PathBuf::from("python");
+        if !imports_coverage_and_pytest(&interpreter) {
+            skip("python on PATH cannot import coverage and pytest");
+            return None;
+        }
+        Some(interpreter)
     }
-    Some(venv)
+    #[cfg(not(windows))]
+    {
+        let Some(venv) = std::env::var_os("MUTATOR_TEST_PYTHON_VENV").map(PathBuf::from) else {
+            skip("MUTATOR_TEST_PYTHON_VENV is not set (no isolated coverage.py/pytest venv)");
+            return None;
+        };
+        let interpreter = venv.join("bin/python");
+        if !imports_coverage_and_pytest(&interpreter) {
+            skip(&format!(
+                "{} cannot import coverage and pytest",
+                interpreter.display()
+            ));
+            return None;
+        }
+        Some(venv)
+    }
 }
 
 fn node_available() -> bool {
@@ -73,7 +106,8 @@ fn node_available() -> bool {
         .stderr(std::process::Stdio::null())
         .status()
         .is_ok_and(|status| status.success());
-    let npm = std::process::Command::new("npm")
+    // Windows' npm is a .cmd shim, and CreateProcess needs the extension.
+    let npm = std::process::Command::new(if cfg!(windows) { "npm.cmd" } else { "npm" })
         .arg("--version")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -101,6 +135,15 @@ fn copy(from: &Path, to: &Path) {
         }
     }
 }
+/// A path relative to `base`, written with `/` as a snapshot writes it. Windows
+/// keeps backslashes in `strip_prefix`'s remainder, and every name this file
+/// compares or filters is a project-relative path, not a host path (ADR 0010).
+fn relative_name(path: &Path, base: &Path) -> String {
+    path.strip_prefix(base)
+        .unwrap()
+        .to_string_lossy()
+        .replace('\\', "/")
+}
 fn project_files(root: &Path) -> BTreeMap<String, Vec<u8>> {
     fn walk(base: &Path, directory: &Path, found: &mut BTreeMap<String, Vec<u8>>) {
         for entry in fs::read_dir(directory).unwrap().flatten() {
@@ -111,13 +154,7 @@ fn project_files(root: &Path) -> BTreeMap<String, Vec<u8>> {
             if path.is_dir() {
                 walk(base, &path, found);
             } else {
-                found.insert(
-                    path.strip_prefix(base)
-                        .unwrap()
-                        .to_string_lossy()
-                        .into_owned(),
-                    fs::read(&path).unwrap(),
-                );
+                found.insert(relative_name(&path, base), fs::read(&path).unwrap());
             }
         }
     }
@@ -127,11 +164,17 @@ fn project_files(root: &Path) -> BTreeMap<String, Vec<u8>> {
 }
 impl Fixture {
     fn new(language: &'static str) -> Option<Self> {
-        let venv = match language {
-            "python" => python_venv(),
-            "typescript" => node_available().then(PathBuf::new),
+        match language {
+            "python" => {
+                python_interpreter()?;
+            }
+            "typescript" => {
+                if !node_available() {
+                    return None;
+                }
+            }
             _ => unreachable!(),
-        }?;
+        }
         let directory = std::env::temp_dir().join(format!(
             "mutator-python-ts-{}-{}",
             std::process::id(),
@@ -139,7 +182,12 @@ impl Fixture {
         ));
         let project = directory.join("project");
         copy(&fixture_dir().join(language).join("project"), &project);
+        // The mounted view carries the project's `.venv` link, so the fixture
+        // links the isolated venv in. A Windows worker copy shows `.venv` as an
+        // empty directory, so the fixture there uses the interpreter on PATH.
+        #[cfg(not(windows))]
         if language == "python" {
+            let venv = PathBuf::from(std::env::var_os("MUTATOR_TEST_PYTHON_VENV")?);
             for package in [PathBuf::from("."), PathBuf::from("legacy")] {
                 std::os::unix::fs::symlink(&venv, project.join(package).join(".venv")).unwrap();
             }
@@ -178,18 +226,15 @@ impl Fixture {
                 if path.is_dir() {
                     walk(base, &path, found);
                 } else {
-                    found.insert(
-                        path.strip_prefix(base)
-                            .unwrap()
-                            .to_string_lossy()
-                            .into_owned(),
-                        fs::read(&path).unwrap(),
-                    );
+                    found.insert(relative_name(&path, base), fs::read(&path).unwrap());
                 }
             }
         }
         walk(&base, &base, &mut found);
         found
+            .into_iter()
+            .map(|(name, bytes)| (name.clone(), expected_golden(&bytes, self.language, &name)))
+            .collect()
     }
     fn published(&self) -> BTreeMap<String, Vec<u8>> {
         let base = self.project.join(".metrics/mutate");
@@ -203,13 +248,7 @@ impl Fixture {
                 if path.is_dir() {
                     walk(base, &path, found);
                 } else {
-                    found.insert(
-                        path.strip_prefix(base)
-                            .unwrap()
-                            .to_string_lossy()
-                            .into_owned(),
-                        fs::read(&path).unwrap(),
-                    );
+                    found.insert(relative_name(&path, base), fs::read(&path).unwrap());
                 }
             }
         }
@@ -261,6 +300,27 @@ impl Drop for Fixture {
             );
         }
     }
+}
+
+/// The bytes a snapshot must have on this host.
+///
+/// The only field the host decides is `:isolation`: `:namespace-view` on Linux,
+/// `:copy` on native Windows. The goldens were recorded on Linux, so that one
+/// field is rewritten for the host and everything else is compared byte for
+/// byte. A golden that no longer records the field fails here instead of
+/// silently comparing two different strings.
+fn expected_golden(golden: &[u8], language: &str, name: &str) -> Vec<u8> {
+    const RECORDED: &str = ":isolation :namespace-view";
+    let text = String::from_utf8(golden.to_vec()).unwrap();
+    if LEVEL == "namespace-view" {
+        return text.into_bytes();
+    }
+    assert!(
+        text.contains(RECORDED),
+        "{language}/{name} records the isolation level"
+    );
+    text.replacen(RECORDED, &format!(":isolation :{LEVEL}"), 1)
+        .into_bytes()
 }
 
 /// Acceptance: both languages' snapshots equal the pinned original's bytes,
@@ -368,9 +428,12 @@ fn python_and_typescript_scan_writes_no_metrics() {
 /// fails the baseline instead of letting every mutant survive.
 #[test]
 fn python_unittest_discovery_with_no_tests_fails_the_baseline() {
-    let Some(venv) = python_venv() else {
+    let Some(venv) = python_interpreter() else {
         return;
     };
+    // Only the mounted view needs the link; the copy hides `.venv`.
+    #[cfg(windows)]
+    let _ = &venv;
     let directory = std::env::temp_dir().join(format!(
         "mutator-python-ts-{}-{}",
         std::process::id(),
@@ -388,6 +451,8 @@ fn python_unittest_discovery_with_no_tests_fails_the_baseline() {
         "def add(a, b):\n    return a + b\n",
     )
     .unwrap();
+    // The copy hides `.venv`, so only the mounted view needs this link.
+    #[cfg(not(windows))]
     std::os::unix::fs::symlink(&venv, project.join(".venv")).unwrap();
     let code = mutator::run_with_clock(
         &[
@@ -409,6 +474,12 @@ fn python_unittest_discovery_with_no_tests_fails_the_baseline() {
     );
     // The guard itself: a command that exits 0 but reports an empty suite is a
     // failed baseline, even where unittest's own exit status would not fail.
+    // A command that exits 0 while reporting an empty suite, in the host shell.
+    const EMPTY_SUITE: &str = if cfg!(windows) {
+        "echo Ran 0 tests in 0.000s & exit 0"
+    } else {
+        "printf 'Ran 0 tests in 0.000s\\n'; exit 0"
+    };
     let code = mutator::run_with_clock(
         &[
             OsString::from("--root"),
@@ -418,7 +489,7 @@ fn python_unittest_discovery_with_no_tests_fails_the_baseline() {
             OsString::from("--max-workers"),
             OsString::from("1"),
             OsString::from("--test-command"),
-            OsString::from("printf 'Ran 0 tests in 0.000s\\n'; exit 0"),
+            OsString::from(EMPTY_SUITE),
             OsString::from("src/demo.py"),
         ],
         || CLOCK.to_string(),
@@ -436,14 +507,24 @@ fn python_unittest_discovery_with_no_tests_fails_the_baseline() {
 /// original's exact LF bytes with this platform's `:namespace-view`.
 #[test]
 fn a_single_python_file_publishes_the_original_snapshot_bytes() {
-    let available = std::process::Command::new("python3")
+    // The interpreter is `python3` on POSIX and `python` on Windows; the test
+    // command below has to be spelled for the same host shell.
+    const PYTHON: &str = if cfg!(windows) { "python" } else { "python3" };
+    const TEST_COMMAND: &str = if cfg!(windows) {
+        "python -c \"from calc import add; assert add(2, 1) == 3\""
+    } else {
+        "python3 -c 'from calc import add; assert add(2, 1) == 3'"
+    };
+    let available = std::process::Command::new(PYTHON)
         .arg("--version")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
         .is_ok_and(|status| status.success());
     if !available {
-        skip("python3 is not on PATH for the snapshot-bytes case");
+        skip(&format!(
+            "{PYTHON} is not on PATH for the snapshot-bytes case"
+        ));
         return;
     }
     let directory = std::env::temp_dir().join(format!(
@@ -466,13 +547,14 @@ fn a_single_python_file_publishes_the_original_snapshot_bytes() {
             OsString::from("--max-workers"),
             OsString::from("1"),
             OsString::from("--test-command"),
-            OsString::from("python3 -c 'from calc import add; assert add(2, 1) == 3'"),
+            OsString::from(TEST_COMMAND),
             OsString::from(directory.join("calc.py").to_string_lossy().into_owned()),
         ],
         || CLOCK.to_string(),
     );
     assert_eq!(code, ExitCode::SUCCESS);
-    let expected = b"{:version 1 :tested-at \"2026-11-07T12:00:00+00:00\" :isolation :namespace-view :source \"calc.py\" :namespace \"calc\" :outcomes {\"[\\\"calc.py\\\",\\\"calc\\\",\\\"defn/add\\\",28,29,\\\"+\\\",\\\"-\\\"]\" :killed} :forms [{:id \"defn/add\" :kind \"defn\" :file \"calc.py\" :line 1 :end-line 2 :hash \"7f5d06820e37639e83a860f5e4c06bc64504526affd8a2c0203143ecf47713a4\" :killed 1 :survived 0 :uncovered 0 :sites 1}]}\n";
+    let golden = b"{:version 1 :tested-at \"2026-11-07T12:00:00+00:00\" :isolation :namespace-view :source \"calc.py\" :namespace \"calc\" :outcomes {\"[\\\"calc.py\\\",\\\"calc\\\",\\\"defn/add\\\",28,29,\\\"+\\\",\\\"-\\\"]\" :killed} :forms [{:id \"defn/add\" :kind \"defn\" :file \"calc.py\" :line 1 :end-line 2 :hash \"7f5d06820e37639e83a860f5e4c06bc64504526affd8a2c0203143ecf47713a4\" :killed 1 :survived 0 :uncovered 0 :sites 1}]}\n";
+    let expected = expected_golden(golden, "python", "calc.edn");
     let actual = fs::read(directory.join(".metrics/mutate/calc.edn")).unwrap();
     assert_eq!(actual, expected, "original snapshot bytes");
     fs::remove_dir_all(&directory).unwrap();

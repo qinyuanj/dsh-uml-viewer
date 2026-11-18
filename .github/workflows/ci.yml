@@ -24,10 +24,7 @@ env:
 
 jobs:
   typescript:
-    strategy:
-      matrix:
-        os: [windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -222,7 +219,8 @@ jobs:
   # The gates that used to live only in the deleted `linux` job, on the one
   # supported host: formatting, clippy with warnings denied, the real
   # Python/TypeScript/Lua/Go/Java/Clojure coverage integration tests, and
-  # scripts/check.py. The Linux job pulled those fixture toolchains from apt;
+  # scripts/check.py, plus the Python/TypeScript mutation run the Linux job took
+  # with it (#11). The Linux job pulled those fixture toolchains from apt;
   # here Python 3.12 comes from the Python setup action, Node 24 from the Node
   # setup action, Lua 5.4 from the repository's own Windows installer that
   # windows-mutate already runs, Go 1.25.3 and Temurin JDK 17 from their setup
@@ -309,5 +307,17 @@ jobs:
         env:
           MUTATOR_REQUIRE_TOOLCHAINS: '1'
         run: cargo test -p mutator --test go_java_clojure --locked -- --test-threads=1
+      # The Python and TypeScript mutation run lived in the deleted `linux` job
+      # (`--test python_ts --test python_ts_sites`); #11 forbade losing a gate, so
+      # it runs here. Neither file is Linux-only any more, and a Windows worker
+      # copy hides `.venv`, so the Python fixture uses the `python` on PATH that
+      # the "Python fixture toolchain" step above fills with coverage.py and
+      # pytest. MUTATOR_REQUIRE_TOOLCHAINS makes a missing one a failure rather
+      # than the skip it used to be, and the snapshot goldens' one host-chosen
+      # field (`:isolation`) is the only thing rewritten before the byte compare.
+      - name: Python and TypeScript mutation run on the one host
+        env:
+          MUTATOR_REQUIRE_TOOLCHAINS: '1'
+        run: cargo test -p mutator --test python_ts --test python_ts_sites --locked -- --test-threads=1
       - name: scripts/check.py (source rules + cargo test --workspace --locked)
         run: python -I scripts/check.py

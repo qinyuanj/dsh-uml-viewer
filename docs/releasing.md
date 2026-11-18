@@ -55,7 +55,14 @@ hash against the staged bytes, and uploads its platform archive. Font, license
 and the rest of the main bundle are uploaded once, by `win32-x64` only.
 
 The `inventory` job is the single place that validates the staged release
-inventory. `scripts/release.mjs verify` requires all of:
+inventory. It and `publish` read and publish the archives the one
+`windows-latest` `assemble` job produced, and they run on `ubuntu-latest`
+deliberately: they are host-neutral by construction — they open tarballs,
+compare report fields and call `npm publish` — and moving a tag-driven publish
+onto a runner nobody has exercised is the riskier change. They carry no
+delivery claim, and the `windows-latest` label above is the claim.
+
+`scripts/release.mjs verify` requires all of:
 
 - exactly one assemble report, for the one delivered platform, no duplicates;
 - every report at the Cargo workspace version, with `optionalDependencies`

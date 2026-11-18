@@ -55,10 +55,17 @@ fn works(program: &str, args: &[&str]) -> bool {
         let mut command = std::process::Command::new(
             std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd.exe".into()),
         );
-        command
-            .arg("/d")
-            .arg("/c")
-            .arg(format!("{program} {}", args.join(" ")));
+        // Quoted, not joined: `cmd.exe` splits on spaces and reads `&`, `|` and
+        // `>` as operators, so an argument with one of those in it would change
+        // the command the probe runs. `quality_core::process` quotes the same way
+        // for the real runs.
+        let quoted: Vec<String> = std::iter::once(program.to_string())
+            .chain(
+                args.iter()
+                    .map(|argument| quality_core::process::cmd_quote(argument)),
+            )
+            .collect();
+        command.arg("/d").arg("/c").arg(quoted.join(" "));
         command
     } else {
         let mut command = std::process::Command::new(program);

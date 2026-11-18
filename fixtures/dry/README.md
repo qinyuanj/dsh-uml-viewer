@@ -48,9 +48,10 @@ Three more oracles cover the parts the CLI scenarios cannot enumerate:
   table checks at both CLI seams.
 - `python -I scripts/dry_platform_oracle.py <dryer-checkout>` writes
   `fixtures/dry/platform/cases.tsv` from importing the pinned
-  `dryer.platform`. Run it where the warning path is POSIX, i.e. WSL2 or Linux
-  (captured with CPython 3.12.3 under WSL2), because the original formats the
-  host `Path` object. All three scripts verify the checkout hash and refuse a dirty
+  `dryer.platform`. The output is **captured evidence, not regenerable on the
+  supported host**: it was recorded where the warning path is POSIX (CPython
+  3.12.3 under WSL2) because the original formats the host `Path` object, and
+  native Windows x64 — the only delivered host — cannot reproduce that run. All three scripts verify the checkout hash and refuse a dirty
   source tree; the status check normalizes CRLF so a Windows checkout is still
   accepted under WSL git. All three support `--check`.
 

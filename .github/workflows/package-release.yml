@@ -89,6 +89,10 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # ubuntu-latest on purpose: this job and `publish` only read and publish the
+  # archives the one windows-latest `assemble` job produced. They open tarballs,
+  # compare report fields and call npm publish — host-neutral work that carries no
+  # delivery claim (docs/releasing.md says the same next to the pipeline).
   # One place validates the staged release inventory: the one platform archive at
   # the workspace version, exactly one main archive, the main file inventory that
   # runner reported (a recorded main hash, not byte identity), every archive

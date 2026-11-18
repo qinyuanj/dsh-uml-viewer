@@ -308,8 +308,16 @@ and `cargo-llvm-cov`, sets `MUTATOR_REQUIRE_TOOLCHAINS=1` so a missing
 toolchain fails instead of skipping, installs `coverage.py` for the Python
 coverage test and the whole Lua 5.4 toolchain for the Lua suite (the same rule:
 a missing tool fails), and runs the mutator suite plus the `uml-viewer` mutate
-tests, including the Lua cases that prove the suite is really entered. `macos-quality` (macos-latest) asserts the refusal
-and runs the crap and dry suites.
+tests, including the Lua cases that prove the suite is really entered.
+
+No lane asserts the macOS refusal's CLI level any more: `macos-quality`
+(macos-latest) was deleted with the host, and `crates/uml-viewer/tests/mutate.rs`
+keeps its `#[cfg(target_os = "macos")]` case that no runner can now execute. The
+refusal itself is still pinned on the one host, one layer up, by
+`packages/host/tests/activation.seam.test.ts` in the `typescript` job: activation
+refuses any target other than `win32-x64` with the reason. The CLI-level `mutate`
+refusal (exit 1, before any command) has no lane until a macOS runner returns;
+the test is kept rather than deleted so that lane is one job away, not a rewrite.
 
 In [main CI6 at `6147980`](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42595826593),
 [Windows mutation](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42595826593/job/129088076784),

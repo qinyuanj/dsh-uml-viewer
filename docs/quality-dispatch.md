@@ -146,12 +146,12 @@ that command does; the dispatcher reports its real exit.
 
 ## Maintainer refresh acceptance in CI
 
-The `linux` and native `windows-mutate` jobs run the repository-root sequence
+The native `windows-mutate` job runs the repository-root sequence
 `quality crap`, `quality mutate crates/platform/src/lib.rs`, then
 `ir examples/uml-viewer.policy.edn <temporary output>`, using the job's own
-binary. Linux reuses the release binary from `scripts/check.py`; Windows builds
-debug against its existing integration-test artifacts to avoid a second release
-compilation. The 138-line, dependency-free platform crate has small platform
+binary. It builds debug against its existing integration-test artifacts to avoid
+a second release compilation; the `linux` job that used to reuse
+`scripts/check.py`'s release binary was deleted with the host. The 138-line, dependency-free platform crate has small platform
 decision tests and no committed mutation history, bounding the differential run
 without `--mutate-all`, coverage bypasses or a custom test command.
 
@@ -160,9 +160,9 @@ version-1 stdout record against the actual exit (including valid CRAP 2 and
 mutation 3), and requires both valid records before IR. Reports stay on stderr.
 The disposable checkout may acquire `.metrics/`; records and nonempty IR go
 under `RUNNER_TEMP`, and neither lane uploads them. Steps are bounded to 21/6/1
-minutes within the existing Linux 60-minute and Windows 45-minute job limits.
+minutes within `windows-mutate`'s 45-minute job limit (`windows-quality`'s is 90).
 Adding this gate is not evidence that the refresh passed: criterion 6 needs a
-successful CI execution on each OS.
+successful CI execution on the one host.
 
 ## Samples
 

@@ -49,16 +49,18 @@ export const SUPPORTED_TARGET = 'win32-x64'
 /**
  * Why a host outside SUPPORTED_TARGET cannot activate.
  *
- * The refusal is delivered behaviour for every macOS and Linux profile, so it
- * states the reason rather than leaving a bare rejection: the plugin ships one
- * platform package, macOS has no mutant isolation path to honour the quality
- * loop, and Linux x64 is not a delivery host (the environment repository's
- * ADR 0002 records both departures and their cost).
+ * The refusal is delivered behaviour for every macOS and Linux profile, and for
+ * every architecture of them — Linux arm64 is refused for the same reason as
+ * Linux x64, and neither is a delivery host — so it states the reason rather
+ * than leaving a bare rejection: the plugin ships one platform package, macOS
+ * has no mutant isolation path to honour the quality loop, and Linux is not a
+ * delivery host (the environment repository's ADR 0002 records both departures
+ * and their cost).
  */
 export function unsupportedPlatform(platform: string, arch: string): string {
   return `Unsupported uml-viewer platform: ${platform}/${arch}; only native Windows x64 `
     + `(${SUPPORTED_TARGET}) is supported. dsh-uml-viewer ships one platform package: `
-    + 'macOS has no mutant isolation path, and Linux x64 is not a delivery host.'
+    + 'macOS has no mutant isolation path, and Linux (x64 or arm64) is not a delivery host.'
 }
 
 /** Resolve once at activation. Callers retain this argv for the plugin lifetime. */

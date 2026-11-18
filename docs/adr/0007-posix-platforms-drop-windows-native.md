@@ -100,3 +100,12 @@ Windows Terminal receives XDG_CONFIG_HOME and HERDR_CONFIG_PATH on its command
 line because a new tab uses the terminal's own environment. Missing/failed attach
 still only reports the command. The ownership, FIFO, identity verification and
 1/2/4-second, at-most-three-retry policy remain common to all platforms.
+
+## Status note (2026-11-18)
+
+本 ADR 的**宿主清单**已被取代：交付宿主只有原生 Windows x64 一个。macOS 在 2026-10-27 的增补里
+曾恢复为交付平台，之后由 qinyuanj/home-uml-viewer#5 与其 ADR 0002 一并移出，连同 Linux x64；
+理由与该决定放弃的东西写在那两份文档里。上文「唯一交付平台为 WSL2 + Ubuntu 24.04 LTS + WSLg」
+与开头的 macOS 增补是历史决定，按 ADR 惯例不改写，现在读它们时按本段执行。
+
+adapter 边界、POSIX 进程契约与其余条款不变。
