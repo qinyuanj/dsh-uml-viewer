@@ -294,6 +294,19 @@ fn main() {
         }
         std::process::exit(1);
     }
+    if mode == "write-scratch" {
+        if !mutated() { return; }
+        let scratch = Path::new("..");
+        let coverage = scratch.join("lua-coverage");
+        if scratch.join("slot-leak").exists() || coverage.exists() {
+            println!("saw an earlier mutant's slot entries");
+            return;
+        }
+        fs::create_dir(&coverage).unwrap();
+        fs::write(scratch.join("slot-leak"), "x").unwrap();
+        fs::write(coverage.join("leak"), "x").unwrap();
+        std::process::exit(1);
+    }
     if mode == "write-link" {
         if !mutated() { return; }
         fs::write("alias.txt", "changed").unwrap();
@@ -583,6 +596,27 @@ fn mutant_writes_reach_neither_the_project_nor_the_user_nor_a_later_mutant() {
     // New roots of this serialized fixture must disappear. Other processes'
     // roots and leaks already reported by earlier fixtures are not ours.
     fixture.assert_no_scratch();
+}
+
+/// Collection scratch is view-specific: a mutant-created directory with the
+/// same name is still an ordinary slot entry and never reaches the next mutant.
+#[test]
+fn non_collect_commands_wipe_sibling_entries_and_lua_coverage_directories() {
+    let _serial = serial();
+    let fixture = Fixture::new();
+    let helper = helper(&fixture.directory);
+    let command = format!("{} write-scratch", quoted(&helper));
+    let code = fixture.run(&[
+        "--no-coverage",
+        "--mutate-all",
+        "--test-command",
+        &command,
+        "app/src/lib.rs",
+        "app/src/more.rs",
+    ]);
+    assert_eq!(code, ExitCode::SUCCESS, "every mutant fails its own test");
+    assert!(!fixture.root().join("slot-leak").exists());
+    assert!(!fixture.root().join("lua-coverage").exists());
 }
 
 /// `--copy` (ADR 0016): copy isolation shows paths **outside** the project root

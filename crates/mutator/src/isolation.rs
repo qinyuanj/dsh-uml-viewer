@@ -51,6 +51,8 @@ pub struct View {
     pub directory: PathBuf,
     // A slot borrows its pool's root, so only the pool removes the tree.
     _root: Option<Root>,
+    #[cfg(windows)]
+    command_slot: Option<PathBuf>,
 }
 pub struct Completed {
     pub code: i32,
@@ -211,7 +213,33 @@ impl View {
         Ok(Self {
             directory,
             _root: Some(scratch),
+            #[cfg(windows)]
+            command_slot: None,
         })
+    }
+
+    /// The dedicated view for one Lua collection. Its published collector,
+    /// shard output and conversion input outlive each command's project reset.
+    pub fn lua_collection(root: &Path) -> io::Result<Self> {
+        let view = Self::new(root)?;
+        #[cfg(windows)]
+        let view = {
+            // Slot preparation deletes everything beside the project copy.
+            // Make the slot a child so collection scratch stays in the view
+            // and cannot collide with `--copy` paths inside the slot.
+            let command_slot = view.directory.join("slot");
+            crate::scratch::private_directory(&command_slot)?;
+            Self {
+                command_slot: Some(command_slot),
+                ..view
+            }
+        };
+        Ok(view)
+    }
+
+    #[cfg(windows)]
+    fn slot(&self) -> crate::copies::Slot {
+        crate::copies::Slot::reused(self.command_slot.as_deref().unwrap_or(&self.directory))
     }
 
     /// A view of a worker slot whose scratch root another owner removes.
@@ -219,6 +247,8 @@ impl View {
         Self {
             directory: directory.to_path_buf(),
             _root: None,
+            #[cfg(windows)]
+            command_slot: None,
         }
     }
 
@@ -429,7 +459,7 @@ exec "$@"
         mutation: Option<(&Path, &str)>,
         timeout: Option<Duration>,
     ) -> Result<Completed, Failure> {
-        crate::copies::Slot::reused(&self.directory).run(root, cwd, command, mutation, timeout)
+        self.slot().run(root, cwd, command, mutation, timeout)
     }
     #[cfg(not(any(target_os = "linux", windows)))]
     pub fn run(
@@ -454,7 +484,7 @@ exec "$@"
         mutation: Option<(&Path, &str)>,
         timeout: Option<Duration>,
     ) -> Result<Completed, Failure> {
-        crate::copies::Slot::reused(&self.directory).run_argv(root, cwd, argv, mutation, timeout)
+        self.slot().run_argv(root, cwd, argv, mutation, timeout)
     }
 
     #[cfg(not(any(target_os = "linux", windows)))]
@@ -495,7 +525,7 @@ pub fn describe() -> &'static str {
 /// A report a command wrote inside its own view, never in the project.
 pub fn report_path(view: &View, relative: &Path) -> PathBuf {
     #[cfg(windows)]
-    let base = crate::copies::Slot::reused(&view.directory).project_root();
+    let base = view.slot().project_root();
     #[cfg(not(windows))]
     let base = view.directory.join("upper");
     base.join(relative)

@@ -331,7 +331,7 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
             .collect();
         for (module, sources) in quality_core::runners::lua::modules(root, &lua_files) {
             let started = std::time::Instant::now();
-            let view = View::new(root).map_err(|error| {
+            let view = View::lua_collection(root).map_err(|error| {
                 eprintln!("Cannot create a mutation view: {error}");
                 1
             })?;

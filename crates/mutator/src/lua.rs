@@ -238,10 +238,12 @@ pub fn decode(pending: &str, module: &Path) -> Result<Membership, String> {
                 }
                 let mut selected = BTreeSet::new();
                 for member in members.keys() {
-                    if !membership.specs.contains_key(member) {
+                    let member = relative_spec(member, module)
+                        .map_err(|_| error("Invalid spec membership"))?;
+                    if !membership.specs.contains_key(&member) {
                         return Err(error("Invalid spec membership"));
                     }
-                    selected.insert(member.clone());
+                    selected.insert(member);
                 }
                 target.entry(line(number)?).or_default().extend(selected);
             }
@@ -671,4 +673,67 @@ pub fn collect(view: &View, request: &Request<'_>) -> Result<Index, String> {
         seconds: elapsed,
         fresh: true,
     })
+}
+
+#[cfg(all(test, windows))]
+mod windows_collect_tests {
+    use super::*;
+
+    fn copy(source: &Path, destination: &Path) {
+        fs::create_dir_all(destination).unwrap();
+        for entry in fs::read_dir(source).unwrap() {
+            let entry = entry.unwrap();
+            let target = destination.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy(&entry.path(), &target);
+            } else {
+                fs::copy(entry.path(), target).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn collect_scratch_survives_slot_preparation_through_shards_and_lcov_conversion() {
+        let Some(interpreter) = lua::interpreter() else {
+            eprintln!("SKIP: Lua 5.4 is not installed");
+            return;
+        };
+        if let Err(reason) = lua::require_cluacov(&interpreter) {
+            eprintln!("SKIP: {}", reason.0);
+            return;
+        }
+        let fixture = crate::scratch::Root::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let root = fixture.path().join("project");
+        copy(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/mutate/lua/project"),
+            &root,
+        );
+        let source = root.join("src/calc.lua");
+        let original = fs::read(&source).unwrap();
+        for shards in [Some(1), Some(2), None] {
+            let view = View::lua_collection(&root).unwrap();
+            let index = collect(
+                &view,
+                &Request {
+                    root: &root,
+                    module: &root,
+                    sources: std::slice::from_ref(&source),
+                    busted_task: None,
+                    shards,
+                },
+            )
+            .unwrap_or_else(|error| panic!("coverage with shards {shards:?}: {error}"));
+            assert_eq!(
+                index.specs.keys().map(String::as_str).collect::<Vec<_>>(),
+                ["spec/add_spec.lua", "spec/double unit_spec.lua"]
+            );
+            let hits = index.hits(&source).expect("LCOV includes calc.lua");
+            assert!(
+                hits.contains(&4) && hits.contains(&8),
+                "LCOV hits: {hits:?}"
+            );
+        }
+        assert_eq!(fs::read(&source).unwrap(), original);
+        assert!(!root.join("lua-coverage").exists());
+    }
 }

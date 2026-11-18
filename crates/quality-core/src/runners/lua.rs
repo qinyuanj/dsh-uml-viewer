@@ -275,7 +275,12 @@ fn merge_stats_in(
     let mut merged = BTreeMap::<Vec<u8>, Vec<u64>>::new();
     for part in parts {
         let bytes = fs::read(part).map_err(|e| failure(format!("{e}")))?;
-        let lines: Vec<&[u8]> = bytes.split(|b| *b == b'\n').collect();
+        // LuaCov writes CRLF in Windows text mode. Strip the terminator from
+        // both the source name and the count line without changing their bytes.
+        let lines: Vec<&[u8]> = bytes
+            .split(|b| *b == b'\n')
+            .map(|line| line.strip_suffix(b"\r").unwrap_or(line))
+            .collect();
         for pair in lines.chunks(2) {
             if pair.len() != 2 {
                 continue;
