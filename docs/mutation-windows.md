@@ -1,8 +1,13 @@
 # Windows mutation isolation, and the macOS refusal
 
-Native Windows 10 22H2 (build 19045) and later run `uml-viewer mutate`; older
-builds are refused before any work, as in the original. Linux keeps the
-overlay views described in [mutation-linux.md](mutation-linux.md).
+Native Windows runs `uml-viewer mutate` on any build. No capability here is
+newer than Windows 10, which the toolchain already requires, so the OS alone
+decides (ADR 0018) — as in the pinned original after
+[mutator#30](https://github.com/qinyuanj/mutator/issues/30), which dropped its
+build floor for the same reason. macOS is still refused with a reason, because
+it has neither isolation mechanism; that refusal is this port's own, not a
+build-number gate. Linux keeps the overlay views described in
+[mutation-linux.md](mutation-linux.md).
 
 ## A fresh copy per command, a Job Object per command
 

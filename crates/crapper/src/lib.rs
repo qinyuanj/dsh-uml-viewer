@@ -12,13 +12,12 @@ mod crap;
 
 use std::ffi::OsString;
 use std::io::Write;
-use std::path::Path;
 use std::process::ExitCode;
 
 use quality_core::coverage::load_bundle;
 use quality_core::functions::supported;
 use quality_core::language::language_of;
-use quality_core::paths::posix;
+use quality_core::platform;
 use quality_core::runner::run_coverage_with_lua_shards;
 use quality_core::select::Scope;
 
@@ -26,24 +25,16 @@ use crate::cli::{HELP, Options, Parsed};
 use crate::crap::{Entry, analyze, format_report, metrics_path, render_edn};
 
 pub fn run(args: &[OsString]) -> ExitCode {
-    run_on(
-        quality_core::platform::Host::current(),
-        quality_core::platform::windows_build(),
-        args,
-    )
-}
-
-/// The same contract with the host declared, matching the pinned tests'
-/// monkeypatch of `sys.platform` and `windows_build`.
-fn run_on(host: quality_core::platform::Host, build: Option<u32>, args: &[OsString]) -> ExitCode {
     let args: Vec<String> = args
         .iter()
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
-    ExitCode::from(status_on(host, build, &args))
+    ExitCode::from(status_on(&args))
 }
 
-fn status_on(host: quality_core::platform::Host, build: Option<u32>, args: &[String]) -> u8 {
+/// crapper refuses no host: the shared WSL2 warning is its only platform
+/// decision before selection (crapper#18, ADR 0018).
+fn status_on(args: &[String]) -> u8 {
     match cli::parse(args) {
         Parsed::Help => {
             print!("{HELP}");
@@ -53,27 +44,8 @@ fn status_on(host: quality_core::platform::Host, build: Option<u32>, args: &[Str
             eprint!("{message}\n\n{HELP}");
             1
         }
-        Parsed::Analyze(options) => {
-            if let Some(refusal) =
-                quality_core::platform::refusal(quality_core::platform::Tool::Crapper, host, build)
-            {
-                eprintln!("{refusal}");
-                return 1;
-            }
-            analyze_project(&options)
-        }
+        Parsed::Analyze(options) => analyze_project(&options),
     }
-}
-
-/// Under WSL2, a project on a Windows drive is slow and breaks symlinks.
-fn platform_warning(root: &Path) -> Option<String> {
-    (!cfg!(windows) && posix(root).starts_with("/mnt/")).then(|| {
-        format!(
-            "{} is on a Windows drive. Under WSL2, clone the project under ~/ \
-             for speed and working symlinks.",
-            root.display()
-        )
-    })
 }
 
 fn analyze_project(options: &Options) -> u8 {
@@ -83,7 +55,7 @@ fn analyze_project(options: &Options) -> u8 {
         exclusions: options.exclusions.clone(),
     };
     let root = scope.project_root();
-    if let Some(warning) = platform_warning(&root) {
+    if let Some(warning) = platform::warning(platform::Host::current(), &root) {
         eprintln!("{warning}");
     }
     if options.full_tree
@@ -240,16 +212,19 @@ mod tests {
         root
     }
 
+    /// The old build-number gate refused this host before selection; the OS
+    /// alone decides now, so a build below the deleted floor analyses normally
+    /// and still publishes nothing for an empty selection (ADR 0018,
+    /// crapper#18).
     #[test]
-    fn an_older_windows_build_is_refused_before_selection_and_publishes_nothing() {
-        let root = scratch("old-windows");
+    fn a_build_below_the_deleted_floor_is_not_refused() {
+        let root = scratch("any-windows-build");
         let args = vec![
             OsString::from("--root"),
             root.as_os_str().to_owned(),
             OsString::from("--no-coverage"),
         ];
-        let exit = run_on(quality_core::platform::Host::Windows, Some(19044), &args);
-        assert_eq!(ExitCode::FAILURE, exit);
+        assert_eq!(ExitCode::SUCCESS, run(&args));
         assert!(!root.join(".metrics").exists());
         std::fs::remove_dir_all(&root).unwrap();
     }

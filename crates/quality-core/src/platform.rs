@@ -1,18 +1,21 @@
 //! Shared crapper/dryer platform decisions from the pinned Python originals.
 //!
-//! Two decisions run before selection: native Windows older than Windows 10
-//! 22H2 is refused, and under WSL2 a project on a Windows drive warns about
-//! speed and symlinks. Both write one line to stderr; the warning does not
-//! stop the scan. The filesystem facts themselves stay host-agnostic.
+//! Both tools decide before selection whether to warn: under WSL2 a project on
+//! a Windows drive is slow and loses symlinks. The warning is one line on
+//! stderr and does not stop the scan; the filesystem facts themselves stay
+//! host-agnostic.
 //!
-//! The Windows build number comes from `RtlGetVersion` because `GetVersionExW`
-//! reports 9200 to a process without a compatibility manifest (see
-//! `crates/platform/src/lib.rs`).
+//! Neither pinned original refuses a host any more, and neither reads a Windows
+//! build number ([ADR 0018]): nothing either calls is newer than Windows 10,
+//! which the toolchain already requires, so every build runs. crapper decides
+//! nothing else ([crapper#18]); dryer's remaining platform decision is this
+//! same warning ([dryer#5]).
+//!
+//! [ADR 0018]: ../docs/adr/0018-remove-windows-build-floor.md
+//! [crapper#18]: https://github.com/qinyuanj/crapper/issues/18
+//! [dryer#5]: https://github.com/qinyuanj/dryer/issues/5
 
 use std::path::Path;
-
-/// Windows 10 22H2. Windows 11 builds start at 22000.
-pub const MINIMUM_WINDOWS_BUILD: u32 = 19045;
 
 /// A host as the original sees `sys.platform`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -23,7 +26,12 @@ pub enum Host {
 
 impl Host {
     pub fn current() -> Self {
-        if cfg!(windows) {
+        Self::of(current_platform())
+    }
+
+    /// The host a `sys.platform` name denotes; anything but `win32` is POSIX.
+    pub fn of(platform: &str) -> Self {
+        if platform == "win32" {
             Self::Windows
         } else {
             Self::Unix
@@ -31,31 +39,16 @@ impl Host {
     }
 }
 
-/// The tool name and wording used by its pinned original.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Tool {
-    Crapper,
-    Dryer,
-    Mutator,
-}
-
-/// The original platform refusal: why this host is refused, or `None`.
-pub fn refusal(tool: Tool, host: Host, build: Option<u32>) -> Option<String> {
-    if host != Host::Windows {
-        return None;
+/// This host as the original's `sys.platform` spells it: `win32`, `darwin`,
+/// otherwise the platform name itself (`linux`, `freebsd`, …).
+pub fn current_platform() -> &'static str {
+    if cfg!(windows) {
+        "win32"
+    } else if cfg!(target_os = "macos") {
+        "darwin"
+    } else {
+        std::env::consts::OS
     }
-    let build = build?;
-    (build < MINIMUM_WINDOWS_BUILD).then(|| {
-        let (name, suffix) = match tool {
-            Tool::Crapper => ("crapper", ""),
-            Tool::Dryer => ("dryer", "; see the README"),
-            Tool::Mutator => ("mutator", ""),
-        };
-        format!(
-            "{name} needs Windows 10 22H2 (build {MINIMUM_WINDOWS_BUILD}) or later; \
-             this is build {build}. Update Windows, or run {name} inside WSL2{suffix}."
-        )
-    })
 }
 
 /// The original `platform_warning`: a Windows drive under WSL2 is slow and
@@ -71,42 +64,6 @@ pub fn warning(host: Host, root: &Path) -> Option<String> {
              for speed and working symlinks."
         )
     })
-}
-
-/// The running machine's Windows build, or `None` off Windows or when the
-/// kernel call fails.
-#[cfg(windows)]
-pub fn windows_build() -> Option<u32> {
-    #[repr(C)]
-    struct OsVersionInfoW {
-        size: u32,
-        major: u32,
-        minor: u32,
-        build: u32,
-        platform_id: u32,
-        csd_version: [u16; 128],
-    }
-    #[link(name = "ntdll")]
-    unsafe extern "system" {
-        fn RtlGetVersion(info: *mut OsVersionInfoW) -> i32;
-    }
-    let mut info = OsVersionInfoW {
-        size: std::mem::size_of::<OsVersionInfoW>() as u32,
-        major: 0,
-        minor: 0,
-        build: 0,
-        platform_id: 0,
-        csd_version: [0; 128],
-    };
-    // SAFETY: info is a writable OSVERSIONINFOW whose size field is set, as
-    // RtlGetVersion requires; it returns STATUS_SUCCESS (0) or leaves it.
-    let status = unsafe { RtlGetVersion(&mut info) };
-    (status == 0).then_some(info.build)
-}
-
-#[cfg(not(windows))]
-pub fn windows_build() -> Option<u32> {
-    None
 }
 
 #[cfg(test)]
@@ -125,40 +82,25 @@ mod tests {
             let fields: Vec<_> = line.split('\t').collect();
             let expected = |answer: &str| (answer != "none").then(|| answer.to_string());
             match fields[..] {
-                ["min-windows-build", build] => {
-                    assert_eq!(build.parse::<u32>().unwrap(), MINIMUM_WINDOWS_BUILD);
-                }
-                ["refusal", host, build, answer] => {
-                    let host = match host {
-                        "linux" | "macos" => Host::Unix,
-                        "win32" => Host::Windows,
-                        other => panic!("unexpected host {other}"),
-                    };
-                    let build = (build != "none").then(|| build.parse().unwrap());
+                ["warning", host, root, answer] => {
                     assert_eq!(
                         expected(answer),
-                        refusal(Tool::Dryer, host, build),
+                        warning(Host::of(host), Path::new(root)),
                         "{line}"
                     );
-                }
-                ["warning", host, root, answer] => {
-                    let host = match host {
-                        "linux" | "macos" => Host::Unix,
-                        "win32" => Host::Windows,
-                        other => panic!("unexpected host {other}"),
-                    };
-                    assert_eq!(expected(answer), warning(host, Path::new(root)), "{line}");
                 }
                 _ => panic!("unexpected fixture line {fields:?}"),
             }
             cases += 1;
         }
-        assert_eq!(cases, 15, "pinned dryer platform cases");
+        assert_eq!(cases, 6, "pinned dryer platform cases");
     }
 
     /// Generated by `scripts/crap_platform_oracle.py` from pinned crapper.
+    /// crapper has no platform refusal ([crapper#18]), so its fixture pins the
+    /// WSL2 warning that is now its only platform decision.
     #[test]
-    fn every_pinned_crapper_refusal_matches_the_original() {
+    fn every_pinned_crapper_warning_matches_the_original() {
         let mut cases = 0;
         for line in include_str!("../../../fixtures/crap/platform/cases.tsv")
             .lines()
@@ -166,30 +108,30 @@ mod tests {
         {
             let fields: Vec<_> = line.split('\t').collect();
             match fields[..] {
-                ["min-windows-build", build] => {
-                    assert_eq!(build.parse::<u32>().unwrap(), MINIMUM_WINDOWS_BUILD);
-                }
-                ["refusal", host, build, answer] => {
-                    let host = match host {
-                        "linux" | "macos" => Host::Unix,
-                        "win32" => Host::Windows,
-                        other => panic!("unexpected host {other}"),
-                    };
-                    let build = (build != "none").then(|| build.parse().unwrap());
+                ["warning", host, root, answer] => {
                     let expected = (answer != "none").then(|| answer.to_string());
-                    assert_eq!(expected, refusal(Tool::Crapper, host, build), "{line}");
+                    assert_eq!(expected, warning(Host::of(host), Path::new(root)), "{line}");
                 }
                 _ => panic!("unexpected fixture line {fields:?}"),
             }
             cases += 1;
         }
-        assert_eq!(cases, 10, "pinned crapper platform cases");
+        assert_eq!(cases, 6, "pinned crapper platform cases");
     }
 
-    #[cfg(windows)]
+    /// The originals name the host the way `sys.platform` does, so the port
+    /// reads this machine's name and its own host from one place.
     #[test]
-    fn the_running_windows_build_is_read_from_the_kernel() {
-        let build = windows_build().expect("RtlGetVersion");
-        assert!(build > 0, "build {build}");
+    fn this_host_is_named_as_the_original_names_it() {
+        let platform = current_platform();
+        assert!(
+            ["win32", "darwin", "linux"].contains(&platform),
+            "{platform}"
+        );
+        assert_eq!(
+            cfg!(windows),
+            Host::current() == Host::Windows,
+            "{platform}"
+        );
     }
 }
