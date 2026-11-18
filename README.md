@@ -134,10 +134,11 @@ four scanners and the three quality tools; the standalone egui window was
 deleted in dsh-uml-viewer#30, so the panel is the only viewer. The JVM/Clojure implementation was removed in the JVM cutover
 and the Lua/LOVE implementation in the #144 cutover (ADR 0008). The supported platforms are **WSL2 + Ubuntu 24.04 + WSLg**,
 **macOS** and **native Windows** on x64, with no Windows build floor (ADR
-0018 removed it). The three quality tools (`crap`, `mutate`, `dry`) keep the
-pinned originals' Windows 10 22H2 (build 19045) boundary until those upstream
-repositories change it, so on an older build the diagram and panel work but a
-quality refresh is refused naming 19045.
+0018 removed it). The three quality tools (`crap`, `mutate`, `dry`) follow the
+same rule: their pinned originals dropped their own build floors
+(qinyuanj/crapper#18, qinyuanj/dryer#5, qinyuanj/mutator#30), so
+`uml-viewer quality crap`, `dry` and `mutate` run on any Windows build. Only
+`mutate` refuses an OS, naming macOS, where neither isolation mechanism exists.
 
 The IR is **topology**: the namespace tree, classes, and edges. **Metrics**
 (CC, coverage, CRAP, killed/survived/uncovered) come from `.metrics/`
