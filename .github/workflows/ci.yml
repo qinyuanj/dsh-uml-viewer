@@ -1,7 +1,8 @@
 # The guardrails on every push and pull request, on the one supported host
 # (native Windows x64; ADR 0002): formatting, clippy with warnings denied,
 # scripts/check.py (the static source rules, cargo build --release and cargo
-# test --workspace) and the real Python/TypeScript/Lua coverage tests.
+# test --workspace) and the real Python/TypeScript/Lua/Go/Java/Clojure
+# coverage tests.
 # windows-mutate also accepts the maintainer's binary quality
 # crap -> differential mutate -> ir refresh, and no other host does; panel
 # Playwright is panel-e2e.
@@ -186,6 +187,19 @@ jobs:
       # steps; MUTATOR_REQUIRE_TOOLCHAINS above makes it missing a failure.
       - name: Lua 5.4 fixture toolchain
         run: ./scripts/setup-windows-lua.ps1
+      # Go, Java and Clojure: go_java_clojure's cases are part of `cargo test -p
+      # mutator` below, and MUTATOR_REQUIRE_TOOLCHAINS above turns a missing one
+      # into a failure rather than the skip it used to be (#15).
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.3'
+          cache: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Maven and Clojure fixture toolchain
+        run: ./scripts/setup-windows-maven-clojure.ps1
       - name: Mutation native Windows tests
         run: cargo test -p mutator --locked
       - name: Mutation integration tests
@@ -207,19 +221,16 @@ jobs:
 
   # The gates that used to live only in the deleted `linux` job, on the one
   # supported host: formatting, clippy with warnings denied, the real
-  # Python/TypeScript/Lua coverage integration test, and scripts/check.py.
-  # The Linux job pulled those fixture toolchains from apt; here Python 3.12
-  # comes from the Python setup action, Node 24 from the Node setup action, and
-  # Lua 5.4 from the repository's own Windows installer that windows-mutate
-  # already runs.
-  # The Linux job's Go 1.25.3, JDK 17/Maven and Clojure CLI installs are not
-  # ported: they only let crap_runner_smoke's Go/Java/Clojure cases and
-  # mutator's Go/Java/Clojure cases execute instead of skipping, their own
-  # header names Linux/WSL as the acceptance platform
-  # (crates/mutator/tests/go_java_clojure.rs), and Clojure's official Windows
-  # CLI is the PowerShell module this repository wires up by hand
-  # (docs/platform-acceptance.md). With no honest Windows install path in the
-  # repository, those cases now SKIP loudly instead of passing unverified.
+  # Python/TypeScript/Lua/Go/Java/Clojure coverage integration tests, and
+  # scripts/check.py. The Linux job pulled those fixture toolchains from apt;
+  # here Python 3.12 comes from the Python setup action, Node 24 from the Node
+  # setup action, Lua 5.4 from the repository's own Windows installer that
+  # windows-mutate already runs, Go 1.25.3 and Temurin JDK 17 from their setup
+  # actions, and Maven plus the Clojure CLI from
+  # scripts/setup-windows-maven-clojure.ps1 (#15). Those last three are what
+  # make crap_runner_smoke's Go/Java/Clojure cases and mutator's
+  # go_java_clojure cases execute; the steps below turn a missing toolchain
+  # into a failure, so a skip cannot pass for green.
   windows-quality:
     runs-on: windows-latest
     timeout-minutes: 90
@@ -244,20 +255,38 @@ jobs:
       # A Lua suite reports through Busted, LuaCov and cluacov 1.0.0, and the
       # coverage collector adds the LuaCov LCOV reporter. The pinned installer
       # proves all of them and exports PATH, LUA_PATH and LUA_CPATH to the
-      # later steps.
+      # later steps. crap_languages probes both `lua5.4` and `lua` the way the
+      # coverage runner does, so the installer's own `lua.exe` is enough here
+      # and no second name is laid down (#15).
       - name: Lua 5.4 fixture toolchain
         run: ./scripts/setup-windows-lua.ps1
-      # crap_languages probes the Debian interpreter name `lua5.4`
-      # (crates/uml-viewer/tests/crap_languages.rs), while the installer lays
-      # down `lua.exe`. The alias is a copy of that same interpreter in its
-      # own directory, so it still finds lua54.dll and the rocks; without it
-      # CRAPPER_REQUIRE_TOOLCHAINS=1 would fail the Lua cases, not run them.
-      - name: Lua 5.4 under the name the coverage suite probes
-        run: |
-          $lua = (Get-Command lua -CommandType Application | Select-Object -First 1).Source
-          $alias = Join-Path (Split-Path $lua -Parent) 'lua5.4.exe'
-          Copy-Item $lua $alias -Force
-          & $alias -e "assert(_VERSION == 'Lua 5.4'); pcall(require, 'luarocks.loader'); assert(require('cluacov.version') == '1.0.0'); require('busted.runner'); require('luacov.reporter.lcov')"
+      # Go, Java and Clojure: the three fixture toolchains the deleted Linux job
+      # took from apt (#15). crap_runner_smoke and mutator's go_java_clojure
+      # cases execute on them instead of skipping, and the two steps further
+      # down make a missing one a failure rather than a skip.
+      - uses: actions/setup-go@v5
+        with:
+          # The same pin the Linux job used.
+          go-version: '1.25.3'
+          cache: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      # Clojure's official Windows distribution is the ClojureTools PowerShell
+      # module, not an executable: this script installs Maven and that module,
+      # writes the `clj` launcher and puts both on PATH, so crapper, mutator and
+      # the tests can start `clj` through cmd.exe.
+      - name: Maven and Clojure fixture toolchain
+        run: ./scripts/setup-windows-maven-clojure.ps1
+      # The two fixture report steps the Linux job ran, restored: they prove the
+      # fixtures' own builds on this host and warm the dependency caches the
+      # runners below reuse.
+      - name: Java fixture JaCoCo report
+        run: mvn -q -f fixtures/crap/java/pom.xml test
+      - name: Clojure fixture Cloverage report
+        working-directory: fixtures/crap/clojure
+        run: clj -M:cov --lcov
       # GitHub's default pwsh shell exits with the LAST command's code only, so
       # a multiline step can hide a failed first native command: one per step.
       - name: cargo fmt --check
@@ -268,5 +297,17 @@ jobs:
         env:
           CRAPPER_REQUIRE_TOOLCHAINS: '1'
         run: cargo test -p uml-viewer --test integration crap_languages -- --test-threads=1
+      # CRAPPER_REQUIRE_TOOLCHAINS and MUTATOR_REQUIRE_TOOLCHAINS turn a missing
+      # toolchain into a failure, so these two steps can only pass by really
+      # running Go, Java and Clojure; a skip is a broken job, not a platform
+      # (#15).
+      - name: Go, Java and Clojure coverage runners execute, never skip
+        env:
+          CRAPPER_REQUIRE_TOOLCHAINS: '1'
+        run: cargo test -p uml-viewer --test integration crap_runner_smoke --locked -- --test-threads=1
+      - name: Go, Java and Clojure mutation cases execute, never skip
+        env:
+          MUTATOR_REQUIRE_TOOLCHAINS: '1'
+        run: cargo test -p mutator --test go_java_clojure --locked -- --test-threads=1
       - name: scripts/check.py (source rules + cargo test --workspace --locked)
         run: python -I scripts/check.py

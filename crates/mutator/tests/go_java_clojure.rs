@@ -1,9 +1,16 @@
 //! Go, Java and Clojure mutation runs against the pinned original's bytes.
 //!
-//! Linux/WSL is the acceptance platform. Java needs a JDK and Maven on PATH
-//! with the fixture's dependencies already in the local repository; Clojure
-//! needs a working `clj`; Go needs `go`. A missing toolchain is a loud SKIP
-//! (and a failure when `MUTATOR_REQUIRE_TOOLCHAINS=1`), never a silent pass.
+//! Java needs a JDK and Maven on PATH with the fixture's dependencies already
+//! in the local repository; Clojure needs a working `clj`; Go needs `go`. A
+//! missing toolchain is a loud SKIP (and a failure when
+//! `MUTATOR_REQUIRE_TOOLCHAINS=1`), never a silent pass.
+//!
+//! On native Windows (the delivery host, ADR 0002) `mvn` and `clj` are `.cmd`
+//! launchers -- the Clojure CLI's official Windows distribution is the
+//! ClojureTools PowerShell module -- and only `cmd.exe` can start one. The
+//! probe below goes through `cmd.exe` there, the way `quality_core::process`
+//! starts the same launchers for the real runs, so it accepts exactly what the
+//! mutation run accepts. scripts/setup-windows-maven-clojure.ps1 installs both.
 #![cfg(any(target_os = "linux", windows))]
 #![allow(clippy::disallowed_methods)]
 use std::{
@@ -39,10 +46,26 @@ fn skip(reason: &str) {
     ));
 }
 
-/// A command that ran successfully.
+/// A command that ran successfully, started the way the mutation run starts
+/// it: on Windows a `.cmd` launcher (`mvn.cmd`, `clj.cmd`) needs `cmd.exe`, so
+/// the probe goes through `cmd.exe` there instead of assuming an `.exe`;
+/// everywhere else it stays a plain argv launch.
 fn works(program: &str, args: &[&str]) -> bool {
-    std::process::Command::new(program)
-        .args(args)
+    let mut command = if cfg!(windows) {
+        let mut command = std::process::Command::new(
+            std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd.exe".into()),
+        );
+        command
+            .arg("/d")
+            .arg("/c")
+            .arg(format!("{program} {}", args.join(" ")));
+        command
+    } else {
+        let mut command = std::process::Command::new(program);
+        command.args(args);
+        command
+    };
+    command
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
@@ -245,13 +268,11 @@ fn go_snapshots_are_the_pinned_originals_bytes() {
     golden_run("go");
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn java_snapshots_are_the_pinned_originals_bytes() {
     golden_run("java");
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn clojure_snapshots_are_the_pinned_originals_bytes() {
     golden_run("clojure");
@@ -286,13 +307,11 @@ fn go_workers_publish_the_same_bytes_as_one_worker() {
     parallel_run("go");
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn java_workers_publish_the_same_bytes_as_one_worker() {
     parallel_run("java");
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn clojure_workers_publish_the_same_bytes_as_one_worker() {
     parallel_run("clojure");
