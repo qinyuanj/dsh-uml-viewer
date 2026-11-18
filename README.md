@@ -133,8 +133,11 @@ click. One Rust binary runs the panel's resident session, IR generation, the
 four scanners and the three quality tools; the standalone egui window was
 deleted in dsh-uml-viewer#30, so the panel is the only viewer. The JVM/Clojure implementation was removed in the JVM cutover
 and the Lua/LOVE implementation in the #144 cutover (ADR 0008). The supported platforms are **WSL2 + Ubuntu 24.04 + WSLg**,
-**macOS** and **native Windows 11 / Windows 10 22H2 (build 19045) or
-later** on x64 (ADR 0010).
+**macOS** and **native Windows** on x64, with no Windows build floor (ADR
+0018 removed it). The three quality tools (`crap`, `mutate`, `dry`) keep the
+pinned originals' Windows 10 22H2 (build 19045) boundary until those upstream
+repositories change it, so on an older build the diagram and panel work but a
+quality refresh is refused naming 19045.
 
 The IR is **topology**: the namespace tree, classes, and edges. **Metrics**
 (CC, coverage, CRAP, killed/survived/uncovered) come from `.metrics/`

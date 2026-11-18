@@ -1,6 +1,6 @@
 # 0010 原生 Windows 恢复为交付平台
 
-**Status**: accepted
+**Status**: accepted；原生 Windows 的构建号下限由 [ADR 0018](0018-remove-windows-build-floor.md) 移除（不再有 build 门槛），其余条款不变
 
 本 ADR 取代 [ADR 0007](0007-posix-platforms-drop-windows-native.md) 中"不支持 Windows
 原生运行"的决定；ADR 0007 的 adapter 边界、POSIX 进程契约与 WSL/macOS 条款继续有效。
