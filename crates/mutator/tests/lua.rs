@@ -352,6 +352,64 @@ fn lua_shards_merge_into_one_index() {
     assert!(!merged.unsafe_attribution);
 }
 
+/// LuaCov writes its stats in text mode on Windows, so every line of a shard
+/// ends in CRLF. Merging strips that terminator at read time: the hit counts
+/// per source file still add up, and the merged stats are the LF shards'
+/// bytes exactly. Without the terminator strip the trailing `\r` reaches the
+/// last count token and the whole merge fails as `invalid hit count`.
+#[test]
+fn crlf_lua_shard_stats_merge_to_the_lf_bytes() {
+    struct Scratch(PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let scratch =
+        Scratch(std::env::temp_dir().join(format!("lua-crlf-merge-{}", std::process::id())));
+    let _ = std::fs::remove_dir_all(&scratch.0);
+    // Three shards of a two-file module: src/calc.lua appears in two of them,
+    // so its counts are a sum and not a copy of one shard's line.
+    let shards = [
+        (
+            "shard-1",
+            "4:src/calc.lua\n1 0 2 0 \n2:src/math.lua\n0 3 \n",
+        ),
+        ("shard-2", "4:src/calc.lua\n0 1 0 5 \n"),
+        ("shard-3", "2:src/math.lua\n1 0 \n"),
+    ];
+    // The two-line-per-file LuaCov format, with the counts summed across the
+    // shards: 1+0, 0+1, 2+0, 0+5 for calc.lua and 0+1, 3+0 for math.lua.
+    let expected = "4:src/calc.lua\n1 1 2 5 \n2:src/math.lua\n1 3 \n";
+    let shards_of = |newline: &str| -> (Vec<PathBuf>, PathBuf) {
+        let directory = scratch.0.join(if newline == "\n" { "lf" } else { "crlf" });
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut parts = Vec::new();
+        for (name, text) in shards {
+            let path = directory.join(format!("luacov.{name}.stats.out"));
+            std::fs::write(&path, text.replace('\n', newline)).unwrap();
+            parts.push(path);
+        }
+        let target = directory.join("luacov.stats.out");
+        (parts, target)
+    };
+    let (lf_parts, lf_target) = shards_of("\n");
+    let (crlf_parts, crlf_target) = shards_of("\r\n");
+    // One logical input, two line endings: the merge is the same operation.
+    for (parts, target) in [(&lf_parts, &lf_target), (&crlf_parts, &crlf_target)] {
+        quality_core::runners::lua::merge_stats(parts, target).expect("the shards merge");
+    }
+    let lf = std::fs::read(&lf_target).unwrap();
+    let crlf = std::fs::read(&crlf_target).unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&crlf),
+        expected,
+        "the CRLF shards merge with summed counts"
+    );
+    assert_eq!(crlf, lf, "the line ending does not change the merged bytes");
+    assert!(!crlf.contains(&b'\r'), "the merged stats are LF-only");
+}
+
 /// Ported from the original's `test_lua_scheduling.py`: a Lua selection puts
 /// the sites that survived the previous run first, keeps each group in
 /// discovery order, and changes nothing else about the selection.
