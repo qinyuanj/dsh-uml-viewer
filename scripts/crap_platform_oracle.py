@@ -23,7 +23,7 @@ from pathlib import Path, PurePosixPath
 
 REPO = Path(__file__).resolve().parents[1]
 FIXTURES = REPO / "fixtures" / "crap" / "platform"
-PIN = "91cd10c311b02366ed35874ed3d9a9bebcbe1217"
+PIN = "39829657e5de636cc09b6619601313d4e1e3c515"
 WARNINGS = [
     ("linux", "/mnt/c/proj"),
     ("linux", "/mnt/d/dev/project"),
