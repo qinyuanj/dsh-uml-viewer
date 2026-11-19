@@ -52,7 +52,7 @@ it('saves the resident-loaded fingerprint, so a file replaced after the load is 
     // A fake resident emits the protocol response to save; validate and persist
     // exactly what crosses that boundary, including its loaded fingerprint.
     const event = parseResidentLine(JSON.stringify({ version: 1, seq: 9, event: 'state', state: residentState }))
-    if (event.event !== 'state') throw new Error('expected state response')
+    if (event?.event !== 'state') throw new Error('expected state response')
     await new SessionStates(home).write('session-b', event.state)
     expect(await new SessionStates(home).read('session-b')).toEqual({ ...residentState, diagram: null })
   } finally {

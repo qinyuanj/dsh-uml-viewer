@@ -58,6 +58,11 @@ export interface IrRecord {
   validResult: boolean
   exitCode: number | null
   reason: string | null
+  /**
+   * The panel request id this IR presented, or null when it named none (#84):
+   * the display that follows answers that request, not the queue head.
+   */
+  requestId: string | null
 }
 
 /**
@@ -67,12 +72,23 @@ export interface IrRecord {
  * This is a host-process record of this plugin's own tool calls, so it is
  * conservative after a restart or a session fork: the first `uml_display`
  * there is refused until `uml_ir` runs again. It never reports a stale success.
+ * The record also carries the panel request the IR named, so a display that
+ * follows completes exactly that request (#84).
  */
 export class IrGate {
   private readonly sessions = new Map<string, IrRecord>()
 
   record(sessionId: string, record: IrRecord): void {
     this.sessions.set(sessionId, record)
+  }
+
+  /**
+   * The panel request the latest `uml_ir` named in this session (#84).
+   * @param sessionId the session.
+   * @returns its id, or null when that IR named none (or none ran).
+   */
+  answered(sessionId: string): string | null {
+    return this.sessions.get(sessionId)?.requestId ?? null
   }
 
   check(sessionId: string): { ok: true; record: IrRecord } | { ok: false; reason: string } {

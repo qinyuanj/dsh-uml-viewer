@@ -90,6 +90,26 @@ function connection(maxLineBytes?: number, queueMax?: QueueSize) {
 const errorLine = (message: string) => `${JSON.stringify({ version: 1, seq: null, event: 'error', message })}\n`
 const bytes = (text: string) => Buffer.byteLength(text, 'utf8')
 
+// #84: adding an event keeps resident protocol version 1, so a line naming an
+// event this host does not know is ignored; it must not end every panel
+// stream, as a malformed line does.
+it('keeps the stream alive when the resident adds an event this host does not know', async () => {
+  const h = connection()
+  const queue = h.resident.attach()
+  h.resident.ingest(`${JSON.stringify({ version: 1, seq: null, event: 'paint', stroke: 'blue' })}\n`)
+  h.resident.ingest(frameLine(4))
+  expect((await queue.next(AbortSignal.timeout(100))).value).toMatchObject({ event: 'frame', seq: 4 })
+  expect(h.terminations()).toBe(0)
+  expect(h.resident.isSettled).toBe(false)
+  // A later malformed line still ends the stream: ignoring is for unknown
+  // names only, never for a broken event of a known name.
+  h.resident.ingest('{"version":1,"seq":null,"event":"frame"}\n')
+  const failed = await queue.next()
+  expect(failed.value).toMatchObject({ event: 'error', seq: null })
+  expect((failed.value as { message: string }).message).toMatch(/frame/)
+  expect((await queue.next()).done).toBe(true)
+})
+
 it('caps resident JSONL records at the shared contracts transport limit by default', () => {
   expect(RESIDENT_LINE_MAX_BYTES).toBe(16 * 1024 * 1024)
   expect(connection().resident.maxLineBytes).toBe(RESIDENT_LINE_MAX_BYTES)

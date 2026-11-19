@@ -323,15 +323,20 @@ impl Session {
     pub fn apply_command(&mut self, command: &Value) {
         let boundary = display::DisplayBoundary::new(&self.project_root);
         let next = document::apply_mail(&self.state, command, &boundary);
-        if let Some(digest) = boundary.loaded_digest() {
-            self.loaded_digest = Some(digest);
+        let loaded = boundary.loaded_digest();
+        if let Some(digest) = &loaded {
+            self.loaded_digest = Some(digest.clone());
         }
         let path_changed = next.path != self.state.path;
         self.state = next;
         if let Some(path) = self.state.path.clone() {
             self.diagram = PathBuf::from(path);
         }
-        if path_changed {
+        // #84: the status describes the diagram file this session names, so a
+        // command that loaded it clears a stale `missing-file` — including a
+        // display of the very path that was missing. Only a command that failed
+        // to load keeps it.
+        if path_changed || loaded.is_some() {
             self.canvas_status = None;
         }
     }

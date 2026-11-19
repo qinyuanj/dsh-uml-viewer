@@ -252,6 +252,20 @@ it('attributes a granted uml_ir to the request its id names, exactly, not to the
     omit!, { ...proposal!, state: 'failed', reason: expect.stringMatching(/already used/), exitCode: null }])
 })
 
+it('completes the request its granted IR answered, not the head, on a successful display', async () => {
+  const s = await setup()
+  const panel = await s.open('session-a')
+  // Two requests wait; the companion answers the second one first, as its id says.
+  await s.act('session-a', { action: 'omit', id: ':api' })
+  await s.act('session-a', { action: 'omit', id: ':core' })
+  const [first, second] = await panel.status(list => list.length === 2)
+  expect(await s.tool('uml_ir', { request: second!.id })).toMatchObject({ status: 'ok', validResult: true })
+  // The display shows the diagram that IR wrote, so it answers that request:
+  // its target is the second element, and the head is still queued (#84).
+  expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: { id: ':core', kind: 'component' } })
+  expect(await panel.status(list => list[1]?.state === 'done')).toEqual([first, { ...second!, state: 'done' }])
+})
+
 it('fails the head when the companion’s turn ends without completing the display', async () => {
   const s = await setup()
   const panel = await s.open('session-a')

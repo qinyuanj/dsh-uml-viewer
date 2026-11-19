@@ -260,6 +260,37 @@ fn the_declutter_action_sets_the_mode_the_panel_names() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// #84: an unknown declutter mode is an error event, not a silently dropped
+/// argument: the caller has to know the mode it named took no effect.
+#[test]
+fn an_unknown_declutter_mode_answers_an_error() {
+    let dir = project("declutter refuses");
+    let mut resident = opened(&dir);
+    let error = resident.ask(
+        2,
+        json!({"action": "declutter", "mode": "sideways"}),
+        "error",
+    );
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("sideways"), "{error}");
+    assert!(
+        message.contains("triangles"),
+        "the error names the modes it knows: {error}"
+    );
+    // The refusal changes nothing, and the stream keeps answering.
+    let saved = resident.ask(3, json!({"action": "save"}), "state");
+    assert_eq!(json!(null), saved["state"]["declutter"]);
+    resident.ask(
+        4,
+        json!({"action": "declutter", "mode": "triangles"}),
+        "frame",
+    );
+    let set = resident.ask(5, json!({"action": "save"}), "state");
+    assert_eq!(json!(":triangles"), set["state"]["declutter"]);
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[test]
 fn select_highlights_the_dependency_chain_and_dims_the_rest() {
     let dir = project("select");
@@ -473,6 +504,33 @@ fn the_state_event_reports_the_canvas_status_code() {
         "{status}"
     );
     assert_eq!(json!([]), missing["breadcrumbs"]);
+    resident.finish();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// #84: a missing diagram's status clears once that same path displays
+/// successfully; it used to clear only when the displayed path changed.
+#[test]
+fn a_missing_diagram_status_clears_when_the_same_path_displays() {
+    let dir = project("status clears");
+    let mut resident = Resident::start(&dir);
+    resident.expect("ready");
+    resident.ask(1, json!({"action": "open", "diagram": "late.edn"}), "frame");
+    let missing = resident.ask(2, json!({"action": "save"}), "state");
+    assert_eq!(
+        json!("missing-file"),
+        missing["status"]["code"],
+        "{missing}"
+    );
+    // The file appears and the same path is displayed: the status clears.
+    std::fs::copy(dir.join("diagram.edn"), dir.join("late.edn")).unwrap();
+    resident.ask(3, json!({"action": "display", "path": "late.edn"}), "frame");
+    let shown = resident.ask(4, json!({"action": "save"}), "state");
+    assert_eq!(
+        json!(null),
+        shown["status"],
+        "a diagram that displays is no longer missing"
+    );
     resident.finish();
     let _ = std::fs::remove_dir_all(dir);
 }

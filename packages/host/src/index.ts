@@ -139,6 +139,10 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
   async function generate(args: unknown, exec: ToolRunContext): Promise<ReturnType<typeof irResult>> {
     const sessionId = exec.agent?.session.id
     const root = exec.agent ? services.workingDirectory.get(exec.agent.session) : ''
+    // #84: the panel request this IR presents, when it presents one. The record
+    // below carries it, so the display that follows completes that request
+    // exactly instead of falling back to the head of the queue.
+    const presented = presentedRequest(args) ?? null
     let result: ReturnType<typeof irResult>
     try {
       const request = parseIrRequest(args)
@@ -163,7 +167,8 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
     // Every completed invocation replaces the previous grant. In particular,
     // a parse failure or refusal must not leave an earlier success displayable.
     if (sessionId !== undefined) {
-      gate.record(sessionId, { validResult: result.validResult, exitCode: result.exitCode, reason: result.reason })
+      gate.record(sessionId, { validResult: result.validResult, exitCode: result.exitCode, reason: result.reason,
+        requestId: presented })
     }
     return result
   }
@@ -236,17 +241,21 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
     output: { schema: DISPLAY_RESULT_SCHEMA, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
     async execute(args, exec) {
       const sessionId = exec.agent?.session.id
-      // #52: a display also starts the head request, should it be the first call.
-      if (sessionId !== undefined) requests.statuses.begin(sessionId)
+      // #84: the request this display answers is the one the latest uml_ir
+      // named, because that IR wrote the diagram the display shows; the head of
+      // the queue only when that IR named no request.
+      const answered = sessionId === undefined ? null : gate.answered(sessionId)
+      // #52: a display also starts that request, should it be the first call.
+      if (sessionId !== undefined) requests.statuses.begin(sessionId, answered ?? undefined)
       try {
         const result = await runDisplay(services, sessions, gate, exec, parseDisplayRequest(args))
-        // #52: a successful display completes the head of this session's request
-        // queue — the request it answered. #54: its result names that request's
-        // element, once, so 「在面板中查看」 can locate it. A failed display
-        // leaves the request unfinished and keeps its target.
+        // #52: a successful display completes the request it answered. #54: its
+        // result names that request's element, once, so 「在面板中查看」 can
+        // locate it. A failed display leaves the request unfinished and keeps
+        // its target.
         if (result.status !== 'ok' || sessionId === undefined) return result
-        const answered = requests.statuses.end(sessionId, { state: 'done' })
-        return { ...result, target: answered?.target ?? null }
+        const entry = requests.statuses.end(sessionId, { state: 'done' }, answered ?? undefined)
+        return { ...result, target: entry?.target ?? null }
       } catch (error) {
         return displayResult(exec.agent ? services.workingDirectory.get(exec.agent.session) : '', {
           reason: error instanceof Error ? error.message : String(error),
