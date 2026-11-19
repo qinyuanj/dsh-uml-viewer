@@ -4,6 +4,7 @@
 mod class_card;
 mod common;
 mod document;
+mod dry_overlay;
 mod events;
 mod frame_containment;
 mod golden_geometry;

@@ -248,7 +248,9 @@ fn parse_args(args: &[OsString]) -> Result<Options, String> {
 }
 
 /// Load quality snapshots from `<root>/.metrics`, mirroring the adapter's
-/// file discovery (CRAP tree plus every mutation snapshot).
+/// file discovery (CRAP snapshot, duplicate-structure snapshot, and every
+/// mutation snapshot). The two discovery sites must agree, or the terminal
+/// and the panel disagree about the same project.
 pub fn load_snapshots(root: &Path) -> Vec<Snapshot> {
     let mut files = Vec::new();
     let crap = root.join(".metrics/crap.edn");
@@ -257,6 +259,14 @@ pub fn load_snapshots(root: &Path) -> Vec<Snapshot> {
             ".metrics/crap.edn",
             &text,
             mtime(".metrics/crap.edn", &crap),
+        ));
+    }
+    let dry = root.join(".metrics/dry.edn");
+    if let Ok(text) = std::fs::read_to_string(&dry) {
+        files.push(Snapshot::new(
+            ".metrics/dry.edn",
+            &text,
+            mtime(".metrics/dry.edn", &dry),
         ));
     }
     let mutate = root.join(".metrics/mutate");

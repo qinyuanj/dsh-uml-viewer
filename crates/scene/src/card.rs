@@ -32,6 +32,10 @@ pub struct Neighbourhood {
     pub package: Option<Value>,
     /// The diagram `:title`.
     pub title: Option<Value>,
+    /// The document-level duplicate-structure summary (`:candidates`,
+    /// `:attributed`, `:unattributed`, `:clusters`), `None` when no dry
+    /// snapshot was read. The per-class state is on the class record's `:dry`.
+    pub dry: Option<Value>,
 }
 
 fn named<'a>(scene: &'a Value, key: &str, id: &Value) -> Option<&'a Value> {
@@ -73,6 +77,7 @@ pub fn class_card_in(scene: &Value, id: &Value) -> Option<Neighbourhood> {
         relations,
         package: package_of(scene, id),
         title: get(scene, "diagram").and_then(|d| get(d, "title")).cloned(),
+        dry: get(scene, "dry").cloned(),
     })
 }
 
@@ -205,5 +210,6 @@ pub fn class_card(state: &ViewState, id: &Value) -> Option<Neighbourhood> {
     // class is the one on screen.
     let mut card = class_card_in(&merged, id)?;
     card.package = card.package.or_else(|| package_of(&state.scene, id));
+    card.dry = get(&doc, "dry").cloned();
     Some(card)
 }
