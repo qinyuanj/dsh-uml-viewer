@@ -24,15 +24,15 @@ copy's parent directory.
 ### The scratch root needs a writable temporary directory
 
 Creating that root needs a temporary directory this process may write to.
-`TMPDIR`, when it is set to a non-empty path, names that directory on every
-platform — a relative value is resolved against the working directory — so
-Windows, whose system calls otherwise read only `TEMP`/`TMP`, honours it too;
-with `TMPDIR` unset the system temporary directory is used. A confined or
-sandboxed host often grants the process a writable directory that the system
-temporary directory does not name: set `TMPDIR` to that directory, outside the
-project, before running `mutate`. Without that the run fails with `cannot create
-the private directory <path>: …`, naming the directory it could not make;
-`TMPDIR` inside the project is refused before anything is created.
+On Windows that is `TMP`, then `TEMP` — the names and order the MSVC linker
+reads, and it never reads `TMPDIR`, so one setting (`TMP`) places both the
+scratch root and the `lnk{...}.tmp` file of any build the run starts. A
+confined or sandboxed host often grants the process a writable directory that
+the system temporary directory does not name: set `TMP` to that directory,
+outside the project, before running `mutate`. Without that the run fails with
+`cannot create the private directory <path>: …`, naming the directory it could
+not make; a temporary directory inside the project is refused before anything
+is created. On Linux the same rule reads `TMPDIR`, which its linker reads too.
 
 ### The one exception: a Lua coverage collection
 

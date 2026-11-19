@@ -277,25 +277,63 @@ fn owned_by_me(_metadata: &fs::Metadata) -> bool {
 /// junction that hides the temporary directory inside the project is still
 /// caught.
 pub fn temporary(project: &Path) -> io::Result<PathBuf> {
-    // The run needs a writable temporary directory, and a confined process is
-    // often granted one under a name the system temp does not use (#82).
-    // TMPDIR names it first on every platform — Windows otherwise reads only
-    // TEMP/TMP — and docs/mutation-windows.md states the requirement.
-    let given = std::env::var_os("TMPDIR")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
+    let given = environment_temporary();
     let resolved = quality_core::paths::resolve(&given);
     let project = quality_core::paths::resolve(project);
     if resolved.starts_with(&project) {
         return Err(io::Error::other(format!(
-            "the temporary directory {} is inside the project {}; point TMPDIR at a writable directory outside the project",
+            "the temporary directory {} is inside the project {}; point {} at a writable directory outside the project",
             given.display(),
-            project.display()
+            project.display(),
+            TEMPORARY_VARIABLE
         )));
     }
-    // A relative TMPDIR would be joined against the project, so it is resolved.
+    // A relative name would be joined against the project, so it is resolved.
     Ok(if given.is_absolute() { given } else { resolved })
+}
+
+/// The variable a caller sets to choose the temporary directory.
+#[cfg(windows)]
+const TEMPORARY_VARIABLE: &str = "TMP";
+
+#[cfg(not(windows))]
+const TEMPORARY_VARIABLE: &str = "TMPDIR";
+
+/// The directory the platform's own tools read, so one setting covers the
+/// scratch root and the linker a run's build starts.
+///
+/// Windows: `TMP`, then `TEMP` — the order `GetTempPath`, and with it the MSVC
+/// linker, reads them. The linker never looks at `TMPDIR`, so a scratch root
+/// taken from `TMPDIR` while `TMP` stayed at an unwritable directory let the
+/// run's own build fail with `LNK1104: cannot open file ...\lnk{...}.tmp`
+/// (#88). `std::env::temp_dir` is exactly that chain, so naming the scratch
+/// through it makes `TMP` place both the root and the link's temporary files.
+///
+/// Unix: `TMPDIR`, then the system temporary directory. The C toolchain reads
+/// `TMPDIR` too, so there one name again covers both.
+fn environment_temporary() -> PathBuf {
+    #[cfg(windows)]
+    {
+        std::env::temp_dir()
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var_os("TMPDIR")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir)
+    }
+}
+
+/// A temporary directory a test fixture may build its tree in (#88).
+///
+/// A fixture is not a run: it keeps its own name and its own cleanup, but it
+/// must start where `temporary` accepts, or a host whose system temporary
+/// directory is unwritable fails the fixture with a bare access error.
+#[cfg(test)]
+pub fn fixture() -> PathBuf {
+    temporary(Path::new(env!("CARGO_MANIFEST_DIR")))
+        .expect("a writable temporary directory for a fixture")
 }
 
 /// An unpredictable suffix: a per-process random seed plus the clock.
@@ -402,7 +440,8 @@ pub fn force_remove(path: &Path) -> io::Result<()> {
 mod tests {
     //! The two failures this module must not hide: a temporary directory that
     //! is a junction, and a scratch directory that cannot be created. Each
-    //! check runs in a child test process, so `TMPDIR` belongs to it alone.
+    //! check runs in a child test process, so the temporary directory belongs to
+    //! it alone.
 
     // Test code is the outside harness: these checks launch `cmd /C mklink` and
     // the test executable itself. The module lives under `#[cfg(test)]`, so the
@@ -468,7 +507,11 @@ mod tests {
             .args(["--exact", &format!("scratch::tests::{test}"), "--nocapture"])
             .env(CHILD, test)
             .env(BASE, base)
+            // Every name the platform's tools read, so the check is about the
+            // junction, not about which spelling this host honoured.
             .env("TMPDIR", tmpdir)
+            .env("TMP", tmpdir)
+            .env("TEMP", tmpdir)
             .stdout(Stdio::from(log.try_clone().expect("clone the child log")))
             .stderr(Stdio::from(log))
             .status()
@@ -493,11 +536,9 @@ mod tests {
     }
 
     #[test]
-    fn temporary_returns_the_tmpdir_junction_it_was_given() {
+    fn temporary_returns_the_junction_it_was_given() {
         if env::var_os(CHILD).as_deref()
-            == Some(OsStr::new(
-                "temporary_returns_the_tmpdir_junction_it_was_given",
-            ))
+            == Some(OsStr::new("temporary_returns_the_junction_it_was_given"))
         {
             let base = child_base();
             let link = base.join("link");
@@ -518,11 +559,7 @@ mod tests {
         fs::create_dir_all(&project).unwrap();
         directory_link(&link, &target);
 
-        run_isolated(
-            "temporary_returns_the_tmpdir_junction_it_was_given",
-            &link,
-            &base,
-        );
+        run_isolated("temporary_returns_the_junction_it_was_given", &link, &base);
 
         let _ = fs::remove_dir(&link);
         let _ = fs::remove_dir_all(&base);

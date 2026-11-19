@@ -23,7 +23,7 @@ mod tests {
 
     #[test]
     fn java_plans_run_maven_at_the_nearest_pom_or_the_root() {
-        let root = resolve(&std::env::temp_dir())
+        let root = resolve(&crate::scratch::fixture())
             .join(format!("mutator-java-plan-{}", std::process::id()));
         fs::create_dir_all(root.join("module/src")).unwrap();
         let source = root.join("module/src/A.java");
