@@ -261,8 +261,10 @@ it('completes the request its granted IR answered, not the head, on a successful
   const [first, second] = await panel.status(list => list.length === 2)
   expect(await s.tool('uml_ir', { request: second!.id })).toMatchObject({ status: 'ok', validResult: true })
   // The display shows the diagram that IR wrote, so it answers that request:
-  // its target is the second element, and the head is still queued (#84).
-  expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: { id: ':core', kind: 'component' } })
+  // its target is the second element, and the head is still queued (#84). The
+  // kind is the shown frame's own — `:core` is a class there (`TARGETS` above
+  // only answers `quality-target`, so it says nothing about an omitted element).
+  expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: { id: ':core', kind: 'class' } })
   expect(await panel.status(list => list[1]?.state === 'done')).toEqual([first, { ...second!, state: 'done' }])
 })
 
