@@ -404,8 +404,10 @@ startup workspace，隔离 session 因此多出一个空 shell workspace。所�
 
 ## 8. 原生验收边界（历史）
 
-本节是 Windows 原生与 JVM 时代 macOS 的历史验收记录，不代表当前支持。当前
-交付平台为 WSL2 + WSLg 与 macOS（ADR 0007 及其增补），两者的 companion 都是交付路径；下文
+本节是 Windows 原生与 JVM 时代 macOS 的历史验收记录，不代表当前支持。当时的
+交付平台是 WSL2 + WSLg 与 macOS（ADR 0007 及其增补），两者的 companion 曾是交付路径；现在
+交付宿主只有原生 Windows x64（qinyuanj/home-uml-viewer ADR 0002 与 #5，本仓 ADR 0010 的
+Status note），WSL2/WSLg 与 macOS 的 companion 都不再是交付路径。下文
 "Linux/WSL companion 不受支持"一句只描述当时的状态。
 
 Windows #21 已部分验收收尾；未验证的七项转由 [#30](https://github.com/qinyuanj/uml-viewer/issues/30) 跟踪：命名 proposal

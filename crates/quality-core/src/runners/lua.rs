@@ -1,8 +1,8 @@
 //! Lua 5.4 + Busted/LuaCov coverage. cluacov 1.0.0 is required: its C line
 //! hook determines which source lines are executable, hence the pinned contract.
 use super::typescript::anchor;
-use crate::coverage::{Records, read_fresh_lcov};
-use crate::paths::{relative_posix, resolve};
+use crate::coverage::{Lines, Records, read_fresh_lcov};
+use crate::paths::{normcase, relative_posix, resolve};
 use crate::process::{Program, output, which};
 use crate::runner::{CoverageError, coverage_report, run_shell};
 use std::collections::{BTreeMap, BTreeSet};
@@ -317,6 +317,65 @@ fn merge_stats_in(
     fs::write(target, bytes).map_err(|e| failure(format!("{e}")))
 }
 
+/// Zero-hit records for selected sources the fresh LuaCov report did not carry
+/// (crapper ADR 0006). LuaCov drops an `includeuntestedfiles` entry it cannot
+/// open, and Lua's `io.open` reads a non-ASCII name in the host ANSI codepage,
+/// so such a source can vanish from the report on Windows. The source was still
+/// selected and nothing executed it, so every physical line is recorded as zero
+/// hits and one form; a source the report does carry keeps its measured lines.
+fn zero_hit_records(selected: &[PathBuf], reported: &Records) -> Result<Records, CoverageError> {
+    let known: BTreeSet<String> = reported
+        .iter()
+        .map(|(name, _)| normcase(Path::new(name)))
+        .collect();
+    let mut records = Records::default();
+    for path in selected {
+        let resolved = resolve(path);
+        if known.contains(&normcase(&resolved)) {
+            continue;
+        }
+        let bytes = fs::read(&resolved).map_err(|e| {
+            error(format!(
+                "Cannot read selected Lua source {}: {e}",
+                resolved.display()
+            ))
+        })?;
+        let lines: Lines = (1..=physical_lines(&bytes))
+            .map(|line| (line, (0, 1)))
+            .collect();
+        records.insert(resolved.to_string_lossy().into_owned(), lines);
+    }
+    Ok(records)
+}
+
+/// `bytes.splitlines()`: physical lines, blank ones and `end` included, with
+/// `\r\n` counted once and a final unterminated segment only when non-empty.
+fn physical_lines(bytes: &[u8]) -> u64 {
+    let mut lines = 0;
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        index += 1;
+        if line_break(byte) {
+            if byte == b'\r' && bytes.get(index) == Some(&b'\n') {
+                index += 1;
+            }
+            lines += 1;
+        }
+    }
+    if bytes.last().is_some_and(|byte| !line_break(*byte)) {
+        lines += 1;
+    }
+    lines
+}
+
+fn line_break(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'\n' | b'\r' | 0x0b | 0x0c | 0x1c | 0x1d | 0x1e | 0x85
+    )
+}
+
 fn prepare(
     root: &Path,
     files: &[PathBuf],
@@ -511,6 +570,7 @@ fn prepare(
                 report.display()
             ))
         })?);
+        records.update(zero_hit_records(&modules[&module], &records)?);
     }
     Ok(Some(records))
 }
@@ -529,4 +589,30 @@ pub fn cover(
                 .unwrap_or(1)
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::physical_lines;
+
+    /// The oracle counts len(path.read_bytes().splitlines()), so these are
+    /// Python's bytes.splitlines boundaries: CR, LF, CRLF once, VT, FF,
+    /// 0x1c-0x1e and 0x85 -- but not the UTF-8 bytes of U+2028.
+    #[test]
+    fn physical_lines_counts_pythons_bytes_splitlines() {
+        assert_eq!(physical_lines(b""), 0);
+        assert_eq!(physical_lines(b"a"), 1);
+        assert_eq!(physical_lines(b"a\n"), 1);
+        assert_eq!(physical_lines(b"\n"), 1);
+        assert_eq!(physical_lines(b"a\n\n"), 2);
+        assert_eq!(physical_lines(b"a\r\nb"), 2);
+        assert_eq!(physical_lines("a\u{0b}b".as_bytes()), 2);
+        assert_eq!(physical_lines("a\u{0c}b".as_bytes()), 2);
+        assert_eq!(physical_lines("a\u{1c}b".as_bytes()), 2);
+        assert_eq!(physical_lines("a\u{1d}b".as_bytes()), 2);
+        assert_eq!(physical_lines("a\u{1e}b".as_bytes()), 2);
+        assert_eq!(physical_lines("a\u{85}b".as_bytes()), 2);
+        // U+2028 is not a bytes.splitlines break: its UTF-8 bytes stay one line.
+        assert_eq!(physical_lines("a\u{2028}b".as_bytes()), 1);
+    }
 }

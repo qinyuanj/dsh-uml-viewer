@@ -43,12 +43,32 @@ export interface BinaryPlatform {
   root?: string
 }
 
+/** The one host this plugin ships a platform package for: native Windows x64. */
+export const SUPPORTED_TARGET = 'win32-x64'
+
+/**
+ * Why a host outside SUPPORTED_TARGET cannot activate.
+ *
+ * The refusal is delivered behaviour for every macOS and Linux profile, and for
+ * every architecture of them — Linux arm64 is refused for the same reason as
+ * Linux x64, and neither is a delivery host — so it states the reason rather
+ * than leaving a bare rejection: the plugin ships one platform package, macOS
+ * has no mutant isolation path to honour the quality loop, and Linux is not a
+ * delivery host (the environment repository's ADR 0002 records both departures
+ * and their cost).
+ */
+export function unsupportedPlatform(platform: string, arch: string): string {
+  return `Unsupported uml-viewer platform: ${platform}/${arch}; only native Windows x64 `
+    + `(${SUPPORTED_TARGET}) is supported. dsh-uml-viewer ships one platform package: `
+    + 'macOS has no mutant isolation path, and Linux (x64 or arm64) is not a delivery host.'
+}
+
 /** Resolve once at activation. Callers retain this argv for the plugin lifetime. */
 export function activationBinary(config: Config, home: string | undefined, platform: BinaryPlatform = process): ActivatedBinary {
   const target = `${platform.platform}-${platform.arch}`
-  if (!['win32-x64', 'linux-x64', 'darwin-arm64', 'darwin-x64'].includes(target)) {
-    throw new Error(`Unsupported uml-viewer platform: ${platform.platform}/${platform.arch}; supported: win32/x64, linux/x64, darwin/arm64, darwin/x64`)
-  }
+  // Refuse before the UML_VIEWER_BIN / config.binary override below: a
+  // non-Windows host has no supported path through this plugin at all.
+  if (target !== SUPPORTED_TARGET) throw new Error(unsupportedPlatform(platform.platform, platform.arch))
   const root = platform.root ?? packageRoot()
   // Trusted overrides and checkout builds are not versioned copies: nothing to lease.
   if (config.binary !== undefined || process.env.UML_VIEWER_BIN !== undefined) return unpinned(binaryArgv(config, root), root)
@@ -63,7 +83,8 @@ export function activationBinary(config: Config, home: string | undefined, platf
     throw new Error('Packaged dsh-uml-viewer has an invalid version')
   }
   let source: string
-  const name = platform.platform === 'win32' ? 'uml-viewer.exe' : 'uml-viewer'
+  // Only win32-x64 reaches this point, so the payload is always the .exe.
+  const name = 'uml-viewer.exe'
   try {
     // An explicitly installed platform package is a sibling of the main one.
     // Prefer it over the main package's nested semver optional dependency:

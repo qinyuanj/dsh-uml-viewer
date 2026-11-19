@@ -996,13 +996,23 @@ fn clojure_coverage(root: &Path, coverage: &mut Coverage) -> Result<(), i32> {
         1
     })?;
     let script: String = if cfg!(windows) {
-        "clj -M:cov --lcov || (echo clj -M:cov --lcov failed; retrying without --lcov. 1>&2 & clj -M:cov)".into()
+        // One `&` chain, like the Python, TypeScript and Java runners: cmd
+        // runs only the first line of a multi-line `/c` string. A `||` block stays
+        // whole, and the trailing `exit /b 0` is the Linux script's message plus its
+        // zero: a toolchain that fails leaves Clojure uncovered and says so,
+        // instead of failing the run.
+        "clj -M:cov --lcov || (echo clj -M:cov --lcov failed; retrying without --lcov. 1>&2 & clj -M:cov) || (echo Clojure coverage exited non-zero. Clojure coverage will be N/A. 1>&2) & exit /b 0".into()
     } else {
         "clj -M:cov --lcov\ncode=$?\nif [ $code -ne 0 ]; then echo 'clj -M:cov --lcov failed; retrying without --lcov.' >&2; clj -M:cov; code=$?; fi\nif [ $code -ne 0 ]; then echo \"Clojure coverage exited $code. Clojure coverage will be N/A.\" >&2; fi\nexit 0".into()
     };
     let cleanup = if cfg!(windows) {
-        // Keep the other languages' report directories and the stamp.
-        "for /d %D in (target\\coverage\\*) do @if not \"%~nxD\"==\"go\" if not \"%~nxD\"==\"java\" if not \"%~nxD\"==\"rust\" if not \"%~nxD\"==\"python\" if not \"%~nxD\"==\"typescript\" if not \"%~nxD\"==\"lua\" rmdir /s /q \"%D\"\nfor %F in (target\\coverage\\*) do @if not \"%~nxF\"==\"crapper-stamp.json\" del /f /q \"%F\" 2>nul\n"
+        // Keep the other languages' report directories and the stamp. Each loop
+        // is parenthesized and the chain is one line: after a bare
+        // `for ... do <command>` cmd reads the rest of the line as part of that
+        // body and repeats it once per iteration, and a newline in the same
+        // `/c` string would drop everything after the first line -- which is how
+        // this command silently measured nothing on Windows.
+        "(for /d %D in (target\\coverage\\*) do @if not \"%~nxD\"==\"go\" if not \"%~nxD\"==\"java\" if not \"%~nxD\"==\"rust\" if not \"%~nxD\"==\"python\" if not \"%~nxD\"==\"typescript\" if not \"%~nxD\"==\"lua\" rmdir /s /q \"%D\") & (for %F in (target\\coverage\\*) do @if not \"%~nxF\"==\"crapper-stamp.json\" del /f /q \"%F\" 2>nul) & "
     } else {
         "for entry in target/coverage/* target/coverage/.[!.]* target/coverage/..?*; do\n  if [ ! -e \"$entry\" ] && [ ! -L \"$entry\" ]; then continue; fi\n  case \"${entry##*/}\" in typescript|rust|go|python|lua|crapper-stamp.json) ;; *) rm -rf -- \"$entry\" || exit 1;; esac\ndone\n"
     };

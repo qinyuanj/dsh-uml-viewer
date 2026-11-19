@@ -6,6 +6,10 @@ archives with SLSA provenance from GitHub Actions. The first attempt failed with
 `ENEEDAUTH` because no package had a trusted publisher yet; after the five were
 configured, the failed `publish` job was rerun and succeeded without a rebuild.
 
+That run predates the one-host decision (ADR 0002, #5, #12). The pipeline
+described below now ships **one** platform package, so a comparable run
+assembles and publishes two archives, not five; the 1.1.0 record is history.
+
 Historical CI7 evidence (2026-11-09): **remote packaging and publish dry-run
 passed**. Each run below passed all four native platform builds, real
 archive-content inventory verification and `npm publish --dry-run`, establishing
@@ -38,35 +42,39 @@ per delivered platform on a native runner, because `scripts/package.mjs` execute
 the supplied binary as `--version` and refuses a mismatch. A foreign target
 binary is never executed.
 
-| Platform package | Runner label | Real architecture |
+| Delivered package | Runner label | Real architecture |
 | --- | --- | --- |
 | `@dsh-uml-viewer/win32-x64` | `windows-latest` | Windows x64 |
-| `@dsh-uml-viewer/linux-x64` | `ubuntu-latest` | Linux x64 |
-| `@dsh-uml-viewer/darwin-arm64` | `macos-latest` | macOS arm64 |
-| `@dsh-uml-viewer/darwin-x64` | `macos-15-intel` | macOS Intel x64 |
 
-The labels follow GitHub's hosted-runner reference: `macos-latest` is arm64, so
-Intel macOS needs an explicit `-intel` label.
+Native Windows x64 is the only delivered host (ADR 0002, #5, #12), so the matrix
+has exactly one entry and the label follows GitHub's hosted-runner reference.
 
-Each `assemble` runner builds the plugin and `target/release/uml-viewer`, packs
+The `assemble` runner builds the plugin and `target/release/uml-viewer`, packs
 the main and current-platform archives with the assembler, verifies the report
 hash against the staged bytes, and uploads its platform archive. Font, license
-and the rest of the main bundle are uploaded once, by `linux-x64` only.
+and the rest of the main bundle are uploaded once, by `win32-x64` only.
 
 The `inventory` job is the single place that validates the staged release
-inventory. `scripts/release.mjs verify` requires all of:
+inventory. It and `publish` read and publish the archives the one
+`windows-latest` `assemble` job produced, and they run on `ubuntu-latest`
+deliberately: they are host-neutral by construction — they open tarballs,
+compare report fields and call `npm publish` — and moving a tag-driven publish
+onto a runner nobody has exercised is the riskier change. They carry no
+delivery claim, and the `windows-latest` label above is the claim.
 
-- exactly four assemble reports, one per delivered platform, no duplicates;
+`scripts/release.mjs verify` requires all of:
+
+- exactly one assemble report, for the one delivered platform, no duplicates;
 - every report at the Cargo workspace version, with `optionalDependencies`
-  pinning exactly the four platform packages at that version;
+  pinning exactly the one platform package at that version;
 - a current-platform archive whose name is
   `dsh-uml-viewer-<platform>-<version>.tgz` and whose bytes match its recorded
   SHA-256;
-- exactly one staged main archive, staged by `linux-x64`;
-- the same main archive file inventory on all four runners, so every host packs
-  the same files; each runner's main archive SHA-256 is recorded in the inventory
-  as evidence, and the published archive is the one whose bytes match its report;
-- exactly five `.tgz` files in total, all with expected names, so a stale or
+- exactly one staged main archive, staged by `win32-x64`;
+- the main archive file inventory that runner reported; its SHA-256 is recorded
+  in the inventory as evidence, and the published archive is the one whose bytes
+  match its report;
+- exactly two `.tgz` files in total, all with expected names, so a stale or
   stray archive fails the run.
 
 Every archive that would be published is then opened and read with a bounded
@@ -113,7 +121,7 @@ Pull requests stop after offline packaging acceptance:
 
 - `pnpm test:package` runs the package contract, the stale-payload identity gate
   and the release guards;
-- `npm pack <tgz> --dry-run --ignore-scripts` reads each of the five staged
+- `npm pack <tgz> --dry-run --ignore-scripts` reads each of the two staged
   archives in plan order and checks its package contents without contacting the
   registry. The repository root stays `private` and is never a pack target;
 - a pack or inventory failure is a real package/CI failure and stops the job. An
@@ -127,9 +135,9 @@ On a `v*` tag push the `publish` job runs in the `release` environment with
 `contents: read` and `id-token: write` and nothing else, checks that the tag is
 `v<workspace version>`, and re-verifies the inventory. Before any real publish,
 it runs `npm publish <tgz> --dry-run --access public --ignore-scripts
---provenance=false` on the same five staged archives in plan order. Only after
-all five dry-runs succeed does it publish the four platform archives before the
-main archive with `--provenance`. The order matters: the main package's optional
+--provenance=false` on the same two staged archives in plan order. Only after
+both dry-runs succeed does it publish the platform archive before the main
+archive with `--provenance`. The order matters: the main package's optional
 dependencies must already exist when it becomes installable. Any dry-run or real
 publish error stops the job; errors are not ignored, retried or forced. The tag
 dry-run is a registry preflight, not proof that trusted publishing, provenance
@@ -151,8 +159,9 @@ None of this is in the repository and none of it ran here.
    reviewers, and limit its deployment branches and tags to `v*`. The `publish`
    job waits for that approval. Add a tag protection rule for `v*` so only
    maintainers can create release tags.
-2. Package trust, after the package exists on the registry: for each of the five
-   packages (`dsh-uml-viewer` and the four `@dsh-uml-viewer/*`), open npmjs.com
+2. Package trust, after the package exists on the registry: for each package
+   (`dsh-uml-viewer` and the `@dsh-uml-viewer/*` ones the release shipped; five
+   at 1.1.0, two now), open npmjs.com
    package settings and add a GitHub Actions trusted publisher. **Done for all
    five on 2026-11-16**, with `npm trust github <pkg> --file package-release.yml
    --repo qinyuanj/dsh-uml-viewer --env release --allow-publish`. The settings are
@@ -227,8 +236,8 @@ binary, real font or plugin bundle.
   tag; do not edit the version to match a stray tag.
 - **Fewer or more artifacts, a missing platform, a duplicated main archive, or an
   archive named for another version.** `verify` fails the `inventory` job and no
-  publish runs. Re-run the failed `assemble` leg, not the whole matrix with a
-  mutated artifact directory.
+  publish runs. Re-run the failed `assemble` job, never a mutated artifact
+  directory.
 - **Main archive inventories differ between runners.** One host packed a
   different file set; the release is blocked. Compare the assembler report
   inventories and the `lib/`, `fonts/` and `locale/` contents before publishing

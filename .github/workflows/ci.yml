@@ -1,9 +1,11 @@
-# The guardrails on every push and pull request: formatting, clippy with
-# warnings denied, and scripts/check.py (the static source rules, cargo build
-# --release and cargo test --workspace). The old public entry and its Python
-# suites were deleted with the companion (#18), so nothing here is skipped by
-# platform. Linux and native Windows also accept the maintainer's binary
-# quality crap -> differential mutate -> ir refresh; panel Playwright is panel-e2e.
+# The guardrails on every push and pull request, on the one supported host
+# (native Windows x64; ADR 0002): formatting, clippy with warnings denied,
+# scripts/check.py (the static source rules, cargo build --release and cargo
+# test --workspace) and the real Python/TypeScript/Lua/Go/Java/Clojure
+# coverage tests.
+# windows-mutate also accepts the maintainer's binary quality
+# crap -> differential mutate -> ir refresh, and no other host does; panel
+# Playwright is panel-e2e.
 name: ci
 
 on:
@@ -22,10 +24,7 @@ env:
 
 jobs:
   typescript:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -185,6 +184,19 @@ jobs:
       # steps; MUTATOR_REQUIRE_TOOLCHAINS above makes it missing a failure.
       - name: Lua 5.4 fixture toolchain
         run: ./scripts/setup-windows-lua.ps1
+      # Go, Java and Clojure: go_java_clojure's cases are part of `cargo test -p
+      # mutator` below, and MUTATOR_REQUIRE_TOOLCHAINS above turns a missing one
+      # into a failure rather than the skip it used to be (#15).
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.3'
+          cache: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Maven and Clojure fixture toolchain
+        run: ./scripts/setup-windows-maven-clojure.ps1
       - name: Mutation native Windows tests
         run: cargo test -p mutator --locked
       - name: Mutation integration tests
@@ -204,11 +216,22 @@ jobs:
         timeout-minutes: 1
         run: python -I scripts/ci-refresh.py target/debug/uml-viewer.exe ir
 
-  # macOS (#10): mutate refuses with exit 1 before any command; crap and dry
-  # are unaffected. No mutation isolation is claimed on this platform.
-  macos-quality:
-    runs-on: macos-latest
-    timeout-minutes: 30
+  # The gates that used to live only in the deleted `linux` job, on the one
+  # supported host: formatting, clippy with warnings denied, the real
+  # Python/TypeScript/Lua/Go/Java/Clojure coverage integration tests, and
+  # scripts/check.py, plus the Python/TypeScript mutation run the Linux job took
+  # with it (#11). The Linux job pulled those fixture toolchains from apt;
+  # here Python 3.12 comes from the Python setup action, Node 24 from the Node
+  # setup action, Lua 5.4 from the repository's own Windows installer that
+  # windows-mutate already runs, Go 1.25.3 and Temurin JDK 17 from their setup
+  # actions, and Maven plus the Clojure CLI from
+  # scripts/setup-windows-maven-clojure.ps1 (#15). Those last three are what
+  # make crap_runner_smoke's Go/Java/Clojure cases and mutator's
+  # go_java_clojure cases execute; the steps below turn a missing toolchain
+  # into a failure, so a skip cannot pass for green.
+  windows-quality:
+    runs-on: windows-latest
+    timeout-minutes: 90
     env:
       CARGO_TERM_COLOR: always
     steps:
@@ -216,24 +239,6 @@ jobs:
       - name: Rust toolchain pinned by rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      - name: mutate refuses, crap and dry work
-        run: |
-          cargo test -p mutator --locked
-          cargo test -p uml-viewer --test integration mutate --locked
-          cargo test -p uml-viewer --test integration --locked -- crap_goldens dry_
-          cargo test -p dryer -p crapper --locked
-
-  linux:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    env:
-      CARGO_TERM_COLOR: always
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Rust toolchain pinned by rust-toolchain.toml
-        run: rustup toolchain install
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -243,129 +248,76 @@ jobs:
           # Node 24 (fixtures/crap/live/README.md); type stripping needs 22.6+.
           node-version: '24'
       # The measured projects' own test tools, not a Python analysis runtime.
-      - name: Python and TypeScript fixture toolchains
+      - name: Python fixture toolchain
         run: python -m pip install coverage pytest
+      # A Lua suite reports through Busted, LuaCov and cluacov 1.0.0, and the
+      # coverage collector adds the LuaCov LCOV reporter. The pinned installer
+      # proves all of them and exports PATH, LUA_PATH and LUA_CPATH to the
+      # later steps. crap_languages probes both `lua5.4` and `lua` the way the
+      # coverage runner does, so the installer's own `lua.exe` is enough here
+      # and no second name is laid down (#15).
       - name: Lua 5.4 fixture toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends lua5.4 liblua5.4-dev luarocks
-          sudo luarocks --lua-version=5.4 install busted
-          sudo luarocks --lua-version=5.4 install luacov
-          sudo luarocks --lua-version=5.4 install cluacov 1.0.0-1
-          sudo luarocks --lua-version=5.4 install luacov-reporter-lcov
-
-      - uses: Swatinem/rust-cache@v2
-
+        run: ./scripts/setup-windows-lua.ps1
+      # Go, Java and Clojure: the three fixture toolchains the deleted Linux job
+      # took from apt (#15). crap_runner_smoke and mutator's go_java_clojure
+      # cases execute on them instead of skipping, and the two steps further
+      # down make a missing one a failure rather than a skip.
       - uses: actions/setup-go@v5
         with:
+          # The same pin the Linux job used.
           go-version: '1.25.3'
           cache: false
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - name: Clojure CLI
-        run: |
-          # Pinned release: the `latest` tag moves under us, and its installer
-          # verifies the clojure-tools tarball checksum. The release asset is
-          # immutable, so this script hash is stable.
-          curl -fsSL -o linux-install.sh \
-            https://github.com/clojure/brew-install/releases/download/1.12.6.1673/linux-install.sh
-          echo "5ae63b082ed33bf4c29bf1a8317c5c15249d1bc753676b2f5177fb3804ad6f77  linux-install.sh" \
-            | sha256sum -c -
-          sudo bash linux-install.sh
-          # `clj` is a shell wrapper around `rlwrap`; without it every
-          # invocation exits 1 before the JVM starts.
-          sudo apt-get install -y --no-install-recommends rlwrap
-
+      # Clojure's official Windows distribution is the ClojureTools PowerShell
+      # module, not an executable: this script installs Maven and that module,
+      # writes the `clj` launcher and puts both on PATH, so crapper, mutator and
+      # the tests can start `clj` through cmd.exe.
+      - name: Maven and Clojure fixture toolchain
+        run: ./scripts/setup-windows-maven-clojure.ps1
+      # The two fixture report steps the Linux job ran, restored: they prove the
+      # fixtures' own builds on this host and warm the dependency caches the
+      # runners below reuse.
       - name: Java fixture JaCoCo report
         run: mvn -q -f fixtures/crap/java/pom.xml test
       - name: Clojure fixture Cloverage report
-        run: clj -M:cov --lcov
         working-directory: fixtures/crap/clojure
-
+        run: clj -M:cov --lcov
+      # GitHub's default pwsh shell exits with the LAST command's code only, so
+      # a multiline step can hide a failed first native command: one per step.
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
-
       - name: cargo clippy -D warnings
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-
       - name: Real Python, TypeScript and Lua coverage integration tests
         env:
           CRAPPER_REQUIRE_TOOLCHAINS: '1'
         run: cargo test -p uml-viewer --test integration crap_languages -- --test-threads=1
-
-      # Configure only this disposable runner; keep mutation tests unprivileged.
-      - name: Linux mutation namespace preflight
-        shell: bash
-        run: |
-          set -euo pipefail
-          uname -sr
-          unshare --version
-          for key in kernel.apparmor_restrict_unprivileged_userns kernel.unprivileged_userns_clone user.max_user_namespaces; do
-            if [[ -e "/proc/sys/${key//.//}" ]]; then
-              sysctl "$key"
-            else
-              echo "$key: unavailable"
-            fi
-          done
-          # Match crates/mutator/src/isolation.rs, including UID mapping and PID lifecycle.
-          probe() {
-            unshare --user --map-root-user --mount --pid --fork --kill-child -- \
-              /bin/sh -c 'test "$(id -u)" -eq 0 && mount --make-rprivate /'
-          }
-          if ! probe; then
-            echo 'Namespace probe failed; checking disposable runner policy.'
-            if [[ "${GITHUB_ACTIONS:-}" != true || "${RUNNER_ENVIRONMENT:-}" != github-hosted || "${RUNNER_OS:-}" != Linux ]]; then
-              echo '::error::Refusing to change namespace policy outside a GitHub-hosted Linux runner.'
-              exit 1
-            fi
-            if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]] && \
-               [[ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" == 1 ]]; then
-              sudo -n sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-            fi
-            if [[ -e /proc/sys/kernel/unprivileged_userns_clone ]] && \
-               [[ "$(sysctl -n kernel.unprivileged_userns_clone)" == 0 ]]; then
-              sudo -n sysctl -w kernel.unprivileged_userns_clone=1
-            fi
-            if ! probe; then
-              echo '::error::Linux mutation namespaces remain blocked; see docs/mutation-linux.md.'
-              exit 1
-            fi
-          fi
-          echo 'Linux mutation namespace preflight passed.'
-
-      # Mutation needs the project's own virtualenv, never a global install.
-      - name: Isolated Python mutation virtualenv
-        run: |
-          python -m venv "$RUNNER_TEMP/mutator-venv"
-          "$RUNNER_TEMP/mutator-venv/bin/python" -m pip install coverage pytest
-      - name: Python and TypeScript mutation tests
+      # CRAPPER_REQUIRE_TOOLCHAINS and MUTATOR_REQUIRE_TOOLCHAINS turn a missing
+      # toolchain into a failure, so these two steps can only pass by really
+      # running Go, Java and Clojure; a skip is a broken job, not a platform
+      # (#15).
+      - name: Go, Java and Clojure coverage runners execute, never skip
         env:
-          MUTATOR_TEST_PYTHON_VENV: ${{ runner.temp }}/mutator-venv
+          CRAPPER_REQUIRE_TOOLCHAINS: '1'
+        run: cargo test -p uml-viewer --test integration crap_runner_smoke --locked -- --test-threads=1
+      - name: Go, Java and Clojure mutation cases execute, never skip
+        env:
           MUTATOR_REQUIRE_TOOLCHAINS: '1'
-        run: |
-          cargo test -p mutator --locked --test python_ts --test python_ts_sites -- --test-threads=1
-          cargo test -p uml-viewer --test integration mutate:: --locked -- --test-threads=1
-          cargo test -p uml-viewer --test integration quality_selection:: --locked -- --test-threads=1
-
-      # The full Rust mutation suite exercises default coverage, not only custom commands.
-      - name: LLVM tools for Linux coverage goldens
-        run: rustup component add llvm-tools
-      - name: cargo-llvm-cov for Linux coverage goldens
-        run: cargo install cargo-llvm-cov --locked
-      - name: Verify Linux coverage toolchain
-        run: cargo llvm-cov --version
+        run: cargo test -p mutator --test go_java_clojure --locked -- --test-threads=1
+      # The Python and TypeScript mutation run lived in the deleted `linux` job
+      # (`--test python_ts --test python_ts_sites`); #11 forbade losing a gate, so
+      # it runs here. Neither file is Linux-only any more, and a Windows worker
+      # copy hides `.venv`, so the Python fixture uses the `python` on PATH that
+      # the "Python fixture toolchain" step above fills with coverage.py and
+      # pytest. MUTATOR_REQUIRE_TOOLCHAINS makes a missing one a failure rather
+      # than the skip it used to be, and the snapshot goldens' one host-chosen
+      # field (`:isolation`) is the only thing rewritten before the byte compare.
+      - name: Python and TypeScript mutation run on the one host
+        env:
+          MUTATOR_REQUIRE_TOOLCHAINS: '1'
+        run: cargo test -p mutator --test python_ts --test python_ts_sites --locked -- --test-threads=1
       - name: scripts/check.py (source rules + cargo test --workspace --locked)
-        run: python3 -I scripts/check.py
-      # scripts/check.py already built this release binary. The disposable
-      # checkout may gain snapshots; records and IR stay under RUNNER_TEMP.
-      - name: Maintainer refresh - CRAP (Linux)
-        timeout-minutes: 21
-        run: python3 -I scripts/ci-refresh.py target/release/uml-viewer crap
-      - name: Maintainer refresh - differential mutation (Linux)
-        timeout-minutes: 6
-        run: python3 -I scripts/ci-refresh.py target/release/uml-viewer mutate
-      - name: Maintainer refresh - gated IR (Linux)
-        timeout-minutes: 1
-        run: python3 -I scripts/ci-refresh.py target/release/uml-viewer ir
+        run: python -I scripts/check.py

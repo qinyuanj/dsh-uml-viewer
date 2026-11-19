@@ -2,8 +2,9 @@
 //! report, for every language. Two duplicate functions per fixture file make
 //! every selected file observable even when the selection has only one file.
 //! Mutate joins through its published forms' :file fields, one snapshot per
-//! selected file; it is Linux-only, so the other platforms keep the selection
-//! contract for the tools that run there.
+//! selected file. No tool is skipped by host: mutate runs on native Windows too,
+//! where a per-command project copy is the same kind of view the Linux overlay
+//! is, and only its `--test-command` has to be spelled for cmd.exe.
 //!
 //! dryer's one intentional discovery difference is `.cljd` (its
 //! `discover.py`); the fixtures use `.clj`, so both tools must agree exactly.
@@ -17,8 +18,10 @@ use crate::crap::Project;
 struct Tool {
     role: &'static str,
     flags: &'static [&'static str],
-    /// Mutate's namespace isolation is Linux-only today.
-    linux_only: bool,
+    /// The same flags spelled for cmd.exe, when the tool's own command is a shell
+    /// script: mutate's `--test-command` runs in sh on Linux and cmd.exe on
+    /// native Windows, and the two spellings are not interchangeable.
+    windows_flags: Option<&'static [&'static str]>,
     /// The languages each tool handles when not all of them: an empty list means "all".
     languages: &'static [&'static str],
     /// The selected files as the tool's own published report names them.
@@ -29,6 +32,17 @@ struct Tool {
     published: fn(&Path) -> bool,
     /// Extra per-tool proof that the run did real work.
     verify: fn(&Path),
+}
+
+impl Tool {
+    /// The flags this host can run.
+    fn flags(&self) -> &'static [&'static str] {
+        if cfg!(windows) {
+            self.windows_flags.unwrap_or(self.flags)
+        } else {
+            self.flags
+        }
+    }
 }
 
 struct Fixture {
@@ -173,7 +187,7 @@ const TOOLS: &[Tool] = &[
     Tool {
         role: "crap",
         flags: &["--no-coverage"],
-        linux_only: false,
+        windows_flags: None,
         languages: &[],
         report: crap_report,
         empty: empty_quality,
@@ -183,7 +197,7 @@ const TOOLS: &[Tool] = &[
     Tool {
         role: "dry",
         flags: &["--edn", "--min-lines", "1", "--min-nodes", "1"],
-        linux_only: false,
+        windows_flags: None,
         languages: &[],
         report: dry_report,
         empty: empty_quality,
@@ -202,7 +216,16 @@ const TOOLS: &[Tool] = &[
             "--test-command",
             "if [ -f \"$MUTATOR_VIEW/mutation\" ]; then exit 1; fi; true",
         ],
-        linux_only: true,
+        // The same probe in cmd.exe: the marker file exists only for a mutant,
+        // so pristine code passes and every mutant fails.
+        windows_flags: Some(&[
+            "--no-coverage",
+            "--mutate-all",
+            "--max-workers",
+            "2",
+            "--test-command",
+            "if exist \"%MUTATOR_VIEW%\\mutation\" exit 1",
+        ]),
         // Every language this build mutates: Rust (native), Lua (#11), Python,
         // TypeScript, Go, Java and Clojure (#14).
         languages: &[
@@ -350,9 +373,7 @@ fn quality_commands_publish_the_same_selected_source_files() {
         ];
         for (args, expected) in scenarios {
             for tool in TOOLS {
-                if (tool.linux_only && !cfg!(target_os = "linux"))
-                    || (!tool.languages.is_empty() && !tool.languages.contains(&fixture.language))
-                {
+                if !tool.languages.is_empty() && !tool.languages.contains(&fixture.language) {
                     continue;
                 }
                 let project = Project::new();
@@ -370,7 +391,7 @@ fn quality_commands_publish_the_same_selected_source_files() {
                     .arg(tool.role)
                     .arg("--root")
                     .arg(&project.root)
-                    .args(tool.flags)
+                    .args(tool.flags())
                     .args(args.iter())
                     .current_dir(&project.root)
                     .env_remove("DISPLAY")

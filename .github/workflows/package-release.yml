@@ -1,7 +1,8 @@
-# Release packaging for the four native platform packages plus the single
+# Release packaging for the one native platform package plus the single
 # platform-independent main package (#33). Each package is assembled on the OS
 # and CPU it ships to, because scripts/package.mjs runs the supplied binary as
-# `--version`; a foreign target binary is never executed on this host.
+# `--version`; a foreign target binary is never executed on this host. Since #5
+# and #12 that is native Windows x64 alone (ADR 0002).
 #
 # Pull requests stop at `npm pack --dry-run`. A `v<workspace version>` tag on
 # the canonical repository is the only publishing path, and it uses npm trusted
@@ -39,15 +40,6 @@ jobs:
           - platform: win32-x64
             runner: windows-latest
             binary: target/release/uml-viewer.exe
-          - platform: linux-x64
-            runner: ubuntu-latest
-            binary: target/release/uml-viewer
-          - platform: darwin-arm64
-            runner: macos-latest
-            binary: target/release/uml-viewer
-          - platform: darwin-x64
-            runner: macos-15-intel
-            binary: target/release/uml-viewer
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
@@ -81,7 +73,7 @@ jobs:
       - name: Stage the release archives
         shell: bash
         env:
-          MAIN_RUNNER: ${{ matrix.platform == 'linux-x64' }}
+          MAIN_RUNNER: ${{ matrix.platform == 'win32-x64' }}
         run: |
           set -euo pipefail
           arguments=(--package-dir "$RUNNER_TEMP/packages" --platform "${{ matrix.platform }}" --upload-dir "$RUNNER_TEMP/upload")
@@ -97,11 +89,15 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # One place validates the staged release inventory: four distinct platform
-  # archives at the workspace version, exactly one main archive, the same main
-  # file inventory on every runner (one recorded main hash per runner, not byte
-  # identity), every archive opened and checked against its report and the source
-  # manifest, and no stray or stale archive.
+  # ubuntu-latest on purpose: this job and `publish` only read and publish the
+  # archives the one windows-latest `assemble` job produced. They open tarballs,
+  # compare report fields and call npm publish — host-neutral work that carries no
+  # delivery claim (docs/releasing.md says the same next to the pipeline).
+  # One place validates the staged release inventory: the one platform archive at
+  # the workspace version, exactly one main archive, the main file inventory that
+  # runner reported (a recorded main hash, not byte identity), every archive
+  # opened and checked against its report and the source manifest, and no stray
+  # or stale archive.
   inventory:
     name: inventory and offline package dry run
     needs: assemble
@@ -133,7 +129,7 @@ jobs:
           set -euo pipefail
           node scripts/release.mjs plan --artifacts "$RUNNER_TEMP/artifacts" --out "$RUNNER_TEMP/publish-order.txt"
           planned=$(wc -l < "$RUNNER_TEMP/publish-order.txt")
-          test "$planned" -eq 5
+          test "$planned" -eq 2
           while IFS= read -r archive; do
             npm pack "$archive" --dry-run --ignore-scripts
           done < "$RUNNER_TEMP/publish-order.txt"
@@ -172,13 +168,13 @@ jobs:
         run: node scripts/release.mjs verify --artifacts "$RUNNER_TEMP/artifacts" --out "$RUNNER_TEMP/release-inventory.json"
       - name: Dry-run the platform packages, then the main package
         shell: bash
-        # Check the same five staged archives with the registry before any real
+        # Check the same two staged archives with the registry before any real
         # publish. A conflict or any other error stops the job immediately.
         run: |
           set -euo pipefail
           node scripts/release.mjs plan --artifacts "$RUNNER_TEMP/artifacts" --out "$RUNNER_TEMP/publish-order.txt"
           planned=$(wc -l < "$RUNNER_TEMP/publish-order.txt")
-          test "$planned" -eq 5
+          test "$planned" -eq 2
           while IFS= read -r archive; do
             npm publish "$archive" --dry-run --access public --ignore-scripts --provenance=false
           done < "$RUNNER_TEMP/publish-order.txt"
@@ -188,7 +184,7 @@ jobs:
           set -euo pipefail
           node scripts/release.mjs plan --artifacts "$RUNNER_TEMP/artifacts" --out "$RUNNER_TEMP/publish-order.txt"
           planned=$(wc -l < "$RUNNER_TEMP/publish-order.txt")
-          test "$planned" -eq 5
+          test "$planned" -eq 2
           while IFS= read -r archive; do
             npm publish "$archive" --provenance --access public --ignore-scripts
           done < "$RUNNER_TEMP/publish-order.txt"

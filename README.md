@@ -11,12 +11,12 @@ The old `get-uml-viewer` / `./uml` flow with its Herdr companion was deleted
 ## Plugin installation and maintenance
 
 The main package includes the Host and Web client, Sarasa font and one Cordis
-row. Its four exact-version optional dependencies target Windows x64, Linux
-x64, macOS arm64 and macOS x64. Unsupported combinations refuse activation with
-a reason. End users need DSH (`>=0.2.2-rc.1 <0.3.0`) and git; native packages
-require no Rust, Python or Herdr installation. Version 1.1.0 is published, with
-SLSA provenance from the tag-driven release. Local package assembly also
-remains available.
+row. Its one exact-version optional dependency targets native Windows x64, the
+only delivered host ([qinyuanj/home-uml-viewer ADR 0002](https://github.com/qinyuanj/home-uml-viewer/blob/main/docs/adr/0002-macos-is-not-a-supported-host.md));
+any other host refuses activation with a reason. End users need DSH
+(`>=0.2.2-rc.1 <0.3.0`) and git; native packages require no Rust, Python or
+Herdr installation. Version 1.1.0 is published, with SLSA provenance from the
+tag-driven release. Local package assembly also remains available.
 
 Install local archives through DSH plugin management (use absolute paths):
 
@@ -57,18 +57,20 @@ a toolchain or builds other platforms. It writes deterministic npm tarballs
 and a SHA-256/inventory report, with no install scripts or registry calls.
 The source checkout stays private; the assembler removes development-only
 fields from the installable main package.
-Keep generated archives, binaries, IR and metrics out of commits. The four
-platform builds and the npm provenance release are configured in
-[release packaging](docs/releasing.md): a pull request assembles the archives and
-runs `npm pack <tgz> --dry-run --ignore-scripts` on all five in plan order. This
+Keep generated archives, binaries, IR and metrics out of commits. The single
+platform build and the npm provenance release are configured in
+[release packaging](docs/releasing.md): a pull request assembles the two archives
+(the platform package and the main package) and
+runs `npm pack <tgz> --dry-run --ignore-scripts` on both in plan order. This
 is offline package-content acceptance, not a registry publishability check. A
 `v<version>` tag on the canonical repository is the only publishing path: after
-tag and inventory verification, all five archives must pass
-`npm publish --dry-run` before the same five are really published in plan order.
+tag and inventory verification, both archives must pass
+`npm publish --dry-run` before the same two are really published in plan order.
 `scripts/release.mjs verify` opens every staged archive and checks its real
 contents and package metadata before anything is published.
 [Release CI7 at `7fbace6`](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42600985433)
-passed all four native builds, archive-content inventory and the then-current
+passed all four native builds the pipeline then shipped, archive-content
+inventory and the then-current
 `npm publish --dry-run`. Version 1.0.0 was published manually; `v1.1.0` is the
 first tag-driven release and published all five packages with provenance after
 the `release` environment approval (#34). Browser acceptance is
@@ -79,7 +81,7 @@ installed-profile update acceptance remains unverified (#32).
 every crate inherits it. Change it, run `pnpm version:sync`, update the Cargo
 lockfile, then run `pnpm version:check`; CI checks npm and Cargo consistency.
 The assembler writes the same version into main and platform manifests and
-all four optional dependency constraints. To verify an assembled archive:
+the one optional dependency constraint. To verify an assembled archive:
 
 ```sh
 UML_VIEWER_PACKAGE_REPORT=/absolute/scratch/packages/package-report.json pnpm test:package
@@ -132,13 +134,16 @@ topology; this tool displays it, routes the arrows, colors CRAP, and lets you
 click. One Rust binary runs the panel's resident session, IR generation, the
 four scanners and the three quality tools; the standalone egui window was
 deleted in dsh-uml-viewer#30, so the panel is the only viewer. The JVM/Clojure implementation was removed in the JVM cutover
-and the Lua/LOVE implementation in the #144 cutover (ADR 0008). The supported platforms are **WSL2 + Ubuntu 24.04 + WSLg**,
-**macOS** and **native Windows** on x64, with no Windows build floor (ADR
-0018 removed it). The three quality tools (`crap`, `mutate`, `dry`) follow the
-same rule: their pinned originals dropped their own build floors
-(qinyuanj/crapper#18, qinyuanj/dryer#5, qinyuanj/mutator#30), so
-`uml-viewer quality crap`, `dry` and `mutate` run on any Windows build. Only
-`mutate` refuses an OS, naming macOS, where neither isolation mechanism exists.
+and the Lua/LOVE implementation in the #144 cutover (ADR 0008). The delivered
+host is **native Windows x64**, with no Windows build floor (ADR 0018 removed
+it); WSL2 and macOS are not delivered (qinyuanj/home-uml-viewer ADR 0002). The
+three quality tools (`crap`, `mutate`, `dry`) follow the same rule: their
+pinned originals dropped their own build floors (qinyuanj/crapper#18,
+qinyuanj/dryer#5, qinyuanj/mutator#30), so `uml-viewer quality crap`, `dry` and
+`mutate` run on any Windows build. Only `mutate` refuses an OS, naming macOS,
+where neither isolation mechanism exists. Linux is no longer delivered, so the
+namespace view it uses stays in the code, unreachable, as the only entry point
+for restoring Linux later ([docs/mutation-linux.md](docs/mutation-linux.md)).
 
 The IR is **topology**: the namespace tree, classes, and edges. **Metrics**
 (CC, coverage, CRAP, killed/survived/uncovered) come from `.metrics/`

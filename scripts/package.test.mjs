@@ -77,13 +77,15 @@ if (process.env.UML_VIEWER_PACKAGE_REPORT) test('assembled archives contain only
     ['uml_ir', 'uml_crap', 'uml_mutate', 'uml_dry', 'uml_display'])
   assert.deepEqual(manifest.permissions.map(permission => permission.scope).sort(),
     ['dsh-home', 'filesystem-read', 'filesystem-write', 'subprocess'])
+  // One delivery host: the manifest shipped in the main archive names exactly
+  // the platform package this assembly emits.
+  assert.deepEqual(manifest.contributes['x-components'][0].platforms, ['win32'])
+  assert.deepEqual(manifest.contributes['x-components'][0].targets, ['win32-x64'])
   const patch = extract(report.main.path, 'cordis.patch.yml')
   assert.equal((patch.match(/- id:/g) ?? []).length, 1)
   assert.match(patch, /name: dsh-uml-viewer/)
-  assert.deepEqual(Object.keys(report.optionalDependencies).sort(), [
-    '@dsh-uml-viewer/darwin-arm64', '@dsh-uml-viewer/darwin-x64',
-    '@dsh-uml-viewer/linux-x64', '@dsh-uml-viewer/win32-x64',
-  ])
+  assert.deepEqual(Object.keys(report.optionalDependencies), ['@dsh-uml-viewer/win32-x64'])
+  assert.match(report.binary.path, /dsh-uml-viewer-win32-x64-[^/\\]+\.tgz$/)
   assert.ok(report.main.files.includes('fonts/SarasaMonoSC-Regular.ttf'))
   assert.ok(report.main.files.includes('fonts/LICENSE-Sarasa.txt'))
   assert.ok(report.main.files.includes('lib/client.js'))

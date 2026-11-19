@@ -114,6 +114,48 @@ fn python_available(project: &Project) -> bool {
     )
 }
 
+/// The Lua names the coverage runner accepts, in the order it tries them:
+/// Debian's `lua5.4` and the plain `lua` the Windows installer lays down
+/// (`quality_core::runners::lua::interpreter` probes both). Probing both here
+/// is what lets one suite run on either host; copying the interpreter to a
+/// second name in a CI step would only hide the hardcoded name.
+const LUA_PROGRAMS: [&str; 2] = ["lua5.4", "lua"];
+
+/// Whether a Lua 5.4 with the pinned cluacov answers, under either name.
+fn lua_available(project: &Project, prelude: &str) -> bool {
+    let mut detail = String::new();
+    for program in LUA_PROGRAMS {
+        let probe = run(
+            program,
+            &["-e", prelude],
+            &project.root,
+            &project.root.join("tool-cache"),
+        );
+        match probe {
+            Ok(output) if output.status.success() => return true,
+            Ok(output) => {
+                detail = format!(
+                    "`{program} -e ...` exited {}; stdout:\n{}\nstderr:\n{}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr),
+                );
+            }
+            Err(error) => detail = format!("`{program}` could not start: {error}"),
+        }
+    }
+    let message = format!(
+        "no Lua 5.4 interpreter with cluacov 1.0.0 under either name ({}): {detail}",
+        LUA_PROGRAMS.join(", ")
+    );
+    assert!(
+        !std::env::var_os("CRAPPER_REQUIRE_TOOLCHAINS").is_some_and(|value| value == "1"),
+        "CRAPPER_REQUIRE_TOOLCHAINS=1; {message}"
+    );
+    eprintln!("SKIP: {message}");
+    false
+}
+
 #[test]
 fn missing_lua_toolchain_keeps_the_previous_snapshot() {
     let project = Project::new();
@@ -160,15 +202,9 @@ fn lua_fixture_no_coverage_does_not_read_existing_reports() {
 fn lua_real_cluacov_and_sharded_busted_match_the_oracle() {
     let project = Project::new();
     copy_tree(&fixture("lua").join("project"), &project.root);
-    let lua = "lua5.4";
-    if !available(
-        lua,
-        &[
-            "-e",
-            "assert(_VERSION == 'Lua 5.4'); pcall(require, 'luarocks.loader'); assert(require('cluacov.version') == '1.0.0'); require('busted.runner'); require('luacov.reporter.lcov')",
-        ],
+    if !lua_available(
         &project,
-        "Lua",
+        "assert(_VERSION == 'Lua 5.4'); pcall(require, 'luarocks.loader'); assert(require('cluacov.version') == '1.0.0'); require('busted.runner'); require('luacov.reporter.lcov')",
     ) {
         return;
     }
@@ -186,14 +222,9 @@ fn lua_real_cluacov_and_sharded_busted_match_the_oracle() {
 fn lua_multiple_modules_and_quoted_untested_sources_match_the_oracle() {
     let project = Project::new();
     copy_tree(&fixture("lua").join("modules/project"), &project.root);
-    if !available(
-        "lua5.4",
-        &[
-            "-e",
-            "assert(_VERSION == 'Lua 5.4'); pcall(require, 'luarocks.loader'); assert(require('cluacov.version') == '1.0.0')",
-        ],
+    if !lua_available(
         &project,
-        "Lua",
+        "assert(_VERSION == 'Lua 5.4'); pcall(require, 'luarocks.loader'); assert(require('cluacov.version') == '1.0.0')",
     ) {
         return;
     }
@@ -215,14 +246,9 @@ fn lua_multiple_modules_and_quoted_untested_sources_match_the_oracle() {
 fn failing_lua_shard_keeps_snapshot_and_removes_shard_artifacts() {
     let project = Project::new();
     copy_tree(&fixture("lua").join("project"), &project.root);
-    if !available(
-        "lua5.4",
-        &[
-            "-e",
-            "assert(_VERSION == 'Lua 5.4'); pcall(require, 'luarocks.loader'); assert(require('cluacov.version') == '1.0.0')",
-        ],
+    if !lua_available(
         &project,
-        "Lua",
+        "assert(_VERSION == 'Lua 5.4'); pcall(require, 'luarocks.loader'); assert(require('cluacov.version') == '1.0.0')",
     ) {
         return;
     }

@@ -22,10 +22,10 @@
       "id": "dsh-uml-viewer",
       "entry": "dsh-uml-viewer",
       "defaultEnabled": true,
-      "platforms": ["win32", "linux", "darwin"],
-      "targets": ["win32-x64", "linux-x64", "darwin-arm64", "darwin-x64"],
+      "platforms": ["win32"],
+      "targets": ["win32-x64"],
       "tools": ["uml_ir", "uml_crap", "uml_mutate", "uml_dry", "uml_display"],
-      "notes": "Host and Web client panel with IR, the three quality tools and display. Four optional platform packages provide the executable; unsupported platform/architecture combinations refuse activation with a reason. The browser half is declared in package.json dsh.client and the ./client export (dsh-std 0.15 has no client facet key). Runtime compatibility is package.json engines.dsh."
+      "notes": "Host and Web client panel with IR, the three quality tools and display. One optional platform package, @dsh-uml-viewer/win32-x64, provides the executable; every other host refuses activation with a stated reason (native Windows x64 is the only supported host). The browser half is declared in package.json dsh.client and the ./client export (dsh-std 0.15 has no client facet key). Runtime compatibility is package.json engines.dsh."
     }]
   },
   "subscriptions": []

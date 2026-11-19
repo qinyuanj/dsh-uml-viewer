@@ -48,3 +48,14 @@ Windows 进程中通过；部分开发者的 WSL 被策略禁用。后两类无�
 
 两种 Windows 用同一套功能标准，不比较耗时。Win11 证据来自维护者本机（10.0.26220）；
 Win10 22H2 的实机验收另开 ticket，在其余阶段完成后进行。不设 GitHub Windows CI。
+
+## Status note (2026-11-18)
+
+本 ADR 的**宿主清单**已被取代：交付宿主只有原生 Windows x64 一个，Linux x64 与 macOS 都不在
+清单里（qinyuanj/home-uml-viewer#5，以及该仓 `docs/adr/0002-macos-is-not-a-supported-host.md`）。
+上文「决定」第一条把原生 Windows 与 WSL2 + Ubuntu、macOS 并列，那是当时的决定，按 ADR 惯例不改写；
+现在读它时按本段执行。删除 macOS 的理由见 ADR 0002；移出 Linux 的理由与代价见 #5——Linux 的
+namespace view 隔离保留在代码里但不可达，所有实际用户走本项目副本路径。
+
+其余条款不变：adapter 层的平台差异、副本隔离与 Job Object、`uml.cmd` 入口、快照与 IR 的跨平台
+字节一致性，都按原文继续有效。

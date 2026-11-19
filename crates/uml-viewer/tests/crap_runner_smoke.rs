@@ -70,14 +70,26 @@ fn skip(language: &str, reason: &str) {
     eprintln!("SKIP {message}");
 }
 
+/// `clj --version`, started the way the Clojure runner starts `clj`: on
+/// Windows that is the `clj.cmd` launcher (scripts/setup-windows-maven-
+/// clojure.ps1 writes it), which only `cmd.exe` can run, so the probe goes
+/// through `cmd.exe` there rather than assuming an `.exe`.
+fn clj_version() -> std::io::Result<std::process::Output> {
+    if cfg!(windows) {
+        Command::new(std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd.exe".into()))
+            .args(["/d", "/c", "clj --version"])
+            .output()
+    } else {
+        Command::new("clj").arg("--version").output()
+    }
+}
+
 fn clj_usable() -> Result<(), String> {
     if !on_path("clj") {
         return Err("`clj` is not on PATH".to_string());
     }
-    let output = Command::new("clj")
-        .arg("--version")
-        .output()
-        .map_err(|error| format!("`clj --version` could not start: {error}"))?;
+    let output =
+        clj_version().map_err(|error| format!("`clj --version` could not start: {error}"))?;
     if output.status.success() {
         return Ok(());
     }

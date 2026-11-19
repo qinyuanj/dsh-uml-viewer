@@ -138,8 +138,8 @@ $env:UML_VIEWER_PACKAGE_PLATFORM = 'D:/scratch/uml-viewer-pack/dsh-uml-viewer-wi
 pnpm --filter @dsh-uml-viewer/e2e test:e2e package.spec.mjs
 ```
 
-Use the host platform's tarball (`win32-x64`, `linux-x64`, `darwin-arm64` or
-`darwin-x64`) at the same version as the main package. Assembly and binary
+Use the host platform's tarball (only `win32-x64` is delivered, ADR 0002) at
+the same version as the main package. Assembly and binary
 builds happen separately; this lane does not build or pack either artifact.
 With neither variable set, the regular checkout lane remains available and
 `package.spec.mjs` skips with an explicit reason.
