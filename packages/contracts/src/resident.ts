@@ -3,8 +3,11 @@
  * `dsh-uml-viewer/resident`, version 1.
  *
  * The Rust child owns the wire fields; this module only checks the lines it
- * writes. Unknown events are refused (the host would not know what to do with
- * them) while frames inside `frame` events keep their own additive contract.
+ * writes. A line that is malformed — not JSON, another `version`, a known
+ * event with a broken field — is refused, because the panel cannot trust the
+ * stream. An event this version does not know is not malformed: adding an
+ * event keeps version 1, so it is ignored (`parseResidentLine` returns null)
+ * and the stream goes on (#84).
  */
 import type { SceneFrame } from './scene-frame.js'
 import { validateSceneFrame } from './scene-frame.js'
@@ -78,6 +81,11 @@ export type ResidentEvent =
   | { version: 1; seq: unknown; event: 'ack' }
   | { version: 1; seq: unknown; event: 'error'; message: string }
 
+/**
+ * The events this version knows. The list is a version-1 fact, not a
+ * whitelist on the wire: a name outside it is an added event (#84), and the
+ * reader ignores it instead of ending the stream.
+ */
 const EVENTS: ReadonlySet<string> = new Set(['ready', 'frame', 'search', 'context', 'state', 'ack', 'error',
   // #27 overlays: additive, version 1 is unchanged. #47 deleted `inspector`.
   'card', 'source',
@@ -252,14 +260,16 @@ export function validateSessionState(value: unknown, label = 'session state'): S
  * Validate one resident event line value.
  * @param value the parsed JSON of one stdout line.
  * @param label the document name used in failure messages.
- * @returns the same event, narrowed.
+ * @returns the same event, narrowed; null when the line is well formed but
+ *   names an event this version does not know (#84).
+ * @throws {Error} when the line is malformed.
  */
-export function validateResidentEvent(value: unknown, label = 'resident event'): ResidentEvent {
+export function validateResidentEvent(value: unknown, label = 'resident event'): ResidentEvent | null {
   try {
     const source = record(value, label)
     if (source.version !== RESIDENT_VERSION) at(`${label}.version`, `must be ${RESIDENT_VERSION}`)
     const event = str(source.event, `${label}.event`)
-    if (!EVENTS.has(event)) at(`${label}.event`, `unknown event ${JSON.stringify(event)}`)
+    if (!EVENTS.has(event)) return null
     const seq = source.seq ?? null
     switch (event) {
       case 'ready':
@@ -310,10 +320,11 @@ export function validateResidentEvent(value: unknown, label = 'resident event'):
 /**
  * Parse one complete stdout line (no trailing newline) into a resident event.
  * @param line one stdout line.
- * @returns the validated event.
- * @throws {Error} when the line is not one JSON object.
+ * @returns the validated event, or null when the line names an event this
+ *   version does not know: that is additive, not a failure (#84).
+ * @throws {Error} when the line is not one well-formed JSON object.
  */
-export function parseResidentLine(line: string): ResidentEvent {
+export function parseResidentLine(line: string): ResidentEvent | null {
   if (line.includes('\n') || line.includes('\r')) throw new Error('resident line must not contain a line break')
   let value: unknown
   try {

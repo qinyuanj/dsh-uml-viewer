@@ -252,6 +252,42 @@ it('attributes a granted uml_ir to the request its id names, exactly, not to the
     omit!, { ...proposal!, state: 'failed', reason: expect.stringMatching(/already used/), exitCode: null }])
 })
 
+it('completes the request its granted IR answered, not the head, on a successful display', async () => {
+  const s = await setup()
+  const panel = await s.open('session-a')
+  // Two requests wait; the companion answers the second one first, as its id says.
+  await s.act('session-a', { action: 'omit', id: ':api' })
+  await s.act('session-a', { action: 'omit', id: ':core' })
+  const [first, second] = await panel.status(list => list.length === 2)
+  expect(await s.tool('uml_ir', { request: second!.id })).toMatchObject({ status: 'ok', validResult: true })
+  // The display shows the diagram that IR wrote, so it answers that request:
+  // its target is the second element, and the head is still queued (#84). The
+  // kind is the shown frame's own — `:core` is a class there (`TARGETS` above
+  // only answers `quality-target`, so it says nothing about an omitted element).
+  expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: { id: ':core', kind: 'class' } })
+  expect(await panel.status(list => list[1]?.state === 'done')).toEqual([first, { ...second!, state: 'done' }])
+})
+
+it('never completes a request queued after the IR whose diagram it shows (#84)', async () => {
+  const s = await setup()
+  const panel = await s.open('session-a')
+  // Two requests wait; a hand-run IR takes up the head, the first request.
+  await s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':core' })
+  await s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':api' })
+  const [first, second] = await panel.status(list => list.length === 2)
+  expect(await s.tool('uml_ir', {})).toMatchObject({ validResult: true })
+  // That request fails before the display runs, so the head is now the second
+  // request — one this display did not answer.
+  await s.write('session-a', 'quality-binary.json', { exitCode: 1, reason: 'no coverage data for the configured scope' })
+  expect(await s.tool('uml_crap', {})).toMatchObject({ validResult: false })
+  const failed = { ...first!, state: 'failed', reason: 'no coverage data for the configured scope', exitCode: 1 }
+  expect(await panel.status(list => list[0]?.state === 'failed')).toEqual([failed, second!])
+  // The display answers the request the IR took up, and that entry is already
+  // finished: it names no element, and the second request keeps waiting.
+  expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: null })
+  expect(panel.lists().at(-1)).toEqual([failed, second!])
+})
+
 it('fails the head when the companion’s turn ends without completing the display', async () => {
   const s = await setup()
   const panel = await s.open('session-a')

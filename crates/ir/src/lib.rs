@@ -8,6 +8,7 @@ mod detection;
 mod files;
 mod graph;
 mod policy;
+mod quality_scope;
 mod scan;
 mod text;
 mod value;
@@ -141,6 +142,7 @@ fn generate(path: &str, out: Option<String>, adapter: &Adapter) -> Result<String
         filenames = adapter.filenames()?;
     }
     let graph = scan_policy(&p, &filenames, adapter)?;
+    quality_scope::warn(&p, &graph, adapter);
     let extra = policy::unassigned(&p, &graph);
     if !extra.is_empty() {
         let names: Vec<String> = extra

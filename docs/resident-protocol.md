@@ -87,7 +87,7 @@ An `error` changes nothing; the session keeps running.
 | `search` | `query` | `search` | search class names and namespaces (ASCII case-insensitive substring); a blank query has no results. The view does not change. |
 | `locate` | `id` (EDN) | `frame` | go to a search result: enter its namespace or proposal layer, select it, open its card and centre it |
 | `context` | `proposalId` (EDN, or `null` for the source diagram) | `context`, then `frame` | the user chose the 讨论上下文; the view switches to that diagram. The host turns the `context` event into the panel request. |
-| `declutter` | `mode?` | `frame` | the arrow mode: `full`, `arrows`, `triangles`, `elements` or `classes`. A named mode is set (the panel's 「更多」 menu names `triangles`/`full`, #46); without one the resident cycles the modes. An unknown mode is an `error` and changes nothing |
+| `declutter` | `mode?` | `frame` | the arrow mode: `full`, `arrows`, `triangles`, `elements` or `classes`. A named mode is set (the panel's 「更多」 menu names `triangles`/`full`, #46); without one the resident cycles the modes. A `mode` that is not a JSON string, or a name outside that list, is an `error` that changes nothing and names the modes this version knows (#84) |
 | `save` | — | `state` | the session state to persist |
 | `quit` | — | `ack` | end the session (exit 0), like closing stdin |
 | `card` | `width?`, `viewHeight?` (points) | `card` | the open class card's paint plan; `width` is the card content width (native default 624, floor 560), `viewHeight` the card viewport its scroll clamps against (default 700). With no class card open the answer is `card: null`, which changes nothing (#47). |
@@ -158,7 +158,7 @@ existing `context` action; 新建提案 is the existing `new-proposal` panel req
 | code | parameters | meaning |
 |---|---|---|
 | `waiting-display` | — | the empty canvas waits for its first `display` |
-| `missing-file` | `path` | the diagram file this session names is not there |
+| `missing-file` | `path` | a read of the diagram file this session names failed; any later display that loads a diagram clears it, of that path or another, so the code never names a file the session is showing (#84) |
 
 The panel localizes the code from its own language files, so the code is an
 enum with exactly the parameters its text needs: an unknown code is a broken

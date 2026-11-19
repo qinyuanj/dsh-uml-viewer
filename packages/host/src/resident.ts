@@ -311,13 +311,16 @@ export class ResidentConnection {
   }
 
   private dispatch(line: string, bytes: number): void {
-    let event: ResidentEvent
+    let event: ResidentEvent | null
     try {
       event = parseResidentLine(line)
     } catch (error) {
       this.fail(error instanceof Error ? error.message : String(error))
       return
     }
+    // #84: a well-formed line naming an event this host does not know is an
+    // additive version-1 change, so it is ignored; only a broken line fails.
+    if (event === null) return
     // The queue caps count bytes; a parsed event carries the size of its line.
     this.lineBytes.set(event, bytes)
     if (event.event === 'ready') this.actions = event.actions

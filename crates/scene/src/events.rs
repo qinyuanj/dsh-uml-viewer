@@ -223,9 +223,17 @@ pub fn cycle_declutter(s: &ViewState) -> ViewState {
     rebuild(n)
 }
 
+/// The declutter modes this version knows, in cycle order (#46). The resident
+/// validates an action's mode against this list before acting on it (#84), so
+/// an unknown name is refused rather than silently ignored.
+pub fn declutter_modes() -> Vec<Value> {
+    H::declutter_modes()
+}
+
 /// Set the declutter mode directly (#46): the panel's More menu names the mode
 /// its Remove arrows toggle wants instead of cycling to it. An unknown mode
-/// leaves the view as it is.
+/// leaves the view as it is; the resident refuses it with an `error` event
+/// before this boundary (#84), so the no-op is the last line of defence.
 pub fn set_declutter(s: &ViewState, mode: &Value) -> ViewState {
     if !H::declutter_modes().iter().any(|known| known == mode) {
         return s.clone();

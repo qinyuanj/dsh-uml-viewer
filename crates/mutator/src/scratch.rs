@@ -56,6 +56,7 @@ impl Root {
                     };
                 }
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                // The failure already names the operation and the directory.
                 Err(error) => return Err(error),
             }
         }
@@ -267,14 +268,34 @@ fn owned_by_me(_metadata: &fs::Metadata) -> bool {
 }
 
 /// The temporary directory, refused while it is inside the project.
+///
+/// The path comes back as the system gave it, not resolved. A temporary
+/// directory that is a junction — a sandbox redirect is one — is writable under
+/// the name it was granted by, while its resolved target can be a directory this
+/// process may not create in; resolving it here would move the scratch tree to
+/// that target and fail. The refusal below still compares resolved forms, so a
+/// junction that hides the temporary directory inside the project is still
+/// caught.
 pub fn temporary(project: &Path) -> io::Result<PathBuf> {
-    let temporary = quality_core::paths::resolve(&std::env::temp_dir());
-    if temporary.starts_with(quality_core::paths::resolve(project)) {
-        return Err(io::Error::other(
-            "the temporary directory is inside the project; point TMPDIR outside it",
-        ));
+    // The run needs a writable temporary directory, and a confined process is
+    // often granted one under a name the system temp does not use (#82).
+    // TMPDIR names it first on every platform — Windows otherwise reads only
+    // TEMP/TMP — and docs/mutation-windows.md states the requirement.
+    let given = std::env::var_os("TMPDIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    let resolved = quality_core::paths::resolve(&given);
+    let project = quality_core::paths::resolve(project);
+    if resolved.starts_with(&project) {
+        return Err(io::Error::other(format!(
+            "the temporary directory {} is inside the project {}; point TMPDIR at a writable directory outside the project",
+            given.display(),
+            project.display()
+        )));
     }
-    Ok(temporary)
+    // A relative TMPDIR would be joined against the project, so it is resolved.
+    Ok(if given.is_absolute() { given } else { resolved })
 }
 
 /// An unpredictable suffix: a per-process random seed plus the clock.
@@ -294,15 +315,31 @@ fn nonce() -> u64 {
     hasher.finish()
 }
 
+/// Name the operation and the directory when a private directory cannot be
+/// created (#82): a sandbox reports a bare `os error 5` (or 32), which does not
+/// say which directory the run needed. Every creation site gets this message,
+/// so no caller can emit the bare error.
+fn report_creation(path: &Path, result: io::Result<()>) -> io::Result<()> {
+    result.map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "cannot create the private directory {}: {error}",
+                path.display()
+            ),
+        )
+    })
+}
+
 #[cfg(unix)]
 pub fn private_directory(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
-    fs::DirBuilder::new().mode(0o700).create(path)
+    report_creation(path, fs::DirBuilder::new().mode(0o700).create(path))
 }
 
 #[cfg(not(unix))]
 pub fn private_directory(path: &Path) -> io::Result<()> {
-    fs::create_dir(path)
+    report_creation(path, fs::create_dir(path))
 }
 
 #[cfg(unix)]
@@ -359,4 +396,175 @@ pub fn force_remove(path: &Path) -> io::Result<()> {
         failure = failure.or(Some(error));
     }
     failure.map_or(Ok(()), Err)
+}
+
+#[cfg(test)]
+mod tests {
+    //! The two failures this module must not hide: a temporary directory that
+    //! is a junction, and a scratch directory that cannot be created. Each
+    //! check runs in a child test process, so `TMPDIR` belongs to it alone.
+
+    // Test code is the outside harness: these checks launch `cmd /C mklink` and
+    // the test executable itself. The module lives under `#[cfg(test)]`, so the
+    // lift is test-only by construction and takes the documented
+    // `cfg_attr(test, allow(...))` form (clippy.toml, scripts/test_process_boundary.py).
+    #![cfg_attr(test, allow(clippy::disallowed_methods))]
+
+    use super::{Root, temporary};
+    use std::{
+        env,
+        ffi::OsStr,
+        fs,
+        path::{Path, PathBuf},
+        process::{Command, Stdio},
+    };
+
+    const CHILD: &str = "MUTATOR_SCRATCH_TEST";
+    const BASE: &str = "MUTATOR_SCRATCH_TEST_BASE";
+
+    fn test_target() -> PathBuf {
+        let executable = env::current_exe().expect("the test executable");
+        executable
+            .parent()
+            .and_then(Path::parent)
+            .expect("target/<profile>/deps/<test>")
+            .join("tmp")
+    }
+
+    fn base(name: &str) -> PathBuf {
+        let base = test_target().join(format!("scratch-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).expect("create the test base");
+        base
+    }
+
+    #[cfg(windows)]
+    fn directory_link(link: &Path, target: &Path) {
+        let status = Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("start mklink");
+        assert!(
+            status.success(),
+            "mklink /J {} {}",
+            link.display(),
+            target.display()
+        );
+    }
+
+    #[cfg(unix)]
+    fn directory_link(link: &Path, target: &Path) {
+        std::os::unix::fs::symlink(target, link).expect("create a directory symlink");
+    }
+
+    fn run_isolated(test: &str, tmpdir: &Path, base: &Path) {
+        let log_path = base.join("child.log");
+        let log = fs::File::create(&log_path).expect("create the child log");
+        let status = Command::new(env::current_exe().expect("the test executable"))
+            .args(["--exact", &format!("scratch::tests::{test}"), "--nocapture"])
+            .env(CHILD, test)
+            .env(BASE, base)
+            .env("TMPDIR", tmpdir)
+            .stdout(Stdio::from(log.try_clone().expect("clone the child log")))
+            .stderr(Stdio::from(log))
+            .status()
+            .expect("start the isolated test");
+        let output = fs::read_to_string(&log_path).unwrap_or_default();
+        if !status.success() {
+            panic!("isolated check `{test}` failed ({status}):\n{output}");
+        }
+        // `--exact` selects nothing and still exits 0 when this literal and the
+        // test's own name have drifted apart, so the exit status alone would let
+        // the check pass without running. Trust the child's result line instead.
+        let ran = format!("test scratch::tests::{test} ... ok");
+        if !output.lines().any(|line| line.trim() == ran) {
+            panic!(
+                "the isolated child did not run `{test}` (renamed, or the filter does not match); its log:\n{output}"
+            );
+        }
+    }
+
+    fn child_base() -> PathBuf {
+        PathBuf::from(env::var_os(BASE).expect("the isolated test base"))
+    }
+
+    #[test]
+    fn temporary_returns_the_tmpdir_junction_it_was_given() {
+        if env::var_os(CHILD).as_deref()
+            == Some(OsStr::new(
+                "temporary_returns_the_tmpdir_junction_it_was_given",
+            ))
+        {
+            let base = child_base();
+            let link = base.join("link");
+            let project = base.join("project");
+            assert_eq!(
+                temporary(&project).expect("temporary directory"),
+                link,
+                "the granted junction was resolved to its target"
+            );
+            return;
+        }
+
+        let base = base("junction");
+        let target = base.join("target");
+        let link = base.join("link");
+        let project = base.join("project");
+        fs::create_dir_all(&target).unwrap();
+        fs::create_dir_all(&project).unwrap();
+        directory_link(&link, &target);
+
+        run_isolated(
+            "temporary_returns_the_tmpdir_junction_it_was_given",
+            &link,
+            &base,
+        );
+
+        let _ = fs::remove_dir(&link);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn root_new_names_the_directory_it_could_not_create() {
+        if env::var_os(CHILD).as_deref()
+            == Some(OsStr::new(
+                "root_new_names_the_directory_it_could_not_create",
+            ))
+        {
+            let base = child_base();
+            let project = base.join("project");
+            let message = Root::new(&project)
+                .err()
+                .expect("a scratch directory under a file cannot be created")
+                .to_string();
+            let blocked = base.join("blocked");
+            assert!(
+                message.contains(&blocked.display().to_string()),
+                "the failure names no path: {message}"
+            );
+            assert!(
+                message.contains("cannot create"),
+                "the failure names no operation: {message}"
+            );
+            return;
+        }
+
+        let base = base("uncreatable");
+        let project = base.join("project");
+        let blocked = base.join("blocked");
+        fs::create_dir_all(&project).unwrap();
+        fs::write(&blocked, "not a directory").unwrap();
+
+        run_isolated(
+            "root_new_names_the_directory_it_could_not_create",
+            &blocked.join("child"),
+            &base,
+        );
+
+        let _ = fs::remove_dir_all(&base);
+    }
 }

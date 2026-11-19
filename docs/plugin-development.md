@@ -28,7 +28,9 @@ the output). The packaged Sarasa face under `fonts/` is served by the plugin's
 own host route because the `/plugins/<pkg>/assets/*` route only serves images.
 The build runs without dependency lifecycle scripts; esbuild uses its platform
 optional dependency. CI runs tsc, unit tests, the Cordis seam tests and the host
-build on Windows, Linux and macOS alongside the existing Rust checks.
+build on Windows (`windows-latest`) alongside the existing Rust checks; every
+job of `.github/workflows/ci.yml` uses that runner, so Linux and macOS are not
+covered (#86).
 
 ## Binary convention
 
@@ -373,10 +375,13 @@ for by hand is attributed to the head too, so its result can end a request the
 user did not ask it for. A hide or a new proposal is matched exactly instead:
 `uml_ir({request})` names one entry by the grant id it carries, so its `running`
 and `failed` transitions land on that entry, not on the head. A successful
-`uml_display` completes the head and reports that entry's `target` in its
-result, which is what 「在面板中查看」 locates (#54); a display that answers no
-request names no element. The head is read from the list itself, in request
-order, never from a separately remembered "last request" record.
+`uml_display` completes the request the latest `uml_ir` answered and reports
+that entry's `target` in its result, which is what 「在面板中查看」 locates
+(#54): the entry whose `:request` id that IR presented, or — when it presented
+none — the request that IR took up, the head of the queue when that IR ran. The
+host records that entry id with the IR outcome, so the display never re-reads
+the queue: an entry queued or ended after the IR changes nothing, and a display
+that answers no request names no element.
 
 Turn boundaries come from DSH's published `session/event` feed, the one public
 event a plugin can observe them through: `turn/start` clears the turn's claims
@@ -418,7 +423,7 @@ exports the public contracts. Later additions belong in separate modules:
   Do not invent a second scene model. Additive fields/kinds are compatible;
   unknown kinds are skipped and unknown roles render as `ink`.
 
-Compatibility note: `PanelEvent.state` requires `breadcrumbs`/`status` in TS while the validator defaults absent fields to `[]`/`null` for a resident from before #45, and `DisplayResult.target` is optional in TS while `DISPLAY_RESULT_SCHEMA`/`validateDisplayResult` require it; in-repo producers always send both (F5/F11).
+Compatibility note: `PanelEvent.state` requires `breadcrumbs`/`status` in TS while the validator defaults absent fields to `[]`/`null` for a resident from before #45; `DisplayResult.target` is required in both TS and `DISPLAY_RESULT_SCHEMA`/`validateDisplayResult` (required, and nullable). In-repo producers always send both (F5/F11).
 
 The host's `dsh.ts` is a narrow structural boundary to the inspected DSH
 0.2.2-rc.1 services; `process.ts` owns confinement and bounded subprocess
@@ -516,10 +521,13 @@ re-renders in place. Rows are plain markup styled from `--dsw-*` tokens; they
 never load `dsh-client-ui-primitives` or the host's Tool views (ADR 0013).
 
 `uml_display` carries one additive field, `target: {id, kind} | null`: the
-element of the shown diagram that the panel request it answered named
-(`PanelRequests` remembers the target of the session's last admitted request
-and `uml_display` consumes it on success). 「在面板中查看」 opens that session's
-UML tab through `ctx.sidebarRight.openTab` and sends the existing `locate`
+element named by the panel request this display completed. The host keeps one
+status entry per admitted request, and a successful display ends the entry the
+latest successful `uml_ir` answered — the request whose `:request` id that IR
+presented, or the request it took up when it presented none — never whatever
+happens to sit at the head when the display runs (#84); `target` is that entry's
+element. 「在面板中查看」 opens that session's UML tab through
+`ctx.sidebarRight.openTab` and sends the existing `locate`
 action once the panel can take actions — immediately, or on the reopened
 panel's first live frame. A display that answered no request (`target: null`)
 only opens the tab, and a refused or failed display does not locate anything.
@@ -531,8 +539,9 @@ DSH reads `package.json`'s `dsh.bundle.patch`, runtime export and `engines.dsh`.
 mechanism. The patch inserts exactly one row named like the package. The
 manifest lists all five tools: `uml_ir`, `uml_crap`, `uml_mutate`, `uml_dry`
 and `uml_display`. The browser half is declared where DSH reads it:
-`package.json` `dsh.client` (`platform: "web"`, `immediately: true`, the right
-sidebar as its only activation-order dependency, no `external` requests) plus the
+`package.json` `dsh.client` (`platform: "web"`, `immediately: true`, two
+activation-order dependencies — `@deepseek-ai/dsh-api-gateway` and
+`@deepseek-ai/dsh-client-ui-sidebar-right` — and no `external` requests) plus the
 `"./client"` export. `dsh-std` 0.15 has no `facets.client` key, so the
 informational manifest uses the host facet and explains the Web client split
 in its notes. Permissions declare subprocess execution, project reads/writes

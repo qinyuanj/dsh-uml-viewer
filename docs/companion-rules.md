@@ -35,8 +35,10 @@ no proposal definition.
   carry `:request "<id>"`: pass it as `uml_ir({request: "<id>"})` so the IR runs even after an
   earlier failed quality call. Each id works once, in this session only; never reuse one or pass
   it for any other IR.
-- `uml_display` runs only after the latest `uml_ir` in this session succeeded. If it is
-  refused, fix the cause and run `uml_ir` again instead of retrying the display.
+- `uml_display` runs only after the latest `uml_ir` in this session succeeded. It completes the
+  panel request that `uml_ir` answered — the one whose `:request` id it carried — not the oldest
+  request in the queue, so answer requests in the order you run their IR. If it is refused, fix the
+  cause and run `uml_ir` again instead of retrying the display.
 - `{:op :omit :target {:id … :kind …} :context {…} :request "…"}` hides that element: add the
   id to the `:omit` of the proposal its `:context` names, or to the policy `:omit` when the
   context is `{:context :real}`. Then run `uml_ir` with the request id; call `uml_display` only

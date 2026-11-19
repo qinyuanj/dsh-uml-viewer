@@ -20,9 +20,9 @@ describe('resident protocol', () => {
     for (const name of goldenFiles) {
       const line = JSON.stringify({ version: 1, seq: 3, event: 'frame', frame: golden(name) })
       const event = parseResidentLine(line)
-      expect(event.event, name).toBe('frame')
-      expect(event.seq).toBe(3)
-      if (event.event !== 'frame') return
+      expect(event?.event, name).toBe('frame')
+      expect(event?.seq).toBe(3)
+      if (event?.event !== 'frame') return
       expect(event.frame.schema).toBe('dsh-uml-viewer/scene-frame')
       // The frame travels unchanged: the resident contract never reshapes the producer's document.
       expect(event.frame).toEqual(golden(name))
@@ -140,7 +140,6 @@ describe('resident protocol', () => {
   it.each([
     ['another protocol version', frame, (line: Record<string, unknown>) => { line.version = 2 }, /version/],
     ['no event name', frame, (line: Record<string, unknown>) => { delete line.event }, /event/],
-    ['an unknown event', frame, (line: Record<string, unknown>) => { line.event = 'paint' }, /event/],
     ['a frame event without a frame', frame, (line: Record<string, unknown>) => { delete line.frame }, /frame/],
     ['a frame event whose frame breaks the scene contract', frame, (line: Record<string, unknown>) => {
       (line.frame as Record<string, unknown>).version = 2
@@ -154,6 +153,22 @@ describe('resident protocol', () => {
     const line = structuredClone(base) as Record<string, unknown>
     mutate(line)
     expect(() => validateResidentEvent(line)).toThrow(message)
+  })
+
+  it('ignores an event this version does not know, keeping version 1 additive', () => {
+    // docs/resident-protocol.md, Stability: adding an event is compatible and
+    // keeps version 1; the host ignores events it does not know. A new event
+    // must therefore not end the panel stream (#84).
+    for (const event of ['paint', 'inspector']) {
+      expect(parseResidentLine(JSON.stringify({ version: 1, seq: 9, event, extra: { any: 'field' } }))).toBeNull()
+    }
+    // The same is true of a line an older host receives from a newer child
+    // that adds a field to an event version 1 already knows.
+    expect(parseResidentLine(JSON.stringify({ version: 1, seq: 10, event: 'ack', futureField: true })))
+      .toEqual({ version: 1, seq: 10, event: 'ack' })
+    // A line that names no event at all is still broken, not unknown.
+    expect(() => parseResidentLine(JSON.stringify({ version: 1, seq: 9 }))).toThrow(/event/)
+    expect(() => parseResidentLine(JSON.stringify({ version: 1, seq: 9, event: 7 }))).toThrow(/event/)
   })
 
   it('rejects a stdout line that is not JSON at all', () => {

@@ -490,6 +490,23 @@ impl Resident {
                         return Err(format!("mode must be a declutter mode, not {other}"));
                     }
                 };
+                // #84: a mode this version does not know is an error, not a
+                // silently dropped argument: the caller has to learn that the
+                // mode it named took no effect.
+                if let Some(mode) = &mode {
+                    let known = scene::events::declutter_modes();
+                    if !known.iter().any(|name| name == mode) {
+                        let names: Vec<String> = known
+                            .iter()
+                            .filter_map(|name| edn::record::local_name(name).map(str::to_owned))
+                            .collect();
+                        return Err(format!(
+                            "unknown declutter mode {}; expected one of {}",
+                            edn::record::local_name(mode).unwrap_or_default(),
+                            names.join(", ")
+                        ));
+                    }
+                }
                 self.session()?.act(Action::Declutter(mode), &dims);
             }
             "save" => {

@@ -72,7 +72,7 @@ describe('overlay validators', () => {
     const captured = ['card', 'source'].map(name => parseResidentLine(
       readFileSync(new URL(`./protocol-samples/${name}.json`, import.meta.url), 'utf8').trimEnd(),
     ))
-    expect(captured.map(event => event.event)).toEqual(['card', 'source'])
+    expect(captured.map(event => event?.event)).toEqual(['card', 'source'])
     const [detail, opened] = captured
     if (detail?.event !== 'card' || opened?.event !== 'source') {
       throw new Error('producer samples must contain the card and source resident event variants')
@@ -160,8 +160,8 @@ describe('overlay validators', () => {
       ['source', 'source', source],
     ] as const) {
       const parsed = parseResidentLine(JSON.stringify({ version: 1, seq: 7, event, [key]: payload }))
-      expect(parsed.event).toBe(event)
-      expect(parsed.seq).toBe(7)
+      expect(parsed?.event).toBe(event)
+      expect(parsed?.seq).toBe(7)
       expect((parsed as unknown as Record<string, unknown>)[key]).toEqual(payload)
     }
     expect(() => parseResidentLine(JSON.stringify({ version: 1, seq: 7, event: 'card', card: { id: 1 } })))
@@ -173,9 +173,11 @@ describe('overlay validators', () => {
     expect(parsed).toEqual({ version: 1, seq: 8, event: 'card', card: null })
   })
 
-  it('no longer knows the inspector: its event and its action are refused (#47)', () => {
-    expect(() => parseResidentLine(JSON.stringify({ version: 1, seq: 7, event: 'inspector', inspector: {} })))
-      .toThrow(/event/)
+  it('no longer knows the inspector: its event is ignored, its action is refused (#47)', () => {
+    // #84: an event this version does not know is additive, never a broken
+    // stream; a resident that still sends `inspector` is ignored by the panel.
+    expect(parseResidentLine(JSON.stringify({ version: 1, seq: 7, event: 'inspector', inspector: {} })))
+      .toBeNull()
     expect(() => parsePanelAction({ action: 'inspector' })).toThrow(/action/)
   })
 })
