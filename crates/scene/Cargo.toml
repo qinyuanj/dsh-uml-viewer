@@ -10,6 +10,11 @@ autotests = false
 [dependencies]
 edn = { path = "../edn" }
 
+[dev-dependencies]
+# #89: the integration tests compile the self-hosted policy in-process
+# instead of reading the committed (and therefore stale) generated EDN.
+ir = { path = "../ir" }
+
 [lints.rust]
 # cargo llvm-cov sets cfg(coverage) for the quality refresh.
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage)"] }

@@ -134,16 +134,16 @@ fn scan_policy(p: &Value, filenames: &[String], adapter: &Adapter) -> Result<Val
     graph::scan_project(&lang, &src, &opts, adapter)
 }
 
-/// `generate(nil, path, out, adapter)`.
-fn generate(path: &str, out: Option<String>, adapter: &Adapter) -> Result<String, String> {
-    let p = read_policy(path, adapter)?;
+/// The IR document of an already-read policy, scanned fresh against
+/// `adapter` and stamped with the policy path.
+fn build(p: &Value, path: &str, adapter: &Adapter) -> Result<Value, String> {
     let mut filenames = Vec::new();
-    if value::get_truthy(&p, "lang").is_none() && value::get_truthy(&p, "sources").is_none() {
+    if value::get_truthy(p, "lang").is_none() && value::get_truthy(p, "sources").is_none() {
         filenames = adapter.filenames()?;
     }
-    let graph = scan_policy(&p, &filenames, adapter)?;
-    quality_scope::warn(&p, &graph, adapter);
-    let extra = policy::unassigned(&p, &graph);
+    let graph = scan_policy(p, &filenames, adapter)?;
+    quality_scope::warn(p, &graph, adapter);
+    let extra = policy::unassigned(p, &graph);
     if !extra.is_empty() {
         let names: Vec<String> = extra
             .iter()
@@ -154,8 +154,24 @@ fn generate(path: &str, out: Option<String>, adapter: &Adapter) -> Result<String
             .collect();
         eprintln!("Unassigned namespaces: {}", names.join(", "));
     }
-    let mut doc = policy::apply_policy(&p, &graph);
+    let mut doc = policy::apply_policy(p, &graph);
     put(&mut doc, "policy-file", Value::String(path.to_owned()));
+    Ok(doc)
+}
+
+/// The IR document of a policy against `root`, in memory: the tests'
+/// in-process equivalent of `ir <policy> <out>` (#89). The policy path is
+/// resolved under `root`, like the CLI's.
+pub fn document(path: &str, root: &str) -> Result<Value, String> {
+    let adapter = Adapter::new(root)?;
+    let p = read_policy(path, &adapter)?;
+    build(&p, path, &adapter)
+}
+
+/// `generate(nil, path, out, adapter)`.
+fn generate(path: &str, out: Option<String>, adapter: &Adapter) -> Result<String, String> {
+    let p = read_policy(path, adapter)?;
+    let doc = build(&p, path, adapter)?;
     let out = out
         .or_else(|| {
             get(&p, "out").and_then(|v| match v {
