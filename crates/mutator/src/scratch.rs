@@ -56,15 +56,8 @@ impl Root {
                     };
                 }
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(error) => {
-                    return Err(io::Error::new(
-                        error.kind(),
-                        format!(
-                            "cannot create the mutation scratch directory {}: {error}",
-                            directory.display()
-                        ),
-                    ));
-                }
+                // The failure already names the operation and the directory.
+                Err(error) => return Err(error),
             }
         }
         Err(io::Error::other(
@@ -284,18 +277,22 @@ fn owned_by_me(_metadata: &fs::Metadata) -> bool {
 /// junction that hides the temporary directory inside the project is still
 /// caught.
 pub fn temporary(project: &Path) -> io::Result<PathBuf> {
-    // The refusal below tells the user to "point TMPDIR outside it", so TMPDIR
-    // is honoured first: on Windows nothing else reads it, and a confined
-    // process often has a writable directory that is not the system temp.
+    // The run needs a writable temporary directory, and a confined process is
+    // often granted one under a name the system temp does not use (#82).
+    // TMPDIR names it first on every platform — Windows otherwise reads only
+    // TEMP/TMP — and docs/mutation-windows.md states the requirement.
     let given = std::env::var_os("TMPDIR")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
     let resolved = quality_core::paths::resolve(&given);
-    if resolved.starts_with(quality_core::paths::resolve(project)) {
-        return Err(io::Error::other(
-            "the temporary directory is inside the project; point TMPDIR outside it",
-        ));
+    let project = quality_core::paths::resolve(project);
+    if resolved.starts_with(&project) {
+        return Err(io::Error::other(format!(
+            "the temporary directory {} is inside the project {}; point TMPDIR at a writable directory outside the project",
+            given.display(),
+            project.display()
+        )));
     }
     // A relative TMPDIR would be joined against the project, so it is resolved.
     Ok(if given.is_absolute() { given } else { resolved })
@@ -318,15 +315,31 @@ fn nonce() -> u64 {
     hasher.finish()
 }
 
+/// Name the operation and the directory when a private directory cannot be
+/// created (#82): a sandbox reports a bare `os error 5` (or 32), which does not
+/// say which directory the run needed. Every creation site gets this message,
+/// so no caller can emit the bare error.
+fn report_creation(path: &Path, result: io::Result<()>) -> io::Result<()> {
+    result.map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "cannot create the private directory {}: {error}",
+                path.display()
+            ),
+        )
+    })
+}
+
 #[cfg(unix)]
 pub fn private_directory(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
-    fs::DirBuilder::new().mode(0o700).create(path)
+    report_creation(path, fs::DirBuilder::new().mode(0o700).create(path))
 }
 
 #[cfg(not(unix))]
 pub fn private_directory(path: &Path) -> io::Result<()> {
-    fs::create_dir(path)
+    report_creation(path, fs::create_dir(path))
 }
 
 #[cfg(unix)]
@@ -454,9 +467,18 @@ mod tests {
             .stderr(Stdio::from(log))
             .status()
             .expect("start the isolated test");
+        let output = fs::read_to_string(&log_path).unwrap_or_default();
         if !status.success() {
-            let output = fs::read_to_string(&log_path).unwrap_or_default();
             panic!("isolated check `{test}` failed ({status}):\n{output}");
+        }
+        // `--exact` selects nothing and still exits 0 when this literal and the
+        // test's own name have drifted apart, so the exit status alone would let
+        // the check pass without running. Trust the child's result line instead.
+        let ran = format!("test scratch::tests::{test} ... ok");
+        if !output.lines().any(|line| line.trim() == ran) {
+            panic!(
+                "the isolated child did not run `{test}` (renamed, or the filter does not match); its log:\n{output}"
+            );
         }
     }
 

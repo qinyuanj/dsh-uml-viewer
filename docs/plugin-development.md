@@ -375,10 +375,13 @@ for by hand is attributed to the head too, so its result can end a request the
 user did not ask it for. A hide or a new proposal is matched exactly instead:
 `uml_ir({request})` names one entry by the grant id it carries, so its `running`
 and `failed` transitions land on that entry, not on the head. A successful
-`uml_display` completes the head and reports that entry's `target` in its
-result, which is what 「在面板中查看」 locates (#54); a display that answers no
-request names no element. The head is read from the list itself, in request
-order, never from a separately remembered "last request" record.
+`uml_display` completes the request the latest `uml_ir` answered and reports
+that entry's `target` in its result, which is what 「在面板中查看」 locates
+(#54): the entry whose `:request` id that IR presented, or — when it presented
+none — the request that IR took up, the head of the queue when that IR ran. The
+host records that entry id with the IR outcome, so the display never re-reads
+the queue: an entry queued or ended after the IR changes nothing, and a display
+that answers no request names no element.
 
 Turn boundaries come from DSH's published `session/event` feed, the one public
 event a plugin can observe them through: `turn/start` clears the turn's claims
@@ -519,9 +522,10 @@ never load `dsh-client-ui-primitives` or the host's Tool views (ADR 0013).
 
 `uml_display` carries one additive field, `target: {id, kind} | null`: the
 element named by the panel request this display completed. The host keeps one
-status entry per admitted request, and a successful display ends the entry at the
-head of that session's queue — the oldest unfinished request, not necessarily the
-one this call answered (#84 tracks making it exact); `target` is that entry's
+status entry per admitted request, and a successful display ends the entry the
+latest successful `uml_ir` answered — the request whose `:request` id that IR
+presented, or the request it took up when it presented none — never whatever
+happens to sit at the head when the display runs (#84); `target` is that entry's
 element. 「在面板中查看」 opens that session's UML tab through
 `ctx.sidebarRight.openTab` and sends the existing `locate`
 action once the panel can take actions — immediately, or on the reopened
