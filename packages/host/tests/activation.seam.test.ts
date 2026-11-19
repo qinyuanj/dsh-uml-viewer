@@ -44,7 +44,7 @@ it.each([['linux', 'x64'], ['darwin', 'arm64'], ['darwin', 'x64'], ['win32', 'ar
   expect(reason).toContain('only native Windows x64 (win32-x64) is supported')
   expect(reason).toContain('ships one platform package')
   expect(reason).toContain('macOS has no mutant isolation path')
-  expect(reason).toContain('Linux x64 is not a delivery host')
+  expect(reason).toContain('Linux (x64 or arm64) is not a delivery host')
   expect(registrations).toEqual([])
   expect(ctx.get('umlViewer')).toBeUndefined()
 })
