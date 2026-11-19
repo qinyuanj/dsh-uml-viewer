@@ -127,17 +127,45 @@ fn crossings(scene: &Value) -> (Vec<String>, Vec<String>) {
     (inside, wrapped)
 }
 
+/// Ceilings on the crossings a wrapped relationship may make (#94). A lane
+/// is reserved through the columns of one shelf only, so a relationship
+/// whose ends wrap onto different shelves keeps none (#89), and
+/// `route::candidates` assumes the rank order is the x order, which the
+/// strip satisfies and the wrapped columns do not (#94). These are the
+/// counts the real tree measures today: they may go down, never up, and a
+/// view that is not listed here needs its own line.
+const WRAPPED_CROSSINGS: &[(&str, usize)] = &[
+    ("", 12),
+    (":companion", 0),
+    (":edn", 0),
+    (":ir", 0),
+    (":main", 0),
+    (":scene", 0),
+    (":viewer", 0),
+];
+
 #[test]
 fn no_wide_relationship_crosses_a_box_or_oval_it_does_not_end_at() {
     // A lane is reserved through the columns of one shelf, and a relationship
     // whose ends wrap onto different shelves loses it (#89). Every crossing
     // must belong to such a wrapped relationship: the guarantee stays whole
-    // for every relationship that keeps to a shelf.
+    // for every relationship that keeps to a shelf, and the ones that lose
+    // their lane are counted against a ceiling that only goes down (#94).
     for (focus, scene) in common::self_hosted_views_with(&common::wide()) {
         let (inside, wrapped) = crossings(&scene);
         assert!(
             inside.is_empty(),
             "{focus:?}: {inside:#?} (wrapped: {wrapped:#?})"
+        );
+        let Some((_, ceiling)) = WRAPPED_CROSSINGS.iter().find(|(v, _)| *v == focus) else {
+            panic!("{focus:?} has no ceiling in WRAPPED_CROSSINGS; add one");
+        };
+        assert!(
+            wrapped.len() <= *ceiling,
+            "{focus:?}: {} cross-shelf crossings, ceiling {} - tighten the ceiling instead \
+             of raising it, and see #94 for the gutter channel model that removes them: {wrapped:#?}",
+            wrapped.len(),
+            ceiling,
         );
     }
 }

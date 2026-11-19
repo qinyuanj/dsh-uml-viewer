@@ -352,6 +352,11 @@ fn shelf_bands(scene: &edn::Value) -> std::collections::HashMap<String, usize> {
     out
 }
 
+/// Ceilings on the crossings a wrapped relationship may make (#94), the
+/// same ratchet as `tests/wide_layout.rs` keeps per view: it may go down,
+/// never up, and #94 tracks the gutter channel model that empties it.
+const WRAPPED_CROSSINGS: usize = 2;
+
 /// Whether the two ends of `e` sit on different shelves.
 fn wraps(scene: &edn::Value, e: &edn::Value) -> bool {
     let bands = shelf_bands(scene);
@@ -375,13 +380,12 @@ fn a_wide_layout_folds_a_tall_rank_into_consecutive_columns() {
     assert_eq!((0..ranks.len() as i64).collect::<Vec<_>>(), ranks);
     let edges = edn::record::seq(get(&s, "edges"));
     assert_eq!(LEAVES + 3, edges.len());
+    let mut wrapped_crossed = 0;
     for e in edges {
         assert!(!edn::record::flag(e, "lane-fallback"), "{e:?}");
         // A lane is reserved through the columns of one shelf; an edge that
         // wraps between shelves keeps none and may cross (#89).
-        if wraps(&s, e) {
-            continue;
-        }
+        let wrapped_edge = wraps(&s, e);
         let ps: Vec<[f64; 2]> = edn::record::seq(get(e, "points"))
             .iter()
             .filter_map(crate::geom::vec2)
@@ -398,6 +402,14 @@ fn a_wide_layout_folds_a_tall_rank_into_consecutive_columns() {
                     && w[0][1].min(w[1][1]) < r.bottom()
                     && w[0][1].max(w[1][1]) > r.y
             });
+            if wrapped_edge {
+                // The lane is gone, so the crossing is counted rather than
+                // forbidden, against a ceiling that only goes down (#94).
+                if crossed {
+                    wrapped_crossed += 1;
+                }
+                continue;
+            }
             assert!(
                 !crossed,
                 "{:?} -> {:?} across {id:?}",
@@ -406,6 +418,11 @@ fn a_wide_layout_folds_a_tall_rank_into_consecutive_columns() {
             );
         }
     }
+    assert!(
+        wrapped_crossed <= WRAPPED_CROSSINGS,
+        "{wrapped_crossed} cross-shelf crossings, ceiling {WRAPPED_CROSSINGS} - tighten \
+         the ceiling instead of raising it, and see #94 for the gutter channel model"
+    );
     assert_eq!(
         s,
         crate::compose::compile_diagram(&wide_diagram(crate::document::WIDE_ASPECT))
