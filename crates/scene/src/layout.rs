@@ -237,6 +237,10 @@ const GRID: usize = 4;
 const LEVEL_GAP: f64 = 220.0;
 const RANK_GAP: f64 = 140.0;
 
+/// Gap between two shelves of the wide layout: a shelf wraps where a level
+/// would start a new one, so the two read alike.
+const SHELF_GAP: f64 = LEVEL_GAP;
+
 /// Gap between two neighbouring lanes, and between a lane and a box.
 const LANE_GAP: f64 = 12.0;
 const LANE_MARGIN: f64 = 20.0;
@@ -476,6 +480,9 @@ fn place(
             (rank_key(r), b)
         })
         .collect();
+    // The shelf each column of the wide layout sits on; a plain strip, and
+    // the default layout's rows, have one (#89).
+    let mut shelf_of: HashMap<String, usize> = HashMap::new();
     if let Some(aspect) = wide {
         sweep(&keys, &groups, &mut pos, &nbr);
         let ranks: Vec<Column> = keys
@@ -501,10 +508,11 @@ fn place(
             })
             .collect();
         let columns = fold(&ranks, &links, aspect, levels);
-        // Folded columns are ranks of their own, consecutive from the right.
+        // Folded columns are ranks of their own, consecutive from the right;
+        // their shelf says where the strip wraps onto the next one.
         let n = columns.len();
         (keys, groups, band) = (Vec::new(), HashMap::new(), HashMap::new());
-        for (j, (b, ids)) in columns.into_iter().enumerate() {
+        for (j, (b, ids, nth)) in columns.into_iter().enumerate() {
             let r = (n - 1 - j) as f64;
             for id in &ids {
                 rank_at.insert(id.clone(), r);
@@ -512,6 +520,7 @@ fn place(
             keys.push(r);
             groups.insert(rank_key(r), ids);
             band.insert(rank_key(r), b);
+            shelf_of.insert(rank_key(r), nth);
         }
     }
     let rank_of = |id: &str| rank_at[id];
@@ -531,6 +540,13 @@ fn place(
         }
         let (kf, kt) = (order[&rank_key(rank_of(&f))], order[&rank_key(rank_of(&t))]);
         if kf.abs_diff(kt) < 2 {
+            continue;
+        }
+        // A lane runs through the columns between its ends, and a shelf is a
+        // contiguous run of them; an edge whose ends wrapped onto different
+        // shelves keeps none and lets `route` find its own way (#89).
+        let on_shelf = |k: usize| shelf_of.get(&rank_key(keys[k])).copied().unwrap_or(0);
+        if on_shelf(kf) != on_shelf(kt) {
             continue;
         }
         let steps: Vec<usize> = if kf < kt {
@@ -566,7 +582,6 @@ fn place(
     };
     sweep(&keys, &groups, &mut pos, &nbr);
     let mut gs: Vec<(f64, Vec<String>, f64, f64, f64)> = Vec::new();
-    let mut total_h: f64 = 0.0;
     for r in &keys {
         let xs = ordered(&groups[&rank_key(*r)], &pos, &nbr);
         let (mut w, mut h, mut colh): (f64, f64, f64) = (0.0, 0.0, 0.0);
@@ -584,101 +599,122 @@ fn place(
             colh += ch;
         }
         gs.push((*r, xs, w, h, colh));
-        total_h = total_h.max(colh);
+    }
+    // The columns run by run of one shelf (#89): a shelf wraps at its right
+    // edge, a plain strip never does.
+    let nth: Vec<usize> = gs
+        .iter()
+        .map(|g| shelf_of.get(&rank_key(g.0)).copied().unwrap_or(0))
+        .collect();
+    let mut shelves: Vec<std::ops::Range<usize>> = Vec::new();
+    for k in 0..gs.len() {
+        match shelves.last_mut() {
+            Some(r) if nth[r.start] == nth[k] => r.end = k + 1,
+            _ => shelves.push(k..k + 1),
+        }
     }
     // Levels only: boxes slide toward their box neighbours within the widest
     // packed row; lanes keep their order in the gaps between boxes (#185).
     let start: Option<HashMap<String, f64>> = levels.then(|| {
-        let rows: Vec<Vec<Slot>> = gs
-            .iter()
-            .map(|g| {
-                g.1.iter()
-                    .map(|id| {
-                        let lane = lane_of.contains_key(id);
-                        let (w, h) = if lane { (0.0, 0.0) } else { size(id) };
-                        let w = if horizontal { h } else { w };
-                        (id.clone(), w, lane)
-                    })
-                    .collect()
-            })
-            .collect();
-        nearby(&rows, &nbr, &gap)
+        // A shelf slides its own columns: alignment across shelves means
+        // nothing once the strip wraps (#89).
+        let mut out: HashMap<String, f64> = HashMap::new();
+        for run in &shelves {
+            let rows: Vec<Vec<Slot>> = gs[run.clone()]
+                .iter()
+                .map(|g| {
+                    g.1.iter()
+                        .map(|id| {
+                            let lane = lane_of.contains_key(id);
+                            let (w, h) = if lane { (0.0, 0.0) } else { size(id) };
+                            let w = if horizontal { h } else { w };
+                            (id.clone(), w, lane)
+                        })
+                        .collect()
+                })
+                .collect();
+            out.extend(nearby(&rows, &nbr, &gap));
+        }
+        out
     });
     let mut result = Vec::new();
     let mut sunk: Vec<Sunk> = Vec::new();
     // edge index -> (step, entry, exit) of each rank it passes
     let mut through: HashMap<usize, Vec<Pass>> = HashMap::new();
-    let mut along = 0.0;
-    for (k, (rank, group_ids, gw, gh, colh)) in gs.iter().enumerate() {
-        let mut across = if horizontal {
-            (total_h - colh) / 2.0
-        } else {
-            0.0
-        };
-        let depth = if horizontal { *gw } else { *gh };
-        for (i, id) in group_ids.iter().enumerate() {
-            if i > 0 {
-                across += gap(
-                    lane_of.contains_key(&group_ids[i - 1]),
-                    lane_of.contains_key(id),
+    // A shelf starts at the left and stacks below the last one, so the height
+    // grows where the width would have (#89).
+    let mut offset = 0.0;
+    for run in &shelves {
+        let tall = gs[run.clone()].iter().map(|g| g.4).fold(0.0, f64::max);
+        let mut along = 0.0;
+        for (k, (rank, group_ids, gw, gh, colh)) in gs[run.clone()].iter().enumerate() {
+            let mut across = offset + if horizontal { (tall - colh) / 2.0 } else { 0.0 };
+            let depth = if horizontal { *gw } else { *gh };
+            for (i, id) in group_ids.iter().enumerate() {
+                if i > 0 {
+                    across += gap(
+                        lane_of.contains_key(&group_ids[i - 1]),
+                        lane_of.contains_key(id),
+                    );
+                }
+                if let Some(start) = &start {
+                    across = offset + start[id];
+                }
+                if let Some(&(ei, j, forward)) = lane_of.get(id) {
+                    let at = |d: f64| if horizontal { [d, across] } else { [across, d] };
+                    let (near, far) = (at(along - LANE_REACH), at(along + depth + LANE_REACH));
+                    let (enter, exit) = if forward { (near, far) } else { (far, near) };
+                    through.entry(ei).or_default().push((j, enter, exit));
+                    continue;
+                }
+                if let Some(&(cw, ch)) = sink.get(id) {
+                    let r = if horizontal {
+                        Rect::new(along + (gw - cw) / 2.0, across, cw, ch)
+                    } else {
+                        Rect::new(across, along, cw, ch)
+                    };
+                    sunk.push((id.clone(), r, *rank));
+                    across += if horizontal { ch } else { cw };
+                    continue;
+                }
+                let mut c = cs[idx[id]].clone();
+                let (cw, ch, content_w, content_h, in_space) = (
+                    num(get(&c, "w").unwrap()).unwrap(),
+                    num(get(&c, "h").unwrap()).unwrap(),
+                    num(get(&c, "content-w").unwrap()).unwrap(),
+                    num(get(&c, "content-h").unwrap()).unwrap(),
+                    num(get(&c, "in-space").unwrap()).unwrap(),
                 );
-            }
-            if let Some(start) = &start {
-                across = start[id];
-            }
-            if let Some(&(ei, j, forward)) = lane_of.get(id) {
-                let at = |d: f64| if horizontal { [d, across] } else { [across, d] };
-                let (near, far) = (at(along - LANE_REACH), at(along + depth + LANE_REACH));
-                let (enter, exit) = if forward { (near, far) } else { (far, near) };
-                through.entry(ei).or_default().push((j, enter, exit));
-                continue;
-            }
-            if let Some(&(cw, ch)) = sink.get(id) {
-                let r = if horizontal {
-                    Rect::new(along + (gw - cw) / 2.0, across, cw, ch)
+                let (x, y) = if horizontal {
+                    (along, across)
                 } else {
-                    Rect::new(across, along, cw, ch)
+                    (across, along)
                 };
-                sunk.push((id.clone(), r, *rank));
+                // A wide column centres its boxes; plain `:lr` keeps them flush.
+                let slot = if wide.is_some() { *gw } else { cw };
+                put(
+                    &mut c,
+                    "rect",
+                    Rect::new(
+                        x + (slot - content_w) / 2.0,
+                        y + in_space,
+                        content_w,
+                        content_h,
+                    )
+                    .to_value(),
+                );
+                put(&mut c, "rank", numval(*rank));
+                result.push(c);
                 across += if horizontal { ch } else { cw };
-                continue;
             }
-            let mut c = cs[idx[id]].clone();
-            let (cw, ch, content_w, content_h, in_space) = (
-                num(get(&c, "w").unwrap()).unwrap(),
-                num(get(&c, "h").unwrap()).unwrap(),
-                num(get(&c, "content-w").unwrap()).unwrap(),
-                num(get(&c, "content-h").unwrap()).unwrap(),
-                num(get(&c, "in-space").unwrap()).unwrap(),
-            );
-            let (x, y) = if horizontal {
-                (along, across)
-            } else {
-                (across, along)
-            };
-            // A wide column centres its boxes; plain `:lr` keeps them flush.
-            let slot = if wide.is_some() { *gw } else { cw };
-            put(
-                &mut c,
-                "rect",
-                Rect::new(
-                    x + (slot - content_w) / 2.0,
-                    y + in_space,
-                    content_w,
-                    content_h,
-                )
-                .to_value(),
-            );
-            put(&mut c, "rank", numval(*rank));
-            result.push(c);
-            across += if horizontal { ch } else { cw };
+            let next = (k + 1 < run.end - run.start).then(|| gs[run.start + k + 1].0);
+            along += depth
+                + match next {
+                    Some(n) if levels && band[&rank_key(n)] != band[&rank_key(*rank)] => LEVEL_GAP,
+                    _ => RANK_GAP,
+                };
         }
-        let next = gs.get(k + 1).map(|g| g.0);
-        along += depth
-            + match next {
-                Some(n) if levels && band[&rank_key(n)] != band[&rank_key(*rank)] => LEVEL_GAP,
-                _ => RANK_GAP,
-            };
+        offset += tall + SHELF_GAP;
     }
     let mut lanes: Vec<Lane> = through
         .into_iter()
@@ -756,15 +792,19 @@ type Column = (f64, Vec<Sized>);
 const BOX_GAP: f64 = 40.0;
 
 /// The wide layout's columns (#191): every rank, in order, folds into
-/// columns no taller than one height limit, the limit whose diagram fits a
-/// canvas of `aspect` (width / height) at the largest zoom. Folded columns
-/// keep their rank's band; the first fold of a rank stays leftmost.
+/// columns no taller than one height limit, then the columns fill shelves no
+/// wider than one width limit; the pair whose diagram fits a canvas of
+/// `aspect` (width / height) at the largest zoom wins. Folded columns keep
+/// their rank's band; the first fold of a rank stays leftmost. A column that
+/// does not fit its shelf starts the next one, so the width stops growing
+/// with the number of ranks while the height grows with the shelves — the
+/// freedom the target aspect needs (#89).
 fn fold(
     ranks: &[Column],
     links: &[(String, String)],
     aspect: f64,
     levels: bool,
-) -> Vec<(f64, Vec<String>)> {
+) -> Vec<(f64, Vec<String>, usize)> {
     // Greedy runs of one rank no taller than `limit`; a tall box runs alone.
     let split = |nodes: &[Sized], limit: f64| -> Vec<std::ops::Range<usize>> {
         let mut runs = Vec::new();
@@ -791,9 +831,17 @@ fn fold(
             })
             .collect()
     };
-    // The larger of width over aspect and height: the zoom a fit divides by.
-    let extent = |limit: f64| -> f64 {
-        let cols = columns(limit);
+    // The gap after a column: a new level opens a wider one.
+    let gap = |a: f64, b: f64| {
+        if levels && a != b {
+            LEVEL_GAP
+        } else {
+            RANK_GAP
+        }
+    };
+    // Every column's width and height: its widest box, and its boxes, the
+    // gaps between them and the lanes its links reserve.
+    let sizes = |cols: &[(f64, &[Sized])]| -> (Vec<f64>, Vec<f64>) {
         // Lanes each column holds: one per link passing it.
         let at: std::collections::HashMap<&str, usize> = cols
             .iter()
@@ -807,24 +855,43 @@ fn fold(
                 *l += 1;
             }
         }
-        let mut w = 0.0;
-        let mut h: f64 = 0.0;
-        for (k, (band, nodes)) in cols.iter().enumerate() {
-            w += nodes.iter().map(|n| n.1).fold(0.0, f64::max);
-            if let Some((next, _)) = cols.get(k + 1) {
-                w += if levels && next != band {
-                    LEVEL_GAP
-                } else {
-                    RANK_GAP
-                };
-            }
+        let mut ws = Vec::with_capacity(cols.len());
+        let mut hs = Vec::with_capacity(cols.len());
+        for (k, (_, nodes)) in cols.iter().enumerate() {
+            ws.push(nodes.iter().map(|n| n.1).fold(0.0, f64::max));
             let tall: f64 = nodes.iter().map(|n| n.2).sum();
             let lane = match lanes[k] {
                 0 => 0.0,
                 m => 2.0 * LANE_MARGIN + LANE_GAP * (m - 1) as f64,
             };
-            h = h.max(tall + BOX_GAP * nodes.len().saturating_sub(1) as f64 + lane);
+            hs.push(tall + BOX_GAP * nodes.len().saturating_sub(1) as f64 + lane);
         }
+        (ws, hs)
+    };
+    // The columns packed left to right then down: they fill a shelf no wider
+    // than `shelf` and wrap onto the next one, so the width stops growing
+    // with the number of columns while the height grows with the shelves.
+    // Answers the packed width, the stacked height and each column's shelf.
+    let shelves = |cols: &[(f64, &[Sized])], ws: &[f64], hs: &[f64], shelf: f64| {
+        let (mut which, mut nth) = (Vec::with_capacity(cols.len()), 0usize);
+        let (mut x, mut widest, mut y, mut row): (f64, f64, f64, f64) = (0.0, 0.0, 0.0, 0.0);
+        for k in 0..cols.len() {
+            if x > 0.0 && x + gap(cols[k - 1].0, cols[k].0) + ws[k] > shelf {
+                widest = widest.max(x);
+                (y, x, row) = (y + row + SHELF_GAP, 0.0, 0.0);
+                nth += 1;
+            } else if x > 0.0 {
+                x += gap(cols[k - 1].0, cols[k].0);
+            }
+            which.push(nth);
+            x += ws[k];
+            row = row.max(hs[k]);
+        }
+        (widest.max(x), y + row, which)
+    };
+    // The larger of width over aspect and height: the zoom a fit divides by.
+    let extent = |cols: &[(f64, &[Sized])], ws: &[f64], hs: &[f64], shelf: f64| -> f64 {
+        let (w, h, _) = shelves(cols, ws, hs, shelf);
         (w / aspect).max(h)
     };
     // Every height a column can reach; the tallest is no fold at all.
@@ -840,17 +907,41 @@ fn fold(
         .collect();
     limits.sort_by(|a, b| b.partial_cmp(a).unwrap());
     limits.dedup();
-    let mut best = limits.first().copied().unwrap_or(0.0);
-    let mut least = extent(best);
-    for &limit in &limits[1.min(limits.len())..] {
-        let e = extent(limit);
-        if e < least {
-            (best, least) = (limit, e);
+    // Every column height, and every shelf width a column boundary reaches;
+    // the pair whose diagram fits the canvas at the largest zoom wins. The
+    // whole strip on one shelf is among the widths, so the search never does
+    // worse than folding alone.
+    let mut best: Option<(f64, f64, f64)> = None;
+    for &limit in &limits {
+        let cols = columns(limit);
+        let (ws, hs) = sizes(&cols);
+        let mut cum = Vec::with_capacity(cols.len());
+        let mut edge = 0.0;
+        for k in 0..cols.len() {
+            if k > 0 {
+                edge += gap(cols[k - 1].0, cols[k].0);
+            }
+            edge += ws[k];
+            cum.push(edge);
+        }
+        for &shelf in &cum {
+            let e = extent(&cols, &ws, &hs, shelf);
+            let better = match best {
+                Some((b, _, _)) => e < b,
+                None => true,
+            };
+            if better {
+                best = Some((e, limit, shelf));
+            }
         }
     }
-    columns(best)
-        .into_iter()
-        .map(|(band, nodes)| (band, nodes.iter().map(|n| n.0.clone()).collect()))
+    let (limit, shelf) = best.map_or((0.0, 0.0), |(_, l, s)| (l, s));
+    let cols = columns(limit);
+    let (ws, hs) = sizes(&cols);
+    let (_, _, which) = shelves(&cols, &ws, &hs, shelf);
+    cols.into_iter()
+        .zip(which)
+        .map(|((band, nodes), nth)| (band, nodes.iter().map(|n| n.0.clone()).collect(), nth))
         .collect()
 }
 
