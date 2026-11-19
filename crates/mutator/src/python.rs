@@ -266,7 +266,7 @@ mod tests {
     struct Project(PathBuf);
     impl Project {
         fn new(name: &str) -> Self {
-            let directory = std::env::temp_dir().join(format!(
+            let directory = crate::scratch::fixture().join(format!(
                 "mutator-python-plan-{}-{}-{name}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)

@@ -888,7 +888,7 @@ mod tests {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
     fn directory(name: &str) -> PathBuf {
-        let directory = std::env::temp_dir().join(format!(
+        let directory = crate::scratch::fixture().join(format!(
             "mutator-clj-plan-{}-{}-{name}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)

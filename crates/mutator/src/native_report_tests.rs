@@ -16,7 +16,7 @@ impl Fixture {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let directory = std::env::temp_dir().join(format!(
+        let directory = crate::scratch::fixture().join(format!(
             "mutator-native-reports-{}-{stamp}-{serial}",
             std::process::id()
         ));

@@ -250,7 +250,7 @@ mod tests {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     #[test]
     fn typescript_plan_is_npm_test_at_the_nearest_package() {
-        let root = std::env::temp_dir().join(format!(
+        let root = crate::scratch::fixture().join(format!(
             "mutator-typescript-plan-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
