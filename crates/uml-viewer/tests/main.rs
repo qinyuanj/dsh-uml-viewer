@@ -16,6 +16,7 @@ mod dispatch;
 mod dry;
 mod dry_goldens;
 mod dry_languages;
+mod ir_scope;
 mod mutate;
 mod mutate_lua;
 mod mutate_windows;
