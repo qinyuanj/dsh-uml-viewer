@@ -2,6 +2,10 @@
 //! dependency closure of `viewer-session` in the workspace `Cargo.lock`
 //! holds no `companion` package and no window stack, so the resident mode
 //! the plugin host drives links neither Herdr nor a GUI toolkit.
+//!
+//! A lock entry lists a package's `[dev-dependencies]` beside the ones it
+//! ships, and a test's dependencies never reach the binary, so the walk
+//! leaves the dev-only names of every workspace crate out (#89).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -32,7 +36,49 @@ fn lock_graph() -> BTreeMap<String, Vec<String>> {
             graph.entry(name).or_insert_with(Vec::new).extend(deps);
         }
     }
+    // Only the names a test alone needs leave the walk (#89).
+    let names: Vec<String> = graph.keys().cloned().collect();
+    for name in names {
+        let (shipped, dev) = manifest_deps(&name);
+        if let Some(deps) = graph.get_mut(&name) {
+            deps.retain(|d| !dev.contains(d) || shipped.contains(d));
+        }
+    }
     graph
+}
+
+/// The dependency names a workspace crate's manifest declares: the ones it
+/// ships, and the ones only its tests need.
+fn manifest_deps(name: &str) -> (BTreeSet<String>, BTreeSet<String>) {
+    let path = format!(
+        "{}/../../crates/{name}/Cargo.toml",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return (BTreeSet::new(), BTreeSet::new());
+    };
+    let (mut shipped, mut dev) = (BTreeSet::new(), BTreeSet::new());
+    let mut section = String::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            section = line.trim_matches(|c| c == '[' || c == ']').to_owned();
+            continue;
+        }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some(key) = line.split('=').next() else {
+            continue;
+        };
+        let key = key.trim().to_owned();
+        if section == "dev-dependencies" {
+            dev.insert(key);
+        } else if section == "dependencies" || section == "build-dependencies" {
+            shipped.insert(key);
+        }
+    }
+    (shipped, dev)
 }
 
 fn closure(graph: &BTreeMap<String, Vec<String>>, root: &str) -> BTreeSet<String> {

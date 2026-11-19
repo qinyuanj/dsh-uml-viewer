@@ -324,6 +324,44 @@ fn leaf_columns(scene: &edn::Value) -> Vec<f64> {
     xs
 }
 
+/// The shelf each box sits on: the wide layout stacks its columns into
+/// shelves separated by a gutter, and one shelf's boxes all cross its height
+/// (#89).
+fn shelf_bands(scene: &edn::Value) -> std::collections::HashMap<String, usize> {
+    let key = |v: &edn::Value| edn::encode(v).unwrap();
+    let mut boxes: Vec<(f64, f64, String)> = edn::record::seq(get(scene, "classes"))
+        .iter()
+        .filter(|c| !edn::record::flag(c, "dummy?"))
+        .filter_map(|c| {
+            let r = crate::geom::Rect::from_value(get(c, "rect")?)?;
+            Some((r.y, r.bottom(), key(get(c, "id")?)))
+        })
+        .collect();
+    boxes.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    let mut out = std::collections::HashMap::new();
+    let (mut band, mut bottom) = (0, f64::NEG_INFINITY);
+    for (y, b, id) in boxes {
+        if y > bottom {
+            band += 1;
+            bottom = b;
+        } else {
+            bottom = bottom.max(b);
+        }
+        out.insert(id, band);
+    }
+    out
+}
+
+/// Whether the two ends of `e` sit on different shelves.
+fn wraps(scene: &edn::Value, e: &edn::Value) -> bool {
+    let bands = shelf_bands(scene);
+    let key = |v: &edn::Value| edn::encode(v).unwrap();
+    match (get(e, "from"), get(e, "to")) {
+        (Some(f), Some(t)) => bands.get(&key(f)) != bands.get(&key(t)),
+        _ => false,
+    }
+}
+
 #[test]
 fn a_wide_layout_folds_a_tall_rank_into_consecutive_columns() {
     let s = crate::compose::compile_diagram(&wide_diagram(crate::document::WIDE_ASPECT));
@@ -339,6 +377,11 @@ fn a_wide_layout_folds_a_tall_rank_into_consecutive_columns() {
     assert_eq!(LEAVES + 3, edges.len());
     for e in edges {
         assert!(!edn::record::flag(e, "lane-fallback"), "{e:?}");
+        // A lane is reserved through the columns of one shelf; an edge that
+        // wraps between shelves keeps none and may cross (#89).
+        if wraps(&s, e) {
+            continue;
+        }
         let ps: Vec<[f64; 2]> = edn::record::seq(get(e, "points"))
             .iter()
             .filter_map(crate::geom::vec2)
@@ -373,10 +416,19 @@ fn a_wide_layout_folds_a_tall_rank_into_consecutive_columns() {
 fn the_target_aspect_decides_the_fold() {
     let wide = crate::compose::compile_diagram(&wide_diagram(crate::document::WIDE_ASPECT));
     let tall = crate::compose::compile_diagram(&wide_diagram(0.3));
-    assert_eq!(
-        1,
-        leaf_columns(&tall).len(),
-        "a tall canvas keeps one column"
+    // The shelf search answers the target aspect with both knobs: how many
+    // boxes a column stacks and where the strip wraps (#89). A tall canvas
+    // therefore comes out narrower than a wide one.
+    let shape = |s: &edn::Value| {
+        let size = get(s, "size").unwrap();
+        let n = |k: &str| edn::record::num(get(size, k).unwrap()).unwrap();
+        n("w") / n("h")
+    };
+    assert!(
+        shape(&tall) < shape(&wide),
+        "a tall canvas keeps a taller diagram: {:.3} vs {:.3}",
+        shape(&tall),
+        shape(&wide)
     );
     assert!(leaf_columns(&wide).len() > 1);
 }
@@ -384,20 +436,17 @@ fn the_target_aspect_decides_the_fold() {
 #[test]
 fn a_wide_layout_runs_its_levels_left_to_right_then_the_oval_and_the_grid() {
     let s = crate::compose::compile_diagram(&wide_diagram(crate::document::WIDE_ASPECT));
-    let leaves = (1..=LEAVES).map(|i| rect_of(&s, &format!("a{i}")).right());
-    let (hub, base, std, lone) = (
-        rect_of(&s, "hub"),
-        rect_of(&s, "base"),
-        rect_of(&s, "std"),
-        rect_of(&s, "lone"),
-    );
-    assert!(
-        leaves.fold(0.0, f64::max) < hub.x,
-        "level 2 left of level 1"
-    );
-    assert!(hub.right() < base.x, "level 1 left of level 0");
-    assert!(base.right() < std.x, "the oval right of level 0");
-    assert!(std.right() < lone.x, "the edgeless grid last");
+    // Reading order: the strip wraps into shelves (#89), so the rank a column
+    // carries is the order - left to right, then the shelf below.
+    let rank = |id: &str| edn::record::num(get(class_of(&s, id), "rank").unwrap()).unwrap();
+    let first_leaf = (1..=LEAVES)
+        .map(|i| rank(&format!("a{i}")))
+        .fold(f64::INFINITY, f64::min);
+    let (hub, base, std, lone) = (rank("hub"), rank("base"), rank("std"), rank("lone"));
+    assert!(first_leaf > hub, "level 2 before level 1");
+    assert!(hub > base, "level 1 before level 0");
+    assert!(base > std, "the oval after level 0");
+    assert!(std > lone, "the edgeless grid last");
     let hub = class_of(&s, "hub");
     let r = crate::geom::Rect::from_value(get(hub, "rect").unwrap()).unwrap();
     for (k, above) in [("in-ports", true), ("out-ports", false)] {
