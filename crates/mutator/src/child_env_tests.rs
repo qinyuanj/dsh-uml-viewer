@@ -18,13 +18,25 @@ const POLLUTED: &[&str] = &[
 
 #[test]
 fn isolated_commands_scrub_outer_coverage_environment() {
+    // An instrumented process keeps its raw LLVM profile out of the source
+    // tree: LLVM resolves a relative `LLVM_PROFILE_FILE` against the child's
+    // working directory, which is this crate, so the profraw would land in the
+    // tree the coverage fingerprint watches and every run would be judged
+    // stale (#88). An absolute path in scratch storage is still the outer
+    // setting the driver must not pass on; only where the bytes land changes.
+    let profiles = Root::new(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
     // Pollute a separate driver, never the parallel test runner's environment.
     let mut command = Command::new(std::env::current_exe().unwrap());
     command.args(["--exact", "child_env_tests::polluted_driver", "--nocapture"]);
     command.env("MUTATOR_ENV_TEST_DRIVER", "1");
     command.env("MUTATOR_ENV_KEEP", "keep-me");
     for name in POLLUTED {
-        command.env(name, "outer-contamination");
+        let value: std::ffi::OsString = if *name == "LLVM_PROFILE_FILE" {
+            profiles.path().join("outer-%p.profraw").into_os_string()
+        } else {
+            "outer-contamination".into()
+        };
+        command.env(name, value);
     }
     #[cfg(windows)]
     command.env("cargo_llvm_cov_mixed_case", "outer-contamination");
