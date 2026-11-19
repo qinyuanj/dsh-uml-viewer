@@ -19,12 +19,28 @@ const POLLUTED: &[&str] = &[
 #[test]
 fn isolated_commands_scrub_outer_coverage_environment() {
     // Pollute a separate driver, never the parallel test runner's environment.
+    // This suite runs under coverage, so the driver is compiled with it too and
+    // the profiling runtime writes the driver's own profile when that process
+    // exits. `LLVM_PROFILE_FILE` therefore names a path outside the tree: the
+    // bare relative name `outer-contamination` resolved against the crate
+    // directory, and a profile left there makes the next coverage run's
+    // freshness guard refuse to stamp its reports (#88).
+    let profile = crate::scratch::temporary(std::path::Path::new(env!("CARGO_MANIFEST_DIR")))
+        .unwrap()
+        .join("outer-%p.profraw");
     let mut command = Command::new(std::env::current_exe().unwrap());
     command.args(["--exact", "child_env_tests::polluted_driver", "--nocapture"]);
     command.env("MUTATOR_ENV_TEST_DRIVER", "1");
     command.env("MUTATOR_ENV_KEEP", "keep-me");
     for name in POLLUTED {
-        command.env(name, "outer-contamination");
+        // Only the profile path can put a file on disk; the rest are names the
+        // scrubber must drop whatever their value.
+        let value: std::ffi::OsString = if *name == "LLVM_PROFILE_FILE" {
+            profile.clone().into_os_string()
+        } else {
+            "outer-contamination".into()
+        };
+        command.env(name, value);
     }
     #[cfg(windows)]
     command.env("cargo_llvm_cov_mixed_case", "outer-contamination");
@@ -39,6 +55,14 @@ fn isolated_commands_scrub_outer_coverage_environment() {
     assert!(
         stdout.contains("1 passed"),
         "the polluted driver did not run:\n{stdout}"
+    );
+    // The driver's own profile went to the scratch path above, so nothing was
+    // left in the crate directory for a later coverage run to trip over (#88).
+    let stray = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("outer-contamination");
+    assert!(
+        !stray.exists(),
+        "the polluted driver left a profile at {}",
+        stray.display()
     );
 }
 
