@@ -31,6 +31,34 @@ directory) and runs the requested operation:
   only when `forwardArgs` is `append`. Script/shim entries (`.ps1`, `.bat`,
   `.cmd`; `.exe` also on POSIX) are refused.
 
+### The declared-scope call is all-or-nothing, on purpose
+
+Because `crap` runs with `--full-tree`, a `quality crap` call is strict: every
+language the tree contains must have a coverage provider. If one does not, the
+call fails as a whole instead of reporting the part it could measure. That is
+deliberate. A gate that quietly returns partial numbers lets CI go green while a
+language has no scores at all, and a silent gap is worse than a loud failure.
+
+The failure is actionable rather than a bare exit code: the run names the missing
+coverage module on stderr (`crates/quality-core/src/runners/python.rs`), so the
+remedy is to install that provider, not to relax the gate.
+
+A related gap is reported before it bites: when the policy's `:sources` cover a
+root that `uml-quality.json` gives no provider — this repository's
+`packages/*/src` against a manifest listing only `crates` — `ir` and
+`quality` warn, naming the root and how many classes it strands (#83). The
+warning does not change the colour rule: a class with no data is still red and is
+never hidden.
+
+**For one language's numbers, call that tool directly** — `crap`, `mutate` or
+`dry` with its own `-s`/`--source-root` and `--exclude` — rather than routing
+through `quality`, whose scope comes from the manifest and cannot be overridden
+by arguments (#86). For example, the mutator over one crate:
+
+```
+./target/release/uml-viewer mutate -s crates/mutator/src/ --exclude target crates/mutator/src/scratch.rs
+```
+
 ## The output contract
 
 **stdout is exactly one JSON line**, the version-1 result record
