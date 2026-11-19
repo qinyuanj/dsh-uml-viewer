@@ -404,6 +404,12 @@ mod tests {
     //! is a junction, and a scratch directory that cannot be created. Each
     //! check runs in a child test process, so `TMPDIR` belongs to it alone.
 
+    // Test code is the outside harness: these checks launch `cmd /C mklink` and
+    // the test executable itself. The module lives under `#[cfg(test)]`, so the
+    // lift is test-only by construction and takes the documented
+    // `cfg_attr(test, allow(...))` form (clippy.toml, scripts/test_process_boundary.py).
+    #![cfg_attr(test, allow(clippy::disallowed_methods))]
+
     use super::{Root, temporary};
     use std::{
         env,
