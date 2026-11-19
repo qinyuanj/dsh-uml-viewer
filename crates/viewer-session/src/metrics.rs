@@ -80,7 +80,11 @@ pub fn snapshot(base: &Path) -> (Vec<Snapshot>, Value) {
         && let Ok(text) = std::fs::read_to_string(&dry)
     {
         let mtime = watch::mtime(&dry).unwrap_or_default();
-        files.push(Snapshot::new(".metrics/dry.edn", &text, Value::String(mtime)));
+        files.push(Snapshot::new(
+            ".metrics/dry.edn",
+            &text,
+            Value::String(mtime),
+        ));
     }
     collect(base, ".metrics/mutate", &mut files);
     files.sort_by(|a, b| a.path.cmp(&b.path));

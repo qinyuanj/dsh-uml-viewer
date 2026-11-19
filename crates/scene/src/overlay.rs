@@ -133,11 +133,7 @@ pub fn load(files: &[Snapshot]) -> Metrics {
             }
         }
     }
-    Metrics {
-        crap,
-        mutate,
-        dry,
-    }
+    Metrics { crap, mutate, dry }
 }
 
 fn doc_classes(doc: &Value) -> Vec<Value> {

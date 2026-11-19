@@ -28,7 +28,9 @@ fn op(class: &Value, name: &str) -> Value {
 }
 
 fn dry(class: &Value) -> Value {
-    get(class, "dry").cloned().expect("class carries the marker")
+    get(class, "dry")
+        .cloned()
+        .expect("class carries the marker")
 }
 
 fn state(class: &Value) -> String {
@@ -64,7 +66,8 @@ const DRY: &str = r#"{:candidates [
 #[test]
 fn duplicate_structure_reaches_the_class_record_with_its_three_states() {
     let doc = parse(DOC).unwrap();
-    let (overlay, document_summary) = card(&doc, &[snap(".metrics/dry.edn", DRY, 1)], "scene.overlay");
+    let (overlay, document_summary) =
+        card(&doc, &[snap(".metrics/dry.edn", DRY, 1)], "scene.overlay");
 
     // Overlap: the numbers, the weakest pair, the counterpart class.
     assert_eq!("overlap", state(&overlay));
@@ -89,10 +92,7 @@ fn duplicate_structure_reaches_the_class_record_with_its_three_states() {
     let paint = dry(&op(&overlay, "paint"));
     let pair = &seq(get(&paint, "pairs"))[0];
     assert_eq!(Some(0.9), num(get(pair, "score").unwrap()));
-    assert_eq!(
-        Some(&Value::keyword("scene.card")),
-        get(pair, "class")
-    );
+    assert_eq!(Some(&Value::keyword("scene.card")), get(pair, "class"));
     assert_eq!(
         Some(&Value::String("crates/scene/src/card.rs".into())),
         get(pair, "file")
@@ -102,7 +102,10 @@ fn duplicate_structure_reaches_the_class_record_with_its_three_states() {
     assert_eq!(Some(&Value::String("class_card".into())), get(pair, "name"));
     let load = dry(&op(&overlay, "load"));
     let pair = &seq(get(&load, "pairs"))[0];
-    assert!(get(pair, "class").is_none(), "the counterpart is off the graph");
+    assert!(
+        get(pair, "class").is_none(),
+        "the counterpart is off the graph"
+    );
     assert_eq!(
         Some(&Value::String("crates/scene/tests/thing.rs".into())),
         get(pair, "file")
@@ -196,7 +199,10 @@ fn the_file_fallback_marks_the_class_and_refuses_an_ambiguous_file() {
         seq(get(&marker, "others")),
         "the shared file joins neither class, so the only counterpart is the class itself"
     );
-    assert!(get(&op(&class, "f1"), "dry").is_none(), "no name, no member marker");
+    assert!(
+        get(&op(&class, "f1"), "dry").is_none(),
+        "no name, no member marker"
+    );
 
     let summary = summary.unwrap();
     assert_eq!(Some(2.0), num(get(&summary, "candidates").unwrap()));
@@ -209,7 +215,8 @@ fn a_dry_snapshot_never_joins_the_mutation_data() {
     // Regression for the dispatch: every path but the CRAP snapshot used to be
     // read as mutation data, so a dry snapshot carrying :namespace would
     // overwrite that namespace's mutations.
-    let doc = parse(r#"{:hierarchical true :classes [{:id :demo.config :ns "demo.config"}]}"#).unwrap();
+    let doc =
+        parse(r#"{:hierarchical true :classes [{:id :demo.config :ns "demo.config"}]}"#).unwrap();
     let (class, _) = card(
         &doc,
         &[
@@ -218,7 +225,11 @@ fn a_dry_snapshot_never_joins_the_mutation_data() {
                 r#"{:namespace "demo.config" :forms [{:id "defn/pool" :killed 2 :survived 0 :sites 2}]}"#,
                 1000,
             ),
-            snap(".metrics/dry.edn", r#"{:namespace "demo.config" :candidates []}"#, 2000),
+            snap(
+                ".metrics/dry.edn",
+                r#"{:namespace "demo.config" :candidates []}"#,
+                2000,
+            ),
         ],
         "demo.config",
     );

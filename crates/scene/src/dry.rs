@@ -205,11 +205,15 @@ impl Index {
                 }
                 touched.insert(key.clone());
                 if let Some(name) = &span.name {
-                    index.functions.entry((key, name.clone())).or_default().push(Hit {
-                        score: c.score,
-                        class: other.and_then(class_id),
-                        span: counterpart.clone(),
-                    });
+                    index
+                        .functions
+                        .entry((key, name.clone()))
+                        .or_default()
+                        .push(Hit {
+                            score: c.score,
+                            class: other.and_then(class_id),
+                            span: counterpart.clone(),
+                        });
                 }
             }
             for key in touched {
@@ -291,7 +295,11 @@ pub fn apply(class: &mut Value, index: &Index) {
         };
         if let Some(hits) = index.functions.get(&(key.clone(), name)) {
             let pairs: Vec<Value> = hits.iter().map(hit).collect();
-            put(&mut op, "dry", record(vec![("pairs", Value::Vector(pairs))]));
+            put(
+                &mut op,
+                "dry",
+                record(vec![("pairs", Value::Vector(pairs))]),
+            );
         }
         marked.push(op);
     }
