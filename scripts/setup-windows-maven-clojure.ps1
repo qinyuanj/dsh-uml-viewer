@@ -33,12 +33,16 @@
     therefore both tools) can start. The generated clj.cmd -> clj.ps1 pair
     imports the module by absolute path and forwards the arguments.
 
-    Why the launcher rewrites -M:cov: ClojureTools.psm1 parses -M: and its
-    alias as two arguments, while the official CLI and every caller in this
-    repository (quality-core's Clojure runner, mutator's coverage script and
-    test plan) spell the single-token -M:cov. The launcher forwards the
-    two-argument form the module understands, so one spelling works on every
-    host. -X: and -T: have the same module quirk; nothing here uses them.
+    Why the launcher rebuilds -M:cov: ClojureTools.psm1 takes the alias as a
+    separate argument after -M:, and that is the shape a run has to reach it
+    in. Every caller in this repository (quality-core's Clojure runner,
+    mutator's coverage script and test plan) spells the single token -M:cov,
+    which is also what a person types, and PowerShell delivers those two
+    differently: typing clj -M:cov hands the function the pair -M: / cov, but
+    a -File script receives -M / cov, with the colon dropped. The launcher
+    therefore re-inserts the colon as its own token and passes the alias after
+    it, so the module sees exactly what typing -M:cov produced. -X: and -T:
+    are the same shape; nothing here uses them yet.
 
     Re-running is safe: a component already at the pinned version is kept and
     the PATH entries are not duplicated.
@@ -120,17 +124,16 @@ $Launcher = @'
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'ClojureTools/ClojureTools.psd1')
 
-# ClojureTools.psm1 takes the alias as a separate argument after -M:, while
-# the official CLI (and every caller in this repository) spells -M:cov.
-# Forward the form the module understands so one spelling works everywhere.
+# ClojureTools.psm1 takes the alias as a separate argument after -M:, which is
+# what typing clj -M:cov produces. A -File script does not: PowerShell splits
+# -M:cov into -M and cov and drops the colon, so put the colon back as its own
+# token and let the alias follow it. An intact -M:alias is handled too, for a
+# caller that reaches this script without that split.
 $forwarded = @($args)
-if ($forwarded.Count -gt 0 -and $forwarded[0] -match '^-M:(.+)$') {
-    $alias = $Matches[1]
-    $rest = @()
-    if ($forwarded.Count -gt 1) {
-        $rest = $forwarded[1..($forwarded.Count - 1)]
-    }
-    $forwarded = @('-M:', $alias) + $rest
+if ($forwarded.Count -gt 0 -and $forwarded[0] -match '^-(M|X|T):(.+)$') {
+    $forwarded = @("$($Matches[1]):", $Matches[2]) + @($forwarded | Select-Object -Skip 1)
+} elseif ($forwarded.Count -gt 1 -and $forwarded[0] -match '^-(M|X|T)$' -and $forwarded[1] -notmatch '^-') {
+    $forwarded = @("$($forwarded[0]):") + $forwarded[1..($forwarded.Count - 1)]
 }
 clj @forwarded
 if ($null -eq $LASTEXITCODE) { exit 0 }
