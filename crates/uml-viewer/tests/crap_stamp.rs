@@ -162,7 +162,14 @@ fn edits_during_coverage_drop_stamp_but_tool_caches_do_not() {
     p.write("mode", "edit");
     let result = run(&p);
     assert_eq!(result.status.code(), Some(0), "{}", stderr(&result));
-    assert!(stderr(&result).contains("Files changed while coverage ran"));
+    let text = stderr(&result);
+    assert!(text.contains("Files changed while coverage ran"));
+    // The warning names the file that moved, from the fingerprints on either
+    // side of the run rather than a second walk of the tree.
+    assert!(
+        text.contains("changed:") && text.contains("tests/test_a.rs"),
+        "{text}"
+    );
     assert!(!p.root.join(STAMP).exists());
     p.write("mode", "caches");
     let result = run(&p);
