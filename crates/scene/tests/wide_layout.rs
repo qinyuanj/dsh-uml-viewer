@@ -131,11 +131,12 @@ fn crossings(scene: &Value) -> (Vec<String>, Vec<String>) {
 /// is reserved through the columns of one shelf only, so a relationship
 /// whose ends wrap onto different shelves keeps none (#89), and
 /// `route::candidates` assumes the rank order is the x order, which the
-/// strip satisfies and the wrapped columns do not (#94). These are the
-/// counts the real tree measures today: they may go down, never up, and a
-/// view that is not listed here needs its own line.
+/// strip satisfies and the wrapped columns do not (#94). #95 refuses a wrap
+/// that would bury a package's foreign ovals, and no view wraps such a
+/// relationship any more: every ceiling is zero and may only go down. A view
+/// that is not listed here needs its own line.
 const WRAPPED_CROSSINGS: &[(&str, usize)] = &[
-    ("", 12),
+    ("", 0),
     (":companion", 0),
     (":edn", 0),
     (":ir", 0),

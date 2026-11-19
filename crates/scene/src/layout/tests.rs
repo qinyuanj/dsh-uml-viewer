@@ -352,10 +352,12 @@ fn shelf_bands(scene: &edn::Value) -> std::collections::HashMap<String, usize> {
     out
 }
 
-/// Ceilings on the crossings a wrapped relationship may make (#94), the
-/// same ratchet as `tests/wide_layout.rs` keeps per view: it may go down,
-/// never up, and #94 tracks the gutter channel model that empties it.
-const WRAPPED_CROSSINGS: usize = 2;
+/// Ceilings on the crossings a wrapped relationship may make (#94), the same
+/// ratchet `tests/wide_layout.rs` keeps per view: a fixture's entry may only
+/// go down, never up, and #94 tracks the gutter channel model that would make
+/// the zero structural. #95 refuses a wrap that buries a package's ovals, so
+/// no relationship wraps in `wide_diagram` any more.
+const WRAPPED_CROSSINGS: &[(&str, usize)] = &[("wide_diagram", 0)];
 
 /// Whether the two ends of `e` sit on different shelves.
 fn wraps(scene: &edn::Value, e: &edn::Value) -> bool {
@@ -418,10 +420,14 @@ fn a_wide_layout_folds_a_tall_rank_into_consecutive_columns() {
             );
         }
     }
+    let ceiling = WRAPPED_CROSSINGS
+        .iter()
+        .find(|(fixture, _)| *fixture == "wide_diagram")
+        .map_or(0, |(_, n)| *n);
     assert!(
-        wrapped_crossed <= WRAPPED_CROSSINGS,
-        "{wrapped_crossed} cross-shelf crossings, ceiling {WRAPPED_CROSSINGS} - tighten \
-         the ceiling instead of raising it, and see #94 for the gutter channel model"
+        wrapped_crossed <= ceiling,
+        "{wrapped_crossed} cross-shelf crossings, ceiling {ceiling} - tighten the ceiling \
+         instead of raising it, and see #94 for the gutter channel model"
     );
     assert_eq!(
         s,

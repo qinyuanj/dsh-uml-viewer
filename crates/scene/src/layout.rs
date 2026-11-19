@@ -507,7 +507,11 @@ fn place(
                 (rank_at.contains_key(&f) && rank_at.contains_key(&t)).then_some((f, t))
             })
             .collect();
-        let columns = fold(&ranks, &links, aspect, levels);
+        // The foreign ovals are no members of this package: a break that
+        // leaves one inside the package's box draws the ellipse over the
+        // fill (#95), so `fold` refuses it.
+        let ovals: std::collections::HashSet<String> = sink.keys().cloned().collect();
+        let columns = fold(&ranks, &links, aspect, levels, &ovals);
         // Folded columns are ranks of their own, consecutive from the right;
         // their shelf says where the strip wraps onto the next one.
         let n = columns.len();
@@ -798,12 +802,14 @@ const BOX_GAP: f64 = 40.0;
 /// their rank's band; the first fold of a rank stays leftmost. A column that
 /// does not fit its shelf starts the next one, so the width stops growing
 /// with the number of ranks while the height grows with the shelves — the
-/// freedom the target aspect needs (#89).
+/// freedom the target aspect needs (#89), except that a wrap which would put
+/// a foreign oval inside its package's box is refused (#95).
 fn fold(
     ranks: &[Column],
     links: &[(String, String)],
     aspect: f64,
     levels: bool,
+    ovals: &std::collections::HashSet<String>,
 ) -> Vec<(f64, Vec<String>, usize)> {
     // Greedy runs of one rank no taller than `limit`; a tall box runs alone.
     let split = |nodes: &[Sized], limit: f64| -> Vec<std::ops::Range<usize>> {
@@ -871,9 +877,14 @@ fn fold(
     // The columns packed left to right then down: they fill a shelf no wider
     // than `shelf` and wrap onto the next one, so the width stops growing
     // with the number of columns while the height grows with the shelves.
-    // Answers the packed width, the stacked height and each column's shelf.
+    // Answers the packed width, the stacked height, each column's shelf and
+    // its left edge.
     let shelves = |cols: &[(f64, &[Sized])], ws: &[f64], hs: &[f64], shelf: f64| {
-        let (mut which, mut nth) = (Vec::with_capacity(cols.len()), 0usize);
+        let (mut which, mut xs, mut nth) = (
+            Vec::with_capacity(cols.len()),
+            Vec::with_capacity(cols.len()),
+            0usize,
+        );
         let (mut x, mut widest, mut y, mut row): (f64, f64, f64, f64) = (0.0, 0.0, 0.0, 0.0);
         for k in 0..cols.len() {
             if x > 0.0 && x + gap(cols[k - 1].0, cols[k].0) + ws[k] > shelf {
@@ -884,15 +895,39 @@ fn fold(
                 x += gap(cols[k - 1].0, cols[k].0);
             }
             which.push(nth);
+            xs.push(x);
             x += ws[k];
             row = row.max(hs[k]);
         }
-        (widest.max(x), y + row, which)
+        (widest.max(x), y + row, which, xs)
     };
-    // The larger of width over aspect and height: the zoom a fit divides by.
-    let extent = |cols: &[(f64, &[Sized])], ws: &[f64], hs: &[f64], shelf: f64| -> f64 {
-        let (w, h, _) = shelves(cols, ws, hs, shelf);
-        (w / aspect).max(h)
+    // A package draws one box around its members, and its foreign ovals take
+    // the last rank without being members. A box whose columns land on more
+    // than one shelf spans the gutter, so an oval column left inside its
+    // rectangle is painted over the package fill (#95); such a packing is
+    // refused and the strip keeps to one shelf instead.
+    let covers = |cols: &[(f64, &[Sized])], which: &[usize], xs: &[f64], ws: &[f64]| -> bool {
+        let (mut l, mut r) = (f64::INFINITY, f64::NEG_INFINITY);
+        let (mut low, mut high) = (usize::MAX, 0usize);
+        for (k, (_, nodes)) in cols.iter().enumerate() {
+            if nodes.iter().all(|n| ovals.contains(&n.0)) {
+                continue;
+            }
+            l = l.min(xs[k]);
+            r = r.max(xs[k] + ws[k]);
+            low = low.min(which[k]);
+            high = high.max(which[k]);
+        }
+        if low >= high {
+            return false;
+        }
+        cols.iter().enumerate().any(|(k, (_, nodes))| {
+            nodes.iter().any(|n| ovals.contains(&n.0))
+                && low <= which[k]
+                && which[k] <= high
+                && l <= xs[k]
+                && xs[k] + ws[k] <= r
+        })
     };
     // Every height a column can reach; the tallest is no fold at all.
     let mut limits: Vec<f64> = ranks
@@ -925,7 +960,11 @@ fn fold(
             cum.push(edge);
         }
         for &shelf in &cum {
-            let e = extent(&cols, &ws, &hs, shelf);
+            let (w, h, which, xs) = shelves(&cols, &ws, &hs, shelf);
+            if covers(&cols, &which, &xs, &ws) {
+                continue;
+            }
+            let e = (w / aspect).max(h);
             let better = match best {
                 Some((b, _, _)) => e < b,
                 None => true,
@@ -938,7 +977,7 @@ fn fold(
     let (limit, shelf) = best.map_or((0.0, 0.0), |(_, l, s)| (l, s));
     let cols = columns(limit);
     let (ws, hs) = sizes(&cols);
-    let (_, _, which) = shelves(&cols, &ws, &hs, shelf);
+    let (_, _, which, _) = shelves(&cols, &ws, &hs, shelf);
     cols.into_iter()
         .zip(which)
         .map(|((band, nodes), nth)| (band, nodes.iter().map(|n| n.0.clone()).collect(), nth))
