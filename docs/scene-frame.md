@@ -17,7 +17,7 @@ uml-viewer scene --frame --ir <file.edn> [--focus <edn>] [--metrics-root <dir>]
                  [--wide [--aspect <w/h>]] [--extra <edn map>]
                  [--width <pt>] [--height <pt>] [--zoom <z> --camera <x>,<y>]
                  [--select <edn hit>] [--hover <edn hit>] [--pointer <x>,<y>]
-                 [--hover-metadata] [--output <file>]
+                 [--hover-metadata] [--lang <tag>] [--output <file>]
 ```
 
 Without `--zoom`/`--camera` the view is fitted to the viewport (default
@@ -25,8 +25,11 @@ Without `--zoom`/`--camera` the view is fitted to the viewport (default
 is the view's EDN extras (`{:declutter :triangles}`, `{:proposal true
 :proposal-id :p-1}`, `{:open-layer :x}`); a hit is the EDN map hit testing
 yields (`{:kind :class :id :ir.graph}`, `{:kind :edge :from :a :to :b
-:deps [...]}`). Without `--frame` the `scene` subcommand writes the geometry
-EDN as before. The resident mode (`uml-viewer resident`) streams the same
+:deps [...]}`). `--lang <tag>` is the language the frame's text is laid out in:
+`zh` (a `zh-*` or `zh_*` tag) selects Chinese and anything else English, which is
+how the `*.en.frame.json` goldens are produced. Without `--frame` the `scene`
+subcommand writes the geometry EDN as before. The resident mode
+(`uml-viewer resident`) streams the same
 frames, one per line, in reply to actions: [resident-protocol.md](resident-protocol.md).
 
 The goldens in `crates/frame/tests/fixtures/frames/*.frame.json` are the

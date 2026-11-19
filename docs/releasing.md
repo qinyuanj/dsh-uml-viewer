@@ -108,8 +108,8 @@ The archives are read as data: no packaged binary is executed, so this proves
 the archive and its metadata, not compiled binary behaviour.
 
 Byte identity of the main archive is not required across runners. `.gitattributes`
-pins `eol=lf` for EDN, Rust, fixtures, the prompt document and the git hooks, not
-for the packaged text files, so a Windows checkout can pack CRLF where a Linux
+pins `eol=lf` for EDN, Rust, fixtures and the prompt document, not for the
+packaged text files, so a Windows checkout can pack CRLF where a Linux
 checkout packs LF. The archive is built and published by one runner, so this
 affects the evidence, not what users download; tightening it would mean pinning
 `eol=lf` for the packaged files first.

@@ -107,8 +107,12 @@ scope: …`) and dropped, and a call with nothing left is refused without
 launching. Missing paths, symlinks and paths outside the project are refused.
 `:refresh-mutate-all` is the same call plus `--mutate-all`, which applies only
 to the named targets. `--changed` travels as a target and cannot be combined
-with named files. A caller may not pass `--root`, `-s`, `--source-root` or
-`--exclude` when `standardTools` declares the scope.
+with named files. A `quality mutate` call may not pass `-s`,
+`--source-root` or `--exclude` at all: the mutate split refuses them whether or
+not `standardTools` declares a scope, and says the mutation scope is declared by
+`standardTools`; `crap` and `dry` refuse them only when the scope is declared
+(#86). `--root` is not one of those: it is accepted and redirects the project,
+so `quality mutate --root <path> <file>` runs.
 
 A differential rerun of unchanged targets reuses their previous outcomes
 (`executed=0 reused=N`, or "No mutations selected; keeping the previous
@@ -151,7 +155,7 @@ The native `windows-mutate` job runs the repository-root sequence
 `ir examples/uml-viewer.policy.edn <temporary output>`, using the job's own
 binary. It builds debug against its existing integration-test artifacts to avoid
 a second release compilation; the `linux` job that used to reuse
-`scripts/check.py`'s release binary was deleted with the host. The 138-line, dependency-free platform crate has small platform
+`scripts/check.py`'s release binary was deleted with the host. The 53-line, dependency-free platform crate has small platform
 decision tests and no committed mutation history, bounding the differential run
 without `--mutate-all`, coverage bypasses or a custom test command.
 

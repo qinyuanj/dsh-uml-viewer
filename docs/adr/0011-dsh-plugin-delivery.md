@@ -23,8 +23,8 @@ attach 各平台各有一套。DeepSeek Harness（DSH）已经提供会话、消
 - **包布局**（参考 dsh-ops 与 dsh-claude-style）：`crates/` 为 Cargo workspace；
   `packages/host`、`packages/client`、`packages/contracts` 为不单独发布的 TypeScript
   工作区包，构建合成主包 `dsh-uml-viewer`（含 Sarasa 字体）。只有平台二进制包
-  `@dsh-uml-viewer/win32-x64` 单独发布，作为主包的 `optionalDependencies`，由 CI
-  交叉编译并以 npm provenance 发布。
+  `@dsh-uml-viewer/win32-x64` 单独发布，作为主包的 `optionalDependencies`，由 CI 在目标
+  runner 上原生构建并以 npm provenance 发布。
 - **二进制定位**：插件加载时把当前版本的二进制复制到 `<DSH_HOME>/dsh-uml-viewer/<version>/`
   并记录当前版本；全新启动才切换版本，无进程使用的旧版本才清理。Windows 不能覆盖运行中
   的 exe，运行中的会话也不换版本。
