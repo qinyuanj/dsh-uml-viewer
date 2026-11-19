@@ -41,6 +41,15 @@ fn isolated_commands_scrub_outer_coverage_environment() {
     #[cfg(windows)]
     command.env("cargo_llvm_cov_mixed_case", "outer-contamination");
     let output = command.output().unwrap();
+    // The guard is about the tree, not only about the child's environment:
+    // under coverage the driver is instrumented, and a relative profile file
+    // would leave this exact name beside the crate (#88).
+    assert!(
+        !std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("outer-contamination")
+            .exists(),
+        "the driver wrote its LLVM profile into the source tree"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         output.status.success(),
