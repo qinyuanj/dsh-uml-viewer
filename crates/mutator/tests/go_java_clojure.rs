@@ -292,7 +292,9 @@ fn golden_run(language: &'static str) {
     assert_eq!(first, ExitCode::from(3), "{language} first run");
     fixture.assert_untouched(&before);
     let rerun = fixture.run(1, &fixture.targets());
-    assert_eq!(rerun, ExitCode::from(3), "{language} rerun");
+    // #107: survivors from the unchanged first run are reused, so no mutant
+    // executes and the differential gate reports success.
+    assert_eq!(rerun, ExitCode::from(0), "{language} rerun");
     let comparable: BTreeMap<_, _> = fixture
         .published()
         .iter()
