@@ -205,7 +205,7 @@ fn reclaim(directory: &Path, name: &str) {
             // The lock is still held by a run that is still working: that root
             // is not abandoned, and it is not worth one pause of the window. A
             // lock still held by a dead owner is what the window is for.
-            Owner::Live if owner.map_or(true, running) => return,
+            Owner::Live if owner.is_none_or(running) => return,
             Owner::Live => {}
             Owner::Gone(file) => {
                 // The owner file goes last: its handle holds the lock other
