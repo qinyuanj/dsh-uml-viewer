@@ -96,7 +96,7 @@ fn claim(directory: &Path) -> io::Result<fs::File> {
     let owner = private_file(&directory.join("owner"))?;
     #[cfg(windows)]
     {
-        windows_lock(&owner, true)?;
+        lock_file(&owner)?;
     }
     #[cfg(target_os = "linux")]
     {
@@ -251,7 +251,7 @@ enum Owner {
     Foreign,
 }
 
-/// Whether the owner of `directory` is gone: its lock can be taken.
+/// Probe a root's owner lock: gone, still held, or not a root to reclaim.
 #[cfg(any(target_os = "linux", windows))]
 fn owner_state(directory: &Path) -> Owner {
     let Ok(owner) = fs::OpenOptions::new()
@@ -289,7 +289,7 @@ fn take_lock(owner: &fs::File) -> bool {
 
 #[cfg(windows)]
 fn take_lock(owner: &fs::File) -> bool {
-    windows_lock(owner, true).is_ok()
+    lock_file(owner).is_ok()
 }
 
 /// Remove everything inside a root except its owner file, whose open handle
@@ -353,7 +353,7 @@ fn running(_pid: u32) -> bool {
 }
 
 #[cfg(windows)]
-fn windows_lock(owner: &fs::File, unlock: bool) -> io::Result<()> {
+fn lock_file(owner: &fs::File) -> io::Result<()> {
     use std::os::windows::io::AsRawHandle;
     #[repr(C)]
     struct Overlapped {
@@ -373,13 +373,6 @@ fn windows_lock(owner: &fs::File, unlock: bool) -> io::Result<()> {
             high: u32,
             overlapped: *mut Overlapped,
         ) -> i32;
-        fn UnlockFileEx(
-            file: *mut std::ffi::c_void,
-            reserved: u32,
-            low: u32,
-            high: u32,
-            overlapped: *mut Overlapped,
-        ) -> i32;
     }
     let mut overlapped = Overlapped {
         internal: 0,
@@ -389,14 +382,10 @@ fn windows_lock(owner: &fs::File, unlock: bool) -> io::Result<()> {
         event: std::ptr::null_mut(),
     };
     let handle = owner.as_raw_handle();
-    // LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY
-    let result = unsafe {
-        if unlock {
-            LockFileEx(handle, 0x0000_0002 | 0x0000_0001, 0, 1, 0, &mut overlapped)
-        } else {
-            UnlockFileEx(handle, 0, 1, 0, &mut overlapped)
-        }
-    };
+    // LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY. The lock lives as
+    // long as the handle: closing the file releases it, which is what dropping
+    // the guard or the probed owner does.
+    let result = unsafe { LockFileEx(handle, 0x0000_0002 | 0x0000_0001, 0, 1, 0, &mut overlapped) };
     if result == 0 {
         Err(io::Error::last_os_error())
     } else {
