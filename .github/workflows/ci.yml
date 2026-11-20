@@ -209,8 +209,14 @@ jobs:
       - name: Maintainer refresh - CRAP (Windows)
         timeout-minutes: 21
         run: python -I scripts/ci-refresh.py target/debug/uml-viewer.exe crap
+      # #109: mutate two real business files in one call. ir/src/lib.rs has
+      # 21 recorded sites and its crate's CLI tests create Windows directory
+      # junctions; scene/dry.rs has 13. Measured after the #107 hole-two fix:
+      # 8.5s worker-time/mutant, --max-workers 3, so 34 * 8.5 / 3 = 96s of
+      # worker wall time. 10 minutes covers 6x that estimate plus baseline
+      # setup, while keeping the 45-minute job budget (33.5m observed + ~2m).
       - name: Maintainer refresh - differential mutation (Windows)
-        timeout-minutes: 6
+        timeout-minutes: 10
         run: python -I scripts/ci-refresh.py target/debug/uml-viewer.exe mutate
       - name: Maintainer refresh - gated IR (Windows)
         timeout-minutes: 1

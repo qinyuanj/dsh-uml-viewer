@@ -5,9 +5,13 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import time
 
 
-TARGET = 'crates/platform/src/lib.rs'
+MUTATE_TARGETS = (
+    ('crates/ir/src/lib.rs', '.metrics/mutate/ir.edn'),
+    ('crates/scene/src/dry.rs', '.metrics/mutate/scene/dry.edn'),
+)
 
 
 def require(condition, message):
@@ -37,6 +41,25 @@ def validate(text, operation, code, root):
     return record
 
 
+def validate_mutation_snapshots(root, started):
+    # The JSON record carries no per-file outcomes. Each published snapshot
+    # does, and publish() rewrites it even when every mutation was reused.
+    # A fresh mtime proves this run selected the file rather than merely
+    # passing over the snapshots committed with the project.
+    for target, relative in MUTATE_TARGETS:
+        snapshot = root / relative
+        require(snapshot.is_file(), f'mutate: missing snapshot for {target}: {relative}')
+        require(snapshot.stat().st_mtime >= started - 2,
+                f'mutate: stale snapshot for {target}: {relative}')
+        text = snapshot.read_text(encoding='utf-8')
+        require(f':source "{target}"' in text,
+                f'mutate: snapshot for {target} has wrong source: {relative}')
+        require(':outcomes {' in text, f'mutate: snapshot for {target} has no outcomes: {relative}')
+        outcomes = text.split(':outcomes {', 1)[1].split(':forms [', 1)[0]
+        require(any(f':{verdict}' in outcomes for verdict in ('killed', 'survived', 'uncovered')),
+                f'mutate: snapshot for {target} has empty outcomes: {relative}')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('binary', type=Path)
@@ -61,6 +84,7 @@ def main():
         require(output.is_file() and output.stat().st_size > 0, 'IR output is empty or missing')
         print(f'Accepted maintainer refresh: {output.stat().st_size} IR bytes')
     else:
+        started = time.time()
         command = [str(binary), 'quality', args.operation]
         if args.operation == 'mutate':
             # crapper's whole-tree run in this job already wrote the coverage
@@ -68,11 +92,13 @@ def main():
             # above was validated in this job, so those reports are this
             # refresh's own rather than an earlier run's.
             command.append('--reuse-coverage')
-            command.append(TARGET)
+            command.extend(target for target, _ in MUTATE_TARGETS)
         # stdout is the record only; reports remain visible on inherited stderr.
         result = subprocess.run(command, stdout=subprocess.PIPE, encoding='utf-8', check=False)
         print(result.stdout, end='', flush=True)
         record = validate(result.stdout, args.operation, result.returncode, root)
+        if args.operation == 'mutate':
+            validate_mutation_snapshots(root, started)
         (state / f'{args.operation}.json').write_text(json.dumps(record) + '\n', encoding='utf-8')
 
 
