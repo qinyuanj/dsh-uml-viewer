@@ -186,8 +186,11 @@ impl Slot {
         // starts, and a mutant's own `lua-coverage` directory is removed like
         // any other. The one entry a command keeps (`Entry::LuaScratch`) is
         // kept by a collection's view nesting this slot under it, never here.
+        // The command that just finished may still have a process inside this
+        // slot; `remove_patiently` waits that out instead of failing the copy
+        // the moment a delete is refused (#113).
         for entry in fs::read_dir(&self.directory)? {
-            scratch::force_remove(&entry?.path())?;
+            scratch::remove_patiently(&entry?.path())?;
         }
         scratch::private_directory(&self.beside())?;
         let project = self.project();
