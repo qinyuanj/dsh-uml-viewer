@@ -134,6 +134,17 @@ fn class_id(class: &Value) -> Option<Value> {
     get(class, "id").cloned()
 }
 
+/// Whether a class is a measurement object at all. The dryer scans the policy
+/// source roots, so a foreign package (an external oval such as `:eframe`), a
+/// class whose source is missing, and a non-class shape are never measured.
+/// They keep no state: writing `:none` on them would claim "measured, no
+/// overlap" for code the snapshot never looked at.
+fn measured(class: &Value) -> bool {
+    !flag(class, "foreign")
+        && !flag(class, "missing")
+        && get(class, "shape").and_then(local_name) != Some("oval")
+}
+
 /// The class that owns `span`, through the overlay's join rule: the function
 /// namespace first, then the file.
 ///
@@ -146,11 +157,9 @@ fn class_of<'a>(classes: &'a [Value], prefix: Option<&Value>, span: &Span) -> Op
     if let Some(ns) = &span.namespace {
         return owner(classes, prefix, ns);
     }
-    let mut found = classes.iter().filter(|c| {
-        !flag(c, "foreign")
-            && get(c, "shape").and_then(local_name) != Some("oval")
-            && get(c, "file").and_then(text) == Some(span.file.as_str())
-    });
+    let mut found = classes
+        .iter()
+        .filter(|c| measured(c) && get(c, "file").and_then(text) == Some(span.file.as_str()));
     let first = found.next()?;
     if found.next().is_some() {
         return None;
@@ -260,20 +269,19 @@ impl Index {
 /// An absent :dry key is the third state -- no snapshot measured the class.
 /// A present one says either :overlap (with the numbers) or :none (measured,
 /// no overlap); an absent or stale snapshot is never read as "no
-/// duplication".
+/// duplication". A class that is not a measurement object (see [measured])
+/// gets no state at all.
 pub fn apply(class: &mut Value, index: &Index) {
+    if !measured(class) {
+        return;
+    }
     let key = class_key(class);
     let state = match index.classes.get(&key) {
         Some(entry) => record(vec![
             ("state", Value::keyword("overlap")),
             ("functions", Value::Integer(entry.spans.len() as i64)),
             ("pairs", Value::Integer(entry.pairs as i64)),
-            (
-                "weakest",
-                entry
-                    .weakest
-                    .map_or(Value::Nil, |weakest| Value::Float(weakest)),
-            ),
+            ("weakest", entry.weakest.map_or(Value::Nil, Value::Float)),
             (
                 "others",
                 Value::Vector(entry.others.values().cloned().collect()),

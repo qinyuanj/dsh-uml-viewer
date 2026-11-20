@@ -245,3 +245,45 @@ fn names(class: &Value) -> Vec<String> {
         .map(|v| local_name(v).unwrap_or_default().to_owned())
         .collect()
 }
+
+#[test]
+fn foreign_and_missing_classes_are_not_measurement_objects() {
+    // The dryer scans the policy source roots only, so an external package
+    // (:eframe, :egui, :winit) and a class with no source were never
+    // measured. They must keep no state: writing :none on them would claim
+    // "measured, no overlap" for code the snapshot never looked at.
+    let doc = parse(
+        r#"{:hierarchical true :prefix "uml" :classes [
+             {:id :scene.a :ns "uml.scene.a" :lang :rust :file "src/a.rs" :ops [{:name "f1"}]}
+             {:id :eframe :name "eframe" :foreign true :file "src/foreign.rs"}
+             {:id :scene.gone :ns "uml.scene.gone" :lang :rust :file "src/missing.rs" :missing true}
+             {:id :scene.never :ns "uml.scene.never" :lang :rust :file "src/never.rs"}]}"#,
+    )
+    .unwrap();
+    let pairs = r#"{:candidates [
+      {:score 0.9 :left {:file "src/a.rs" :start-line 1 :end-line 5}
+       :right {:file "src/foreign.rs" :start-line 1 :end-line 5}}
+      {:score 0.88 :left {:file "src/a.rs" :start-line 9 :end-line 13}
+       :right {:file "src/missing.rs" :start-line 1 :end-line 5}}
+      {:score 0.86 :left {:file "src/never.rs" :start-line 1 :end-line 5}
+       :right {:file "src/never.rs" :start-line 9 :end-line 13}}]}"#;
+    let files = [snap(".metrics/dry.edn", pairs, 1)];
+    let (foreign, summary) = card(&doc, &files, "eframe");
+    assert!(
+        get(&foreign, "dry").is_none(),
+        "a foreign package is not measured"
+    );
+    let (missing, _) = card(&doc, &files, "scene.gone");
+    assert!(
+        get(&missing, "dry").is_none(),
+        "a class with no source is not measured"
+    );
+    // The control: a document class does get its state, so the two absences
+    // above are the rule and not a broken document.
+    let (never, _) = card(&doc, &files, "scene.never");
+    assert_eq!("overlap", state(&never));
+    // Neither side of the two pairs joins a class, so both are counted.
+    let summary = summary.expect("the summary is there whenever a snapshot is");
+    assert_eq!(Some(3.0), num(get(&summary, "candidates").unwrap()));
+    assert_eq!(Some(2.0), num(get(&summary, "unattributed").unwrap()));
+}
