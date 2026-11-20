@@ -150,6 +150,16 @@ impl Fixture {
             "the tree moved on after crapper recorded it\n",
         );
     }
+
+    /// Remove every published snapshot: the next run decides from coverage
+    /// alone. A differential run with history would otherwise reuse the
+    /// previous verdict and never consult the reports at all.
+    fn clear_snapshots(&self) {
+        let base = self.directory.join(".metrics/mutate");
+        if base.exists() {
+            fs::remove_dir_all(&base).unwrap();
+        }
+    }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -561,4 +571,93 @@ process.exit(fs.readFileSync('src/book.ts', 'utf8') === pristine ? 0 : 1);
     let snapshot = fixture.snapshot();
     assert!(snapshot.contains(":killed 1"), "{snapshot}");
     assert!(snapshot.contains(":uncovered 0"), "{snapshot}");
+}
+
+/// PITFALLS: the whole point of the flag is that the verdict does not change.
+/// Two runs over the same project — one reading crapper's report because the
+/// stamp calls the language fresh, one reading it because --reuse-coverage asks
+/// for it — must publish the same snapshot. The fixture pins the clock, so "the
+/// same verdict" is byte equality, and executed= proves the reused run decided
+/// from coverage instead of reusing a previous snapshot's outcome.
+#[test]
+fn reuse_coverage_publishes_the_same_snapshot_as_the_stamped_path() {
+    if !node_available() {
+        skip("node and npm are not on PATH");
+        return;
+    }
+    let fixture = Fixture::new("reuse-equivalence");
+    fixture.write(
+        "package.json",
+        "{\"name\":\"fixture\",\"private\":true,\"scripts\":{\"test\":\"node test.js\"}}\n",
+    );
+    fixture.write("src/book.ts", BOOK);
+    fixture.write("test.js", TEST_JS);
+    fixture.record_crapper_coverage();
+
+    // A: crapper's report, read because its stamp covers this tree.
+    fixture.clear_snapshots();
+    let (stamped, stamped_stderr) = child::run(&fixture.root(), &["--mutate-all", "src/book.ts"]);
+    let stamped_snapshot = fixture.snapshot();
+
+    // B: the same report, read because the flag asks for it.
+    fixture.clear_snapshots();
+    let (reused, reused_stderr) = child::run(
+        &fixture.root(),
+        &["--mutate-all", "--reuse-coverage", "src/book.ts"],
+    );
+    let reused_snapshot = fixture.snapshot();
+
+    assert_eq!(stamped, reused, "A:\n{stamped_stderr}\nB:\n{reused_stderr}");
+    assert_eq!(
+        stamped_snapshot, reused_snapshot,
+        "the reuse run published a different verdict"
+    );
+    // The site really was decided by the report: covered, executed, killed.
+    assert!(stamped_snapshot.contains(":killed 1"), "{stamped_snapshot}");
+    assert!(
+        stamped_snapshot.contains(":uncovered 0"),
+        "{stamped_snapshot}"
+    );
+    // Both runs found the report: the site was decided from coverage, not left
+    // uncovered for want of data. (The executed= count is the CLI's stdout line,
+    // which this harness discards; the pinned clock makes the snapshot the
+    // verdict's whole evidence.)
+    for (label, stderr) in [("stamped", &stamped_stderr), ("reused", &reused_stderr)] {
+        assert!(
+            !stderr.contains("No coverage data"),
+            "{label} read no report:\n{stderr}"
+        );
+    }
+}
+
+/// The gap the flag knowingly carries: --use-existing-coverage is documented as
+/// "read coverage already on disk without checking it", and it consults no
+/// stamp. A report the standard path refuses as stale — pinned by
+/// a_stale_stamp_leaves_the_old_typescript_report_unread — still decides this
+/// run. The maintainer refresh is safe only because quality crap ran first in
+/// the same job; a standalone reuse run has no such guarantee.
+#[test]
+fn reuse_coverage_reads_a_report_the_stamp_rejects() {
+    if !node_available() {
+        skip("node and npm are not on PATH");
+        return;
+    }
+    let fixture = Fixture::new("reuse-stale");
+    fixture.write(
+        "package.json",
+        "{\"name\":\"fixture\",\"private\":true,\"scripts\":{\"test\":\"node test.js\"}}\n",
+    );
+    fixture.write("src/book.ts", BOOK);
+    fixture.write("test.js", TEST_JS);
+    fixture.stale_crapper_coverage();
+    fixture.clear_snapshots();
+    let (_, stderr) = child::run(
+        &fixture.root(),
+        &["--mutate-all", "--reuse-coverage", "src/book.ts"],
+    );
+    let snapshot = fixture.snapshot();
+    assert!(
+        snapshot.contains(":killed 1"),
+        "reuse must read the report without checking the stamp:\n{snapshot}\n{stderr}"
+    );
 }
