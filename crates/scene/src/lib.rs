@@ -22,7 +22,8 @@
 //! the proposal list (`proposals`), with the text-width estimate and the
 //! grade constants as values. [`targets`] answers what a panel's quality
 //! refresh names. Layout, routing, composition, curves, hierarchy views,
-//! policy, overlay and configuration are crate-internal.
+//! policy, overlay, the duplicate-structure index (`dry`) and configuration
+//! are crate-internal.
 
 use std::ffi::OsString;
 use std::process::ExitCode;
@@ -57,6 +58,7 @@ mod card;
 pub(crate) mod compose;
 pub(crate) mod config;
 pub(crate) mod curve;
+pub(crate) mod dry;
 pub(crate) mod geom;
 pub(crate) mod hierarchy;
 pub(crate) mod layout;

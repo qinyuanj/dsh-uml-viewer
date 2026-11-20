@@ -57,8 +57,9 @@ fn collect(base: &Path, rel: &str, files: &mut Vec<Snapshot>) {
     }
 }
 
-/// Snapshots of `.metrics/crap.edn` and `.metrics/mutate/**/*.edn`, sorted by
-/// path, plus the stamp Value (the EDN-encoded `[path mtime size]` vector).
+/// Snapshots of `.metrics/crap.edn`, `.metrics/dry.edn` and
+/// `.metrics/mutate/**/*.edn`, sorted by path, plus the stamp Value (the
+/// EDN-encoded `[path mtime size]` vector).
 pub fn snapshot(base: &Path) -> (Vec<Snapshot>, Value) {
     let mut files = Vec::new();
     let crap = base.join(".metrics/crap.edn");
@@ -68,6 +69,19 @@ pub fn snapshot(base: &Path) -> (Vec<Snapshot>, Value) {
         let mtime = watch::mtime(&crap).unwrap_or_default();
         files.push(Snapshot::new(
             ".metrics/crap.edn",
+            &text,
+            Value::String(mtime),
+        ));
+    }
+    // The duplicate-structure snapshot joins the same set, so the reload stamp
+    // below covers it: refreshing dry alone reloads the panel.
+    let dry = base.join(".metrics/dry.edn");
+    if dry.is_file()
+        && let Ok(text) = std::fs::read_to_string(&dry)
+    {
+        let mtime = watch::mtime(&dry).unwrap_or_default();
+        files.push(Snapshot::new(
+            ".metrics/dry.edn",
             &text,
             Value::String(mtime),
         ));

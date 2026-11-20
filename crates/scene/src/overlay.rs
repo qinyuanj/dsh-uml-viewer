@@ -3,6 +3,7 @@
 //! filesystem work belongs to callers. Join rule: by class `:ns`, then by id.
 
 use crate::config;
+use crate::dry;
 use edn::Value;
 use edn::record::{flag, local_name, name, numval, put, seq};
 use std::collections::BTreeMap;
@@ -32,10 +33,33 @@ impl Snapshot {
 }
 
 /// Parsed snapshots ready to join: CRAP entries by namespace, newest mutation
-/// snapshot by namespace.
+/// snapshot by namespace, and the newest duplicate-structure candidates.
 pub struct Metrics {
     pub crap: BTreeMap<String, Vec<Value>>,
     pub mutate: BTreeMap<String, Value>,
+    /// `.metrics/dry.edn` candidates; `None` when no dry snapshot was read,
+    /// which is the "unmeasured" state, not "no duplication".
+    pub dry: Option<Vec<dry::Candidate>>,
+}
+
+/// What a snapshot file is. Dispatched by path, explicitly: everything that
+/// is not the CRAP snapshot used to be read as mutation data, so a dry
+/// snapshot carrying `:namespace` would have overwritten that namespace's
+/// mutations (#92).
+enum Kind {
+    Crap,
+    Dry,
+    Mutate,
+}
+
+fn kind(path: &str) -> Kind {
+    if path.ends_with(".metrics/crap.edn") {
+        Kind::Crap
+    } else if path.ends_with(".metrics/dry.edn") {
+        Kind::Dry
+    } else {
+        Kind::Mutate
+    }
 }
 
 /// Sort key from an mtime: a number, or a `"low:high"` statx-style pair, or
@@ -60,10 +84,12 @@ fn time_key(mtime: &Value) -> (u64, u64) {
 }
 
 /// Load and order snapshots; later (newer) mutation snapshots win, CRAP
-/// entries append in snapshot order.
+/// entries append in snapshot order, and the newest dry snapshot is the one
+/// that counts.
 pub fn load(files: &[Snapshot]) -> Metrics {
     let mut crap: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     let mut mutate: BTreeMap<String, Value> = BTreeMap::new();
+    let mut dry: Option<Vec<dry::Candidate>> = None;
     let mut ordered: Vec<&Snapshot> = files.iter().collect();
     ordered.sort_by(|a, b| {
         let (ah, al) = time_key(&a.mtime);
@@ -80,12 +106,15 @@ pub fn load(files: &[Snapshot]) -> Metrics {
         let Ok(data) = edn::parse(&f.text) else {
             continue;
         };
-        if f.path.ends_with(".metrics/crap.edn") {
+        if let Kind::Crap = kind(&f.path) {
             for entry in seq(g(&data, "entries")) {
                 if let Some(Value::String(ns)) = g(entry, "namespace") {
                     crap.entry(ns.clone()).or_default().push(entry.clone());
                 }
             }
+        } else if let Kind::Dry = kind(&f.path) {
+            let parsed = dry::candidates(&data);
+            dry = Some(parsed);
         } else {
             let mut ns = g(&data, "namespace").cloned();
             if ns.is_none()
@@ -104,7 +133,7 @@ pub fn load(files: &[Snapshot]) -> Metrics {
             }
         }
     }
-    Metrics { crap, mutate }
+    Metrics { crap, mutate, dry }
 }
 
 fn doc_classes(doc: &Value) -> Vec<Value> {
@@ -126,7 +155,11 @@ fn doc_classes(doc: &Value) -> Vec<Value> {
 
 /// Owning class for a metric namespace: exact `:ns`, then id, then the
 /// nearest enclosing id, then the lone Rust root crate.
-fn owner<'a>(classes: &'a [Value], prefix: Option<&Value>, ns: &str) -> Option<&'a Value> {
+pub(crate) fn owner<'a>(
+    classes: &'a [Value],
+    prefix: Option<&Value>,
+    ns: &str,
+) -> Option<&'a Value> {
     let ns = ns.replace("::", ".");
     let ns = ns.as_str();
     let mut root: Option<&Value> = None;
@@ -372,11 +405,19 @@ impl<V> Ordered<V> {
 
 /// Join the snapshots into the document (defensively copied).
 pub fn apply_metrics(doc: &Value, metrics: &Metrics) -> Value {
-    if metrics.crap.is_empty() && metrics.mutate.is_empty() {
+    if metrics.crap.is_empty() && metrics.mutate.is_empty() && metrics.dry.is_none() {
         return doc.clone();
     }
     let mut doc = doc.clone();
     let classes = doc_classes(&doc);
+    let prefix = g(&doc, "prefix").cloned();
+    // Duplicate structure is derived here, on every run: a class card
+    // re-applies the overlay, so the index stays a pure function and is never
+    // cached across calls.
+    let duplicates = metrics
+        .dry
+        .as_ref()
+        .map(|candidates| dry::Index::new(&classes, prefix.as_ref(), candidates));
     let mut names: Vec<&String> = metrics.crap.keys().collect();
     for ns in metrics.mutate.keys() {
         if !names.contains(&ns) {
@@ -384,7 +425,6 @@ pub fn apply_metrics(doc: &Value, metrics: &Metrics) -> Value {
         }
     }
     names.sort();
-    let prefix = g(&doc, "prefix").cloned();
     let mut owned: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for ns in names {
         if let Some(c) = owner(&classes, prefix.as_ref(), ns)
@@ -403,6 +443,12 @@ pub fn apply_metrics(doc: &Value, metrics: &Metrics) -> Value {
             && let Some(nss) = owned.get(&key)
         {
             paint(c, nss, metrics);
+        }
+        // The duplicate-structure marker is additive: it never paints the box,
+        // so a class with no CRAP or mutation data stays red for that reason
+        // alone.
+        if let Some(index) = &duplicates {
+            dry::apply(c, index);
         }
     };
     if flag(&doc, "hierarchical") {
@@ -442,6 +488,9 @@ pub fn apply_metrics(doc: &Value, metrics: &Metrics) -> Value {
         } else {
             doc = out.into_iter().next().unwrap();
         }
+    }
+    if let Some(index) = &duplicates {
+        put(&mut doc, "dry", index.summary());
     }
     doc
 }

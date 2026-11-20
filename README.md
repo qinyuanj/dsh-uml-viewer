@@ -153,9 +153,10 @@ those files at load, keyed by namespace and function name. Agents edit the
 policy, not the IR. See [Policy](#policy).
 
 [dryer](https://github.com/qinyuanj/dryer) is the third quality tool. It
-reports structurally duplicated forms in `.metrics/dry.edn`; the viewer does
-not overlay that snapshot yet, so `uml-viewer quality dry` is a report you
-read from the terminal.
+reports structurally duplicated forms in `.metrics/dry.edn`; the viewer joins
+that snapshot into the class records as an add-only duplicate marker (it never
+changes a class's red/green rating), but the panel does not show it yet, so
+`uml-viewer quality dry` is still the report you read from the terminal.
 
 ## Run
 
