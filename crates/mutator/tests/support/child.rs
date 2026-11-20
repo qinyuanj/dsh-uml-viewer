@@ -74,3 +74,35 @@ pub fn run(root: &Path, extra: &[&str]) -> (u8, String) {
         .unwrap_or_else(|| panic!("the driver reported no exit code: {text}"));
     (code, text)
 }
+
+/// Like run, but also keeps stdout, where the CLI prints its executed/reused
+/// tally. The tally is the direct evidence that no mutant was executed.
+#[allow(dead_code)]
+pub fn run_with_stdout(root: &Path, extra: &[&str]) -> (u8, String, String) {
+    let stdout_path = root.with_extension(format!("stdout-{}", std::process::id()));
+    let stderr_path = root.with_extension(format!("stderr-{}", std::process::id()));
+    let stdout = fs::File::create(&stdout_path).unwrap();
+    let stderr = fs::File::create(&stderr_path).unwrap();
+    let status = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "support::child::run_driver", "--nocapture"])
+        .env(ROOT, root)
+        .env(ARGS, extra.join(&SEPARATOR.to_string()))
+        .stdout(stdout)
+        .stderr(stderr)
+        .status()
+        .unwrap();
+    let stderr_text = fs::read_to_string(&stderr_path).unwrap_or_default();
+    let stdout_text = fs::read_to_string(&stdout_path).unwrap_or_default();
+    let _ = fs::remove_file(&stdout_path);
+    let _ = fs::remove_file(&stderr_path);
+    assert!(
+        status.success(),
+        "the driver process failed: {stderr_text}{stdout_text}"
+    );
+    let code = stderr_text
+        .lines()
+        .find_map(|line| line.strip_prefix("MUTATOR_CHILD_EXIT="))
+        .and_then(|number| number.parse().ok())
+        .unwrap_or_else(|| panic!("the driver reported no exit code: {stderr_text}"));
+    (code, stdout_text, stderr_text)
+}

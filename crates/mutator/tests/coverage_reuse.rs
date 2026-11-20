@@ -661,3 +661,56 @@ fn reuse_coverage_reads_a_report_the_stamp_rejects() {
         "reuse must read the report without checking the stamp:\n{snapshot}\n{stderr}"
     );
 }
+
+/// Hole three: a survived verdict is evidence only when the inputs that could
+/// have killed it are unchanged. The first run executes and records it; the
+/// unchanged rerun must execute nothing; editing a test file invalidates it.
+#[test]
+fn survived_verdicts_are_reused_until_a_test_input_changes() {
+    let fixture = Fixture::new("survived-reuse");
+    fixture.write("src/calc.py", "def add(a, b):\n    return a + b\n");
+    fixture.write("tests/test_calc.py", "def test_add():\n    assert True\n");
+    const PASS: &str = if cfg!(windows) {
+        "cmd /c exit 0"
+    } else {
+        "true"
+    };
+
+    let (code, stdout, stderr) = child::run_with_stdout(
+        &fixture.root(),
+        &[
+            "--no-coverage",
+            "--mutate-all",
+            "--test-command",
+            PASS,
+            "src/calc.py",
+        ],
+    );
+    assert_eq!(code, 3, "{stdout}{stderr}");
+    assert!(stdout.contains("executed=1 reused=0"), "{stdout}{stderr}");
+    let snapshot = fixture.snapshot();
+    assert!(snapshot.contains(":survived 1"), "{snapshot}");
+
+    let (code, stdout, stderr) = child::run_with_stdout(
+        &fixture.root(),
+        &["--no-coverage", "--test-command", PASS, "src/calc.py"],
+    );
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    assert!(
+        stdout.contains("No mutations selected; keeping the previous snapshots.")
+            && !stdout.contains("executed="),
+        "{stdout}{stderr}"
+    );
+    assert_eq!(fixture.snapshot(), snapshot, "reuse changed the verdict");
+
+    fixture.write(
+        "tests/test_calc.py",
+        "def test_add():\n    assert 1 + 1 == 2\n",
+    );
+    let (code, stdout, stderr) = child::run_with_stdout(
+        &fixture.root(),
+        &["--no-coverage", "--test-command", PASS, "src/calc.py"],
+    );
+    assert_eq!(code, 3, "{stdout}{stderr}");
+    assert!(stdout.contains("executed=1 reused=0"), "{stdout}{stderr}");
+}
