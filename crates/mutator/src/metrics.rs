@@ -1,7 +1,9 @@
 //! Namespace snapshots and the differential mutation policy.
 use crate::sites::{Form, Site, mutation_file, mutation_namespace};
 use quality_core::edn::Value;
+use quality_core::language::SKIP_DIRS;
 use quality_core::paths::{relative_posix, resolve};
+use quality_core::sha2::{Digest, Sha256};
 use quality_core::snapshot::{decimal, string};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -16,6 +18,8 @@ pub struct PriorForm {
 pub struct History {
     pub forms: BTreeMap<(String, String), PriorForm>,
     pub outcomes: BTreeMap<String, String>,
+    /// The digest of the test inputs recorded by the snapshot, when present.
+    pub test_input: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Decision {
@@ -198,9 +202,13 @@ pub fn load_history(root: &Path, file_key: &str) -> History {
     let mut history = History::default();
     for snapshot in read_snapshots(root) {
         let data = &snapshot.data;
+        if !mentions_file(data, file_key) {
+            continue;
+        }
         let Some(namespace) = text(data, "namespace") else {
             continue;
         };
+        history.test_input = text(data, "test-input").map(str::to_string);
         for form in forms_of(data) {
             if form_file(&form, data) != Some(file_key) {
                 continue;
@@ -237,6 +245,69 @@ pub fn digests(forms: &[Form]) -> BTreeMap<(String, String), String> {
         .collect()
 }
 
+/// SHA-256 of the test inputs a mutant verdict depends on: the command and
+/// every regular file under the project root that is not a cache or build
+/// output. Absolute project paths in the command are normalized, so a fixture
+/// can be copied elsewhere. Contents are hashed, so a coverage stamp's
+/// path/size/mtime fingerprint can never stand in for this digest.
+pub fn test_input_digest(root: &Path, command: &str) -> io::Result<String> {
+    fn walk(root: &Path, directory: &Path, found: &mut Vec<(String, Vec<u8>)>) -> io::Result<()> {
+        let mut entries = Vec::new();
+        for entry in fs::read_dir(directory)? {
+            let entry = entry?;
+            entries.push(entry);
+        }
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let kind = entry.file_type()?;
+            if kind.is_symlink() {
+                continue;
+            }
+            if kind.is_dir() {
+                if !SKIP_DIRS.contains(&name.as_ref()) && name != ".agents" {
+                    walk(root, &path, found)?;
+                }
+                continue;
+            }
+            if !kind.is_file() || name == ".coverage" || name.starts_with(".coverage.") {
+                continue;
+            }
+            let Some(key) = relative_posix(&path, root) else {
+                continue;
+            };
+            found.push((key, fs::read(&path)?));
+        }
+        Ok(())
+    }
+
+    let raw_root = root.to_string_lossy().into_owned();
+    let root = resolve(root);
+    let resolved_root = root.to_string_lossy().into_owned();
+    // A caller may spell the root in its short (8.3) or long form, and the
+    // command may use either separator. Normalize every spelling we know so
+    // the digest describes the inputs, not where the project happens to sit.
+    let normalized = [raw_root, resolved_root]
+        .into_iter()
+        .flat_map(|spelling| [spelling.clone(), spelling.replace('\\', "/")])
+        .fold(command.to_string(), |text, spelling| {
+            text.replace(&spelling, "<root>")
+        });
+    let mut files = Vec::new();
+    walk(&root, &root, &mut files)?;
+    files.sort_by(|left, right| left.0.cmp(&right.0));
+    let mut hash = Sha256::new();
+    hash.update(b"mutator-test-input-v1\n");
+    hash.update(format!("command {}\0{}\0", normalized.len(), normalized).as_bytes());
+    for (path, bytes) in files {
+        hash.update(format!("file {}\0{}\0{}\0", path.len(), path, bytes.len()).as_bytes());
+        hash.update(bytes);
+    }
+    Ok(format!("{:x}", hash.finalize()))
+}
+
 /// Whether the history records exactly the current form set and its digests.
 /// A form added or rewritten since the snapshot makes the file unreusable,
 /// even when it owns no mutation site of its own.
@@ -258,6 +329,7 @@ pub fn decide(
     forms: &[Form],
     mutate_all: bool,
     lines: Option<&BTreeSet<usize>>,
+    test_input: &str,
 ) -> BTreeMap<String, Decision> {
     let digests: BTreeMap<_, _> = forms
         .iter()
@@ -284,8 +356,10 @@ pub fn decide(
                 ("executed", "digest-changed")
             } else if previous == "killed" {
                 ("reused", "unchanged-killed")
+            } else if previous == "survived" && history.test_input.as_deref() == Some(test_input) {
+                ("reused", "unchanged-survived")
             } else if previous == "survived" {
-                ("executed", "previous-survived")
+                ("executed", "test-input-changed")
             } else {
                 ("executed", "id-changed")
             };
@@ -305,6 +379,7 @@ pub fn carry_forward(
     covered: &BTreeMap<String, bool>,
     history: &History,
     forms: &[Form],
+    test_input: &str,
 ) -> BTreeMap<String, String> {
     let digests: BTreeMap<_, _> = forms
         .iter()
@@ -321,10 +396,11 @@ pub fn carry_forward(
             if digests.get(&key).copied() != Some(&prior.digest) {
                 return None;
             }
-            Some((
-                site.mutation_id.clone(),
-                history.outcomes.get(&site.mutation_id)?.clone(),
-            ))
+            let outcome = history.outcomes.get(&site.mutation_id)?;
+            if outcome == "survived" && history.test_input.as_deref() != Some(test_input) {
+                return None;
+            }
+            Some((site.mutation_id.clone(), outcome.clone()))
         })
         .collect()
 }
@@ -428,6 +504,7 @@ pub fn render_snapshot(
     source: &str,
     forms: Vec<Value>,
     outcomes: &BTreeMap<String, String>,
+    test_input: &str,
     tested_at: &str,
     isolation: &str,
 ) -> String {
@@ -443,6 +520,7 @@ pub fn render_snapshot(
         ("isolation", Value::Keyword(isolation.to_string())),
         ("source", s(source)),
         ("namespace", s(namespace)),
+        ("test-input", s(test_input)),
         ("outcomes", outcomes),
         ("forms", Value::Vector(forms)),
     ]);
@@ -509,6 +587,7 @@ pub fn write_results(
     file_key: &str,
     forms: &[Form],
     outcomes: &BTreeMap<String, String>,
+    test_input: &str,
     tested_at: &str,
     isolation: &str,
 ) -> io::Result<Vec<PathBuf>> {
@@ -605,8 +684,10 @@ pub fn write_results(
         } else {
             quality_core::atomic::write_bytes(
                 &path,
-                render_snapshot(namespace, &source, unique, &merged, tested_at, isolation)
-                    .as_bytes(),
+                render_snapshot(
+                    namespace, &source, unique, &merged, test_input, tested_at, isolation,
+                )
+                .as_bytes(),
             )?;
             written.push(path);
         }
@@ -770,5 +851,205 @@ impl Reader {
                 })
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sites::{Form, Site};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+    struct Scratch {
+        root: PathBuf,
+    }
+
+    impl Scratch {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "mutator-test-input-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&root).unwrap();
+            Self { root }
+        }
+
+        fn root(&self) -> PathBuf {
+            self.root.clone()
+        }
+
+        fn write(&self, relative: &str, text: &str) {
+            let path = self.root.join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn site() -> Site {
+        Site {
+            file: "src/a.rs".to_string(),
+            namespace: "n".to_string(),
+            form_id: "f".to_string(),
+            name: "add".to_string(),
+            line: 1,
+            start: 6,
+            end: 7,
+            original: "+".to_string(),
+            mutant: "-".to_string(),
+            category: "binary".to_string(),
+            mutation_id: "[\"src/a.rs\",\"n\",\"f\",1,7,\"+\",\"-\"]".to_string(),
+        }
+    }
+
+    fn form() -> Form {
+        Form {
+            id: "f".to_string(),
+            namespace: "n".to_string(),
+            name: "add".to_string(),
+            private: false,
+            file: "src/a.rs".to_string(),
+            line: 1,
+            end_line: 2,
+            digest: "form-digest".to_string(),
+            killed: 0,
+            survived: 0,
+            uncovered: 0,
+            sites: 0,
+        }
+    }
+
+    fn history(input: Option<&str>) -> History {
+        History {
+            forms: BTreeMap::from([(
+                ("n".into(), "f".into()),
+                PriorForm {
+                    digest: "form-digest".into(),
+                },
+            )]),
+            outcomes: BTreeMap::from([(site().mutation_id, "survived".into())]),
+            test_input: input.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn test_input_digest_covers_command_and_file_contents() {
+        let scratch = Scratch::new();
+        scratch.write("src/a.rs", "fn add() {}\n");
+        scratch.write("tests/a_test.rs", "// test\n");
+        let baseline = test_input_digest(&scratch.root(), "cargo test").unwrap();
+        let command = test_input_digest(&scratch.root(), "cargo test --lib").unwrap();
+        scratch.write("tests/a_test.rs", "// changed test\n");
+        let test_file = test_input_digest(&scratch.root(), "cargo test").unwrap();
+        scratch.write("src/a.rs", "fn add() { todo!() }\n");
+        let source = test_input_digest(&scratch.root(), "cargo test").unwrap();
+
+        assert_ne!(baseline, command);
+        assert_ne!(baseline, test_file);
+        assert_ne!(test_file, source);
+    }
+
+    #[test]
+    fn test_input_digest_is_stable_across_project_locations() {
+        let first = Scratch::new();
+        let second = Scratch::new();
+        first.write("src/a.rs", "fn add() {}\n");
+        second.write("src/a.rs", "fn add() {}\n");
+        let first_command = format!("cargo test {}", first.root().join("src/a.rs").display());
+        let second_command = format!("cargo test {}", second.root().join("src/a.rs").display());
+        assert_eq!(
+            test_input_digest(&first.root(), &first_command).unwrap(),
+            test_input_digest(&second.root(), &second_command).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_input_digest_ignores_nested_worktrees() {
+        let scratch = Scratch::new();
+        scratch.write("src/a.rs", "fn add() {}\n");
+        scratch.write(".agents/worktrees/other/src/a.rs", "old\n");
+        let before = test_input_digest(&scratch.root(), "cargo test").unwrap();
+        scratch.write(".agents/worktrees/other/src/a.rs", "new\n");
+        let after = test_input_digest(&scratch.root(), "cargo test").unwrap();
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn survived_outcome_is_reused_only_for_a_matching_test_input() {
+        let sites = [site()];
+        let forms = [form()];
+        let covered = BTreeMap::from([(sites[0].mutation_id.clone(), true)]);
+        let same = history(Some("input-1"));
+        let decisions = decide(&sites, &covered, &same, &forms, false, None, "input-1");
+        assert_eq!(
+            decisions[&sites[0].mutation_id],
+            Decision {
+                action: "reused".into(),
+                reason: "unchanged-survived".into(),
+                previous: "survived".into(),
+            }
+        );
+        assert_eq!(
+            carry_forward(&sites, &covered, &same, &forms, "input-1"),
+            BTreeMap::from([(sites[0].mutation_id.clone(), "survived".to_string())])
+        );
+
+        let changed = decide(&sites, &covered, &same, &forms, false, None, "input-2");
+        assert_eq!(changed[&sites[0].mutation_id].action, "executed");
+        assert_eq!(changed[&sites[0].mutation_id].reason, "test-input-changed");
+        assert!(carry_forward(&sites, &covered, &same, &forms, "input-2").is_empty());
+    }
+
+    #[test]
+    fn a_missing_test_input_digest_does_not_authorize_survived_reuse() {
+        let sites = [site()];
+        let forms = [form()];
+        let covered = BTreeMap::from([(sites[0].mutation_id.clone(), true)]);
+        let decisions = decide(
+            &sites,
+            &covered,
+            &history(None),
+            &forms,
+            false,
+            None,
+            "input-1",
+        );
+        assert_eq!(decisions[&sites[0].mutation_id].action, "executed");
+        assert_eq!(
+            decisions[&sites[0].mutation_id].reason,
+            "test-input-changed"
+        );
+    }
+
+    #[test]
+    fn snapshot_records_the_test_input_digest() {
+        let scratch = Scratch::new();
+        let outcomes = BTreeMap::from([(site().mutation_id.clone(), "survived".to_string())]);
+        write_results(
+            &scratch.root(),
+            "src/a.rs",
+            &[form()],
+            &outcomes,
+            "digest-42",
+            "2026-11-07T12:00:00+00:00",
+            "namespace-view",
+        )
+        .unwrap();
+        let text = fs::read_to_string(scratch.root().join(".metrics/mutate/n.edn")).unwrap();
+        assert!(text.contains(":test-input \"digest-42\""), "{text}");
+        assert_eq!(
+            load_history(&scratch.root(), "src/a.rs")
+                .test_input
+                .as_deref(),
+            Some("digest-42")
+        );
     }
 }

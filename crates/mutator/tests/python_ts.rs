@@ -341,7 +341,9 @@ fn golden_run(language: &'static str) {
     assert_eq!(first, ExitCode::from(3), "{language} first run");
     fixture.assert_project_untouched(&before);
     let rerun = fixture.run(1, &fixture.targets());
-    assert_eq!(rerun, ExitCode::from(3), "{language} rerun");
+    // Every verdict is now reusable: the first run's survivors were executed,
+    // but an identical rerun neither executes nor reports them.
+    assert_eq!(rerun, ExitCode::SUCCESS, "{language} rerun");
     assert_eq!(fixture.published(), golden, "{language} rerun bytes");
     fixture.assert_project_untouched(&before);
 }
@@ -553,7 +555,7 @@ fn a_single_python_file_publishes_the_original_snapshot_bytes() {
         || CLOCK.to_string(),
     );
     assert_eq!(code, ExitCode::SUCCESS);
-    let golden = b"{:version 1 :tested-at \"2026-11-07T12:00:00+00:00\" :isolation :namespace-view :source \"calc.py\" :namespace \"calc\" :outcomes {\"[\\\"calc.py\\\",\\\"calc\\\",\\\"defn/add\\\",28,29,\\\"+\\\",\\\"-\\\"]\" :killed} :forms [{:id \"defn/add\" :kind \"defn\" :file \"calc.py\" :line 1 :end-line 2 :hash \"7f5d06820e37639e83a860f5e4c06bc64504526affd8a2c0203143ecf47713a4\" :killed 1 :survived 0 :uncovered 0 :sites 1}]}\n";
+    let golden = b"{:version 1 :tested-at \"2026-11-07T12:00:00+00:00\" :isolation :namespace-view :source \"calc.py\" :namespace \"calc\" :test-input \"92995fd162ffe32b8cc886d338ae01c8f9afb78aa21671227ef68ddec68023a8\" :outcomes {\"[\\\"calc.py\\\",\\\"calc\\\",\\\"defn/add\\\",28,29,\\\"+\\\",\\\"-\\\"]\" :killed} :forms [{:id \"defn/add\" :kind \"defn\" :file \"calc.py\" :line 1 :end-line 2 :hash \"7f5d06820e37639e83a860f5e4c06bc64504526affd8a2c0203143ecf47713a4\" :killed 1 :survived 0 :uncovered 0 :sites 1}]}\n";
     let expected = expected_golden(golden, "python", "calc.edn");
     let actual = fs::read(directory.join(".metrics/mutate/calc.edn")).unwrap();
     assert_eq!(actual, expected, "original snapshot bytes");
