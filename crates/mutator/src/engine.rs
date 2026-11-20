@@ -123,6 +123,8 @@ pub struct Prepared {
     pub decisions: BTreeMap<String, Decision>,
     pub outcomes: BTreeMap<String, String>,
     pub covered: BTreeMap<String, bool>,
+    /// Hash of the test command and the project files that can affect it.
+    pub test_input: String,
     /// The module's Lua spec index, when this file has one.
     pub index: Option<Index>,
 }
@@ -1172,8 +1174,15 @@ fn decide(item: &mut Prepared, lines: Option<&BTreeSet<usize>>, root: &Path, opt
         &item.forms,
         options.flag("--mutate-all"),
         options.lines.as_ref(),
+        &item.test_input,
     );
-    item.outcomes = metrics::carry_forward(&item.sites, &item.covered, &history, &item.forms);
+    item.outcomes = metrics::carry_forward(
+        &item.sites,
+        &item.covered,
+        &history,
+        &item.forms,
+        &item.test_input,
+    );
 }
 
 pub fn prepare(
@@ -1198,6 +1207,15 @@ pub fn prepare(
             1
         })?;
         let history = metrics::load_history(root, &key);
+        let (command, directory) = plan(root, options, file);
+        let test_input = metrics::test_input_digest(
+            root,
+            &format!("{} @ {}", command.display(), directory.display()),
+        )
+        .map_err(|error| {
+            eprintln!("Cannot hash test inputs for {}: {error}", file.display());
+            2
+        })?;
         let covered = sites
             .iter()
             .map(|site| (site.mutation_id.clone(), true))
@@ -1209,6 +1227,7 @@ pub fn prepare(
             &forms,
             options.flag("--mutate-all"),
             options.lines.as_ref(),
+            &test_input,
         );
         prepared.push(Prepared {
             file: file.clone(),
@@ -1220,6 +1239,7 @@ pub fn prepare(
             decisions,
             outcomes: BTreeMap::new(),
             covered,
+            test_input,
             index: None,
         });
     }
@@ -1496,6 +1516,7 @@ fn publish(
         &item.key,
         &item.forms,
         &item.outcomes,
+        &item.test_input,
         &clock(),
         isolation::level(),
     ) {
