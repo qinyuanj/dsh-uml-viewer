@@ -231,3 +231,33 @@ fn only_a_javascript_command_asks_for_a_dependency_tree() {
         assert_eq!(runs_javascript(command), javascript, "{command}");
     }
 }
+
+/// #105: a refusal while the copy is being prepared can never be a test
+/// outcome -- no command has run yet -- so the caller's exit code must say
+/// "no isolation", never "a red suite".
+#[test]
+fn a_copy_failure_is_isolation_not_a_test_outcome() {
+    let failure = super::copy_failure(std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        "access denied",
+    ));
+
+    let crate::isolation::Failure::Unavailable(text) = failure else {
+        panic!("expected an isolation failure");
+    };
+    assert!(text.starts_with("Copy isolation cannot"), "{text}");
+    assert!(text.contains("access denied"), "{text}");
+}
+
+/// A copy failure that already names its cause keeps its own words instead of
+/// being wrapped a second time.
+#[test]
+fn a_named_copy_failure_keeps_its_own_message() {
+    let named = "Copy isolation cannot place a fixture beside the copy: denied";
+    let failure = super::copy_failure(std::io::Error::other(named));
+
+    let crate::isolation::Failure::Unavailable(text) = failure else {
+        panic!("expected an isolation failure");
+    };
+    assert_eq!(named, text);
+}

@@ -272,14 +272,7 @@ impl Slot {
         timeout: Option<Duration>,
     ) -> Result<Completed, Failure> {
         let command = program.display();
-        self.copy(root, &command, mutation).map_err(|error| {
-            let text = error.to_string();
-            if isolation_failure(&text) {
-                Failure::Unavailable(text)
-            } else {
-                Failure::Message(text)
-            }
-        })?;
+        self.copy(root, &command, mutation).map_err(copy_failure)?;
         let cwd = self
             .cwd(root, cwd)
             .map_err(|error| Failure::Message(error.to_string()))?;
@@ -377,6 +370,21 @@ fn message(error: io::Error) -> Failure {
 /// "Copy isolation cannot", and the placement failure names its path.
 fn isolation_failure(text: &str) -> bool {
     text.starts_with("Copy isolation cannot")
+}
+
+/// Every failure of `copy` is an isolation failure, never a test outcome: each
+/// of its steps -- the wipe of the previous command's slot, the copy, a placed
+/// `--copy` path -- runs before the command does, so a bare `io::Error` there
+/// must not be reported as a red suite (#105). A message that already names
+/// itself keeps its own words.
+fn copy_failure(error: io::Error) -> Failure {
+    let text = error.to_string();
+    let text = if isolation_failure(&text) {
+        text
+    } else {
+        format!("Copy isolation cannot prepare the copy: {text}")
+    };
+    Failure::Unavailable(text)
 }
 
 /// A `--copy` path that could not be placed names itself: a missing dependency
