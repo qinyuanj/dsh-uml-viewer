@@ -548,6 +548,21 @@ pub fn force_remove(path: &Path) -> io::Result<()> {
         result => result?,
     };
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        // A Windows directory junction, and a directory symlink with it, is a
+        // reparse point: `symlink_metadata` reports it as a link, so
+        // `remove_file` refuses it with ERROR_ACCESS_DENIED (os error 5, #105).
+        // `remove_dir` takes the link itself and never follows it into the
+        // target, which is what removing a tree means here.
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileTypeExt;
+            if metadata.file_type().is_symlink_dir() {
+                return match fs::remove_dir(path) {
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+                    result => result,
+                };
+            }
+        }
         return match fs::remove_file(path) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             result => result,
@@ -641,6 +656,29 @@ mod tests {
     #[cfg(unix)]
     fn directory_link(link: &Path, target: &Path) {
         std::os::unix::fs::symlink(target, link).expect("create a directory symlink");
+    }
+
+    /// #105: the wipe between two commands has to take a tree that holds a
+    /// directory link. remove_file refuses a junction with ERROR_ACCESS_DENIED,
+    /// so the link goes with remove_dir, and its target is never followed.
+    #[test]
+    fn force_remove_takes_a_directory_link_and_leaves_its_target() {
+        let root = base("link");
+        let target = test_target().join(format!("scratch-link-target-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&target);
+        fs::create_dir_all(&target).expect("create the link target");
+        fs::write(target.join("kept.txt"), "kept").expect("seed the link target");
+        fs::create_dir_all(root.join("inner")).expect("create the directory holding the link");
+        directory_link(&root.join("inner").join("link"), &target);
+
+        super::force_remove(&root).expect("remove a tree that holds a directory link");
+
+        assert!(!root.exists(), "the tree that held the link is gone");
+        assert!(
+            target.join("kept.txt").is_file(),
+            "the link's target is untouched"
+        );
+        let _ = fs::remove_dir_all(&target);
     }
 
     fn run_isolated(test: &str, tmpdir: &Path, base: &Path) {
