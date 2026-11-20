@@ -1,8 +1,8 @@
 //! The wide layout (#191) of the self-hosted diagram: each view fits the
 //! viewer canvas at a zoom that draws members, keeps the architecture
 //! levels of the default layout in reading order, and routes no
-//! relationship that keeps to one shelf across a box or oval it does not
-//! end at (#89 added the shelves).
+//! relationship across a box or oval it does not end at (#89 added the
+//! shelves).
 
 use crate::common;
 
@@ -59,115 +59,41 @@ fn every_wide_view_fits_at_members_zoom_and_no_smaller_than_the_default() {
     }
 }
 
-/// The shelf each class sits on: the wide layout stacks its columns into
-/// shelves separated by a gutter, and the boxes of one shelf all cross the
-/// height of that shelf (#89).
-fn shelves(scene: &Value) -> HashMap<String, usize> {
-    let mut boxes: Vec<(f64, f64, String)> = seq(get(scene, "classes"))
-        .iter()
-        .filter(|c| !flag(c, "dummy?"))
-        .filter_map(|c| {
-            let r = rect(c)?;
-            Some((r.y, r.bottom(), key(get(c, "id")?)))
-        })
-        .collect();
-    boxes.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    let mut out = HashMap::new();
-    let (mut shelf, mut bottom) = (0, f64::NEG_INFINITY);
-    for (y, b, id) in boxes {
-        if y > bottom {
-            shelf += 1;
-            bottom = b;
-        } else {
-            bottom = bottom.max(b);
-        }
-        out.insert(id, shelf);
-    }
-    out
-}
-
-/// Points of a routed edge's polyline crossing a box it does not end at,
-/// split into the edges that stay on one shelf and the edges that wrap.
-fn crossings(scene: &Value) -> (Vec<String>, Vec<String>) {
-    let shelf = shelves(scene);
+/// Points where a routed edge's polyline crosses a box it does not end at.
+fn crossings(scene: &Value) -> Vec<String> {
     let classes: Vec<(&Value, Rect)> = seq(get(scene, "classes"))
         .iter()
         .filter(|c| !flag(c, "dummy?"))
         .filter_map(|c| Some((get(c, "id")?, rect(c)?)))
         .collect();
-    let (mut inside, mut wrapped) = (Vec::new(), Vec::new());
+    let mut crossed = Vec::new();
     for e in seq(get(scene, "edges")) {
         let ps: Vec<[f64; 2]> = seq(get(e, "points")).iter().filter_map(vec2).collect();
         let ends = [get(e, "from"), get(e, "to")];
-        let wraps = match (ends[0], ends[1]) {
-            (Some(f), Some(t)) => shelf.get(&key(f)) != shelf.get(&key(t)),
-            _ => false,
-        };
         for (id, r) in &classes {
             if ends.contains(&Some(*id)) {
                 continue;
             }
-            let crossed = ps.windows(2).any(|w| {
+            let crosses = ps.windows(2).any(|w| {
                 let (p, q) = (w[0], w[1]);
                 p[0].min(q[0]) < r.right()
                     && p[0].max(q[0]) > r.x
                     && p[1].min(q[1]) < r.bottom()
                     && p[1].max(q[1]) > r.y
             });
-            if crossed {
-                let at = format!("{:?} -> {:?} across {id:?}", ends[0], ends[1]);
-                if wraps {
-                    wrapped.push(at);
-                } else {
-                    inside.push(at);
-                }
+            if crosses {
+                crossed.push(format!("{:?} -> {:?} across {id:?}", ends[0], ends[1]));
             }
         }
     }
-    (inside, wrapped)
+    crossed
 }
-
-/// Ceilings on the crossings a wrapped relationship may make (#94). A lane
-/// is reserved through the columns of one shelf only, so a relationship
-/// whose ends wrap onto different shelves keeps none (#89), and
-/// `route::candidates` assumes the rank order is the x order, which the
-/// strip satisfies and the wrapped columns do not (#94). #95 refuses a wrap
-/// that would bury a package's foreign ovals, and no view wraps such a
-/// relationship any more: every ceiling is zero and may only go down. A view
-/// that is not listed here needs its own line.
-const WRAPPED_CROSSINGS: &[(&str, usize)] = &[
-    ("", 0),
-    (":companion", 0),
-    (":edn", 0),
-    (":ir", 0),
-    (":main", 0),
-    (":scene", 0),
-    (":viewer", 0),
-];
 
 #[test]
 fn no_wide_relationship_crosses_a_box_or_oval_it_does_not_end_at() {
-    // A lane is reserved through the columns of one shelf, and a relationship
-    // whose ends wrap onto different shelves loses it (#89). Every crossing
-    // must belong to such a wrapped relationship: the guarantee stays whole
-    // for every relationship that keeps to a shelf, and the ones that lose
-    // their lane are counted against a ceiling that only goes down (#94).
     for (focus, scene) in common::self_hosted_views_with(&common::wide()) {
-        let (inside, wrapped) = crossings(&scene);
-        assert!(
-            inside.is_empty(),
-            "{focus:?}: {inside:#?} (wrapped: {wrapped:#?})"
-        );
-        let Some((_, ceiling)) = WRAPPED_CROSSINGS.iter().find(|(v, _)| *v == focus) else {
-            panic!("{focus:?} has no ceiling in WRAPPED_CROSSINGS; add one");
-        };
-        assert!(
-            wrapped.len() <= *ceiling,
-            "{focus:?}: {} cross-shelf crossings, ceiling {} - tighten the ceiling instead \
-             of raising it, and see #94 for the gutter channel model that removes them: {wrapped:#?}",
-            wrapped.len(),
-            ceiling,
-        );
+        let crossings = crossings(&scene);
+        assert!(crossings.is_empty(), "{focus:?}: {crossings:#?}");
     }
 }
 
