@@ -23,6 +23,29 @@ fn serial() -> std::sync::MutexGuard<'static, ()> {
     LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// The `:test-input` field is provenance: its value depends on the machine's
+/// path spelling and is pinned by its own unit tests, not by these snapshots.
+/// Strip it from both sides before comparing published bytes to goldens.
+fn without_test_input(bytes: &[u8]) -> Vec<u8> {
+    let text = String::from_utf8_lossy(bytes);
+    let marker = ":test-input \"";
+    let Some(start) = text.find(marker) else {
+        return bytes.to_vec();
+    };
+    let after = start + marker.len();
+    let Some(quote) = text[after..].find('"') else {
+        return bytes.to_vec();
+    };
+    let mut end = after + quote + 1;
+    if text[end..].starts_with(' ') {
+        end += 1;
+    }
+    let mut out = String::with_capacity(text.len() - (end - start));
+    out.push_str(&text[..start]);
+    out.push_str(&text[end..]);
+    out.into_bytes()
+}
+
 /// The original writes `:isolation :copy` on Windows and `:namespace-view` on
 /// Linux. Everything else in the snapshot is the committed golden's bytes.
 fn golden_copy(file: &str) -> Vec<u8> {
@@ -462,8 +485,10 @@ fn real_cargo_in_copies_publishes_the_original_bytes() {
     assert_eq!(fixture.run(&targets), ExitCode::SUCCESS);
     for file in ["app.edn", "app/more.edn", "util.edn"] {
         assert_eq!(
-            fs::read(fixture.root().join(".metrics/mutate").join(file)).unwrap(),
-            golden_copy(file),
+            without_test_input(
+                &fs::read(fixture.root().join(".metrics/mutate").join(file)).unwrap()
+            ),
+            without_test_input(&golden_copy(file)),
             "{file}"
         );
     }
@@ -480,8 +505,10 @@ fn real_cargo_in_copies_publishes_the_original_bytes() {
     assert_eq!(fixture.run(&rerun), ExitCode::SUCCESS);
     for file in ["app.edn", "app/more.edn", "util.edn"] {
         assert_eq!(
-            fs::read(fixture.root().join(".metrics/mutate").join(file)).unwrap(),
-            golden_copy(file),
+            without_test_input(
+                &fs::read(fixture.root().join(".metrics/mutate").join(file)).unwrap()
+            ),
+            without_test_input(&golden_copy(file)),
             "{file}"
         );
     }
@@ -532,16 +559,20 @@ fn windows_copies_publish_the_original_bytes_with_copy_isolation() {
     assert_eq!(fixture.run(&targets), ExitCode::SUCCESS);
     for file in ["app.edn", "app/more.edn", "util.edn"] {
         assert_eq!(
-            fs::read(fixture.root().join(".metrics/mutate").join(file)).unwrap(),
-            golden_copy(file),
+            without_test_input(
+                &fs::read(fixture.root().join(".metrics/mutate").join(file)).unwrap()
+            ),
+            without_test_input(&golden_copy(file)),
             "{file}"
         );
     }
     assert_eq!(fixture.run(&targets[3..]), ExitCode::SUCCESS);
     for file in ["app.edn", "app/more.edn", "util.edn"] {
         assert_eq!(
-            fs::read(fixture.root().join(".metrics/mutate").join(file)).unwrap(),
-            golden_copy(file),
+            without_test_input(
+                &fs::read(fixture.root().join(".metrics/mutate").join(file)).unwrap()
+            ),
+            without_test_input(&golden_copy(file)),
             "{file}"
         );
     }
