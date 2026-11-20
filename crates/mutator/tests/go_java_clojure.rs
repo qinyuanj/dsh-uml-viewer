@@ -247,6 +247,29 @@ impl Drop for Fixture {
     }
 }
 
+/// The pinned originals predate the test-input digest. Golden comparisons
+/// ignore that one provenance field; the digest itself is pinned by its own
+/// unit tests. Cross-worker determinism below still compares the full bytes.
+fn without_test_input(bytes: &[u8]) -> Vec<u8> {
+    let text = String::from_utf8_lossy(bytes);
+    let marker = ":test-input \"";
+    let Some(start) = text.find(marker) else {
+        return bytes.to_vec();
+    };
+    let after = start + marker.len();
+    let Some(quote) = text[after..].find('"') else {
+        return bytes.to_vec();
+    };
+    let mut end = after + quote + 1;
+    if text[end..].starts_with(' ') {
+        end += 1;
+    }
+    let mut out = String::with_capacity(text.len() - (end - start));
+    out.push_str(&text[..start]);
+    out.push_str(&text[end..]);
+    out.into_bytes()
+}
+
 /// Acceptance: snapshots equal the pinned original's bytes, and an unchanged
 /// differential rerun keeps them.
 fn golden_run(language: &'static str) {
@@ -260,13 +283,22 @@ fn golden_run(language: &'static str) {
     args.extend(fixture.targets());
     let first = fixture.run(1, &args);
     let published = fixture.published();
-    assert_eq!(published, golden, "{language} first run bytes");
+    let comparable: BTreeMap<_, _> = published
+        .iter()
+        .map(|(key, bytes)| (key.clone(), without_test_input(bytes)))
+        .collect();
+    assert_eq!(comparable, golden, "{language} first run bytes");
     // Surviving mutants in the goldens make this exit 3.
     assert_eq!(first, ExitCode::from(3), "{language} first run");
     fixture.assert_untouched(&before);
     let rerun = fixture.run(1, &fixture.targets());
     assert_eq!(rerun, ExitCode::from(3), "{language} rerun");
-    assert_eq!(fixture.published(), golden, "{language} rerun bytes");
+    let comparable: BTreeMap<_, _> = fixture
+        .published()
+        .iter()
+        .map(|(key, bytes)| (key.clone(), without_test_input(bytes)))
+        .collect();
+    assert_eq!(comparable, golden, "{language} rerun bytes");
     fixture.assert_untouched(&before);
 }
 
@@ -302,11 +334,12 @@ fn parallel_run(language: &'static str) {
         parallel.published(),
         "{language} workers"
     );
-    assert_eq!(
-        parallel.published(),
-        parallel.goldens(),
-        "{language} golden"
-    );
+    let comparable: BTreeMap<_, _> = parallel
+        .published()
+        .iter()
+        .map(|(key, bytes)| (key.clone(), without_test_input(bytes)))
+        .collect();
+    assert_eq!(comparable, parallel.goldens(), "{language} golden");
 }
 
 #[test]

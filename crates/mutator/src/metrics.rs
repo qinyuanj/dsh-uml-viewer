@@ -283,11 +283,18 @@ pub fn test_input_digest(root: &Path, command: &str) -> io::Result<String> {
         Ok(())
     }
 
+    let raw_root = root.to_string_lossy().into_owned();
     let root = resolve(root);
-    let root_text = root.to_string_lossy().into_owned();
-    let normalized = command
-        .replace(&root_text, "<root>")
-        .replace(&root_text.replace('\\', "/"), "<root>");
+    let resolved_root = root.to_string_lossy().into_owned();
+    // A caller may spell the root in its short (8.3) or long form, and the
+    // command may use either separator. Normalize every spelling we know so
+    // the digest describes the inputs, not where the project happens to sit.
+    let normalized = [raw_root, resolved_root]
+        .into_iter()
+        .flat_map(|spelling| [spelling.clone(), spelling.replace('\\', "/")])
+        .fold(command.to_string(), |text, spelling| {
+            text.replace(&spelling, "<root>")
+        });
     let mut files = Vec::new();
     walk(&root, &root, &mut files)?;
     files.sort_by(|left, right| left.0.cmp(&right.0));
