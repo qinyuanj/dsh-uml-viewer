@@ -292,7 +292,7 @@ pub fn run_coverage_with_lua_shards(
     strict: bool,
 ) -> Result<Option<CoverageBundle>, CoverageError> {
     let root = resolve(root);
-    let before = crate::stamp::fingerprint(&root);
+    let before = crate::stamp::snapshot(&root);
     let mut failed: Vec<&str> = files
         .iter()
         .filter_map(|file| language_of(file))

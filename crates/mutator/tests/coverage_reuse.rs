@@ -133,7 +133,7 @@ impl Fixture {
             &[source],
             None,
             &[],
-            &quality_core::stamp::fingerprint(&root),
+            &quality_core::stamp::snapshot(&root),
         );
         assert!(
             quality_core::stamp::stamp_path(&self.directory).is_file(),
