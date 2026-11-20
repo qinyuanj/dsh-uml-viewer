@@ -1,308 +1,266 @@
 {:candidates [
  {:score 1.0
   :language "rust"
-  :left {:file "crates/companion/src/herdr_domain.rs", :start-line 70, :end-line 74}
-  :right {:file "crates/companion/src/record.rs", :start-line 46, :end-line 50}
-  :left-nodes 66
-  :right-nodes 66}
+  :left {:file "crates/dryer/src/clojure.rs", :start-line 42, :end-line 47, :namespace "dryer::clojure::Form", :name "symbol_name"}
+  :right {:file "crates/dryer/src/clojure.rs", :start-line 48, :end-line 53, :namespace "dryer::clojure::Form", :name "keyword_name"}
+  :left-nodes 70
+  :right-nodes 70}
  {:score 1.0
   :language "rust"
-  :left {:file "crates/companion/src/json.rs", :start-line 334, :end-line 350}
-  :right {:file "crates/edn/src/lib.rs", :start-line 492, :end-line 508}
-  :left-nodes 276
-  :right-nodes 276}
- {:score 1.0
-  :language "rust"
-  :left {:file "crates/edn/tests/codec.rs", :start-line 42, :end-line 47}
-  :right {:file "crates/edn/tests/codec.rs", :start-line 86, :end-line 91}
-  :left-nodes 22
-  :right-nodes 22}
- {:score 1.0
-  :language "rust"
-  :left {:file "crates/edn/tests/repository_round_trip.rs", :start-line 8, :end-line 13}
-  :right {:file "crates/ir/tests/goldens.rs", :start-line 9, :end-line 14}
-  :left-nodes 57
-  :right-nodes 57}
- {:score 1.0
-  :language "rust"
-  :left {:file "crates/ir/src/scan/rust.rs", :start-line 124, :end-line 129}
-  :right {:file "crates/ir/src/scan/typescript.rs", :start-line 412, :end-line 417}
-  :left-nodes 142
-  :right-nodes 142}
- {:score 1.0
-  :language "rust"
-  :left {:file "crates/ir/tests/goldens.rs", :start-line 37, :end-line 47}
-  :right {:file "crates/ir/tests/goldens.rs", :start-line 50, :end-line 60}
-  :left-nodes 92
-  :right-nodes 92}
- {:score 1.0
-  :language "rust"
-  :left {:file "crates/ir/tests/goldens.rs", :start-line 37, :end-line 47}
-  :right {:file "crates/ir/tests/goldens.rs", :start-line 63, :end-line 73}
-  :left-nodes 92
-  :right-nodes 92}
- {:score 1.0
-  :language "rust"
-  :left {:file "crates/ir/tests/goldens.rs", :start-line 37, :end-line 47}
-  :right {:file "crates/ir/tests/goldens.rs", :start-line 76, :end-line 86}
-  :left-nodes 92
-  :right-nodes 92}
- {:score 1.0
-  :language "rust"
-  :left {:file "crates/ir/tests/goldens.rs", :start-line 50, :end-line 60}
-  :right {:file "crates/ir/tests/goldens.rs", :start-line 63, :end-line 73}
-  :left-nodes 92
-  :right-nodes 92}
- {:score 1.0
-  :language "rust"
-  :left {:file "crates/ir/tests/goldens.rs", :start-line 50, :end-line 60}
-  :right {:file "crates/ir/tests/goldens.rs", :start-line 76, :end-line 86}
-  :left-nodes 92
-  :right-nodes 92}
- {:score 1.0
-  :language "rust"
-  :left {:file "crates/ir/tests/goldens.rs", :start-line 63, :end-line 73}
-  :right {:file "crates/ir/tests/goldens.rs", :start-line 76, :end-line 86}
-  :left-nodes 92
-  :right-nodes 92}
- {:score 1.0
-  :language "rust"
-  :left {:file "crates/scene/src/config.rs", :start-line 14, :end-line 21}
-  :right {:file "crates/scene/src/config.rs", :start-line 24, :end-line 31}
-  :left-nodes 98
-  :right-nodes 98}
- {:score 1.0
-  :language "rust"
-  :left {:file "crates/scene/src/config.rs", :start-line 45, :end-line 50}
-  :right {:file "crates/scene/src/config.rs", :start-line 52, :end-line 57}
-  :left-nodes 68
-  :right-nodes 68}
- {:score 1.0
-  :language "rust"
-  :left {:file "crates/scene/src/config.rs", :start-line 90, :end-line 96}
-  :right {:file "crates/viewer/src/bench.rs", :start-line 232, :end-line 238}
-  :left-nodes 67
-  :right-nodes 67}
- {:score 1.0
-  :language "rust"
-  :left {:file "crates/scene/src/hierarchy.rs", :start-line 32, :end-line 35}
-  :right {:file "crates/scene/src/policy.rs", :start-line 26, :end-line 29}
-  :left-nodes 100
-  :right-nodes 100}
- {:score 1.0
-  :language "rust"
-  :left {:file "crates/scene/src/hit.rs", :start-line 30, :end-line 35}
-  :right {:file "crates/scene/src/hit.rs", :start-line 37, :end-line 42}
-  :left-nodes 179
-  :right-nodes 179}
- {:score 1.0
-  :language "rust"
-  :left {:file "crates/scene/src/ir.rs", :start-line 309, :end-line 314}
-  :right {:file "crates/scene/src/policy.rs", :start-line 11, :end-line 16}
+  :left {:file "crates/dryer/src/extract.rs", :start-line 72, :end-line 82, :namespace "dryer::extract", :name "python_nested"}
+  :right {:file "crates/quality-core/src/functions/python.rs", :start-line 47, :end-line 57, :namespace "quality_core::functions::python", :name "is_nested_function"}
   :left-nodes 109
   :right-nodes 109}
  {:score 1.0
   :language "rust"
-  :left {:file "crates/scene/tests/lua_truthiness.rs", :start-line 10, :end-line 13}
-  :right {:file "crates/viewer/tests/class_card.rs", :start-line 15, :end-line 18}
-  :left-nodes 113
-  :right-nodes 113}
+  :left {:file "crates/dryer/src/normalize.rs", :start-line 49, :end-line 60, :namespace "dryer::normalize", :name "identifier"}
+  :right {:file "crates/dryer/src/normalize.rs", :start-line 61, :end-line 72, :namespace "dryer::normalize", :name "attribute"}
+  :left-nodes 53
+  :right-nodes 53}
  {:score 1.0
   :language "rust"
-  :left {:file "crates/scene/tests/lua_truthiness.rs", :start-line 33, :end-line 42}
-  :right {:file "crates/scene/tests/lua_truthiness.rs", :start-line 45, :end-line 59}
-  :left-nodes 79
-  :right-nodes 79}
+  :left {:file "crates/dryer/src/original/clojure.rs", :start-line 119, :end-line 134, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/clojure.rs", :start-line 137, :end-line 152, :namespace nil, :name nil}
+  :left-nodes 116
+  :right-nodes 116}
  {:score 1.0
   :language "rust"
-  :left {:file "crates/uml-viewer/tests/dispatch.rs", :start-line 101, :end-line 112}
-  :right {:file "crates/uml-viewer/tests/dispatch.rs", :start-line 144, :end-line 148}
-  :left-nodes 76
-  :right-nodes 76}
+  :left {:file "crates/dryer/src/original/clojure.rs", :start-line 119, :end-line 134, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/clojure.rs", :start-line 171, :end-line 186, :namespace nil, :name nil}
+  :left-nodes 116
+  :right-nodes 116}
  {:score 1.0
   :language "rust"
-  :left {:file "crates/viewer/src/theme.rs", :start-line 153, :end-line 161}
-  :right {:file "crates/viewer/src/theme.rs", :start-line 163, :end-line 171}
+  :left {:file "crates/dryer/src/original/clojure.rs", :start-line 137, :end-line 152, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/clojure.rs", :start-line 171, :end-line 186, :namespace nil, :name nil}
+  :left-nodes 116
+  :right-nodes 116}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/dryer/src/original/clojure.rs", :start-line 247, :end-line 250, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/clojure.rs", :start-line 269, :end-line 272, :namespace nil, :name nil}
+  :left-nodes 52
+  :right-nodes 52}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/dryer/src/original/languages.rs", :start-line 336, :end-line 345, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/languages.rs", :start-line 348, :end-line 357, :namespace nil, :name nil}
+  :left-nodes 34
+  :right-nodes 34}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/dryer/src/original/languages.rs", :start-line 336, :end-line 345, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/languages.rs", :start-line 360, :end-line 369, :namespace nil, :name nil}
+  :left-nodes 34
+  :right-nodes 34}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/dryer/src/original/languages.rs", :start-line 336, :end-line 345, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/languages.rs", :start-line 372, :end-line 381, :namespace nil, :name nil}
+  :left-nodes 34
+  :right-nodes 34}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/dryer/src/original/languages.rs", :start-line 336, :end-line 345, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/languages.rs", :start-line 384, :end-line 393, :namespace nil, :name nil}
+  :left-nodes 34
+  :right-nodes 34}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/dryer/src/original/languages.rs", :start-line 348, :end-line 357, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/languages.rs", :start-line 360, :end-line 369, :namespace nil, :name nil}
+  :left-nodes 34
+  :right-nodes 34}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/dryer/src/original/languages.rs", :start-line 348, :end-line 357, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/languages.rs", :start-line 372, :end-line 381, :namespace nil, :name nil}
+  :left-nodes 34
+  :right-nodes 34}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/dryer/src/original/languages.rs", :start-line 348, :end-line 357, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/languages.rs", :start-line 384, :end-line 393, :namespace nil, :name nil}
+  :left-nodes 34
+  :right-nodes 34}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/dryer/src/original/languages.rs", :start-line 360, :end-line 369, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/languages.rs", :start-line 372, :end-line 381, :namespace nil, :name nil}
+  :left-nodes 34
+  :right-nodes 34}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/dryer/src/original/languages.rs", :start-line 360, :end-line 369, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/languages.rs", :start-line 384, :end-line 393, :namespace nil, :name nil}
+  :left-nodes 34
+  :right-nodes 34}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/dryer/src/original/languages.rs", :start-line 372, :end-line 381, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/languages.rs", :start-line 384, :end-line 393, :namespace nil, :name nil}
+  :left-nodes 34
+  :right-nodes 34}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/dryer/src/original/languages.rs", :start-line 396, :end-line 405, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/languages.rs", :start-line 408, :end-line 417, :namespace nil, :name nil}
+  :left-nodes 38
+  :right-nodes 38}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/dryer/src/original/names.rs", :start-line 195, :end-line 199, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/names.rs", :start-line 202, :end-line 206, :namespace nil, :name nil}
+  :left-nodes 65
+  :right-nodes 65}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/frame/src/legend.rs", :start-line 32, :end-line 37, :namespace "frame::legend::Shape", :name "name"}
+  :right {:file "crates/scene/src/targets.rs", :start-line 42, :end-line 47, :namespace "scene::targets::Kind", :name "as_str"}
+  :left-nodes 55
+  :right-nodes 55}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/frame/src/theme.rs", :start-line 379, :end-line 387, :namespace "frame::theme", :name "fill"}
+  :right {:file "crates/frame/src/theme.rs", :start-line 389, :end-line 397, :namespace "frame::theme", :name "stroke"}
   :left-nodes 74
   :right-nodes 74}
  {:score 1.0
   :language "rust"
-  :left {:file "crates/viewer/tests/commands.rs", :start-line 34, :end-line 54}
-  :right {:file "crates/viewer/tests/search_box.rs", :start-line 9, :end-line 16}
-  :left-nodes 30
-  :right-nodes 30}
+  :left {:file "crates/ir/src/scan/rust.rs", :start-line 269, :end-line 274, :namespace "ir::scan::rust", :name "find_subslice"}
+  :right {:file "crates/ir/src/scan/typescript.rs", :start-line 616, :end-line 621, :namespace "ir::scan::typescript", :name "find_subslice"}
+  :left-nodes 142
+  :right-nodes 142}
  {:score 1.0
   :language "rust"
-  :left {:file "crates/viewer/tests/driver.rs", :start-line 30, :end-line 36}
-  :right {:file "crates/viewer/tests/driver.rs", :start-line 68, :end-line 74}
-  :left-nodes 71
-  :right-nodes 71}
+  :left {:file "crates/mutator/src/lua.rs", :start-line 302, :end-line 308, :namespace "mutator::lua", :name "lua_string"}
+  :right {:file "crates/quality-core/src/runners/lua.rs", :start-line 108, :end-line 114, :namespace "quality_core::runners::lua", :name "lua_string"}
+  :left-nodes 88
+  :right-nodes 88}
  {:score 1.0
   :language "rust"
-  :left {:file "crates/viewer/tests/driver.rs", :start-line 30, :end-line 36}
-  :right {:file "crates/viewer/tests/driver.rs", :start-line 75, :end-line 81}
-  :left-nodes 71
-  :right-nodes 71}
+  :left {:file "crates/mutator/src/queue.rs", :start-line 121, :end-line 125, :namespace "mutator::queue", :name "locks"}
+  :right {:file "crates/mutator/src/workers.rs", :start-line 117, :end-line 121, :namespace "mutator::workers", :name "locks"}
+  :left-nodes 93
+  :right-nodes 93}
  {:score 1.0
   :language "rust"
-  :left {:file "crates/viewer/tests/driver.rs", :start-line 68, :end-line 74}
-  :right {:file "crates/viewer/tests/driver.rs", :start-line 75, :end-line 81}
-  :left-nodes 71
-  :right-nodes 71}
+  :left {:file "crates/mutator/src/slot.rs", :start-line 68, :end-line 78, :namespace "mutator::slot::Entry", :name "name"}
+  :right {:file "crates/quality-core/src/language.rs", :start-line 19, :end-line 29, :namespace "quality_core::language::Language", :name "name"}
+  :left-nodes 115
+  :right-nodes 115}
  {:score 1.0
   :language "rust"
-  :left {:file "crates/viewer/tests/inspector.rs", :start-line 124, :end-line 129}
-  :right {:file "crates/viewer/tests/metrics.rs", :start-line 5, :end-line 10}
-  :left-nodes 133
-  :right-nodes 133}
+  :left {:file "crates/mutator/src/typescript.rs", :start-line 69, :end-line 72, :namespace "mutator::typescript", :name "json"}
+  :right {:file "crates/quality-core/src/runners/typescript.rs", :start-line 23, :end-line 26, :namespace "quality_core::runners::typescript", :name "json"}
+  :left-nodes 113
+  :right-nodes 113}
  {:score 1.0
   :language "rust"
-  :left {:file "crates/viewer/tests/window_mode.rs", :start-line 7, :end-line 10}
-  :right {:file "crates/viewer/tests/window_mode.rs", :start-line 13, :end-line 16}
-  :left-nodes 41
-  :right-nodes 41}
- {:score 0.950617283951
+  :left {:file "crates/quality-core/src/process.rs", :start-line 37, :end-line 49, :namespace "quality_core::process", :name "shlex_quote"}
+  :right {:file "crates/quality-core/src/process.rs", :start-line 62, :end-line 74, :namespace "quality_core::process", :name "cmd_quote"}
+  :left-nodes 148
+  :right-nodes 148}
+ {:score 1.0
   :language "rust"
-  :left {:file "crates/ir/tests/cli.rs", :start-line 48, :end-line 59}
-  :right {:file "crates/ir/tests/cli.rs", :start-line 93, :end-line 109}
-  :left-nodes 296
-  :right-nodes 240}
+  :left {:file "crates/quality-dispatch/src/config.rs", :start-line 27, :end-line 33, :namespace "quality_dispatch::config::Operation", :name "name"}
+  :right {:file "crates/scene/src/config.rs", :start-line 89, :end-line 95, :namespace "scene::config::Band", :name "name"}
+  :left-nodes 67
+  :right-nodes 67}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/scene/src/config.rs", :start-line 13, :end-line 20, :namespace "scene::config", :name "crap_band"}
+  :right {:file "crates/scene/src/config.rs", :start-line 23, :end-line 30, :namespace "scene::config", :name "mutation_band"}
+  :left-nodes 98
+  :right-nodes 98}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/scene/src/config.rs", :start-line 44, :end-line 49, :namespace "scene::config", :name "crap_grade"}
+  :right {:file "crates/scene/src/config.rs", :start-line 51, :end-line 56, :namespace "scene::config", :name "mutation_grade"}
+  :left-nodes 68
+  :right-nodes 68}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/scene/src/hit.rs", :start-line 30, :end-line 35, :namespace "scene::hit", :name "class_by_id"}
+  :right {:file "crates/scene/src/hit.rs", :start-line 37, :end-line 42, :namespace "scene::hit", :name "package_by_id"}
+  :left-nodes 179
+  :right-nodes 179}
+ {:score 1.0
+  :language "rust"
+  :left {:file "crates/scene/src/ir.rs", :start-line 308, :end-line 313, :namespace "scene::ir", :name "default_or"}
+  :right {:file "crates/scene/src/policy.rs", :start-line 10, :end-line 15, :namespace "scene::policy", :name "default"}
+  :left-nodes 109
+  :right-nodes 109}
  {:score 0.941176470588
   :language "rust"
-  :left {:file "crates/edn/src/record.rs", :start-line 100, :end-line 107}
-  :right {:file "crates/scene/src/document.rs", :start-line 24, :end-line 31}
+  :left {:file "crates/edn/src/record.rs", :start-line 100, :end-line 107, :namespace "edn::record", :name "record"}
+  :right {:file "crates/scene/src/document.rs", :start-line 23, :end-line 30, :namespace "scene::document", :name "vmap"}
   :left-nodes 104
   :right-nodes 102}
- {:score 0.932203389831
-  :language "rust"
-  :left {:file "crates/edn/src/record.rs", :start-line 42, :end-line 48}
-  :right {:file "crates/viewer/src/driver.rs", :start-line 491, :end-line 497}
-  :left-nodes 104
-  :right-nodes 102}
- {:score 0.927272727273
-  :language "rust"
-  :left {:file "crates/viewer/tests/render_cache.rs", :start-line 82, :end-line 96}
-  :right {:file "crates/viewer/tests/render_cache.rs", :start-line 99, :end-line 109}
-  :left-nodes 196
-  :right-nodes 162}
- {:score 0.92
-  :language "rust"
-  :left {:file "crates/edn/src/record.rs", :start-line 77, :end-line 82}
-  :right {:file "crates/uml-viewer/tests/scene_cli.rs", :start-line 33, :end-line 38}
-  :left-nodes 76
-  :right-nodes 74}
  {:score 0.913978494624
   :language "rust"
-  :left {:file "crates/ir/src/scan/lua.rs", :start-line 118, :end-line 131}
-  :right {:file "crates/ir/src/scan/lua.rs", :start-line 155, :end-line 163}
+  :left {:file "crates/ir/src/scan/lua.rs", :start-line 118, :end-line 131, :namespace "ir::scan::lua", :name "match_local_function"}
+  :right {:file "crates/ir/src/scan/lua.rs", :start-line 155, :end-line 163, :namespace "ir::scan::lua", :name "match_function"}
   :left-nodes 214
   :right-nodes 155}
  {:score 0.911111111111
   :language "rust"
-  :left {:file "crates/ir/src/scan/mod.rs", :start-line 116, :end-line 124}
-  :right {:file "crates/ir/src/scan/python.rs", :start-line 496, :end-line 504}
+  :left {:file "crates/ir/src/scan/mod.rs", :start-line 116, :end-line 124, :namespace "ir::scan", :name "ns_join"}
+  :right {:file "crates/ir/src/scan/python.rs", :start-line 567, :end-line 575, :namespace "ir::scan::python", :name "join"}
   :left-nodes 99
   :right-nodes 97}
+ {:score 0.892857142857
+  :language "rust"
+  :left {:file "crates/scene/src/hierarchy.rs", :start-line 33, :end-line 36, :namespace "scene::hierarchy", :name "under"}
+  :right {:file "crates/scene/src/policy.rs", :start-line 25, :end-line 28, :namespace "scene::policy", :name "matches"}
+  :left-nodes 94
+  :right-nodes 90}
  {:score 0.885714285714
   :language "rust"
-  :left {:file "crates/ir/src/lib.rs", :start-line 271, :end-line 274}
-  :right {:file "crates/ir/src/lib.rs", :start-line 277, :end-line 281}
+  :left {:file "crates/ir/src/lib.rs", :start-line 287, :end-line 290, :namespace nil, :name nil}
+  :right {:file "crates/ir/src/lib.rs", :start-line 293, :end-line 297, :namespace nil, :name nil}
   :left-nodes 46
   :right-nodes 62}
- {:score 0.876404494382
+ {:score 0.881481481481
   :language "rust"
-  :left {:file "crates/viewer/tests/driver.rs", :start-line 187, :end-line 207}
-  :right {:file "crates/viewer/tests/driver.rs", :start-line 400, :end-line 425}
-  :left-nodes 238
-  :right-nodes 286}
- {:score 0.870588235294
+  :left {:file "crates/mutator/src/python.rs", :start-line 106, :end-line 127, :namespace "mutator::python", :name "coverage_roots"}
+  :right {:file "crates/quality-core/src/runners/python.rs", :start-line 22, :end-line 38, :namespace "quality_core::runners::python", :name "roots"}
+  :left-nodes 340
+  :right-nodes 306}
+ {:score 0.881355932203
   :language "rust"
-  :left {:file "crates/scene/tests/ir.rs", :start-line 74, :end-line 87}
-  :right {:file "crates/scene/tests/ir.rs", :start-line 90, :end-line 105}
-  :left-nodes 212
-  :right-nodes 214}
+  :left {:file "crates/dryer/src/original/languages.rs", :start-line 88, :end-line 99, :namespace nil, :name nil}
+  :right {:file "crates/dryer/src/original/languages.rs", :start-line 136, :end-line 147, :namespace nil, :name nil}
+  :left-nodes 122
+  :right-nodes 122}
  {:score 0.866071428571
   :language "rust"
-  :left {:file "crates/ir/src/scan/lua.rs", :start-line 134, :end-line 152}
-  :right {:file "crates/ir/src/scan/lua.rs", :start-line 166, :end-line 177}
+  :left {:file "crates/ir/src/scan/lua.rs", :start-line 134, :end-line 152, :namespace "ir::scan::lua", :name "match_local_assign_function"}
+  :right {:file "crates/ir/src/scan/lua.rs", :start-line 166, :end-line 177, :namespace "ir::scan::lua", :name "match_assign_function"}
   :left-nodes 325
   :right-nodes 247}
+ {:score 0.863636363636
+  :language "rust"
+  :left {:file "crates/mutator/src/isolation.rs", :start-line 470, :end-line 481, :namespace "mutator::isolation::View", :name "run"}
+  :right {:file "crates/mutator/src/isolation.rs", :start-line 496, :end-line 507, :namespace "mutator::isolation::View", :name "run_argv"}
+  :left-nodes 130
+  :right-nodes 131}
  {:score 0.857142857143
   :language "rust"
-  :left {:file "crates/ir/src/scan/rust.rs", :start-line 434, :end-line 457}
-  :right {:file "crates/ir/src/scan/rust.rs", :start-line 460, :end-line 472}
+  :left {:file "crates/ir/src/scan/rust.rs", :start-line 674, :end-line 697, :namespace "ir::scan::rust", :name "match_pub_fn"}
+  :right {:file "crates/ir/src/scan/rust.rs", :start-line 700, :end-line 712, :namespace "ir::scan::rust", :name "match_fn_name"}
   :left-nodes 528
   :right-nodes 307}
- {:score 0.847826086957
+ {:score 0.848484848485
   :language "rust"
-  :left {:file "crates/viewer/tests/driver.rs", :start-line 122, :end-line 142}
-  :right {:file "crates/viewer/tests/driver.rs", :start-line 366, :end-line 397}
-  :left-nodes 127
-  :right-nodes 141}
- {:score 0.844155844156
-  :language "rust"
-  :left {:file "crates/viewer/tests/idle_wake.rs", :start-line 24, :end-line 30}
-  :right {:file "crates/viewer/tests/idle_wake.rs", :start-line 33, :end-line 46}
-  :left-nodes 134
-  :right-nodes 227}
+  :left {:file "crates/dryer/src/extract.rs", :start-line 60, :end-line 69, :namespace "dryer::extract", :name "inside"}
+  :right {:file "crates/quality-core/src/functions/typescript.rs", :start-line 59, :end-line 68, :namespace "quality_core::functions::typescript", :name "has_function_ancestor"}
+  :left-nodes 119
+  :right-nodes 102}
  {:score 0.840579710145
   :language "rust"
-  :left {:file "crates/ir/src/scan/rust.rs", :start-line 413, :end-line 430}
-  :right {:file "crates/ir/src/scan/rust.rs", :start-line 460, :end-line 472}
+  :left {:file "crates/ir/src/scan/rust.rs", :start-line 534, :end-line 551, :namespace "ir::scan::rust", :name "match_mod"}
+  :right {:file "crates/ir/src/scan/rust.rs", :start-line 700, :end-line 712, :namespace "ir::scan::rust", :name "match_fn_name"}
   :left-nodes 487
   :right-nodes 307}
- {:score 0.839285714286
-  :language "rust"
-  :left {:file "crates/viewer/tests/render_cache.rs", :start-line 51, :end-line 59}
-  :right {:file "crates/viewer/tests/render_cache.rs", :start-line 72, :end-line 79}
-  :left-nodes 115
-  :right-nodes 121}
- {:score 0.830188679245
-  :language "rust"
-  :left {:file "crates/scene/tests/route_goldens.rs", :start-line 220, :end-line 226}
-  :right {:file "crates/scene/tests/route_goldens.rs", :start-line 320, :end-line 330}
-  :left-nodes 100
-  :right-nodes 124}
- {:score 0.829787234043
-  :language "rust"
-  :left {:file "crates/viewer/tests/driver.rs", :start-line 187, :end-line 207}
-  :right {:file "crates/viewer/tests/driver.rs", :start-line 210, :end-line 227}
-  :left-nodes 238
-  :right-nodes 241}
- {:score 0.828125
-  :language "rust"
-  :left {:file "crates/viewer/tests/render_cache.rs", :start-line 25, :end-line 34}
-  :right {:file "crates/viewer/tests/render_cache.rs", :start-line 62, :end-line 69}
-  :left-nodes 137
-  :right-nodes 113}
- {:score 0.826086956522
-  :language "rust"
-  :left {:file "crates/viewer/src/app.rs", :start-line 1162, :end-line 1169}
-  :right {:file "crates/viewer/src/gui.rs", :start-line 139, :end-line 146}
-  :left-nodes 102
-  :right-nodes 96}
- {:score 0.825396825397
-  :language "rust"
-  :left {:file "crates/viewer/tests/source_jump.rs", :start-line 49, :end-line 64}
-  :right {:file "crates/viewer/tests/source_jump.rs", :start-line 77, :end-line 86}
-  :left-nodes 183
-  :right-nodes 114}
- {:score 0.821428571429
-  :language "rust"
-  :left {:file "crates/viewer/tests/render_cache.rs", :start-line 72, :end-line 79}
-  :right {:file "crates/viewer/tests/render_cache.rs", :start-line 82, :end-line 96}
-  :left-nodes 121
-  :right-nodes 196}
- {:score 0.821428571429
-  :language "rust"
-  :left {:file "crates/viewer/tests/render_cache.rs", :start-line 72, :end-line 79}
-  :right {:file "crates/viewer/tests/render_cache.rs", :start-line 99, :end-line 109}
-  :left-nodes 121
-  :right-nodes 162}
- {:score 0.82
-  :language "rust"
-  :left {:file "crates/uml-viewer/tests/dispatch.rs", :start-line 115, :end-line 131}
-  :right {:file "crates/uml-viewer/tests/dispatch.rs", :start-line 151, :end-line 167}
-  :left-nodes 148
-  :right-nodes 217}
 ]}
