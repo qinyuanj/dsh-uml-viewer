@@ -59,7 +59,7 @@
   {:name "walk", :namespace "quality_core::select", :complexity 9, :coverage 0.0, :crap 90.0}
   {:name "record", :namespace "quality_core::stamp", :complexity 9, :coverage 0.0, :crap 90.0}
   {:name "target", :namespace "quality_dispatch::standard", :complexity 9, :coverage 0.0, :crap 90.0}
-  {:name "place", :namespace "scene::layout", :complexity 89, :coverage 99.2268, :crap 89.0037}
+  {:name "place", :namespace "scene::layout", :complexity 89, :coverage 99.4845, :crap 89.0011}
   {:name "scan", :namespace "ir::scan::python::PythonScanner", :complexity 85, :coverage 93.9502, :crap 86.5998}
   {:name "scan_manifest_value", :namespace "ir::scan::rust", :complexity 23, :coverage 51.4286, :crap 83.6174}
   {:name "selected_target", :namespace "scene::document", :complexity 13, :coverage 25.9259, :crap 81.6888}
@@ -136,12 +136,14 @@
   {:name "read_module", :namespace "ir::scan::typescript", :complexity 36, :coverage 94.5455, :crap 36.2103}
   {:name "scan", :namespace "ir::scan::lua::LuaScanner", :complexity 30, :coverage 81.5126, :crap 35.6868}
   {:name "decode", :namespace "mutator::lua", :complexity 35, :coverage 93.1507, :crap 35.3936}
+  {:name "copy_tree", :namespace "mutator::copies", :complexity 23, :coverage 71.4286, :crap 35.3382}
   {:name "tokens_bounded", :namespace "frame::source", :complexity 26, :coverage 76.7857, :crap 34.4569}
-  {:name "fold", :namespace "scene::layout", :complexity 33, :coverage 90.1235, :crap 34.0491}
+  {:name "fold", :namespace "scene::layout", :complexity 33, :coverage 100.0, :crap 33.0}
   {:name "view_at", :namespace "scene::hierarchy", :complexity 31, :coverage 88.7324, :crap 32.3747}
   {:name "canonical_source", :namespace "viewer_session::targets", :complexity 21, :coverage 70.9091, :crap 31.857}
   {:name "collect", :namespace "mutator::lua", :complexity 26, :coverage 79.8742, :crap 31.5107}
   {:name "candidates", :namespace "scene::route", :complexity 31, :coverage 94.9153, :crap 31.1263}
+  {:name "run_program", :namespace "mutator::copies::Slot", :complexity 22, :coverage 73.4177, :crap 31.0912}
   {:name "layout", :namespace "scene::layout", :complexity 31, :coverage 99.4012, :crap 31.0002}
   {:name "parse", :namespace "mutator::cli", :complexity 30, :coverage 89.8148, :crap 30.9509}
   {:name "analyze", :namespace "crapper::crap", :complexity 5, :coverage 0.0, :crap 30.0}
@@ -185,7 +187,6 @@
   {:name "touches", :namespace "scene::highlight", :complexity 5, :coverage 0.0, :crap 30.0}
   {:name "write_results", :namespace "mutator::metrics", :complexity 29, :coverage 90.566, :crap 29.7061}
   {:name "export_fact", :namespace "ir::scan::typescript", :complexity 29, :coverage 91.5789, :crap 29.5022}
-  {:name "run_program", :namespace "mutator::copies::Slot", :complexity 21, :coverage 73.494, :crap 29.2124}
   {:name "read_module", :namespace "ir::scan::rust", :complexity 27, :coverage 89.0, :crap 27.9703}
   {:name "write_value", :namespace "edn", :complexity 27, :coverage 96.7742, :crap 27.0245}
   {:name "balanced_parens", :namespace "ir::scan::rust", :complexity 7, :coverage 26.6667, :crap 26.3241}
@@ -198,9 +199,10 @@
   {:name "read_module", :namespace "ir::scan::lua", :complexity 24, :coverage 100.0, :crap 24.0}
   {:name "parse_args", :namespace "scene::cli", :complexity 24, :coverage 100.0, :crap 24.0}
   {:name "regex_end", :namespace "ir::scan::typescript", :complexity 23, :coverage 91.6667, :crap 23.3061}
-  {:name "copy_tree", :namespace "mutator::copies", :complexity 17, :coverage 72.2222, :crap 23.1943}
+  {:name "copy", :namespace "mutator::copies::Slot", :complexity 22, :coverage 96.4286, :crap 22.022}
   {:name "member", :namespace "scene::ir", :complexity 20, :coverage 83.6066, :crap 21.7622}
   {:name "open", :namespace "viewer_session::resident::Resident", :complexity 17, :coverage 75.0, :crap 21.5156}
+  {:name "force_remove", :namespace "mutator::scratch", :complexity 19, :coverage 81.4815, :crap 21.2926}
   {:name "call_specs", :namespace "ir::scan::typescript", :complexity 21, :coverage 92.5926, :crap 21.1792}
   {:name "skip_string", :namespace "ir::scan::python", :complexity 20, :coverage 85.7143, :crap 21.1662}
   {:name "apply_metrics", :namespace "scene::overlay", :complexity 21, :coverage 96.0, :crap 21.0282}
@@ -274,8 +276,8 @@
   {:name "nearby", :namespace "scene::layout", :complexity 20, :coverage 100.0, :crap 20.0}
   {:name "hit_at", :namespace "viewer_session::resident", :complexity 4, :coverage 0.0, :crap 20.0}
   {:name "keyword", :namespace "mutator::clojure::Reader", :complexity 11, :coverage 58.3333, :crap 19.7529}
+  {:name "git_directory", :namespace "mutator::copies", :complexity 7, :coverage 36.3636, :crap 19.6274}
   {:name "select", :namespace "ir::detection", :complexity 19, :coverage 88.0952, :crap 19.6091}
-  {:name "reclaim", :namespace "mutator::scratch", :complexity 11, :coverage 59.375, :crap 19.1127}
   {:name "resolve_outside", :namespace "mutator::isolation", :complexity 19, :coverage 95.082, :crap 19.0429}
   {:name "run_result", :namespace "ir", :complexity 19, :coverage 96.1538, :crap 19.0205}
   {:name "owner", :namespace "scene::overlay", :complexity 19, :coverage 97.9592, :crap 19.0031}
@@ -284,10 +286,8 @@
   {:name "ends", :namespace "dryer::clojure::number", :complexity 12, :coverage 64.2857, :crap 18.5598}
   {:name "form", :namespace "mutator::clojure::Reader", :complexity 18, :coverage 96.9697, :crap 18.009}
   {:name "read_dispatch", :namespace "dryer::clojure::Reader", :complexity 18, :coverage 97.619, :crap 18.0044}
-  {:name "copy", :namespace "mutator::copies::Slot", :complexity 18, :coverage 100.0, :crap 18.0}
   {:name "binary", :namespace "mutator::operators", :complexity 18, :coverage 100.0, :crap 18.0}
   {:name "scan_policy", :namespace "ir", :complexity 17, :coverage 87.5, :crap 17.5645}
-  {:name "force_remove", :namespace "mutator::scratch", :complexity 16, :coverage 81.8182, :crap 17.5387}
   {:name "python_float", :namespace "quality_core::number", :complexity 17, :coverage 87.8788, :crap 17.5147}
   {:name "read_string", :namespace "edn::Parser", :complexity 15, :coverage 79.1667, :crap 17.0345}
   {:name "number", :namespace "edn::Parser", :complexity 17, :coverage 96.875, :crap 17.0088}
@@ -320,6 +320,7 @@
   {:name "uncovered", :namespace "ir::quality_scope", :complexity 5, :coverage 29.4118, :crap 13.793}
   {:name "plan", :namespace "mutator::engine", :complexity 10, :coverage 66.6667, :crap 13.7037}
   {:name "namespaced_map", :namespace "mutator::clojure::Reader", :complexity 9, :coverage 61.7647, :crap 13.5277}
+  {:name "reclaim", :namespace "mutator::scratch", :complexity 11, :coverage 73.0769, :crap 13.3614}
   {:name "mask", :namespace "ir::scan::rust", :complexity 13, :coverage 92.3077, :crap 13.0769}
   {:name "command_fields", :namespace "frame::frame", :complexity 13, :coverage 95.9677, :crap 13.0111}
   {:name "covered_lines", :namespace "mutator::engine", :complexity 13, :coverage 96.9231, :crap 13.0049}
@@ -428,7 +429,7 @@
   {:name "generate", :namespace "ir", :complexity 8, :coverage 64.2857, :crap 10.9155}
   {:name "coverage", :namespace "mutator::python", :complexity 9, :coverage 71.4286, :crap 10.8892}
   {:name "key_name", :namespace "scene::events", :complexity 7, :coverage 57.1429, :crap 10.8571}
-  {:name "run_with_clock", :namespace "mutator", :complexity 10, :coverage 81.3953, :crap 10.644}
+  {:name "run_with_clock", :namespace "mutator", :complexity 10, :coverage 81.8182, :crap 10.6011}
   {:name "render", :namespace "mutator::metrics", :complexity 10, :coverage 82.6087, :crap 10.526}
   {:name "real_directory", :namespace "mutator::metrics", :complexity 6, :coverage 50.0, :crap 10.5}
   {:name "accepts", :namespace "ir::scan::lua::LuaScanner", :complexity 9, :coverage 73.6842, :crap 10.4762}
@@ -493,7 +494,7 @@
   {:name "suffix", :namespace "dryer::original::languages", :complexity 8, :coverage 90.0, :crap 8.064}
   {:name "constructor_end", :namespace "ir::scan::lua", :complexity 8, :coverage 90.0, :crap 8.064}
   {:name "quoted_end", :namespace "ir::scan::typescript", :complexity 8, :coverage 93.3333, :crap 8.019}
-  {:name "place", :namespace "mutator::copies::Slot", :complexity 8, :coverage 93.3333, :crap 8.019}
+  {:name "place", :namespace "mutator::copies::Slot", :complexity 8, :coverage 93.75, :crap 8.0156}
   {:name "target_files", :namespace "viewer_session::targets", :complexity 8, :coverage 95.0, :crap 8.008}
   {:name "brace_names", :namespace "ir::scan::typescript", :complexity 8, :coverage 95.4545, :crap 8.006}
   {:name "filenames", :namespace "ir::files::Adapter", :complexity 8, :coverage 95.6522, :crap 8.0053}
@@ -547,6 +548,7 @@
   {:name "normalize", :namespace "ir::scan::typescript", :complexity 7, :coverage 100.0, :crap 7.0}
   {:name "candidates", :namespace "ir::scan::typescript::Aliases", :complexity 7, :coverage 100.0, :crap 7.0}
   {:name "command", :namespace "mutator::clojure", :complexity 7, :coverage 100.0, :crap 7.0}
+  {:name "literal_directory", :namespace "mutator::copies", :complexity 7, :coverage 100.0, :crap 7.0}
   {:name "record_lines", :namespace "mutator::engine", :complexity 7, :coverage 100.0, :crap 7.0}
   {:name "bitwise", :namespace "mutator::operators", :complexity 7, :coverage 100.0, :crap 7.0}
   {:name "uses_pytest", :namespace "mutator::python", :complexity 7, :coverage 100.0, :crap 7.0}
@@ -608,6 +610,7 @@
   {:name "split_alias", :namespace "ir::scan::rust", :complexity 6, :coverage 100.0, :crap 6.0}
   {:name "split_top_level", :namespace "ir::scan::rust", :complexity 6, :coverage 100.0, :crap 6.0}
   {:name "word_positions", :namespace "ir::scan::rust", :complexity 6, :coverage 100.0, :crap 6.0}
+  {:name "resolve", :namespace "mutator::copies", :complexity 2, :coverage 0.0, :crap 6.0}
   {:name "merge_root_native", :namespace "mutator::engine", :complexity 2, :coverage 0.0, :crap 6.0}
   {:name "coverage_script", :namespace "mutator::golang", :complexity 2, :coverage 0.0, :crap 6.0}
   {:name "drop", :namespace "mutator::interrupts::armed::Armed", :complexity 2, :coverage 0.0, :crap 6.0}
@@ -615,6 +618,7 @@
   {:name "category", :namespace "mutator::operators", :complexity 6, :coverage 100.0, :crap 6.0}
   {:name "running", :namespace "mutator::scratch", :complexity 2, :coverage 0.0, :crap 6.0}
   {:name "lines", :namespace "mutator::sites", :complexity 6, :coverage 100.0, :crap 6.0}
+  {:name "new", :namespace "mutator::workers::Workers", :complexity 6, :coverage 100.0, :crap 6.0}
   {:name "coverage_percent", :namespace "quality_core::coverage", :complexity 2, :coverage 0.0, :crap 6.0}
   {:name "python_strip", :namespace "quality_core::coverage", :complexity 2, :coverage 0.0, :crap 6.0}
   {:name "fresh", :namespace "quality_core::coverage::CoverageBundle", :complexity 2, :coverage 0.0, :crap 6.0}
@@ -704,11 +708,12 @@
   {:name "match_mod", :namespace "ir::scan::rust", :complexity 5, :coverage 88.8889, :crap 5.0343}
   {:name "match_assign_function", :namespace "ir::scan::lua", :complexity 5, :coverage 91.6667, :crap 5.0145}
   {:name "on_wheel", :namespace "scene::events", :complexity 5, :coverage 91.6667, :crap 5.0145}
+  {:name "declared_ignored_directories", :namespace "mutator::copies", :complexity 5, :coverage 92.3077, :crap 5.0114}
   {:name "group_children", :namespace "scene::targets", :complexity 5, :coverage 92.3077, :crap 5.0114}
+  {:name "force_previous", :namespace "mutator::build_cache::BuildCache", :complexity 5, :coverage 93.3333, :crap 5.0074}
   {:name "flatten_path", :namespace "scene::curve", :complexity 5, :coverage 93.3333, :crap 5.0074}
   {:name "class_box_size", :namespace "scene::layout", :complexity 5, :coverage 93.3333, :crap 5.0074}
   {:name "match_return", :namespace "ir::scan::python", :complexity 5, :coverage 95.0, :crap 5.0031}
-  {:name "read_snapshots", :namespace "mutator::metrics", :complexity 5, :coverage 95.0, :crap 5.0031}
   {:name "scan_files", :namespace "dryer::scan", :complexity 5, :coverage 95.8333, :crap 5.0018}
   {:name "gap", :namespace "mutator::clojure::Reader", :complexity 5, :coverage 95.8333, :crap 5.0018}
   {:name "carry_forward", :namespace "mutator::metrics", :complexity 5, :coverage 96.1538, :crap 5.0014}
@@ -736,6 +741,7 @@
   {:name "match_bare_import", :namespace "ir::scan::typescript", :complexity 5, :coverage 100.0, :crap 5.0}
   {:name "lookup", :namespace "mutator::engine", :complexity 5, :coverage 100.0, :crap 5.0}
   {:name "line", :namespace "mutator::lua", :complexity 5, :coverage 100.0, :crap 5.0}
+  {:name "read_snapshots", :namespace "mutator::metrics", :complexity 5, :coverage 100.0, :crap 5.0}
   {:name "load_snapshots", :namespace "scene::cli", :complexity 5, :coverage 100.0, :crap 5.0}
   {:name "bounds", :namespace "scene::compose", :complexity 5, :coverage 100.0, :crap 5.0}
   {:name "crap_band", :namespace "scene::config", :complexity 5, :coverage 100.0, :crap 5.0}
@@ -792,7 +798,6 @@
   {:name "named", :namespace "scene::policy", :complexity 4, :coverage 93.3333, :crap 4.0047}
   {:name "ranks_from_layers", :namespace "scene::policy", :complexity 4, :coverage 93.75, :crap 4.0039}
   {:name "label", :namespace "scene::hierarchy", :complexity 4, :coverage 94.1176, :crap 4.0033}
-  {:name "isotonic", :namespace "scene::layout", :complexity 4, :coverage 94.1176, :crap 4.0033}
   {:name "collect", :namespace "viewer_session::metrics", :complexity 4, :coverage 94.7368, :crap 4.0023}
   {:name "children", :namespace "dryer::clojure", :complexity 4, :coverage 100.0, :crap 4.0}
   {:name "rust_nodes", :namespace "dryer::extract", :complexity 4, :coverage 100.0, :crap 4.0}
@@ -827,7 +832,6 @@
   {:name "keyword_key", :namespace "mutator::metrics", :complexity 4, :coverage 100.0, :crap 4.0}
   {:name "claim", :namespace "mutator::scratch", :complexity 4, :coverage 100.0, :crap 4.0}
   {:name "mutation_id", :namespace "mutator::sites", :complexity 4, :coverage 100.0, :crap 4.0}
-  {:name "new", :namespace "mutator::workers::Workers", :complexity 4, :coverage 100.0, :crap 4.0}
   {:name "category", :namespace "quality_core::stamp", :complexity 4, :coverage 100.0, :crap 4.0}
   {:name "along", :namespace "scene::config", :complexity 4, :coverage 100.0, :crap 4.0}
   {:name "combined_grade", :namespace "scene::config", :complexity 4, :coverage 100.0, :crap 4.0}
@@ -846,6 +850,7 @@
   {:name "nodes_at", :namespace "scene::hierarchy", :complexity 4, :coverage 100.0, :crap 4.0}
   {:name "remap_edges", :namespace "scene::hierarchy", :complexity 4, :coverage 100.0, :crap 4.0}
   {:name "indicator_at", :namespace "scene::hit", :complexity 4, :coverage 100.0, :crap 4.0}
+  {:name "isotonic", :namespace "scene::layout", :complexity 4, :coverage 100.0, :crap 4.0}
   {:name "sweep", :namespace "scene::layout", :complexity 4, :coverage 100.0, :crap 4.0}
   {:name "violating_dependency", :namespace "scene::policy", :complexity 4, :coverage 100.0, :crap 4.0}
   {:name "flow", :namespace "scene::route", :complexity 4, :coverage 100.0, :crap 4.0}
@@ -879,6 +884,7 @@
   {:name "file_base", :namespace "scene::hierarchy", :complexity 3, :coverage 85.7143, :crap 3.0262}
   {:name "strip_prefix_word", :namespace "ir::scan::typescript", :complexity 3, :coverage 87.5, :crap 3.0176}
   {:name "object", :namespace "mutator::lua", :complexity 3, :coverage 87.5, :crap 3.0176}
+  {:name "view", :namespace "mutator::workers::Workers", :complexity 3, :coverage 87.5, :crap 3.0176}
   {:name "path", :namespace "scene::compose", :complexity 3, :coverage 87.5, :crap 3.0176}
   {:name "join", :namespace "ir::scan::python", :complexity 3, :coverage 88.8889, :crap 3.0123}
   {:name "forms_of", :namespace "mutator::metrics", :complexity 3, :coverage 88.8889, :crap 3.0123}
@@ -956,6 +962,7 @@
   {:name "shares_queue", :namespace "mutator", :complexity 3, :coverage 100.0, :crap 3.0}
   {:name "skipped", :namespace "mutator::clojure", :complexity 3, :coverage 100.0, :crap 3.0}
   {:name "collection", :namespace "mutator::clojure::Reader", :complexity 3, :coverage 100.0, :crap 3.0}
+  {:name "hidden_paths", :namespace "mutator::copies", :complexity 3, :coverage 100.0, :crap 3.0}
   {:name "redirected", :namespace "mutator::copies::Slot", :complexity 3, :coverage 100.0, :crap 3.0}
   {:name "reusable", :namespace "mutator::engine", :complexity 3, :coverage 100.0, :crap 3.0}
   {:name "is_cargo_test", :namespace "mutator::engine::Command", :complexity 3, :coverage 100.0, :crap 3.0}
@@ -1012,6 +1019,7 @@
   {:name "protected", :namespace "ir::scan::lua", :complexity 2, :coverage 83.3333, :crap 2.0185}
   {:name "posix", :namespace "quality_core::paths", :complexity 2, :coverage 83.3333, :crap 2.0185}
   {:name "module_path", :namespace "ir::scan::lua", :complexity 2, :coverage 85.7143, :crap 2.0117}
+  {:name "ignore_files", :namespace "mutator::copies", :complexity 2, :coverage 85.7143, :crap 2.0117}
   {:name "insert", :namespace "scene::overlay::Ordered", :complexity 2, :coverage 85.7143, :crap 2.0117}
   {:name "canonical", :namespace "ir::files", :complexity 2, :coverage 87.5, :crap 2.0078}
   {:name "python_float", :namespace "mutator::cli", :complexity 2, :coverage 87.5, :crap 2.0078}
@@ -1132,6 +1140,7 @@
   {:name "mask_block_comment", :namespace "ir::text", :complexity 2, :coverage 100.0, :crap 2.0}
   {:name "mutates", :namespace "mutator", :complexity 1, :coverage 0.0, :crap 2.0}
   {:name "validate_outside", :namespace "mutator", :complexity 2, :coverage 100.0, :crap 2.0}
+  {:name "previous", :namespace "mutator::build_cache::BuildCache", :complexity 2, :coverage 100.0, :crap 2.0}
   {:name "is_outer_setting", :namespace "mutator::child_env", :complexity 2, :coverage 100.0, :crap 2.0}
   {:name "blank", :namespace "mutator::clojure", :complexity 2, :coverage 100.0, :crap 2.0}
   {:name "flatten", :namespace "mutator::clojure", :complexity 1, :coverage 0.0, :crap 2.0}
@@ -1141,9 +1150,11 @@
   {:name "symbol_name", :namespace "mutator::clojure", :complexity 2, :coverage 100.0, :crap 2.0}
   {:name "skip_whitespace", :namespace "mutator::clojure::Reader", :complexity 2, :coverage 100.0, :crap 2.0}
   {:name "take_while", :namespace "mutator::clojure::Reader", :complexity 2, :coverage 100.0, :crap 2.0}
+  {:name "copy_failure", :namespace "mutator::copies", :complexity 2, :coverage 100.0, :crap 2.0}
   {:name "is_link", :namespace "mutator::copies", :complexity 2, :coverage 100.0, :crap 2.0}
   {:name "message", :namespace "mutator::copies", :complexity 1, :coverage 0.0, :crap 2.0}
   {:name "remember_outside", :namespace "mutator::copies", :complexity 2, :coverage 100.0, :crap 2.0}
+  {:name "project", :namespace "mutator::copies::Exclusions", :complexity 2, :coverage 100.0, :crap 2.0}
   {:name "cwd", :namespace "mutator::copies::Slot", :complexity 2, :coverage 100.0, :crap 2.0}
   {:name "candidates", :namespace "mutator::engine", :complexity 2, :coverage 100.0, :crap 2.0}
   {:name "decide", :namespace "mutator::engine", :complexity 2, :coverage 100.0, :crap 2.0}
@@ -1497,6 +1508,10 @@
   {:name "id", :namespace "ir::value", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "id_name", :namespace "ir::value", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "ids", :namespace "ir::value", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "describe", :namespace "mutator::build_cache", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "directory", :namespace "mutator::build_cache::BuildCache", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "new", :namespace "mutator::build_cache::BuildCache", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "remember", :namespace "mutator::build_cache::BuildCache", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "inherited_removals", :namespace "mutator::child_env", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "flag", :namespace "mutator::cli::Options", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "value", :namespace "mutator::cli::Options", :complexity 1, :coverage 100.0, :crap 1.0}
@@ -1512,10 +1527,12 @@
   {:name "rest", :namespace "mutator::clojure::Reader", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "cannot_place", :namespace "mutator::copies", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "describe", :namespace "mutator::copies", :complexity 1, :coverage 100.0, :crap 1.0}
-  {:name "hide_build_output", :namespace "mutator::copies", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "is_dependency", :namespace "mutator::copies", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "isolation_failure", :namespace "mutator::copies", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "outside", :namespace "mutator::copies", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "registry", :namespace "mutator::copies", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "runs_javascript", :namespace "mutator::copies", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "none", :namespace "mutator::copies::Exclusions", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "beside", :namespace "mutator::copies::Slot", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "entry", :namespace "mutator::copies::Slot", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "home", :namespace "mutator::copies::Slot", :complexity 1, :coverage 100.0, :crap 1.0}
@@ -1525,6 +1542,7 @@
   {:name "reused", :namespace "mutator::copies::Slot", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "run", :namespace "mutator::copies::Slot", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "run_argv", :namespace "mutator::copies::Slot", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "with_build", :namespace "mutator::copies::Slot", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "executed_count", :namespace "mutator::engine", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "hits", :namespace "mutator::engine", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "relative", :namespace "mutator::engine", :complexity 1, :coverage 100.0, :crap 1.0}
@@ -1536,11 +1554,13 @@
   {:name "describe", :namespace "mutator::isolation", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "report_path", :namespace "mutator::isolation", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "report_tree", :namespace "mutator::isolation", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "build", :namespace "mutator::isolation::View", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "lua_coverage_scratch", :namespace "mutator::isolation::View", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "reused", :namespace "mutator::isolation::View", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "run", :namespace "mutator::isolation::View", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "run_argv", :namespace "mutator::isolation::View", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "slot", :namespace "mutator::isolation::View", :complexity 1, :coverage 100.0, :crap 1.0}
+  {:name "with_build", :namespace "mutator::isolation::View", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "test_plan", :namespace "mutator::java", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "canonical", :namespace "mutator::lua", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "error", :namespace "mutator::lua", :complexity 1, :coverage 100.0, :crap 1.0}
@@ -1582,7 +1602,6 @@
   {:name "locks", :namespace "mutator::workers", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "worker_count", :namespace "mutator::workers", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "len", :namespace "mutator::workers::Workers", :complexity 1, :coverage 100.0, :crap 1.0}
-  {:name "view", :namespace "mutator::workers::Workers", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "support", :namespace "platform", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "shown", :namespace "quality_core::paths", :complexity 1, :coverage 100.0, :crap 1.0}
   {:name "current", :namespace "quality_core::platform::Host", :complexity 1, :coverage 100.0, :crap 1.0}
