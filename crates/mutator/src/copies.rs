@@ -122,12 +122,24 @@ fn registry() -> MutexGuard<'static, BTreeMap<PathBuf, Vec<isolation::Outside>>>
 /// One slot of the pool: a copy per command, plus the file a mutant carries.
 pub struct Slot {
     directory: PathBuf,
+    // This worker's Cargo target directory, when it has one: a position beside
+    // the slot that every command's wipe leaves alone (`crate::build_cache`),
+    // never a name exemption inside it.
+    build: Option<crate::build_cache::BuildCache>,
 }
 impl Slot {
     pub fn reused(directory: &Path) -> Self {
         Self {
             directory: directory.to_path_buf(),
+            build: None,
         }
+    }
+
+    /// `build` is a directory above this slot, which the wipe below leaves
+    /// alone: the caller owns it and removes it with the pool.
+    pub fn with_build(mut self, build: Option<crate::build_cache::BuildCache>) -> Self {
+        self.build = build;
+        self
     }
     /// The directory the copy's `..` resolves to. It sits one level under the
     /// wiped slot, so both `..` and `../..` from the project land inside the
@@ -189,15 +201,25 @@ impl Slot {
         }
         let mark = self.mark();
         scratch::force_remove(&mark)?;
+        // The previous command's mutant is gone from the copy, but its compiled
+        // object is still in this worker's target directory, and the restored
+        // file's older time would let Cargo keep it (`crate::build_cache`).
+        if let Some(build) = &self.build {
+            build.force_previous(&project)?;
+        }
         if let Some((path, source)) = mutation {
             scratch::private_file(&mark)?.write_all(source.as_bytes())?;
-            let destination = path
+            let relative = path
                 .strip_prefix(root)
                 .map_err(|_| io::Error::other("the mutated source is outside the project root"))?;
-            let destination = project.join(destination);
             // Cargo treats a source no newer than its last build as unchanged;
             // every copy is new, but the mutated file is rewritten last.
-            fs::write(&destination, source)?;
+            fs::write(project.join(relative), source)?;
+            // The command after this one has to force this crate back to the
+            // project's own bytes.
+            if let Some(build) = &self.build {
+                build.remember(relative)?;
+            }
         }
         Ok(())
     }
@@ -290,10 +312,15 @@ impl Slot {
             })
             .collect();
         let copy = self.project();
-        environment.push((
-            "CARGO_TARGET_DIR".into(),
-            copy.join("target/mutator-build").into_os_string(),
-        ));
+        // Cargo writes here instead of into the copy, so the crates a mutant
+        // did not touch survive the next command's wipe (`crate::build_cache`
+        // says why that is sound). Without a pool to own one, the target
+        // directory stays inside the copy, as it always did.
+        let target = match &self.build {
+            Some(build) => build.directory().to_path_buf(),
+            None => copy.join("target/mutator-build"),
+        };
+        environment.push(("CARGO_TARGET_DIR".into(), target.into_os_string()));
         // The installed toolchains stay reachable after the home moves.
         if std::env::var_os("CARGO_HOME").is_none() {
             let default = quality_core::paths::home().join(".cargo");

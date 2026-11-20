@@ -31,7 +31,12 @@ pub fn worker_count(sites: usize, requested: Option<usize>) -> usize {
 
 pub struct Workers {
     slots: Vec<PathBuf>,
-    // The root owns the slots: dropping it removes the whole pool.
+    // One Cargo target directory per slot (`crate::build_cache`). Each is a
+    // sibling of its `worker-<n>` slot, so the wipe every command performs
+    // cannot remove it, and no worker reads another's compiled objects.
+    #[cfg(windows)]
+    caches: Vec<crate::build_cache::BuildCache>,
+    // The root owns the slots and the caches: dropping it removes them all.
     _root: scratch::Root,
 }
 
@@ -41,12 +46,39 @@ impl Workers {
         let root = scratch::Root::new(project)?;
         let count = count.max(1);
         let mut slots = Vec::with_capacity(count);
+        #[cfg(windows)]
+        let mut caches = Vec::with_capacity(count);
+        // The one directory the workers' caches live in: a sibling of every
+        // `worker-<n>` slot, so no command's wipe reaches it.
+        // The one directory the workers' target directories live in: a sibling
+        // of every `worker-<n>` slot, so no command's wipe reaches it.
+        #[cfg(windows)]
+        let caches_root = root
+            .path()
+            .join(crate::build_cache::DIRECTORY)
+            .to_path_buf();
+        #[cfg(windows)]
+        scratch::private_directory(&caches_root)?;
         for index in 0..count {
             let slot = root.path().join(format!("worker-{index}"));
             scratch::private_directory(&slot)?;
             slots.push(slot);
+            // Always created, even before anything is compiled into it: an
+            // empty directory inside this call's own scratch root changes
+            // nothing a command can see.
+            #[cfg(windows)]
+            {
+                let directory = caches_root.join(format!("worker-{index}"));
+                scratch::private_directory(&directory)?;
+                caches.push(crate::build_cache::BuildCache::new(directory));
+            }
         }
-        Ok(Self { slots, _root: root })
+        Ok(Self {
+            slots,
+            #[cfg(windows)]
+            caches,
+            _root: root,
+        })
     }
 
     pub fn len(&self) -> usize {
@@ -55,7 +87,14 @@ impl Workers {
 
     /// The view of one slot; the caller owns only the command it runs there.
     pub fn view(&self, index: usize) -> View {
-        View::reused(&self.slots[index % self.slots.len()])
+        let index = index % self.slots.len();
+        let view = View::reused(&self.slots[index]);
+        #[cfg(windows)]
+        let view = match self.caches.get(index) {
+            Some(build) => view.with_build(build.clone()),
+            None => view,
+        };
+        view
     }
 
     /// Run each site once across `count` workers and collect its outcome.

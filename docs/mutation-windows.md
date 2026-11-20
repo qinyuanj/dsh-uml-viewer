@@ -79,7 +79,8 @@ through `..`, and not a directory it happened to name `lua-coverage` — a
 mutant's same-named directory is a channel between mutants like any other write,
 so the wipe removes it with everything else. The exception above is a
 **position**, not a name: preparation skips nothing, because the collection's
-scratch sits outside the region the wipe covers.
+scratch sits outside the region the wipe covers. The target directory a
+worker's Cargo commands share (next section) is kept the same way.
 
 The reserved names are one declaration, `crate::slot::Entry`: the project copy,
 the redirected homes, the capture file, the mutated source, and the collection's
@@ -134,6 +135,99 @@ Default coverage needs `cargo-llvm-cov` and the pinned toolchain's
 default), on every platform including under the Python original, so a host
 without the component gains it on the first default-coverage run. CI installs
 it up front.
+
+### A Cargo target directory per worker, above the wipe
+
+Every mutant used to rebuild the mutated crate's whole dependency chain, because
+Cargo's target directory was `<copy>/target/mutator-build` and the copy is new
+for every command. On this repository's `crates/scene` that is nine crates per
+mutant.
+
+Measured on `crates/scene/src/card.rs` — twelve mutants, `--no-coverage`,
+`-j 3`, a fresh empty `TMP` per run, every `.metrics/mutate` record removed
+first so no site is replayed (`executed=12 reused=0` in both runs):
+
+| | before | after |
+| --- | --- | --- |
+| wall clock, whole call | 577 s, 575 s | 443 s, 445 s |
+| baseline (`crates/scene`) | 110.4 s, 108.0 s | 90.3 s, 90.6 s |
+| mutation phase, twelve mutants | 576.9 s, 575.3 s | 443.2 s, 445.5 s |
+| per mutant | 48.1 s, 47.9 s | 36.9 s, 37.1 s |
+| crate compilations in the call | 126, 108 | 37, 37 |
+
+The compile step alone, timed directly on the same crate (`cargo test
+--no-run` in the copy): 14.9 s and nine crates with a fresh target directory,
+8.5 s and one crate with a kept one. The rest of a mutant's time is the copy
+and the test run itself, which a target directory cannot shorten.
+
+The directory now lives beside the slot, not inside it, exactly where a Lua
+collection's `lua-coverage/` scratch sits:
+
+```text
+<pool-root>/
+  target-cache/
+    worker-0/              Cargo's CARGO_TARGET_DIR for worker 0
+    worker-1/              … and for worker 1
+  worker-0/                wiped before every command
+    beside/
+      project/             the command's fresh copy
+  worker-1/                wiped before every command
+```
+
+`crate::workers` creates one directory per slot and hands it to that slot's
+`View` (`View::with_build`); `crate::copies::Slot::run_program` points
+`CARGO_TARGET_DIR` at it. No command is told the path and no name is exempt
+from the wipe: the directory is above the region the wipe covers, so the wipe
+cannot reach it. The copy itself is still made fresh for every command, so a
+mutant's writes still reach nothing a later command can see.
+
+Keeping the directory is only sound because a copy preserves timestamps:
+`fs::copy` keeps the last-write time, so every crate a mutant did not touch
+still looks older than the last build and Cargo leaves it alone. The one file
+that must be forced is the **previous** mutation: its restored bytes carry the
+project's original, older time, so Cargo's own check would call the crate fresh
+and hand the next command the object it built from the mutant — a mutant judged
+on code that is not its own. `crate::build_cache::BuildCache` therefore records
+the project-relative source each command mutates and stamps it with the current
+time before the next command runs. Measured: a source restored with its old time
+rebuilt 0 crates in 0.13 s, and the same source forced to the current time
+rebuilt 1 crate in 8.4 s.
+
+The cache is removed with the call's scratch root, so no later call inherits a
+stale object, and nothing is written into the project tree.
+
+#### What this costs, and what it risks
+
+- **One cold build per worker.** Each of the three workers compiles the
+  dependency chain once; after that a mutant rebuilds only the crate it mutates
+  and the crates that depend on it. A worker that starts late (the baseline
+  warms worker 0) pays that cold build once.
+- **Disk, not less of it.** Today each command's copy holds its own target
+  directory; after this change it holds one per worker for the length of the
+  call. The peak is the same, the lifetime is longer.
+- **The cache is command-writable.** It has to be: Cargo writes there. A mutant
+  that deliberately wrote into `<pool-root>/target-cache/worker-<n>` could
+  poison the objects later mutants of that worker link against and so receive a
+  verdict about code it did not compile. The per-worker directory limits the
+  blast radius to one worker's command sequence, and the run's own scratch root
+  removes it at the end, but it is a real opening that a `target` directory
+  inside the wiped copy did not have. It is the same opening `--copy`
+  placements have: a copy is a convention, not a sandbox (below).
+- **Coverage is untouched.** `cargo llvm-cov` runs through `View::new`, which
+  has no shared target directory, so instrumentation and the LCOV report are
+  built and measured exactly as before; the runner never reuses a target
+  directory across a coverage command and a mutant.
+
+Alternatives rejected: **keeping the target directory inside the copy and
+copying it forward** depends on Cargo's undated freshness rules and, measured
+here, kept a mutant's object for a command that had restored the source
+(0 crates rebuilt, 0.25 s) — a wrong verdict. **`sccache`** is content-addressed
+and immune to that failure, but its 0.19 release constructs
+`directories::ProjectDirs` unconditionally (including for the dist cache), and
+that returns `None` under the redirected `HOME`/`USERPROFILE` every isolated
+command runs with, so the wrapper panics before compiling anything
+(`Unable to retrieve dist cache directory`); fixing it would mean weakening the
+redirected home, which is the isolation.
 
 ## Paths outside the project root (`--copy`)
 
