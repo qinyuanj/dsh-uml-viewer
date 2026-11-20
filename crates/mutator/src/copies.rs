@@ -1,8 +1,10 @@
 //! Native Windows: every command, coverage, baseline and mutant included,
 //! runs in a fresh copy of the project at its worker slot (ADR 0010).
 //!
-//! The copy is the original's `CopyViews`: build output becomes an empty
-//! directory, directory links and junctions are refused before a command runs,
+//! The copy is the original's `CopyViews`: the directories that take no part in
+//! a mutation -- build output, dependency trees, and whatever the project's own
+//! ignore rules declare -- become an empty directory (#102), a link to a real
+//! directory is refused before a command runs, a link to nothing is skipped,
 //! file links are materialised as independent files, and `HOME`, `USERPROFILE`,
 //! `TEMP`, `TMP`, `APPDATA` and `LOCALAPPDATA` point beside the copy. The
 //! command's process tree is #3's kill-on-close Job Object in
@@ -30,6 +32,10 @@ use std::{
 };
 
 /// The original's `HIDDEN`: build output a copy shows as an empty directory.
+///
+/// These are the tools' own output names, for a project that declares nothing
+/// about its build; `declared_ignored_directories` adds the project's own
+/// answer, so the copy is never tied to this list (`hidden_paths`).
 const HIDDEN: &[&str] = &[
     ".git",
     ".hg",
@@ -51,6 +57,22 @@ const HIDDEN: &[&str] = &[
     ".uml-viewer",
     ".toolcache",
 ];
+
+/// Dependency directories, hidden at any depth (see `hidden_paths` and
+/// `is_dependency`).
+///
+/// A project's ignore rules name one `node_modules` at its root, but pnpm and
+/// npm give every package of a workspace its own
+/// (`packages/<pkg>/node_modules`), and each of those is a farm of links into
+/// the package manager's store -- which a copy may not hold, because a linked
+/// directory is what `copy_tree` refuses. A mutation never writes inside a
+/// dependency, so the whole tree is an empty directory in the copy.
+///
+/// This is the one name this module contributes rather than reading from the
+/// project, because the *layout*, not the project, is what puts it below a
+/// package directory. The boundary: a project that keeps real sources in a
+/// directory named `node_modules` loses them from the copy.
+const DEPENDENCIES: &[&str] = &["node_modules"];
 
 /// Home, profile, temp and app-data beside the copy, never inside it: each
 /// environment variable and the slot entry (`crate::slot`) it points at, plus
@@ -156,7 +178,7 @@ impl Slot {
         scratch::private_directory(&self.beside())?;
         let project = self.project();
         scratch::private_directory(&project)?;
-        copy_tree(root, &project, &hide_build_output(root))?;
+        copy_tree(root, &project, &hidden_paths(root))?;
         for outside in outside(root) {
             self.place(&outside)?;
         }
@@ -363,39 +385,60 @@ fn cannot_place(target: &str, error: io::Error) -> io::Error {
 }
 
 /// `copy_tree`: a hidden directory becomes empty, a linked directory is
-/// refused (it could route a mutant back into the checkout), a file link is
-/// materialised, and every other file is copied with its timestamps.
-fn copy_tree(source: &Path, destination: &Path, hidden: &[PathBuf]) -> io::Result<()> {
+/// refused (it could route a mutant back into the checkout), a link to nothing
+/// is skipped, a file link is materialised, and every other file is copied with
+/// its timestamps.
+pub(crate) fn copy_tree(source: &Path, destination: &Path, hidden: &[PathBuf]) -> io::Result<()> {
     for entry in fs::read_dir(source)? {
         let entry = entry?;
         let path = entry.path();
         let target = destination.join(entry.file_name());
         let metadata = fs::symlink_metadata(&path)?;
-        if hidden.contains(&path) {
-            // Hidden build output is an empty directory, as in an overlay.
+        if hidden.contains(&path) || (is_dependency(&path) && metadata.is_dir()) {
+            // Hidden build output and dependency trees are an empty directory,
+            // as in an overlay: present, so a build that expects the directory
+            // finds one, and empty, so nothing inside it is frozen.
             fs::create_dir(&target)?;
             continue;
         }
         if is_link(&metadata) {
-            if metadata.is_dir() {
-                return Err(io::Error::other(format!(
-                    "Copy isolation cannot freeze linked directory: {}",
-                    path.display()
-                )));
+            // Resolving the link is what separates the two cases #102 turned
+            // on. A link to a real directory -- a junction, or a symlink -- is
+            // a route a mutant's write could take back into the checkout, so
+            // it is refused and the run stops before any command. A link to
+            // nothing is a route nowhere: it is skipped, because it cannot
+            // carry a write out of the copy, and refusing it made one stale
+            // test fixture or one broken package-manager entry price the whole
+            // project's mutation run.
+            match fs::metadata(&path) {
+                Ok(resolved) if resolved.is_dir() => {
+                    return Err(io::Error::other(format!(
+                        "Copy isolation cannot freeze linked directory: {}",
+                        path.display()
+                    )));
+                }
+                Ok(resolved) if resolved.is_file() => {
+                    let source = fs::canonicalize(&path).map_err(|_| {
+                        io::Error::other(format!(
+                            "Copy isolation cannot freeze unresolved link: {}",
+                            path.display()
+                        ))
+                    })?;
+                    fs::copy(source, target)?;
+                }
+                // Neither directory nor file: nothing a mutation can use.
+                Ok(_) => continue,
+                // Present as a reparse point, absent as a target: dangling.
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                // Any other resolution failure is still refused: this is the
+                // path that must never be guessed at.
+                Err(_) => {
+                    return Err(io::Error::other(format!(
+                        "Copy isolation cannot freeze unresolved link: {}",
+                        path.display()
+                    )));
+                }
             }
-            let resolved = fs::canonicalize(&path).map_err(|_| {
-                io::Error::other(format!(
-                    "Copy isolation cannot freeze unresolved link: {}",
-                    path.display()
-                ))
-            })?;
-            if !resolved.is_file() {
-                return Err(io::Error::other(format!(
-                    "Copy isolation cannot freeze unresolved link: {}",
-                    path.display()
-                )));
-            }
-            fs::copy(resolved, target)?;
         } else if metadata.is_dir() {
             fs::create_dir(&target)?;
             copy_tree(&path, &target, hidden)?;
@@ -412,11 +455,115 @@ fn is_link(metadata: &fs::Metadata) -> bool {
     metadata.file_type().is_symlink() || metadata.file_attributes() & 0x400 != 0
 }
 
-/// Build output under `directory` is hidden: the copy gets an empty directory.
-pub fn hide_build_output(root: &Path) -> Vec<PathBuf> {
-    HIDDEN
-        .iter()
+/// The directories a copy shows as an empty directory: the tools' own build
+/// output (`HIDDEN`) plus every root directory the project's own ignore rules
+/// declare.
+///
+/// The declaration is the project's, not this module's: `.gitignore` and the
+/// repository's `info/exclude` are where a project says which directories are
+/// generated or fetched, and that is where `target`, `lib`, `node_modules` and
+/// `.agents` are named in this repository (#102). Reusing it is why this is not
+/// a hardcoded three, and why it follows a project that ignores something else.
+/// The mutation scope (`sourceRoots` in `uml-quality.json`) is deliberately not
+/// the input: inverting it would drop `Cargo.toml`, `fixtures/` and every other
+/// file a test needs, and the copy would fail before the first mutant.
+pub fn hidden_paths(root: &Path) -> Vec<PathBuf> {
+    let mut names: Vec<String> = HIDDEN.iter().map(|name| (*name).to_owned()).collect();
+    for name in declared_ignored_directories(root) {
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
+        .into_iter()
         .map(|name| root.join(name))
         .filter(|path| path.exists())
         .collect()
 }
+
+/// Root directories `root`'s ignore rules declare: a literal, top-level
+/// directory name in `.gitignore` or in the repository's `info/exclude`.
+fn declared_ignored_directories(root: &Path) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for file in ignore_files(root) {
+        let Ok(text) = fs::read_to_string(&file) else {
+            continue;
+        };
+        for line in text.lines() {
+            let Some(name) = literal_directory(line) else {
+                continue;
+            };
+            if root.join(&name).is_dir() && !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
+    names
+}
+
+/// `.gitignore` first, then the repository's `info/exclude`.
+///
+/// A linked worktree -- `.agents/worktrees/<n>` is where a ticket's own tree
+/// lives -- has a `.git` *file* naming its per-worktree directory, and the
+/// ignore rules live in the shared repository that `commondir` names. Reading
+/// only `<root>/.git/info/exclude` would lose `.agents/` exactly where the
+/// ticket works.
+fn ignore_files(root: &Path) -> Vec<PathBuf> {
+    let mut files = vec![root.join(".gitignore")];
+    if let Some(directory) = git_directory(root) {
+        files.push(directory.join("info").join("exclude"));
+    }
+    files
+}
+
+fn git_directory(root: &Path) -> Option<PathBuf> {
+    let dot = root.join(".git");
+    if fs::metadata(&dot).ok()?.is_dir() {
+        return Some(dot);
+    }
+    let named = fs::read_to_string(&dot).ok()?;
+    let directory = resolve(root, PathBuf::from(named.strip_prefix("gitdir:")?.trim()));
+    match fs::read_to_string(directory.join("commondir")) {
+        Ok(common) => Some(resolve(&directory, PathBuf::from(common.trim()))),
+        Err(_) => Some(directory),
+    }
+}
+
+/// `path` as `base` reads it; an absolute path stands as written.
+fn resolve(base: &Path, path: PathBuf) -> PathBuf {
+    if path.is_absolute() {
+        path
+    } else {
+        base.join(path)
+    }
+}
+
+/// One ignore-file line naming a single root directory literally.
+///
+/// A negation (`!build/`), a wildcard (`run-*`, `**/tmp`), a nested path
+/// (`.claude/worktrees/`) or a file pattern is not this. Those are left to
+/// `HIDDEN` and to the link rules: guessing at git's pattern language would
+/// silently drop a directory a build needs, which is the failure this ticket
+/// exists to end.
+fn literal_directory(line: &str) -> Option<String> {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with('#') || line.starts_with('!') {
+        return None;
+    }
+    let name = line.trim_start_matches('/').trim_end_matches('/');
+    if name.is_empty() || name.contains('/') || name.contains(['*', '?', '[', ']', '\\']) {
+        return None;
+    }
+    Some(name.to_owned())
+}
+
+/// Whether `path` names a dependency directory (`DEPENDENCIES`).
+fn is_dependency(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| DEPENDENCIES.contains(&name))
+}
+
+#[cfg(test)]
+#[path = "copies_tests.rs"]
+mod tests;
