@@ -593,6 +593,60 @@ pub fn force_remove(path: &Path) -> io::Result<()> {
     failure.map_or(Ok(()), Err)
 }
 
+/// Remove one entry, waiting out the handles a killed command has not released.
+///
+/// The wipe between two commands races the processes of the one before it: a
+/// test that panicked, and the children its Job Object is still terminating,
+/// can hold files inside the slot for a moment after the command returned.
+/// Windows reports that as a sharing violation, and it clears by itself, so the
+/// same window `reclaim` spends is spent here (#113). Nothing else is waited
+/// on: an error that is not another process's handle is the caller's answer.
+pub fn remove_patiently(path: &Path) -> io::Result<()> {
+    retry_while_held(RECLAIM_WINDOW, || force_remove(path))
+}
+
+/// Retry `remove` while the error says another process still holds the file.
+///
+/// Split from `remove_patiently` so the policy can be pinned without a real
+/// Windows share mode: the tests hand it the same `os error 32` production
+/// meets (#113). The window has to end, so a holder that never closes is
+/// reported rather than waited on forever.
+fn retry_while_held<F>(window: Duration, mut remove: F) -> io::Result<()>
+where
+    F: FnMut() -> io::Result<()>,
+{
+    let deadline = Instant::now() + window;
+    let mut pause = RECLAIM_PAUSE_MIN;
+    loop {
+        match remove() {
+            Ok(()) => return Ok(()),
+            Err(error) if !a_handle_held_it(&error) => return Err(error),
+            Err(error) => {
+                if Instant::now() >= deadline {
+                    return Err(error);
+                }
+                std::thread::sleep(pause);
+                pause = (pause + pause).min(RECLAIM_PAUSE_MAX);
+            }
+        }
+    }
+}
+
+/// Whether the error is another process's open handle, not a verdict.
+///
+/// ERROR_SHARING_VIOLATION (32) and ERROR_LOCK_VIOLATION (33) both mean the
+/// holder has to close first, and the numbers are Windows' own.
+fn a_handle_held_it(error: &io::Error) -> bool {
+    #[cfg(windows)]
+    let held = matches!(error.raw_os_error(), Some(32) | Some(33));
+    #[cfg(not(windows))]
+    let held = {
+        let _ = error;
+        false
+    };
+    held
+}
+
 #[cfg(test)]
 mod tests {
     //! The two failures this module must not hide: a temporary directory that
@@ -610,7 +664,7 @@ mod tests {
     use std::{
         env,
         ffi::OsStr,
-        fs,
+        fs, io,
         path::{Path, PathBuf},
         process::{Child, Command, Stdio},
         time::{Duration, Instant},
@@ -679,6 +733,69 @@ mod tests {
             "the link's target is untouched"
         );
         let _ = fs::remove_dir_all(&target);
+    }
+
+    /// #113: the wipe retries while a killed command's handle is still open.
+    ///
+    /// Opening a file with `File::open` shares delete on Windows, so a real
+    /// holder cannot be staged from safe Rust; the retry is pinned by handing
+    /// it the same error production met. Both attempts and outcome are
+    /// asserted, so a policy that gives up at once fails here.
+    #[cfg(windows)]
+    #[test]
+    fn a_held_handle_is_waited_for_until_the_removal_succeeds() {
+        let attempts = std::cell::Cell::new(0);
+        let result = super::retry_while_held(Duration::from_secs(1), || {
+            attempts.set(attempts.get() + 1);
+            match attempts.get() {
+                1 | 2 => Err(io::Error::from_raw_os_error(32)),
+                _ => Ok(()),
+            }
+        });
+
+        result.expect("the third attempt removes it");
+        assert_eq!(attempts.get(), 3, "it waited out the two refused attempts");
+    }
+
+    /// A holder that never closes is reported, not waited on forever.
+    #[cfg(windows)]
+    #[test]
+    fn a_handle_that_never_clears_is_reported_at_the_end_of_the_window() {
+        let attempts = std::cell::Cell::new(0);
+        let started = Instant::now();
+        let result = super::retry_while_held(Duration::from_millis(60), || {
+            attempts.set(attempts.get() + 1);
+            Err(io::Error::from_raw_os_error(32))
+        });
+
+        let error = result.expect_err("a handle that never clears is an error");
+        assert_eq!(
+            error.raw_os_error(),
+            Some(32),
+            "the original error survives"
+        );
+        assert!(
+            started.elapsed() >= Duration::from_millis(60),
+            "it spends the whole window before giving up"
+        );
+        assert!(attempts.get() > 1, "it tries more than once");
+    }
+
+    /// An error that is not a held handle is the caller's answer at once.
+    #[test]
+    fn an_error_that_is_not_a_held_handle_comes_back_at_once() {
+        let attempts = std::cell::Cell::new(0);
+        let result = super::retry_while_held(Duration::from_secs(5), || {
+            attempts.set(attempts.get() + 1);
+            Err(io::Error::new(io::ErrorKind::PermissionDenied, "refused"))
+        });
+
+        assert!(result.is_err(), "a refusal is still a refusal");
+        assert_eq!(
+            attempts.get(),
+            1,
+            "nothing is waited on that will not clear"
+        );
     }
 
     fn run_isolated(test: &str, tmpdir: &Path, base: &Path) {
