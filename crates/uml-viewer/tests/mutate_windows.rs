@@ -79,6 +79,9 @@ use std::path::Path;
 
 struct Fixture {
     directory: PathBuf,
+    /// This case's own temporary directory, set as `TMP` (and `TEMP`,
+    /// `TMPDIR`) for every CLI it starts.
+    temporary: PathBuf,
 }
 impl Fixture {
     fn new() -> Self {
@@ -90,6 +93,13 @@ impl Fixture {
         ));
         let project = directory.join("project");
         fs::create_dir_all(project.join("app/src")).unwrap();
+        // A temporary directory of the fixture's own: every mutate call sweeps
+        // the abandoned scratch of its temporary directory, so a case that
+        // inspects abandoned scratch must not share the system one with the
+        // other mutate calls this test binary runs in parallel — the reason the
+        // Linux killed-run case runs in a private `TMPDIR` too.
+        let temporary = directory.join("tmp");
+        fs::create_dir_all(&temporary).unwrap();
         fs::write(
             project.join("Cargo.toml"),
             "[workspace]\nmembers = [\"app\"]\nresolver = \"2\"\n",
@@ -115,7 +125,10 @@ impl Fixture {
             .status()
             .unwrap();
         assert!(status.success(), "compile the fixture helper");
-        Self { directory }
+        Self {
+            directory,
+            temporary,
+        }
     }
     fn project(&self) -> PathBuf {
         self.directory.join("project")
@@ -140,7 +153,12 @@ impl Fixture {
             .arg(self.command())
             .arg("app/src/lib.rs")
             .stdout(stdout)
-            .stderr(stderr);
+            .stderr(stderr)
+            // The scratch root is this fixture's, not the machine's: see
+            // `Fixture::new`.
+            .env("TMP", &self.temporary)
+            .env("TEMP", &self.temporary)
+            .env("TMPDIR", &self.temporary);
         if new_group {
             // A new process group is what GenerateConsoleCtrlEvent addresses.
             command.creation_flags(0x0000_0200);
@@ -158,7 +176,7 @@ impl Fixture {
     }
     fn scratch_roots(&self, pid: u32) -> Vec<PathBuf> {
         let prefix = format!("mutator-{pid}-");
-        fs::read_dir(std::env::temp_dir())
+        fs::read_dir(&self.temporary)
             .unwrap()
             .flatten()
             .map(|entry| entry.path())
@@ -223,16 +241,34 @@ fn abrupt_cli_kill_ends_the_mutants_and_the_next_run_sweeps_the_copies() {
     }
     let abandoned = fixture.scratch_roots(pid);
     assert!(!abandoned.is_empty(), "the killed run left its copies");
-    // The next call sweeps them before it does anything else.
-    let output = crate::binary([
-        "mutate",
-        "--root",
-        &fixture.project().to_string_lossy(),
-        "--scan",
-        "app/src/lib.rs",
-    ]);
+    // The next call sweeps them before it does anything else, and it has to
+    // finish the job before it returns: the copies of a killed run are released
+    // asynchronously (its Job Object's children are terminated after the owner
+    // is already gone), so a sweep that looked once could still find them
+    // pinned and would never look again (#96).
+    let temporary = fixture.temporary.to_string_lossy().into_owned();
+    let environment = [
+        ("TMP", temporary.as_str()),
+        ("TEMP", temporary.as_str()),
+        ("TMPDIR", temporary.as_str()),
+    ];
+    let output = crate::binary_env(
+        [
+            "mutate",
+            "--root",
+            &fixture.project().to_string_lossy(),
+            "--scan",
+            "app/src/lib.rs",
+        ],
+        &environment,
+    );
     assert!(output.status.success(), "{:?}", output.stderr);
-    assert_eq!(fixture.scratch_roots(pid), Vec::<PathBuf>::new());
+    assert_eq!(
+        fixture.scratch_roots(pid),
+        Vec::<PathBuf>::new(),
+        "the next run did not sweep the killed run's copies: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     // The unfinished file published nothing.
     assert!(!fixture.project().join(".metrics/mutate/app.edn").exists());
 }

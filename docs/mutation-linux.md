@@ -355,10 +355,14 @@ child is the first process of its own PID namespace and takes `SIGKILL` when
 namespace. The scratch root survives. The next call reclaims it: the owner
 writes a `0600` owner file and holds its `flock` for the process's lifetime, so
 a root whose lock can be taken belongs to a process that no longer exists, and
-`mutate` sweeps it before it starts. A live concurrent run's root keeps its
-lock and is never touched. Only this user's `mutator-*` directories directly
-under `TMPDIR` are considered, links are never followed, and the removal
-reports a failure instead of ignoring it.
+`mutate` sweeps it before it starts. The sweep gives one abandoned root a
+bounded window (5 s, 2 ms rising to 50 ms) before it gives up: the system
+releases a dead process's handles asynchronously, so the first look after a
+kill can still find the lock held, and a single look would skip the root for
+good (#96). A live concurrent run's root keeps its lock and is never touched:
+its owner is still running, so it costs no pause at all. Only this user's
+`mutator-*` directories directly under `TMPDIR` are considered, links are never
+followed, and the removal reports a failure instead of ignoring it.
 
 ## Selection, differential reuse and recovery
 
