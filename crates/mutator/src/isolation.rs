@@ -59,6 +59,13 @@ pub struct View {
     _root: Option<Root>,
     #[cfg(windows)]
     command_slot: Option<PathBuf>,
+    // This worker's Cargo target directory, when it has one. It is a position
+    // beside the slot, above the region every command wipes, so it is kept the
+    // way `lua_scratch` is kept: by where it sits, never by a name
+    // `Slot::copy` skips. `None` is "no target directory of its own": the
+    // command builds inside its copy, as it always did.
+    #[cfg(windows)]
+    build: Option<crate::build_cache::BuildCache>,
 }
 pub struct Completed {
     pub code: i32,
@@ -208,6 +215,8 @@ impl View {
             _root: Some(scratch),
             #[cfg(windows)]
             command_slot: None,
+            #[cfg(windows)]
+            build: None,
         })
     }
 
@@ -237,6 +246,22 @@ impl View {
     #[cfg(windows)]
     fn slot(&self) -> crate::copies::Slot {
         crate::copies::Slot::reused(self.command_slot.as_deref().unwrap_or(&self.directory))
+            .with_build(self.build.clone())
+    }
+
+    /// The Cargo target directory this view's commands share: a position above
+    /// the slot, owned by whoever opened the view (`crate::workers`), never
+    /// created or removed here.
+    #[cfg(windows)]
+    pub fn with_build(mut self, build: crate::build_cache::BuildCache) -> Self {
+        self.build = Some(build);
+        self
+    }
+
+    /// The Cargo target directory this view's commands share, if it has one.
+    #[cfg(windows)]
+    pub fn build(&self) -> Option<&crate::build_cache::BuildCache> {
+        self.build.as_ref()
     }
 
     /// The scratch one Lua collection publishes into: the view names it, so
@@ -254,6 +279,8 @@ impl View {
             _root: None,
             #[cfg(windows)]
             command_slot: None,
+            #[cfg(windows)]
+            build: None,
         }
     }
 

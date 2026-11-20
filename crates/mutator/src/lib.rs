@@ -2,6 +2,10 @@
 //! (Linux, Windows).
 use quality_core::language::{Language, language_of};
 use std::{ffi::OsString, path::Path, process::ExitCode};
+#[cfg(windows)]
+mod build_cache;
+#[cfg(all(test, windows))]
+mod build_cache_tests;
 #[cfg(any(windows, target_os = "linux"))]
 mod child_env;
 #[cfg(all(test, any(windows, target_os = "linux")))]
@@ -86,6 +90,8 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String + Sync) -> E
     // of killing the process mid-cleanup.
     let _armed = interrupts::Armed::new();
     println!("Isolation: {}", isolation::describe());
+    #[cfg(windows)]
+    println!("Build cache: {}", build_cache::describe());
     let code = run_mutation(&root, &options, clock);
     if let Some(signum) = interrupts::pending() {
         scratch::discard_all();
