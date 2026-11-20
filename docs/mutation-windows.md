@@ -116,7 +116,12 @@ terminates the job, the run removes its copies and exits `128 + signal`
 `Interrupted by SIG…; unfinished files keep their previous snapshots.` An
 abruptly killed CLI leaves its copies on disk; the owner file's exclusive
 `LockFileEx` lock dies with the process, so the next call sweeps the abandoned
-root. A live concurrent run's root keeps its lock and is left alone.
+root. That release is asynchronous, and the killed run's job ends its children
+after the owner itself is gone, so a root can stay pinned for a moment: the
+sweep re-probes one abandoned root inside a bounded window (5 s, 2 ms rising to
+50 ms) rather than skipping it on the first look, and reports a root that is
+still pinned after the window instead of silently keeping it (#96). A live
+concurrent run's root keeps its lock and is left alone at once.
 
 Snapshots record `:isolation :copy`, as the pinned original does on Windows;
 every other byte is the committed golden's, which the Windows tests assert
