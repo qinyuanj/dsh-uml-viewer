@@ -28,8 +28,12 @@
   (#18). After `cargo build --release --locked`, the maintainer runs the
   quality refresh from the repository root with the built binary:
   `./target/release/uml-viewer quality crap`, a differential
-  `./target/release/uml-viewer quality mutate` on the changed source files
-  (all of them in one call), optionally
+  `./target/release/uml-viewer quality mutate --reuse-coverage` on the
+  changed source files (all of them in one call). crapper's whole-tree run
+  wrote the coverage reports, and `--reuse-coverage` reads those instead of
+  rerunning the instrumented suite: the flag reads whatever reports are on
+  disk without checking them, so it must come after `crap` in the same
+  refresh. Optionally
   `./target/release/uml-viewer quality dry`, then
   `./target/release/uml-viewer ir examples/uml-viewer.policy.edn`.
   On native Windows use `.\target\release\uml-viewer.exe` for each call.

@@ -63,6 +63,11 @@ def main():
     else:
         command = [str(binary), 'quality', args.operation]
         if args.operation == 'mutate':
+            # crapper's whole-tree run in this job already wrote the coverage
+            # reports this run would regenerate; reuse them. The record loaded
+            # above was validated in this job, so those reports are this
+            # refresh's own rather than an earlier run's.
+            command.append('--reuse-coverage')
             command.append(TARGET)
         # stdout is the record only; reports remain visible on inherited stderr.
         result = subprocess.run(command, stdout=subprocess.PIPE, encoding='utf-8', check=False)
