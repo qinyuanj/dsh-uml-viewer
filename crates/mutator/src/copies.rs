@@ -163,9 +163,11 @@ impl Slot {
         self.entry(Entry::Mutation)
     }
 
-    /// Reset the slot and copy the project into it. `relative` and `data` are
-    /// the mutated source this command must see, if any.
-    fn copy(&self, root: &Path, mutation: Option<(&Path, &str)>) -> io::Result<()> {
+    /// Reset the slot and copy the project into it. `command` is the command
+    /// that will run (it decides which dependency trees the copy must keep, see
+    /// `Exclusions`), and `mutation` is the mutated source this command must
+    /// see, if any.
+    fn copy(&self, root: &Path, command: &str, mutation: Option<(&Path, &str)>) -> io::Result<()> {
         // The whole slot is fresh for every command: every entry, with no
         // exemption by name. The copy sits one level down, so a `..` write and a
         // `../..` write both land here and are gone before the next command
@@ -178,7 +180,7 @@ impl Slot {
         scratch::private_directory(&self.beside())?;
         let project = self.project();
         scratch::private_directory(&project)?;
-        copy_tree(root, &project, &hidden_paths(root))?;
+        copy_tree(root, &project, &Exclusions::project(root, command))?;
         for outside in outside(root) {
             self.place(&outside)?;
         }
@@ -226,7 +228,8 @@ impl Slot {
             .is_dir()
         {
             fs::create_dir_all(&destination).map_err(|error| cannot_place(&target, error))?;
-            copy_tree(source, &destination, &[]).map_err(|error| cannot_place(&target, error))?;
+            copy_tree(source, &destination, &Exclusions::none())
+                .map_err(|error| cannot_place(&target, error))?;
         } else {
             if let Some(parent) = destination.parent() {
                 fs::create_dir_all(parent).map_err(|error| cannot_place(&target, error))?;
@@ -268,7 +271,8 @@ impl Slot {
         mutation: Option<(&Path, &str)>,
         timeout: Option<Duration>,
     ) -> Result<Completed, Failure> {
-        self.copy(root, mutation).map_err(|error| {
+        let command = program.display();
+        self.copy(root, &command, mutation).map_err(|error| {
             let text = error.to_string();
             if isolation_failure(&text) {
                 Failure::Unavailable(text)
@@ -320,7 +324,7 @@ impl Slot {
             if repository.is_dir() {
                 let destination = jvm_home.join(".m2");
                 fs::create_dir_all(&destination).map_err(message)?;
-                copy_tree(&repository, &destination, &[]).map_err(message)?;
+                copy_tree(&repository, &destination, &Exclusions::none()).map_err(message)?;
             }
             let previous = std::env::var("JAVA_TOOL_OPTIONS").unwrap_or_default();
             environment.push((
@@ -384,17 +388,75 @@ fn cannot_place(target: &str, error: io::Error) -> io::Error {
     )
 }
 
+/// What a copy leaves out: the project-root directories shown as an empty
+/// directory, and whether a dependency tree anywhere in it is hidden too.
+pub(crate) struct Exclusions {
+    hidden: Vec<PathBuf>,
+    /// `node_modules` is an empty directory at any depth, because the command
+    /// that will run does not use one (`runs_javascript`).
+    dependencies: bool,
+}
+
+impl Exclusions {
+    /// A copy of `root` under `command`: the project's declared exclusions,
+    /// minus the dependency trees the command itself needs.
+    ///
+    /// This is the rule #102 warned about -- an ignored path can be a build
+    /// input, and `node_modules` is one for a JavaScript project: the
+    /// TypeScript lane runs the package's own `node_modules/.bin` shim inside
+    /// the copy. The command is what says so: the same reading that decides the
+    /// JVM home below (`rendered.contains("mvn") ...`) decides this.
+    fn project(root: &Path, command: &str) -> Self {
+        let dependencies = !runs_javascript(command);
+        let hidden = hidden_paths(root)
+            .into_iter()
+            .filter(|path| dependencies || !is_dependency(path))
+            .collect();
+        Self {
+            hidden,
+            dependencies,
+        }
+    }
+
+    /// A copy that leaves out nothing it did not ask to: a declared `--copy`
+    /// path and a toolchain's own dependency store.
+    fn none() -> Self {
+        Self {
+            hidden: Vec::new(),
+            dependencies: true,
+        }
+    }
+}
+
+/// Whether `command` runs the project's JavaScript toolchain, which reads its
+/// dependencies from `node_modules`.
+fn runs_javascript(command: &str) -> bool {
+    let command = command.to_ascii_lowercase();
+    [
+        "npm", "pnpm", "yarn", "bun", "deno", "node ", "node.exe", "vitest", "jest", "mocha",
+        "tsx", "tsc",
+    ]
+    .iter()
+    .any(|tool| command.contains(tool))
+}
+
 /// `copy_tree`: a hidden directory becomes empty, a linked directory is
 /// refused (it could route a mutant back into the checkout), a link to nothing
 /// is skipped, a file link is materialised, and every other file is copied with
 /// its timestamps.
-pub(crate) fn copy_tree(source: &Path, destination: &Path, hidden: &[PathBuf]) -> io::Result<()> {
+pub(crate) fn copy_tree(
+    source: &Path,
+    destination: &Path,
+    exclusions: &Exclusions,
+) -> io::Result<()> {
     for entry in fs::read_dir(source)? {
         let entry = entry?;
         let path = entry.path();
         let target = destination.join(entry.file_name());
         let metadata = fs::symlink_metadata(&path)?;
-        if hidden.contains(&path) || (is_dependency(&path) && metadata.is_dir()) {
+        if exclusions.hidden.contains(&path)
+            || (exclusions.dependencies && is_dependency(&path) && metadata.is_dir())
+        {
             // Hidden build output and dependency trees are an empty directory,
             // as in an overlay: present, so a build that expects the directory
             // finds one, and empty, so nothing inside it is frozen.
@@ -441,7 +503,7 @@ pub(crate) fn copy_tree(source: &Path, destination: &Path, hidden: &[PathBuf]) -
             }
         } else if metadata.is_dir() {
             fs::create_dir(&target)?;
-            copy_tree(&path, &target, hidden)?;
+            copy_tree(&path, &target, exclusions)?;
         } else if metadata.is_file() {
             fs::copy(&path, &target)?;
         }

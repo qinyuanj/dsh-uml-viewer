@@ -5,7 +5,7 @@
 //! A copy is the only isolation Windows has (ADR 0002), so these tests use the
 //! same unprivileged directory junction the runtime meets, and none of them
 //! needs a toolchain or a test command.
-use super::{copy_tree, hidden_paths};
+use super::{Exclusions, copy_tree, hidden_paths, runs_javascript};
 use crate::scratch;
 use std::{
     fs,
@@ -33,11 +33,16 @@ fn junction(link: &Path, target: &Path) {
     assert!(status.success(), "mklink /J failed for {}", link.display());
 }
 
-/// Copy `project` into a sibling directory and return that copy.
-fn copy(project: &Path) -> std::io::Result<PathBuf> {
+/// Copy `project` into a sibling directory, as a command naming `command`
+/// would, and return that copy.
+fn copy(project: &Path, command: &str) -> std::io::Result<PathBuf> {
     let destination = project.with_file_name("copy");
     fs::create_dir(&destination)?;
-    copy_tree(project, &destination, &hidden_paths(project))?;
+    copy_tree(
+        project,
+        &destination,
+        &Exclusions::project(project, command),
+    )?;
     Ok(destination)
 }
 
@@ -59,7 +64,7 @@ fn a_link_to_nothing_is_skipped_instead_of_refusing_the_project() {
     junction(&project.join("src").join("gone"), &target);
     fs::remove_dir(&target).unwrap();
 
-    let copy = copy(&project).expect("a dangling link must not refuse the project");
+    let copy = copy(&project, "cargo test").expect("a dangling link must not refuse the project");
 
     assert_eq!(
         fs::read(copy.join("src/lib.rs")).unwrap(),
@@ -82,7 +87,7 @@ fn a_link_to_a_real_directory_is_still_refused() {
     fs::write(outside.join("keep.txt"), b"original").unwrap();
     junction(&project.join("bridge"), &outside);
 
-    let error = copy(&project).expect_err("a linked directory must be refused");
+    let error = copy(&project, "cargo test").expect_err("a linked directory must be refused");
 
     assert!(error.to_string().contains("linked directory"), "{error}");
     assert_eq!(fs::read(outside.join("keep.txt")).unwrap(), b"original");
@@ -101,7 +106,7 @@ fn a_hidden_directory_is_an_empty_directory_in_the_copy() {
     let hidden = hidden_paths(&project);
     assert_eq!(hidden, vec![project.join("generated")]);
 
-    let copy = copy(&project).unwrap();
+    let copy = copy(&project, "cargo test").unwrap();
     assert!(copy.join("generated").is_dir(), "hidden means present");
     assert_eq!(
         fs::read_dir(copy.join("generated")).unwrap().count(),
@@ -134,7 +139,8 @@ fn a_package_dependency_tree_is_hidden_at_any_depth() {
         &store.join("vitest"),
     );
 
-    let copy = copy(&project).expect("a package's dependency tree must not refuse the project");
+    let copy = copy(&project, "cargo test")
+        .expect("a package's dependency tree must not refuse the project");
 
     assert!(copy.join("packages/app/node_modules").is_dir());
     assert_eq!(
@@ -167,5 +173,61 @@ fn the_project_ignore_rules_supply_the_excluded_names() {
             name.map(str::to_owned),
             "{line}"
         );
+    }
+}
+
+/// The other half of the rule (#102): an ignored path can be a build input.
+///
+/// The TypeScript lane runs the package's own `node_modules/.bin` shim inside
+/// the copy, so a JavaScript command keeps its dependency tree -- files and
+/// all -- exactly as before this ticket.
+#[test]
+fn a_javascript_command_keeps_the_dependency_tree() {
+    let (_temporary, project) = scratch_project();
+    fs::write(project.join(".gitignore"), b"node_modules/\n").unwrap();
+    let package = project.join("packages").join("app");
+    fs::create_dir_all(package.join("src")).unwrap();
+    fs::create_dir_all(package.join("node_modules").join(".bin")).unwrap();
+    fs::write(
+        package.join("src").join("book.ts"),
+        b"export const one = 1;\n",
+    )
+    .unwrap();
+    fs::write(
+        package.join("node_modules").join(".bin").join("vitest.cmd"),
+        b"@echo off\r\n",
+    )
+    .unwrap();
+
+    let copy = copy(&project, "npm test").expect("a JavaScript command needs its dependencies");
+
+    assert_eq!(
+        fs::read(
+            copy.join("packages")
+                .join("app")
+                .join("node_modules")
+                .join(".bin")
+                .join("vitest.cmd")
+        )
+        .unwrap(),
+        b"@echo off\r\n"
+    );
+}
+
+/// The command, not the path, decides whether a dependency tree is hidden:
+/// this repository's own mutation command is `cargo test`, so its
+/// `node_modules` never reaches a copy.
+#[test]
+fn only_a_javascript_command_asks_for_a_dependency_tree() {
+    for (command, javascript) in [
+        ("cargo test", false),
+        ("cargo test --no-run", false),
+        ("pytest -q", false),
+        ("go test ./...", false),
+        ("npm test", true),
+        ("pnpm run vitest", true),
+        ("node --test out/book.js", true),
+    ] {
+        assert_eq!(runs_javascript(command), javascript, "{command}");
     }
 }
