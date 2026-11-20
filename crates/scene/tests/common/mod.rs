@@ -46,9 +46,13 @@ pub fn self_hosted_views_both() -> Vec<(String, Value)> {
 }
 
 /// [`self_hosted_views`] compiled with the view options `extra`.
+///
+/// The document is compiled from `examples/uml-viewer.policy.edn` in
+/// process (#89): `examples/uml-viewer.edn` is a generated artifact the
+/// maintainer refreshes on their own schedule, so reading it lets a stale
+/// snapshot hide a layout regression.
 pub fn self_hosted_views_with(extra: &Value) -> Vec<(&'static str, Value)> {
-    let path = repo().join("examples/uml-viewer.edn");
-    let doc = scene::ir::read_document(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let doc = self_hosted_document();
     [
         "",
         ":companion",
@@ -64,10 +68,24 @@ pub fn self_hosted_views_with(extra: &Value) -> Vec<(&'static str, Value)> {
             .then(|| Value::keyword(&focus[1..]))
             .into_iter()
             .collect();
-        let scene = scene::document::compile_view(&doc, &[], &path, extra);
+        let scene = scene::document::compile_view(doc, &[], &path, extra);
         (focus, scene)
     })
     .collect()
+}
+
+/// The self-hosted document, compiled once per test binary: the policy and
+/// the source tree are the only inputs (#89).
+fn self_hosted_document() -> &'static Value {
+    static DOC: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    DOC.get_or_init(|| {
+        let root = repo();
+        ir::document(
+            "examples/uml-viewer.policy.edn",
+            root.to_str().expect("the repository path is UTF-8"),
+        )
+        .expect("the self-hosted policy compiles")
+    })
 }
 
 pub fn read_edn(path: &Path) -> Value {

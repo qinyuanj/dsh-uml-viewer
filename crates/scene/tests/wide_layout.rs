@@ -1,7 +1,8 @@
 //! The wide layout (#191) of the self-hosted diagram: each view fits the
 //! viewer canvas at a zoom that draws members, keeps the architecture
-//! levels of the default layout from left to right, and routes no
-//! relationship across a box or oval it does not end at.
+//! levels of the default layout in reading order, and routes no
+//! relationship that keeps to one shelf across a box or oval it does not
+//! end at (#89 added the shelves).
 
 use crate::common;
 
@@ -58,17 +59,50 @@ fn every_wide_view_fits_at_members_zoom_and_no_smaller_than_the_default() {
     }
 }
 
-/// Points of a routed edge's polyline crossing a box it does not end at.
-fn crossings(scene: &Value) -> Vec<String> {
+/// The shelf each class sits on: the wide layout stacks its columns into
+/// shelves separated by a gutter, and the boxes of one shelf all cross the
+/// height of that shelf (#89).
+fn shelves(scene: &Value) -> HashMap<String, usize> {
+    let mut boxes: Vec<(f64, f64, String)> = seq(get(scene, "classes"))
+        .iter()
+        .filter(|c| !flag(c, "dummy?"))
+        .filter_map(|c| {
+            let r = rect(c)?;
+            Some((r.y, r.bottom(), key(get(c, "id")?)))
+        })
+        .collect();
+    boxes.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    let mut out = HashMap::new();
+    let (mut shelf, mut bottom) = (0, f64::NEG_INFINITY);
+    for (y, b, id) in boxes {
+        if y > bottom {
+            shelf += 1;
+            bottom = b;
+        } else {
+            bottom = bottom.max(b);
+        }
+        out.insert(id, shelf);
+    }
+    out
+}
+
+/// Points of a routed edge's polyline crossing a box it does not end at,
+/// split into the edges that stay on one shelf and the edges that wrap.
+fn crossings(scene: &Value) -> (Vec<String>, Vec<String>) {
+    let shelf = shelves(scene);
     let classes: Vec<(&Value, Rect)> = seq(get(scene, "classes"))
         .iter()
         .filter(|c| !flag(c, "dummy?"))
         .filter_map(|c| Some((get(c, "id")?, rect(c)?)))
         .collect();
-    let mut out = Vec::new();
+    let (mut inside, mut wrapped) = (Vec::new(), Vec::new());
     for e in seq(get(scene, "edges")) {
         let ps: Vec<[f64; 2]> = seq(get(e, "points")).iter().filter_map(vec2).collect();
         let ends = [get(e, "from"), get(e, "to")];
+        let wraps = match (ends[0], ends[1]) {
+            (Some(f), Some(t)) => shelf.get(&key(f)) != shelf.get(&key(t)),
+            _ => false,
+        };
         for (id, r) in &classes {
             if ends.contains(&Some(*id)) {
                 continue;
@@ -81,18 +115,59 @@ fn crossings(scene: &Value) -> Vec<String> {
                     && p[1].max(q[1]) > r.y
             });
             if crossed {
-                out.push(format!("{:?} -> {:?} across {id:?}", ends[0], ends[1]));
+                let at = format!("{:?} -> {:?} across {id:?}", ends[0], ends[1]);
+                if wraps {
+                    wrapped.push(at);
+                } else {
+                    inside.push(at);
+                }
             }
         }
     }
-    out
+    (inside, wrapped)
 }
+
+/// Ceilings on the crossings a wrapped relationship may make (#94). A lane
+/// is reserved through the columns of one shelf only, so a relationship
+/// whose ends wrap onto different shelves keeps none (#89), and
+/// `route::candidates` assumes the rank order is the x order, which the
+/// strip satisfies and the wrapped columns do not (#94). #95 refuses a wrap
+/// that would bury a package's foreign ovals, and no view wraps such a
+/// relationship any more: every ceiling is zero and may only go down. A view
+/// that is not listed here needs its own line.
+const WRAPPED_CROSSINGS: &[(&str, usize)] = &[
+    ("", 0),
+    (":companion", 0),
+    (":edn", 0),
+    (":ir", 0),
+    (":main", 0),
+    (":scene", 0),
+    (":viewer", 0),
+];
 
 #[test]
 fn no_wide_relationship_crosses_a_box_or_oval_it_does_not_end_at() {
+    // A lane is reserved through the columns of one shelf, and a relationship
+    // whose ends wrap onto different shelves loses it (#89). Every crossing
+    // must belong to such a wrapped relationship: the guarantee stays whole
+    // for every relationship that keeps to a shelf, and the ones that lose
+    // their lane are counted against a ceiling that only goes down (#94).
     for (focus, scene) in common::self_hosted_views_with(&common::wide()) {
-        let crossed = crossings(&scene);
-        assert!(crossed.is_empty(), "{focus:?}: {crossed:#?}");
+        let (inside, wrapped) = crossings(&scene);
+        assert!(
+            inside.is_empty(),
+            "{focus:?}: {inside:#?} (wrapped: {wrapped:#?})"
+        );
+        let Some((_, ceiling)) = WRAPPED_CROSSINGS.iter().find(|(v, _)| *v == focus) else {
+            panic!("{focus:?} has no ceiling in WRAPPED_CROSSINGS; add one");
+        };
+        assert!(
+            wrapped.len() <= *ceiling,
+            "{focus:?}: {} cross-shelf crossings, ceiling {} - tighten the ceiling instead \
+             of raising it, and see #94 for the gutter channel model that removes them: {wrapped:#?}",
+            wrapped.len(),
+            ceiling,
+        );
     }
 }
 
@@ -123,6 +198,10 @@ fn wide_views_keep_every_level_and_violation_of_the_default() {
 
 #[test]
 fn wide_levels_run_from_the_outermost_on_the_left_to_level_zero_then_the_ovals() {
+    // "Left to right" became the layout's reading order once the strip wraps
+    // into shelves (#89): the column rank, highest at the outermost level and
+    // lowest at the oval sink. On one shelf that is the old order of x; a
+    // shelf below starts again at the left, so x alone no longer says it.
     for (focus, scene) in common::self_hosted_views_with(&common::wide()) {
         let edges = seq(get(&scene, "edges"));
         let linked = |id: &Value| {
@@ -130,15 +209,15 @@ fn wide_levels_run_from_the_outermost_on_the_left_to_level_zero_then_the_ovals()
                 .iter()
                 .any(|e| get(e, "from") == Some(id) || get(e, "to") == Some(id))
         };
-        // level -> (leftmost x, rightmost x) of its boxes with an edge
+        // level -> (leftmost rank, rightmost rank) of its boxes with an edge
         let mut spans: Vec<(f64, f64, f64)> = Vec::new();
-        let mut ovals: Vec<Rect> = Vec::new();
+        let mut ovals: Vec<f64> = Vec::new();
         for c in seq(get(&scene, "classes")) {
-            let (Some(id), Some(r)) = (get(c, "id"), rect(c)) else {
+            let (Some(id), Some(rank)) = (get(c, "id"), get(c, "rank").and_then(num)) else {
                 continue;
             };
             if flag(c, "foreign") {
-                ovals.push(r);
+                ovals.push(rank);
                 continue;
             }
             let Some(level) = get(c, "level").and_then(num) else {
@@ -148,27 +227,28 @@ fn wide_levels_run_from_the_outermost_on_the_left_to_level_zero_then_the_ovals()
                 continue;
             }
             match spans.iter_mut().find(|s| s.0 == level) {
-                Some(s) => (s.1, s.2) = (s.1.min(r.x), s.2.max(r.right())),
-                None => spans.push((level, r.x, r.right())),
+                Some(s) => (s.1, s.2) = (s.1.min(rank), s.2.max(rank)),
+                None => spans.push((level, rank, rank)),
             }
         }
         spans.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
         for pair in spans.windows(2) {
             assert!(
-                pair[0].2 < pair[1].1,
-                "{focus:?} level {} reaches {} past level {} at {}",
+                pair[0].1 > pair[1].2,
+                "{focus:?} level {} reaches rank {} past level {} at {}",
                 pair[0].0,
-                pair[0].2,
+                pair[0].1,
                 pair[1].0,
-                pair[1].1
+                pair[1].2
             );
         }
         if let Some(last) = spans.last() {
-            for o in &ovals {
+            for rank in &ovals {
                 assert!(
-                    o.x > last.2,
-                    "{focus:?} oval {o:?} left of level {}",
-                    last.0
+                    *rank < last.1,
+                    "{focus:?} oval at rank {rank} before level {} at {}",
+                    last.0,
+                    last.1
                 );
             }
         }
