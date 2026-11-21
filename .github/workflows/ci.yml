@@ -210,6 +210,11 @@ jobs:
       # Reuse the integration tests' debug artifacts; release would compile twice.
       - name: Build the Windows refresh binary
         run: cargo build --locked -p uml-viewer
+      # #125: TypeScript coverage runs host seam tests that import lib/host.js.
+      # The mutation lane owns the CRAP refresh, so it must build the package
+      # before quality collection reads those seams.
+      - name: Build the host package for quality collection
+        run: pnpm build
       # One binary call per step, including validation of valid exits 2/3.
       # Never upload .metrics or the temporary records/IR from this runner.
       - name: Maintainer refresh - CRAP (Windows)
