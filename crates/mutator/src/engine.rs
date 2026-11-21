@@ -1261,7 +1261,14 @@ pub fn prepare(
         // disk every site would be published as uncovered and the run would
         // still look successful. Report the missing input instead.
         let reuse = options.flag("--use-existing-coverage") || options.flag("--reuse-coverage");
+        // Lua's reuse path deliberately skips its collection and has no
+        // on-disk report to read; a Lua-only run is not the failure #110
+        // describes.
+        let needs_lcov = files
+            .iter()
+            .any(|file| language_of(file) != Some(Language::Lua));
         if reuse
+            && needs_lcov
             && coverage.records.is_empty()
             && coverage.indexes.is_empty()
             && coverage.modules.is_empty()
