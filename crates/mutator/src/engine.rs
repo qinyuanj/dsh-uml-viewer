@@ -1257,6 +1257,21 @@ pub fn prepare(
         let started = std::time::Instant::now();
         let coverage = coverage(root, options, files)?;
         timings.add("coverage", started.elapsed());
+        // #110: --reuse-coverage reads whatever is on disk. With nothing on
+        // disk every site would be published as uncovered and the run would
+        // still look successful. Report the missing input instead.
+        let reuse = options.flag("--use-existing-coverage") || options.flag("--reuse-coverage");
+        if reuse
+            && coverage.records.is_empty()
+            && coverage.indexes.is_empty()
+            && coverage.modules.is_empty()
+            && coverage.native.is_none()
+        {
+            eprintln!(
+                "--reuse-coverage found no coverage reports on disk. Run 'quality crap' in the same refresh, or pass --no-coverage."
+            );
+            return Err(2);
+        }
         coverage
     };
     for item in &mut prepared {

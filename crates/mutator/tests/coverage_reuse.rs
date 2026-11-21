@@ -714,3 +714,36 @@ fn survived_verdicts_are_reused_until_a_test_input_changes() {
     assert_eq!(code, 3, "{stdout}{stderr}");
     assert!(stdout.contains("executed=1 reused=0"), "{stdout}{stderr}");
 }
+
+/// #110: a standalone reuse run with no reports on disk must not publish a
+/// snapshot that says every site is uncovered. The standard path already
+/// treats the missing input as an error; the reuse path now does too.
+#[test]
+fn reuse_coverage_without_reports_is_an_error() {
+    let fixture = Fixture::new("reuse-missing");
+    fixture.write("src/calc.py", "def add(a, b):\n    return a + b\n");
+    const PASS: &str = if cfg!(windows) {
+        "cmd /c exit 0"
+    } else {
+        "true"
+    };
+    let (code, stderr) = child::run(
+        &fixture.root(),
+        &[
+            "--mutate-all",
+            "--reuse-coverage",
+            "--test-command",
+            PASS,
+            "src/calc.py",
+        ],
+    );
+    assert_eq!(code, 2, "{stderr}");
+    assert!(
+        stderr.contains("--reuse-coverage found no coverage reports"),
+        "{stderr}"
+    );
+    assert!(
+        !fixture.root().join(".metrics/mutate").exists(),
+        "a failed reuse run must not publish a snapshot"
+    );
+}
