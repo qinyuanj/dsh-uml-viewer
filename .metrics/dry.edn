@@ -140,7 +140,7 @@
  {:score 1.0
   :language "rust"
   :left {:file "crates/mutator/src/queue.rs", :start-line 121, :end-line 125, :namespace "mutator::queue", :name "locks"}
-  :right {:file "crates/mutator/src/workers.rs", :start-line 117, :end-line 121, :namespace "mutator::workers", :name "locks"}
+  :right {:file "crates/mutator/src/workers.rs", :start-line 156, :end-line 160, :namespace "mutator::workers", :name "locks"}
   :left-nodes 93
   :right-nodes 93}
  {:score 1.0
@@ -241,8 +241,8 @@
   :right-nodes 247}
  {:score 0.863636363636
   :language "rust"
-  :left {:file "crates/mutator/src/isolation.rs", :start-line 470, :end-line 481, :namespace "mutator::isolation::View", :name "run"}
-  :right {:file "crates/mutator/src/isolation.rs", :start-line 496, :end-line 507, :namespace "mutator::isolation::View", :name "run_argv"}
+  :left {:file "crates/mutator/src/isolation.rs", :start-line 497, :end-line 508, :namespace "mutator::isolation::View", :name "run"}
+  :right {:file "crates/mutator/src/isolation.rs", :start-line 523, :end-line 534, :namespace "mutator::isolation::View", :name "run_argv"}
   :left-nodes 130
   :right-nodes 131}
  {:score 0.857142857143
