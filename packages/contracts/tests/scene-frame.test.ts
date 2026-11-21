@@ -16,6 +16,12 @@ function golden(name: string): unknown {
 describe('scene frame validation', () => {
   it('accepts every producer golden unchanged', () => {
     expect(goldenFiles.length).toBeGreaterThanOrEqual(5)
+    const withDry = { ...(golden('root.frame.json') as Record<string, unknown>), dry: {
+      candidates: 1, attributed: 1, unattributed: 0, clusters: 1, shownClusters: 1,
+      truncated: false, weakest: 0.8,
+      clusterList: [{ members: [{ file: 'src/a.rs', startLine: 1, endLine: 5, name: 'f1' }], classes: [':scene.a'], weakest: 0.8 }],
+    } }
+    expect(validateSceneFrame(withDry).dry?.clusterList[0]?.classes).toEqual([':scene.a'])
     for (const name of goldenFiles) {
       const value = golden(name)
       // toEqual proves the validator neither redefines nor normalizes the producer's document.

@@ -98,6 +98,17 @@
     "request.dismiss": "消除：{line}",
     "request.dismiss.refused": "无法消除请求：{reason}",
     "legend.title": "图例",
-    "legend.close": "关闭图例"
+    "legend.close": "关闭图例",
+    "dry.title": "重复簇清单",
+    "dry.close": "关闭重复簇清单",
+    "dry.members": "成员：{value}",
+    "dry.weakest": "最弱相似度：{value}",
+    "dry.class": "所属类：{value}",
+    "dry.unattributed": "图上对不上的候选：{count}",
+    "dry.unattributed.member": "不在图上",
+    "dry.truncated": "显示 {shown} / {total} 个簇",
+    "dry.clusters": "重复簇：{count} 个",
+    "dry.none": "已测无重复簇",
+    "dry.unmeasured": "未测量：运行 quality dry 查看重复结构"
   }
 }

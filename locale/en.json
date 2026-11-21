@@ -98,6 +98,17 @@
     "request.dismiss": "Dismiss {line}",
     "request.dismiss.refused": "Could not dismiss the request: {reason}",
     "legend.title": "Legend",
-    "legend.close": "Close legend"
+    "legend.close": "Close legend",
+    "dry.title": "Duplicate clusters",
+    "dry.close": "Close duplicate clusters",
+    "dry.members": "Members: {value}",
+    "dry.weakest": "Weakest similarity: {value}",
+    "dry.class": "Class: {value}",
+    "dry.unattributed": "Candidates outside the diagram: {count}",
+    "dry.unattributed.member": "Not on the diagram",
+    "dry.truncated": "Showing {shown} of {total} clusters",
+    "dry.clusters": "Duplicate clusters: {count}",
+    "dry.none": "Measured: no duplicate clusters",
+    "dry.unmeasured": "Unmeasured: run quality dry to inspect duplicate structure"
   }
 }

@@ -29,6 +29,7 @@ import { TOPBAR_STYLE, mountTopBar, type TopBar } from './topbar.js'
 import { returnToSourceTree, type SwitcherActions } from './context-switcher.js'
 import { ACTION_BAR_STYLE, elementSelection, mountActionBar, type ActionBar } from './action-bar.js'
 import { LEGEND_STYLE, legendEntries, mountLegend, type Legend } from './legend.js'
+import { DRY_CLUSTER_STYLE, dryClusterEntries, mountDryClusters, type DryClusters } from './dry-clusters.js'
 import { observeLayout } from './layout.js'
 
 export const TAB_ID = 'dsh-uml-viewer'
@@ -36,7 +37,7 @@ export const TAB_KIND = 'dsh-uml-viewer'
 export const GUIDE_ORDER = 30
 const REMOTE_NAMESPACE = 'umlViewer'
 
-const STYLE = `${TOPBAR_STYLE}${MORE_MENU_STYLE}${STATUSBAR_STYLE}${REQUEST_MENU_STYLE}${ACTION_BAR_STYLE}${LEGEND_STYLE}
+const STYLE = `${TOPBAR_STYLE}${MORE_MENU_STYLE}${STATUSBAR_STYLE}${REQUEST_MENU_STYLE}${ACTION_BAR_STYLE}${LEGEND_STYLE}${DRY_CLUSTER_STYLE}
 /* The three sections (#46): the top bar, the canvas, the status bar. The
    overlay root covers the canvas alone, so a drawer never hides either bar. */
 .dsh-uml-viewer-panel { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; width: 100%; --dsh-uml-dock-width: clamp(420px, 42%, 680px); }
@@ -221,10 +222,13 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   let topBar: TopBar | null = null
   let statusBar: StatusBar | null = null
   let legend: Legend | null = null
+  let dryClusters: DryClusters | null = null
   const disposeSections = (): void => {
     stopLabels()
     topBar?.dispose()
     topBar = null
+    dryClusters?.dispose()
+    dryClusters = null
     statusBar?.dispose()
     statusBar = null
     legend?.dispose()
@@ -302,6 +306,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     // The legend's rows are the frame's, worded in the resident's language
     // (#50); a docked legend shows them without being opened.
     legend?.render(state.frame)
+    dryClusters?.render(state.frame)
     // The first frame makes a resident legend visible: its strip leaves the
     // drawable area, so the overlay root has to stop above it.
     const visible = legend !== null && !legend.element.hidden
@@ -338,7 +343,10 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     controller, text, onDone: focusCanvas, context: switcherActions,
     // 「更多」 carries the legend's entry (#50) while it is a popover; a
     // resident legend has nothing to open (F45).
-    moreEntries: () => (legend ? legendEntries(legend, text) : []),
+    moreEntries: () => [
+      ...(legend ? legendEntries(legend, text) : []),
+      ...(dryClusters ? dryClusterEntries(dryClusters, text) : []),
+    ],
   })
   const canvasStage = document.createElement('div')
   canvasStage.className = 'dsh-uml-viewer-canvas-stage'
@@ -349,6 +357,11 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   dockSpace.setAttribute('aria-hidden', 'true')
   canvasStage.append(canvasArea, dockSpace)
   legend = mountLegend(canvasRow, { text, onDone: focusCanvas })
+  dryClusters = mountDryClusters(canvasStage, {
+    text,
+    locate: id => { void overlays?.locate(id) },
+    onDone: focusCanvas,
+  })
   canvasRow.append(canvasStage, legend.element)
   host.appendChild(canvasRow)
   statusBar = mountStatusBar(host, {
@@ -380,6 +393,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     text,
   })
   overlays = new OverlayController(action => controller.send(action), text)
+  dryClusters?.render(controller.current.frame)
   actionBar = mountActionBar(canvasArea, {
     text,
     send: action => controller.send(action),
@@ -398,8 +412,8 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     close: () => { void overlays?.closeDrawer() },
   })
   controller.setLegend({
-    isOpen: () => legend?.isOpen() === true,
-    close: () => legend?.close(),
+    isOpen: () => legend?.isOpen() === true || dryClusters?.isOpen() === true,
+    close: () => { legend?.close(); dryClusters?.close() },
   })
   // The overlays cover the drawable canvas alone: below the top bar, above the
   // status bar, and above a resident legend's strip (#50), so neither a drawer

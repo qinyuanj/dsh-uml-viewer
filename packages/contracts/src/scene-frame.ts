@@ -356,6 +356,36 @@ export interface Legend {
   sections: LegendSection[]
 }
 
+export interface DryMember {
+  file: string
+  startLine: number
+  endLine: number
+  name: string | null
+  /** EDN id text of the owning class, or null when the member joins no class. */
+  class: string | null
+}
+
+export interface DryCluster {
+  members: DryMember[]
+  /** EDN id text of classes that join the component; one per attributed member. */
+  classes: string[]
+  weakest: number
+}
+
+export interface DrySummary {
+  candidates: number
+  attributed: number
+  unattributed: number
+  clusters: number
+  shownClusters: number
+  truncated: boolean
+  weakest: number | null
+  clusterList: DryCluster[]
+}
+
+/** Producer bounds this validator enforces (`crates/scene/src/dry.rs`). */
+export const DRY_LIMITS = { clusters: 64 } as const
+
 export interface SceneFrame {
   schema: typeof SCENE_FRAME_SCHEMA
   version: typeof SCENE_FRAME_VERSION
@@ -371,6 +401,8 @@ export interface SceneFrame {
   legend: Legend
   /** Optional capability; absent from the goldens (`scene --frame`). */
   hover?: FrameHover
+  /** Absent when no dry snapshot was read (unmeasured), not “no duplicates”. */
+  dry?: DrySummary
 }
 
 /** Producer bounds the validator enforces (`crates/frame/src/hover.rs`). */
@@ -708,6 +740,44 @@ function hover(value: unknown, label: string): FrameHover {
   return parsed
 }
 
+function dryMember(value: unknown, label: string): DryMember {
+  const source = record(value, label)
+  return {
+    file: boundedText(source.file, `${label}.file`),
+    startLine: num(source.startLine, `${label}.startLine`),
+    endLine: num(source.endLine, `${label}.endLine`),
+    name: source.name === null || source.name === undefined ? null : boundedText(source.name, `${label}.name`),
+    class: source.class === null || source.class === undefined ? null : boundedText(source.class, `${label}.class`),
+  }
+}
+
+function drySummary(value: unknown, label: string): DrySummary {
+  const source = record(value, label)
+  const raw = list(source.clusterList, `${label}.clusterList`)
+  if (raw.length > DRY_LIMITS.clusters) at(`${label}.clusterList`, `must hold at most ${DRY_LIMITS.clusters} clusters`)
+  const clusterList = raw.map((entry, index) => {
+    const where = `${label}.clusterList[${index}]`
+    const cluster = record(entry, where)
+    const members = list(cluster.members, `${where}.members`)
+    const classes = list(cluster.classes, `${where}.classes`)
+    return {
+      members: members.map((member, position) => dryMember(member, `${where}.members[${position}]`)),
+      classes: classes.map((id, position) => boundedText(id, `${where}.classes[${position}]`)),
+      weakest: num(cluster.weakest, `${where}.weakest`),
+    }
+  })
+  return {
+    candidates: num(source.candidates, `${label}.candidates`),
+    attributed: num(source.attributed, `${label}.attributed`),
+    unattributed: num(source.unattributed, `${label}.unattributed`),
+    clusters: num(source.clusters, `${label}.clusters`),
+    shownClusters: num(source.shownClusters, `${label}.shownClusters`),
+    truncated: bool(source.truncated, `${label}.truncated`),
+    weakest: source.weakest === null || source.weakest === undefined ? null : num(source.weakest, `${label}.weakest`),
+    clusterList,
+  }
+}
+
 function style(value: unknown, label: string): FrameStyle {
   const source = record(value, label)
   const fonts = record(source.fonts, `${label}.fonts`)
@@ -760,6 +830,7 @@ export function validateSceneFrame(value: unknown, label = 'scene frame'): Scene
       edges: list(source.edges, `${label}.edges`).map((item, index) => edge(item, `${label}.edges[${index}]`)),
       chrome: list(source.chrome, `${label}.chrome`).map((item, index) => chrome(item, `${label}.chrome[${index}]`)),
       legend: legend(source.legend, `${label}.legend`),
+      ...(source.dry === undefined || source.dry === null ? {} : { dry: drySummary(source.dry, `${label}.dry`) }),
       ...(source.hover === undefined || source.hover === null
         ? {}
         : { hover: hover(source.hover, `${label}.hover`) }),
