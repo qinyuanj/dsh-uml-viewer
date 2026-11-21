@@ -155,8 +155,11 @@ policy, not the IR. See [Policy](#policy).
 [dryer](https://github.com/qinyuanj/dryer) is the third quality tool. It
 reports structurally duplicated forms in `.metrics/dry.edn`; the viewer joins
 that snapshot into the class records as an add-only duplicate marker (it never
-changes a class's red/green rating), but the panel does not show it yet, so
-`uml-viewer quality dry` is still the report you read from the terminal.
+changes a class's red/green rating). The panel shows that marker: a class card
+carries a duplicate row and a per-member marker, and 更多 opens the
+duplicate-cluster list. A class no snapshot measured says 未测量, and candidates
+that join no class are counted rather than dropped, so nothing is silently
+clean. `uml-viewer quality dry` writes the snapshot the panel reads.
 
 ## Run
 

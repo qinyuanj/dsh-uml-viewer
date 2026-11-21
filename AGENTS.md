@@ -56,9 +56,11 @@
   `quality` for the declared scope). dryer reports duplicate structure in
   `.metrics/dry.edn`; the overlay joins it into the class records as an
   additive marker, which never changes a class's red/green rating or enters
-  the quality score, but the panel does not show it yet (D2–D4 of #91), so
-  read `./target/release/uml-viewer quality dry` from the terminal (use the
-  `.exe` path above on Windows). The Sarasa face is
+  the quality score. The panel shows it (#91): a class card carries a
+  duplicate row and a per-member marker, and the more menu opens the
+  duplicate-cluster list, which states the unmeasured case instead of staying
+  silent. `./target/release/uml-viewer quality dry` still writes the snapshot
+  (use the `.exe` path above on Windows). The Sarasa face is
   packaged in `fonts/`.
 
 Do not commit or push unless asked.

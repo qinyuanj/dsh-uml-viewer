@@ -58,7 +58,7 @@ mod card;
 pub(crate) mod compose;
 pub(crate) mod config;
 pub(crate) mod curve;
-pub(crate) mod dry;
+pub mod dry;
 pub(crate) mod geom;
 pub(crate) mod hierarchy;
 pub(crate) mod layout;
