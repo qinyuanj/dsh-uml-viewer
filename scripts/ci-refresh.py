@@ -91,6 +91,10 @@ def main():
             # reports this run would regenerate; reuse them. The record loaded
             # above was validated in this job, so those reports are this
             # refresh's own rather than an earlier run's.
+            reports = [path for base in ('coverage', 'target/coverage')
+                       for path in (root / base).rglob('lcov.info')]
+            require(bool(reports) and all(path.stat().st_size > 0 for path in reports),
+                    'mutate: no non-empty coverage reports from the crap step')
             command.append('--reuse-coverage')
             command.extend(target for target, _ in MUTATE_TARGETS)
         # stdout is the record only; reports remain visible on inherited stderr.
