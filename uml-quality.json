@@ -1,7 +1,7 @@
 {
   "version": 1,
   "standardTools": {
-    "sourceRoots": ["crates"],
+    "sourceRoots": ["crates", "packages/contracts/src", "packages/host/src", "packages/client/src"],
     "exclude": ["crates/**/tests.rs", "crates/**/*_tests.rs"],
     "crapperOptions": [],
     "mutatorOptions": ["--max-workers", "3"]

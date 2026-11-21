@@ -157,6 +157,12 @@ jobs:
       MUTATOR_REQUIRE_TOOLCHAINS: '1'
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Rust toolchain pinned by rust-toolchain.toml
         run: rustup toolchain install
       # cargo llvm-cov needs llvm-profdata; the default-coverage golden uses it.
