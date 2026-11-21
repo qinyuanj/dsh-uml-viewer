@@ -324,6 +324,17 @@ impl Slot {
             None => copy.join("target/mutator-build"),
         };
         environment.push(("CARGO_TARGET_DIR".into(), target.into_os_string()));
+        // A persistent per-worker target directory (above) already lets Cargo
+        // reuse the crates a mutant did not touch; incremental compilation
+        // extends that reuse to the mutated crate itself, so the whole-crate
+        // rebuild every mutant pays becomes a recompile of the changed code
+        // units. Scoped to the project's own `cargo test` command: the coverage
+        // run (`cargo llvm-cov`) and every non-Cargo suite keep the profile the
+        // project declares, and without a pool that owns a stable target
+        // directory there is nothing to reuse, so it stays off there too.
+        if self.build.is_some() && is_cargo_test_command(&command) {
+            environment.push(("CARGO_INCREMENTAL".into(), "1".into()));
+        }
         // The installed toolchains stay reachable after the home moves.
         if std::env::var_os("CARGO_HOME").is_none() {
             let default = quality_core::paths::home().join(".cargo");
@@ -464,6 +475,14 @@ impl Exclusions {
             dependencies: true,
         }
     }
+}
+
+/// Whether `command` is Cargo's test command (`cargo test ...`): the one the
+/// Rust mutation path runs, and the only command incremental compilation is
+/// allowed to accelerate.
+fn is_cargo_test_command(command: &str) -> bool {
+    let mut words = command.split_whitespace();
+    matches!(words.next(), Some("cargo")) && matches!(words.next(), Some("test"))
 }
 
 /// Whether `command` runs the project's JavaScript toolchain, which reads its
