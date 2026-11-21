@@ -360,6 +360,9 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   dryClusters = mountDryClusters(canvasStage, {
     text,
     locate: id => { void overlays?.locate(id) },
+    // The list and the legend are both popovers over the canvas: only one of
+    // them is open at a time.
+    onOpen: () => legend?.close(),
     onDone: focusCanvas,
   })
   canvasRow.append(canvasStage, legend.element)

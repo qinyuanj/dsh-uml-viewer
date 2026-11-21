@@ -31,6 +31,8 @@ export interface DryClusterOptions {
   text?: PanelText
   /** Navigate to an owning class's card, as a card relationship row does. */
   locate?(id: string): void
+  /** Called when the list opens, so another popover can step aside. */
+  onOpen?(): void
   onDone?(): void
 }
 
@@ -174,7 +176,12 @@ export function mountDryClusters(host: HTMLElement, options: DryClusterOptions =
       signature = nextSignature
       apply()
     },
-    show() { open = true; apply() },
+    show() {
+      if (open) return
+      open = true
+      apply()
+      options.onOpen?.()
+    },
     close,
     isOpen: () => open,
     dispose() {
