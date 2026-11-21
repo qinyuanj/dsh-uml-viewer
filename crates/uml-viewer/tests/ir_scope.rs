@@ -126,6 +126,19 @@ fn a_quality_scope_that_covers_every_policy_root_is_silent() {
 }
 
 #[test]
+fn declared_typescript_source_roots_are_silent() {
+    let project = mixed_project("declared-ts");
+    project.write(
+        "uml-quality.json",
+        r#"{"version":1,"standardTools":{"sourceRoots":["crates","packages/web/src"]}}"#,
+    );
+    let output = project.run();
+    assert_eq!(Some(0), output.status.code(), "{}", stderr(&output));
+    let err = stderr(&output);
+    assert!(!err.contains("has no quality provider"), "{err}");
+}
+
+#[test]
 fn a_whole_tree_scope_declares_nothing_uncovered() {
     // No manifest, and an empty root list, both mean the whole tree.
     for (tag, config) in [
