@@ -216,7 +216,13 @@ jobs:
       # worker wall time. 10 minutes covers 6x that estimate plus baseline
       # setup, while keeping the 45-minute job budget (33.5m observed + ~2m).
       - name: Maintainer refresh - differential mutation (Windows)
-        timeout-minutes: 10
+        # Budget: ir's batch is ~30 s (compile-bound). scene/dry.rs is
+        # test-bound: ~74 s of worker time per mutant, and editing dry.rs
+        # rewrites its forms, so every site re-executes (observed: 23 executed
+        # before a 10-minute cap, none reused). At ~50-65 sites over 3 workers
+        # that is 20-30 minutes, so the step gets 30. A #109 follow-up
+        # right-sizes the lane (see #124).
+        timeout-minutes: 30
         run: python -I scripts/ci-refresh.py target/debug/uml-viewer.exe mutate
       - name: Maintainer refresh - gated IR (Windows)
         timeout-minutes: 1
