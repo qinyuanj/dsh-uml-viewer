@@ -68,6 +68,58 @@ pub struct Frame {
     /// The diagram's legend, worded in the language this frame was built in
     /// (#50): what the drawing means, not part of the drawing.
     pub legend: legend::Legend,
+    /// The document-level duplicate-structure summary (#91), additive panel
+    /// data. `null` when no dry snapshot was read: absence is unmeasured.
+    pub dry: Option<Json>,
+}
+
+fn dry_number(value: Option<&edn::Value>) -> Option<f64> {
+    value.and_then(edn::record::num)
+}
+
+fn dry_text(value: Option<&edn::Value>) -> Option<String> {
+    value.and_then(edn::record::text).map(str::to_owned)
+}
+
+fn dry_cluster(value: &edn::Value) -> Json {
+    let members = edn::record::seq(edn::record::get(value, "members"))
+        .iter()
+        .map(|member| {
+            json!({
+                "file": dry_text(edn::record::get(member, "file")).unwrap_or_default(),
+                "startLine": dry_number(edn::record::get(member, "start-line")).unwrap_or(0.0) as i64,
+                "endLine": dry_number(edn::record::get(member, "end-line")).unwrap_or(0.0) as i64,
+                "name": dry_text(edn::record::get(member, "name")),
+                "class": edn::record::get(member, "class").and_then(|id| edn::encode(id).ok()).filter(|id| id != "nil"),
+            })
+        })
+        .collect::<Vec<_>>();
+    let classes = edn::record::seq(edn::record::get(value, "classes"))
+        .iter()
+        .filter_map(|class| edn::encode(class).ok().filter(|id| id != "nil"))
+        .collect::<Vec<_>>();
+    json!({
+        "members": members,
+        "classes": classes,
+        "weakest": dry_number(edn::record::get(value, "weakest")).unwrap_or(0.0),
+    })
+}
+
+fn dry_json(value: &edn::Value) -> Json {
+    let clusters = edn::record::seq(edn::record::get(value, "cluster-list"))
+        .iter()
+        .map(dry_cluster)
+        .collect::<Vec<_>>();
+    json!({
+        "candidates": dry_number(edn::record::get(value, "candidates")).unwrap_or(0.0) as i64,
+        "attributed": dry_number(edn::record::get(value, "attributed")).unwrap_or(0.0) as i64,
+        "unattributed": dry_number(edn::record::get(value, "unattributed")).unwrap_or(0.0) as i64,
+        "clusters": dry_number(edn::record::get(value, "clusters")).unwrap_or(0.0) as i64,
+        "shownClusters": clusters.len(),
+        "truncated": edn::record::get(value, "truncated") == Some(&edn::Value::Bool(true)),
+        "weakest": dry_number(edn::record::get(value, "weakest")),
+        "clusterList": clusters,
+    })
 }
 
 /// The zoom a view paints at: a non-positive zoom (never fitted) is 1.
@@ -102,12 +154,18 @@ pub fn build(state: &ViewState, width: f64, height: f64, lang: Lang) -> Frame {
         },
         chrome: chrome(state, width, height),
         legend: legend::legend(lang),
+        dry: state
+            .document
+            .as_ref()
+            .and_then(|doc| scene::dry::document_summary(doc, &state.snapshots))
+            .map(|summary| dry_json(&summary))
+            .filter(|json| json != &Json::Null),
     }
 }
 
 impl Frame {
     pub fn to_json(&self) -> Json {
-        json!({
+        let mut json = json!({
             "schema": SCHEMA,
             "version": VERSION,
             "viewport": {"width": self.width, "height": self.height},
@@ -119,7 +177,15 @@ impl Frame {
             "edges": self.layers.edges.iter().map(edge_json).collect::<Vec<_>>(),
             "chrome": self.chrome.iter().map(chrome_json).collect::<Vec<_>>(),
             "legend": legend::json(&self.legend),
-        })
+        });
+        // The duplicate-structure payload is additive and absent without a dry
+        // snapshot: the goldens stay byte for byte what they were.
+        if let Some(dry) = &self.dry
+            && let Some(object) = json.as_object_mut()
+        {
+            object.insert("dry".into(), dry.clone());
+        }
+        json
     }
 
     /// The frame plus the optional bounded hover metadata (#26): the resident's

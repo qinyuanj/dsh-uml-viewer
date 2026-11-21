@@ -55,6 +55,13 @@ pub struct Text {
     pub relationships: &'static str,
     pub no_mutation_sites: &'static str,
     pub member: &'static str,
+    /// Additive duplicate-structure card line; `%s` is functions, pairs and
+    /// weakest similarity, in that order.
+    pub dry_overlap: &'static str,
+    pub dry_none: &'static str,
+    pub dry_unmeasured: &'static str,
+    /// Short suffix on a participating member row; `%s` is the weakest score.
+    pub dry_member: &'static str,
     pub column_tips: [(&'static str, &'static str); 6],
     /// Relationship phrases: kind, outgoing, incoming.
     pub phrases: [(&'static str, &'static str, &'static str); 6],
@@ -112,6 +119,10 @@ pub const ZH: Text = Text {
     relationships: "关系",
     no_mutation_sites: "---无 mutation 位点---",
     member: "成员",
+    dry_overlap: "重复结构：%s 个函数、%s 对，最弱 %s",
+    dry_none: "重复结构：已测无重复",
+    dry_unmeasured: "重复结构：未测量",
+    dry_member: "重复 %s",
     column_tips: [
         ("crap", "CRAP 风险分数：圈复杂度与覆盖率的综合，越低越好"),
         ("cc", "圈复杂度"),
@@ -156,6 +167,10 @@ pub const EN: Text = Text {
     relationships: "Relationships",
     no_mutation_sites: "---no mutation sites---",
     member: "Member",
+    dry_overlap: "Duplicates: %s functions, %s pairs, weakest %s",
+    dry_none: "Duplicates: measured, none",
+    dry_unmeasured: "Duplicates: unmeasured",
+    dry_member: "duplicate %s",
     column_tips: [
         (
             "crap",

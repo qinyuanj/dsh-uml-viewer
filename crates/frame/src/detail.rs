@@ -242,6 +242,54 @@ fn cells(c: &Value, class: bool, lang: Lang) -> Cells {
     r
 }
 
+/// The additive duplicate-structure line of a class card. The three states
+/// are words, never a missing row: `:overlap` carries the numbers, `:none`
+/// says the snapshot measured the class, and anything else is unmeasured.
+fn dry_line(dry: &Value, text: &'static crate::strings::Text) -> String {
+    let state = get(dry, "state")
+        .and_then(local_name)
+        .unwrap_or("unmeasured");
+    if state != "overlap" {
+        return if state == "none" {
+            text.dry_none.into()
+        } else {
+            text.dry_unmeasured.into()
+        };
+    }
+    let count = |key: &str| get(dry, key).and_then(num).unwrap_or(0.0) as i64;
+    let weakest = get(dry, "weakest").and_then(num).unwrap_or(0.0);
+    fill(
+        text.dry_overlap,
+        &[
+            count("functions").to_string(),
+            count("pairs").to_string(),
+            format!("{weakest:.2}"),
+        ],
+    )
+}
+
+/// Fill `%s` placeholders in order, one per value; a template with fewer
+/// placeholders than values keeps the extra values out.
+fn fill(template: &str, values: &[String]) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut values = values.iter();
+    let mut rest = template;
+    while let Some(at) = rest.find("%s") {
+        out.push_str(&rest[..at]);
+        match values.next() {
+            Some(value) => out.push_str(value),
+            None => {
+                out.push_str("%s");
+                out.push_str(&rest[at + 2..]);
+                return out;
+            }
+        }
+        rest = &rest[at + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn row(kind: &'static str, text: impl Into<String>, y: f64, h: f64) -> Row {
     Row {
         kind,
@@ -319,6 +367,23 @@ pub fn rows(model: &Model, lang: Lang) -> Vec<Row> {
         emit(&mut rows, &mut y, r);
     }
     let crap = get(c, "crap").filter(|v| **v != Value::Nil);
+    if let Some(dry) = get(c, "dry") {
+        emit(
+            &mut rows,
+            &mut y,
+            row("dry", dry_line(dry, text), 0.0, 18.0),
+        );
+    } else if scene::dry::measured(c) {
+        // The third state is written out: a class no dry snapshot measured
+        // says so, so silence is never read as "no duplicates". A class the
+        // dryer never looked at (an external package, a class with no source)
+        // keeps no line at all: it is not a measurement object.
+        emit(
+            &mut rows,
+            &mut y,
+            row("dry", text.dry_unmeasured, 0.0, 18.0),
+        );
+    }
     if let Some(crap) = crap {
         let line = match num(crap) {
             Some(n) => strings::CRAP_SINGLE.replace("%s", &one(n)),
@@ -360,6 +425,20 @@ pub fn rows(model: &Model, lang: Lang) -> Vec<Row> {
                 string(get(op, "text")).unwrap_or_default()
             );
             let mut r = row("stats", signature, 0.0, 18.0);
+            if let Some(dry) = get(op, "dry") {
+                let pairs = seq(get(dry, "pairs")).len();
+                let weakest = seq(get(dry, "pairs"))
+                    .iter()
+                    .filter_map(|pair| get(pair, "score").and_then(num))
+                    .fold(f64::INFINITY, f64::min);
+                if pairs > 0 && weakest.is_finite() {
+                    r.text = format!(
+                        "{}  {}",
+                        r.text,
+                        text.dry_member.replace("%s", &format!("{weakest:.2}"))
+                    );
+                }
+            }
             r.cells = cells(op, false, lang);
             r.private = private;
             r.op_name = string(get(op, "name"));
@@ -577,7 +656,7 @@ pub fn row_color(row: &Row) -> Role {
         return Role::Muted;
     }
     match row.kind {
-        "crap" | "heading" | "group-header" | "col-header" => Role::Accent,
+        "crap" | "dry" | "heading" | "group-header" | "col-header" => Role::Accent,
         "name" | "module" | "field" | "rel" | "stats" => Role::Ink,
         _ if row.module => Role::Ink,
         _ => Role::Muted,
