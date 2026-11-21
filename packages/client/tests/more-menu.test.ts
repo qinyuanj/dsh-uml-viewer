@@ -136,6 +136,23 @@ describe('the top bar More menu (#46)', () => {
     h.controller.close()
   })
 
+  it('writes an accepted toggle back before the next state event', async () => {
+    const h = await harness()
+    h.menu.open()
+    h.item('remove-arrows').fire('click')
+    h.ack.resolve({ ok: true, value: { accepted: true, reason: null } })
+    await flush()
+    h.menu.open()
+    expect(h.item('remove-arrows').getAttribute('aria-checked')).toBe('true')
+    h.emit({ kind: 'state', state: stateWith(':triangles'), breadcrumbs: [{ id: null, name: 'Shop' }], status: null, proposals: [] })
+    await flush()
+    h.menu.close()
+    h.menu.open()
+    expect(h.item('remove-arrows').getAttribute('aria-checked')).toBe('true')
+    h.menu.dispose()
+    h.controller.close()
+  })
+
   it('saves exactly once after Remove arrows is accepted, naming the mode', async () => {
     const h = await harness()
     h.menu.open()

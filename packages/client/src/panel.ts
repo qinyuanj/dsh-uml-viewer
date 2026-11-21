@@ -519,14 +519,16 @@ export class PanelController {
 
   /**
    * The More menu's Remove arrows toggle (#46): name the declutter mode instead
-   * of cycling to it. The mode comes back on the next `state` event.
+   * of cycling to it. An accepted mode is live at once; the next `state` event
+   * confirms what the resident persisted (#120).
    */
   public async setDeclutter(mode: DeclutterMode): Promise<void> {
     const ack = await this.send({ action: 'declutter', mode })
     if (!ack?.accepted) return
+    this.mode = mode
     try {
-      // The mode comes back on the next `state` event; a failed save only
-      // means the menu shows the old one until the next frame saves anyway.
+      // A failed save only means the resident's next frame saves anyway; the
+      // menu must not show the old checked state while that frame is in flight.
       await this.send({ action: 'save' })
     } catch {
       // The next frame's save reports the resident's real mode.
