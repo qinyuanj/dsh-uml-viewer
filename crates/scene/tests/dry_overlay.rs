@@ -142,6 +142,52 @@ fn duplicate_structure_reaches_the_class_record_with_its_three_states() {
 }
 
 #[test]
+fn the_snapshot_summary_exposes_bounded_cluster_members() {
+    let doc = parse(DOC).unwrap();
+    let (_, summary) = card(&doc, &[snap(".metrics/dry.edn", DRY, 1)], "scene.overlay");
+    let summary = summary.expect("the summary is there when a snapshot is");
+    assert_eq!(Some(2.0), num(get(&summary, "shown-clusters").unwrap()));
+    assert_eq!(
+        Some(Value::Bool(false)),
+        get(&summary, "truncated").cloned()
+    );
+    let clusters = seq(get(&summary, "cluster-list"));
+    assert_eq!(2, clusters.len());
+    // The weaker pair: its other side is not a class, so the cluster names one
+    // owner and says so on the member itself.
+    let worst = &clusters[0];
+    assert_eq!(Some(0.82), num(get(worst, "weakest").unwrap()));
+    let members = seq(get(worst, "members"));
+    assert_eq!(2, members.len());
+    assert_eq!(
+        Some(&Value::String("crates/scene/src/overlay.rs".into())),
+        get(&members[0], "file")
+    );
+    assert_eq!(
+        Some(&Value::keyword("scene.overlay")),
+        get(&members[0], "class")
+    );
+    assert!(
+        get(&members[1], "class").is_none(),
+        "the other side joins no class, so it says so instead of guessing"
+    );
+    assert_eq!(
+        vec![Value::keyword("scene.overlay")],
+        seq(get(worst, "classes"))
+    );
+    // The stronger pair: both sides join a class.
+    let strong = &clusters[1];
+    assert_eq!(Some(0.9), num(get(strong, "weakest").unwrap()));
+    assert_eq!(
+        vec![
+            Value::keyword("scene.overlay"),
+            Value::keyword("scene.card")
+        ],
+        seq(get(strong, "classes"))
+    );
+}
+
+#[test]
 fn counts_functions_rather_than_pairs_and_a_self_pair_once() {
     let doc = parse(
         r#"{:hierarchical true :prefix "uml" :classes [

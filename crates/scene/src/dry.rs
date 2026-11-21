@@ -87,6 +87,8 @@ pub struct Index {
     /// (class id, function name) -> the pairs that function takes part in.
     pub functions: BTreeMap<(String, String), Vec<Hit>>,
     pub clusters: Vec<Cluster>,
+    /// Owning classes by id, in the same order as each cluster's spans.
+    pub cluster_classes: Vec<Vec<Value>>,
     pub candidates: usize,
     /// A pair is attributed when both sides join a class; anything else is
     /// counted unattributed.
@@ -139,7 +141,7 @@ fn class_id(class: &Value) -> Option<Value> {
 /// class whose source is missing, and a non-class shape are never measured.
 /// They keep no state: writing `:none` on them would claim "measured, no
 /// overlap" for code the snapshot never looked at.
-fn measured(class: &Value) -> bool {
+pub fn measured(class: &Value) -> bool {
     !flag(class, "foreign")
         && !flag(class, "missing")
         && get(class, "shape").and_then(local_name) != Some("oval")
@@ -176,6 +178,7 @@ impl Index {
             classes: BTreeMap::new(),
             functions: BTreeMap::new(),
             clusters: Vec::new(),
+            cluster_classes: Vec::new(),
             candidates: candidates.len(),
             attributed: 0,
             unattributed: 0,
@@ -234,11 +237,28 @@ impl Index {
             edges.push((a, b, c.score));
         }
         index.clusters = clusters(&spans, &mut parents, &edges);
+        index.cluster_classes = index
+            .clusters
+            .iter()
+            .map(|cluster| {
+                cluster
+                    .spans
+                    .iter()
+                    .map(|span| {
+                        class_of(classes, prefix, span)
+                            .and_then(class_id)
+                            .unwrap_or(Value::Nil)
+                    })
+                    .collect()
+            })
+            .collect();
         index
     }
 
     /// The document-level summary: how many pairs the snapshot holds, how
-    /// many join a class, and the clusters derived from them.
+    /// many join a class, and the clusters derived from them. The cluster
+    /// vector is bounded here so the panel never receives an O(n²) payload;
+    /// `truncated` says whether the weakest-first list continues off-screen.
     pub fn summary(&self) -> Value {
         let functions: usize = self.clusters.iter().map(|c| c.spans.len()).sum();
         let weakest = self
@@ -246,12 +266,21 @@ impl Index {
             .iter()
             .map(|c| c.weakest)
             .fold(f64::INFINITY, f64::min);
+        let shown: Vec<Value> = self
+            .clusters
+            .iter()
+            .zip(&self.cluster_classes)
+            .take(MAX_CLUSTERS)
+            .map(|(cluster, classes)| cluster_json(cluster, classes))
+            .collect();
         record(vec![
             ("candidates", Value::Integer(self.candidates as i64)),
             ("attributed", Value::Integer(self.attributed as i64)),
             ("unattributed", Value::Integer(self.unattributed as i64)),
             ("clusters", Value::Integer(self.clusters.len() as i64)),
             ("functions", Value::Integer(functions as i64)),
+            ("shown-clusters", Value::Integer(shown.len() as i64)),
+            ("truncated", Value::Bool(self.clusters.len() > shown.len())),
             (
                 "weakest",
                 if weakest.is_finite() {
@@ -260,8 +289,57 @@ impl Index {
                     Value::Nil
                 },
             ),
+            ("cluster-list", Value::Vector(shown)),
         ])
     }
+}
+
+/// The document-level duplicate-structure summary for the snapshots a
+/// session holds, or `None` when no dry snapshot was read. The overlay is
+/// applied to a copy, so the caller's document is untouched (#91).
+pub fn document_summary(doc: &Value, snapshots: &[crate::overlay::Snapshot]) -> Option<Value> {
+    let overlaid = crate::overlay::apply(doc, snapshots);
+    get(&overlaid, "dry").cloned()
+}
+
+/// How many clusters the resident sends to the panel. The full count is kept
+/// in `:clusters`; the list holds the weakest `MAX_CLUSTERS` and `:truncated`
+/// carries the honest remainder (#91).
+const MAX_CLUSTERS: usize = 64;
+
+/// One cluster as the panel reads it: members with file/line and owning class,
+/// and the component's weakest similarity. Owners are EDN id text so a click
+/// can call the existing `locate` action unchanged.
+fn cluster_json(cluster: &Cluster, classes: &[Value]) -> Value {
+    let members: Vec<Value> = cluster
+        .spans
+        .iter()
+        .zip(classes)
+        .map(|(span, class)| {
+            let mut entries = vec![
+                ("file", Value::String(span.file.clone())),
+                ("start-line", Value::Integer(span.start)),
+                ("end-line", Value::Integer(span.end)),
+                ("class", class.clone()),
+            ];
+            if let Some(name) = &span.name {
+                entries.push(("name", Value::String(name.clone())));
+            }
+            record(entries)
+        })
+        .collect();
+    // The distinct owners of the cluster, for the summary line.
+    let mut owners: Vec<Value> = Vec::new();
+    for class in classes {
+        if *class != Value::Nil && !owners.contains(class) {
+            owners.push(class.clone());
+        }
+    }
+    record(vec![
+        ("members", Value::Vector(members)),
+        ("classes", Value::Vector(owners)),
+        ("weakest", Value::Float(cluster.weakest)),
+    ])
 }
 
 /// Mark one class in place: its :dry state map and its members' pairs.
