@@ -155,8 +155,24 @@ jobs:
       CARGO_TERM_COLOR: always
       # A missing toolchain must fail here, never skip.
       MUTATOR_REQUIRE_TOOLCHAINS: '1'
+      # #124: the refresh computes per-target new-side lines against this
+      # base. PRs use the PR base; pushes use the previous commit. A missing
+      # value fails closed in scripts/ci-refresh.py.
+      UML_REFRESH_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # merge-base needs the history around the base, not one fetched commit.
+          fetch-depth: 0
+      # PR base SHAs are not necessarily present in the PR checkout. Fetch the
+      # canonical base before the refresh computes its merge-base diff; an
+      # invalid or missing SHA still fails closed in ci-refresh.py.
+      - name: Fetch refresh base SHA
+        shell: bash
+        run: |
+          if [[ "$UML_REFRESH_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            git fetch --no-tags origin "$UML_REFRESH_BASE_SHA"
+          fi
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -220,20 +236,16 @@ jobs:
       - name: Maintainer refresh - CRAP (Windows)
         timeout-minutes: 21
         run: python -I scripts/ci-refresh.py target/debug/uml-viewer.exe crap
-      # #109: mutate two real business files in one call. ir/src/lib.rs has
-      # 21 recorded sites and its crate's CLI tests create Windows directory
-      # junctions; scene/dry.rs has 13. Measured after the #107 hole-two fix:
-      # 8.5s worker-time/mutant, --max-workers 3, so 34 * 8.5 / 3 = 96s of
-      # worker wall time. 10 minutes covers 6x that estimate plus baseline
-      # setup, while keeping the 45-minute job budget (33.5m observed + ~2m).
+      # #109/#124: mutate two real business files in one call, filtered to
+      # changed new-side lines from the PR-base merge-base diff. The mutator's
+      # line filter excludes off-line sites; a zero-line diff publishes an
+      # explicit zero-site record and fresh snapshots. The full test command
+      # is never narrowed.
       - name: Maintainer refresh - differential mutation (Windows)
-        # Budget: ir's batch is ~30 s (compile-bound). scene/dry.rs is
-        # test-bound: ~74 s of worker time per mutant, and editing dry.rs
-        # rewrites its forms, so every site re-executes (observed: 23 executed
-        # before a 10-minute cap, none reused). At ~50-65 sites over 3 workers
-        # that is 20-30 minutes, so the step gets 30. A #109 follow-up
-        # right-sizes the lane (see #124).
-        timeout-minutes: 30
+        # scene/dry.rs is test-bound at ~74 s per mutant, which made an
+        # unfiltered dry.rs edit a 20-30 minute lane. Changed-line sites are
+        # few, so 6 minutes covers the filtered run plus baselines.
+        timeout-minutes: 6
         run: python -I scripts/ci-refresh.py target/debug/uml-viewer.exe mutate
       - name: Maintainer refresh - gated IR (Windows)
         timeout-minutes: 1

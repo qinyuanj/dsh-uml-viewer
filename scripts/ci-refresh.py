@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
-"""CI-only maintainer refresh: one native binary invocation per workflow step."""
+"""CI-only maintainer refresh: one native binary invocation per workflow step.
+
+The mutation step is PR-diff-limited: the base SHA comes from CI, changed
+new-side lines are read from a merge-base diff, and the two real targets stay
+in one mutator call. Each target gets its own file-qualified --lines set; an
+unchanged target gets a beyond-EOF line so it publishes an explicit zero-site
+snapshot instead of borrowing a line number from the other target.
+"""
 import argparse
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
+import sys
 import time
 
 
@@ -12,11 +21,146 @@ MUTATE_TARGETS = (
     ('crates/ir/src/lib.rs', '.metrics/mutate/ir.edn'),
     ('crates/scene/src/dry.rs', '.metrics/mutate/scene/dry.edn'),
 )
+BASE_SHA_ENV = 'UML_REFRESH_BASE_SHA'
+SHA = re.compile(r'^[0-9a-f]{40}$')
+HUNK = re.compile(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@')
+OUTCOMES = re.compile(r':outcomes\s*\{([^{}]*)\}')
+VERDICTS = re.compile(r':(killed|survived|uncovered)\b')
+MODE_LINES = ('index ', 'old mode ', 'new mode ',
+              'deleted file mode ', 'new file mode ')
 
 
 def require(condition, message):
     if not condition:
         raise RuntimeError(message)
+
+
+def git_output(root, *arguments):
+    result = subprocess.run(['git', *arguments], cwd=root, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, encoding='utf-8', check=False)
+    require(result.returncode == 0,
+            f'git {arguments[0]}: {(result.stderr or result.stdout).strip()}')
+    return result.stdout
+
+
+def base_commit():
+    """Use the one canonical CI base SHA; never open an unfiltered lane."""
+    base = os.environ.get(BASE_SHA_ENV, '').strip()
+    require(bool(base), f'mutate: missing {BASE_SHA_ENV}; refusing an unfiltered lane')
+    require(SHA.fullmatch(base) is not None, f'mutate: malformed base SHA: {base!r}')
+    return base
+
+
+def diff_target(header, allowed, seen):
+    fields = header.split()
+    require(len(fields) >= 4 and fields[2].startswith('a/')
+            and fields[3].startswith('b/'),
+            f'mutate: malformed diff header: {header!r}')
+    target = fields[3][2:]
+    require(target in allowed, f'mutate: unexpected diff target: {target!r}')
+    require(target not in seen, f'mutate: duplicate diff target: {target}')
+    seen.add(target)
+    return target
+
+
+def hunk_lines(header):
+    match = HUNK.match(header)
+    require(match is not None, f'mutate: malformed hunk: {header!r}')
+    old_count = 1 if match.group(2) is None else int(match.group(2))
+    new_start = int(match.group(3))
+    new_count = 1 if match.group(4) is None else int(match.group(4))
+    require(new_start >= 1, f'mutate: invalid new-side line: {header!r}')
+    return old_count, new_start, new_count
+
+
+def parse_diff(diff):
+    """Map configured targets to their changed new-side lines.
+
+    Only zero-context unified hunks are accepted. Unknown paths, hunks or
+    trailing text fail closed rather than being treated as an empty diff.
+    """
+    changed = {target: set() for target, _ in MUTATE_TARGETS}
+    seen = set()
+    current = None
+    remaining = 0
+    for line in diff.splitlines():
+        if line.startswith('\\'):
+            continue
+        if line.startswith('diff --git '):
+            require(remaining == 0, 'mutate: unterminated diff hunk')
+            current = diff_target(line, changed, seen)
+            continue
+        if current is None:
+            require(not line, f'mutate: unexpected diff preamble: {line!r}')
+            continue
+        if line.startswith(MODE_LINES) or line.startswith('--- '):
+            continue
+        require(not line.startswith(('rename ', 'copy ', 'Binary files ')),
+                f'mutate: ambiguous diff for {current}: {line!r}')
+        if line.startswith('+++ '):
+            path = line[4:].split('\t', 1)[0]
+            require(path == f'b/{current}',
+                    f'mutate: wrong diff path for {current}: {path!r}')
+            continue
+        if line.startswith('@@'):
+            require(remaining == 0, 'mutate: nested diff hunk')
+            old_count, new_start, new_count = hunk_lines(line)
+            if new_count:
+                changed[current].update(range(new_start, new_start + new_count))
+            remaining = old_count + new_count
+            continue
+        if remaining:
+            require(line[:1] in (' ', '-', '+'),
+                    f'mutate: malformed hunk body: {line!r}')
+            remaining -= 1
+            continue
+        require(not line, f'mutate: unexpected diff line: {line!r}')
+    require(remaining == 0, 'mutate: unterminated diff hunk')
+    return changed
+
+
+def changed_lines(root, base):
+    candidates = [line.strip() for line in
+                  git_output(root, 'merge-base', '--all', base, 'HEAD').splitlines()
+                  if line.strip()]
+    require(len(candidates) == 1 and SHA.fullmatch(candidates[0]) is not None,
+            f'mutate: ambiguous or invalid merge base: {candidates}')
+    targets = [target for target, _ in MUTATE_TARGETS]
+    diff = git_output(root, 'diff', '--unified=0', candidates[0], '--', *targets)
+    return parse_diff(diff)
+
+
+def per_target_line_filter(root, lines_by_target):
+    """Build path:line entries and remember targets with no changed lines.
+
+    The mutator's qualified grammar makes a line in one target unable to
+    select a site with the same number in the other target.
+    """
+    entries = []
+    zero_targets = set()
+    for target, lines in lines_by_target.items():
+        selected = set(lines)
+        if not selected:
+            source = root / target
+            require(source.is_file(), f'mutate: missing target for zero-site run: {target}')
+            selected.add(len(source.read_text(encoding='utf-8').splitlines()) + 1)
+            zero_targets.add(target)
+        entries.extend(f'{target}:{number}' for number in sorted(selected))
+    require(bool(entries), 'mutate: malformed line filter')
+    return ','.join(entries), zero_targets
+
+
+def build_mutation_command(root, binary, base):
+    """Keep both business targets and the full test command in one call."""
+    reports = [path for folder in ('coverage', 'target/coverage')
+               for path in (root / folder).rglob('lcov.info')]
+    require(bool(reports) and all(path.stat().st_size > 0 for path in reports),
+            'mutate: no non-empty coverage reports from the crap step')
+    line_filter, zero_targets = per_target_line_filter(root, changed_lines(root, base))
+    command = [str(binary), 'quality', 'mutate', '--reuse-coverage',
+               '--lines', line_filter]
+    command.extend(target for target, _ in MUTATE_TARGETS)
+    return command, zero_targets
 
 
 def validate(text, operation, code, root):
@@ -41,11 +185,10 @@ def validate(text, operation, code, root):
     return record
 
 
-def validate_mutation_snapshots(root, started):
-    # The JSON record carries no per-file outcomes. Each published snapshot
-    # does, and publish() rewrites it even when every mutation was reused.
-    # A fresh mtime proves this run selected the file rather than merely
-    # passing over the snapshots committed with the project.
+def validate_mutation_snapshots(root, started, zero_targets):
+    # The JSON record carries no per-file outcomes; each published snapshot
+    # does. A fresh mtime proves this run selected the file rather than merely
+    # reusing the snapshot committed with the project.
     for target, relative in MUTATE_TARGETS:
         snapshot = root / relative
         require(snapshot.is_file(), f'mutate: missing snapshot for {target}: {relative}')
@@ -54,10 +197,16 @@ def validate_mutation_snapshots(root, started):
         text = snapshot.read_text(encoding='utf-8')
         require(f':source "{target}"' in text,
                 f'mutate: snapshot for {target} has wrong source: {relative}')
-        require(':outcomes {' in text, f'mutate: snapshot for {target} has no outcomes: {relative}')
-        outcomes = text.split(':outcomes {', 1)[1].split(':forms [', 1)[0]
-        require(any(f':{verdict}' in outcomes for verdict in ('killed', 'survived', 'uncovered')),
-                f'mutate: snapshot for {target} has empty outcomes: {relative}')
+        found = OUTCOMES.findall(text)
+        require(len(found) == 1,
+                f'mutate: snapshot for {target} has no single outcomes map: {relative}')
+        verdicts = set(VERDICTS.findall(found[0]))
+        if target in zero_targets:
+            require(not verdicts or verdicts == {'uncovered'},
+                    f'mutate: zero-site snapshot for {target} has active verdicts: {verdicts}')
+        else:
+            require(bool(verdicts),
+                    f'mutate: snapshot for {target} has empty outcomes: {relative}')
 
 
 def main():
@@ -69,7 +218,6 @@ def main():
     binary = args.binary.resolve(strict=True)
     state = Path(os.environ['RUNNER_TEMP']) / 'uml-maintainer-refresh'
     if args.operation == 'crap':
-        # A fresh runner must not accept records from a previous refresh.
         state.mkdir()
     else:
         for operation in (('crap',) if args.operation == 'mutate' else ('crap', 'mutate')):
@@ -83,27 +231,32 @@ def main():
                        check=True)
         require(output.is_file() and output.stat().st_size > 0, 'IR output is empty or missing')
         print(f'Accepted maintainer refresh: {output.stat().st_size} IR bytes')
+        return
+
+    zero_targets = set()
+    if args.operation == 'mutate':
+        command, zero_targets = build_mutation_command(root, binary, base_commit())
+        for target, relative in MUTATE_TARGETS:
+            if target in zero_targets:
+                snapshot = root / relative
+                if snapshot.exists():
+                    snapshot.unlink()
+        if zero_targets:
+            print(f'mutate: no changed lines for {", ".join(sorted(zero_targets))}; '
+                  'publishing explicit zero-site snapshots', file=sys.stderr)
     else:
-        started = time.time()
         command = [str(binary), 'quality', args.operation]
-        if args.operation == 'mutate':
-            # crapper's whole-tree run in this job already wrote the coverage
-            # reports this run would regenerate; reuse them. The record loaded
-            # above was validated in this job, so those reports are this
-            # refresh's own rather than an earlier run's.
-            reports = [path for base in ('coverage', 'target/coverage')
-                       for path in (root / base).rglob('lcov.info')]
-            require(bool(reports) and all(path.stat().st_size > 0 for path in reports),
-                    'mutate: no non-empty coverage reports from the crap step')
-            command.append('--reuse-coverage')
-            command.extend(target for target, _ in MUTATE_TARGETS)
-        # stdout is the record only; reports remain visible on inherited stderr.
-        result = subprocess.run(command, stdout=subprocess.PIPE, encoding='utf-8', check=False)
-        print(result.stdout, end='', flush=True)
-        record = validate(result.stdout, args.operation, result.returncode, root)
-        if args.operation == 'mutate':
-            validate_mutation_snapshots(root, started)
-        (state / f'{args.operation}.json').write_text(json.dumps(record) + '\n', encoding='utf-8')
+
+    started = time.time()
+    result = subprocess.run(command, stdout=subprocess.PIPE, encoding='utf-8', check=False)
+    print(result.stdout, end='', flush=True)
+    record = validate(result.stdout, args.operation, result.returncode, root)
+    if args.operation == 'mutate':
+        validate_mutation_snapshots(root, started, zero_targets)
+    (state / f'{args.operation}.json').write_text(json.dumps(record) + '\n', encoding='utf-8')
+    if zero_targets:
+        print(f'Accepted maintainer refresh: zero-site snapshots for '
+              f'{", ".join(sorted(zero_targets))}')
 
 
 if __name__ == '__main__':

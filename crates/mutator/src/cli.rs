@@ -8,13 +8,81 @@ use std::{
 /// The original's default: warn when a file selects more covered mutations.
 const DEFAULT_MUTATION_WARNING: i64 = 50;
 
+/// Positive line numbers, either global or qualified by a relative source path.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LineFilter {
+    global: BTreeSet<usize>,
+    per_file: BTreeMap<String, BTreeSet<usize>>,
+}
+
+impl LineFilter {
+    fn is_empty(&self) -> bool {
+        self.global.is_empty() && self.per_file.is_empty()
+    }
+
+    /// Whether `line` in `file` is selected. Qualified filters select only
+    /// listed paths; an unlisted file has no selected lines.
+    pub fn contains(&self, file: &str, line: usize) -> bool {
+        if self.per_file.is_empty() {
+            self.global.contains(&line)
+        } else {
+            self.per_file
+                .get(&line_path(file))
+                .is_some_and(|lines| lines.contains(&line))
+        }
+    }
+}
+
+fn line_path(path: &str) -> String {
+    path.trim().replace('\\', "/")
+}
+
+fn positive_line(value: &str) -> Result<usize, String> {
+    let number = python_int(value)
+        .ok_or_else(|| format!("invalid literal for int() with base 10: '{value}'"))?;
+    if number < 1 {
+        return Err("--lines requires positive line numbers".into());
+    }
+    Ok(number as usize)
+}
+
+fn parse_line_filter(value: &str) -> Result<LineFilter, String> {
+    let mut global = BTreeSet::new();
+    let mut per_file: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
+    for piece in value.split(',').map(str::trim).filter(|v| !v.is_empty()) {
+        let (path, number) = match piece.rsplit_once(':') {
+            Some((path, number)) => (Some(line_path(path)), positive_line(number)?),
+            None => (None, positive_line(piece)?),
+        };
+        match path {
+            Some(path) => {
+                if path.is_empty() {
+                    return Err("--lines requires a source path before ':'".into());
+                }
+                per_file.entry(path).or_default().insert(number);
+            }
+            None => {
+                global.insert(number);
+            }
+        }
+    }
+    if !global.is_empty() && !per_file.is_empty() {
+        return Err("--lines cannot mix global and file-qualified numbers".into());
+    }
+    let filter = LineFilter { global, per_file };
+    if filter.is_empty() {
+        return Err("--lines requires a line number".into());
+    }
+    Ok(filter)
+}
+
 #[derive(Default)]
 pub struct Options {
     pub scope: Scope,
     pub positionals: Vec<String>,
     pub flags: BTreeSet<String>,
     pub values: BTreeMap<String, String>,
-    pub lines: Option<BTreeSet<usize>>,
+    pub lines: Option<LineFilter>,
     pub timeout_factor: f64,
     pub mutation_warning: i64,
     /// `--max-workers`: mutants to run at once; absent means every core.
@@ -184,20 +252,7 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
                     })?;
                 }
                 "--lines" => {
-                    let mut lines = BTreeSet::new();
-                    for piece in value.split(',').map(str::trim).filter(|v| !v.is_empty()) {
-                        let number = python_int(piece).ok_or_else(|| {
-                            format!("invalid literal for int() with base 10: '{piece}'")
-                        })?;
-                        if number < 1 {
-                            return Err("--lines requires positive line numbers".into());
-                        }
-                        lines.insert(number as usize);
-                    }
-                    if lines.is_empty() {
-                        return Err("--lines requires a line number".into());
-                    }
-                    options.lines = Some(lines);
+                    options.lines = Some(parse_line_filter(value)?);
                 }
                 _ => (),
             }

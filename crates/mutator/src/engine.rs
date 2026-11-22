@@ -1788,7 +1788,7 @@ pub fn mutate(
                     options
                         .lines
                         .as_ref()
-                        .is_none_or(|lines| lines.contains(&site.line))
+                        .is_none_or(|lines| lines.contains(&site.file, site.line))
                 })
                 .collect();
             println!("Scan: {} mutation sites in {}", sites.len(), item.key);

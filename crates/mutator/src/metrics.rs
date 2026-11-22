@@ -1,4 +1,5 @@
 //! Namespace snapshots and the differential mutation policy.
+use crate::cli::LineFilter;
 use crate::sites::{Form, Site, mutation_file, mutation_namespace};
 use quality_core::edn::Value;
 use quality_core::language::SKIP_DIRS;
@@ -566,7 +567,7 @@ pub fn unchanged(forms: &[Form], history: &History) -> bool {
 #[derive(Clone, Copy)]
 pub struct DecideContext<'a> {
     pub mutate_all: bool,
-    pub lines: Option<&'a BTreeSet<usize>>,
+    pub lines: Option<&'a LineFilter>,
     pub test_input: Option<&'a str>,
     pub scope: Option<&'a TestInputScope>,
 }
@@ -611,7 +612,7 @@ pub fn decide(
                 ("uncovered", "uncovered")
             } else if context
                 .lines
-                .is_some_and(|lines| !lines.contains(&site.line))
+                .is_some_and(|lines| !lines.contains(&site.file, site.line))
             {
                 ("excluded", "line-filter")
             } else if context.mutate_all {
@@ -676,7 +677,7 @@ pub fn tally_forms(
     sites: &[Site],
     covered: &BTreeMap<String, bool>,
     outcomes: &BTreeMap<String, String>,
-    lines: Option<&BTreeSet<usize>>,
+    lines: Option<&LineFilter>,
 ) {
     for form in forms {
         form.killed = 0;
@@ -1589,6 +1590,46 @@ mod tests {
             ),
             BTreeMap::from([(sites[0].mutation_id.clone(), "killed".to_string())])
         );
+    }
+
+    #[test]
+    fn a_file_qualified_line_filter_excludes_other_files_and_off_lines() {
+        let mut selected = site();
+        selected.file = "crates/ir/src/lib.rs".into();
+        selected.line = 10;
+        selected.mutation_id = "ir-10".into();
+        let mut off_line = site();
+        off_line.file = "crates/ir/src/lib.rs".into();
+        off_line.line = 11;
+        off_line.mutation_id = "ir-11".into();
+        let mut other_file = site();
+        other_file.file = "crates/scene/src/dry.rs".into();
+        other_file.line = 10;
+        other_file.mutation_id = "scene-10".into();
+        let sites = [selected, off_line, other_file];
+        let covered = sites
+            .iter()
+            .map(|site| (site.mutation_id.clone(), true))
+            .collect();
+        let options =
+            crate::cli::parse(&["--lines".into(), "crates/ir/src/lib.rs:10".into()]).unwrap();
+        let decisions = decide(
+            &sites,
+            &covered,
+            &History::default(),
+            &[],
+            DecideContext {
+                mutate_all: false,
+                lines: options.lines.as_ref(),
+                test_input: Some("input"),
+                scope: Some(&TestInputScope::global()),
+            },
+        );
+        assert_eq!(decisions["ir-10"].action, "executed");
+        for id in ["ir-11", "scene-10"] {
+            assert_eq!(decisions[id].action, "excluded", "{id}");
+            assert_eq!(decisions[id].reason, "line-filter", "{id}");
+        }
     }
 
     #[test]
