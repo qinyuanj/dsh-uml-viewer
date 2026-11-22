@@ -199,8 +199,9 @@ beats nearness) with the project's `.venv`/`venv` interpreter — absolute, its
 symlink unresolved — using pytest when the project declares it and
 `unittest discover` otherwise. TypeScript runs `npm test` at the nearest
 `package.json`. A baseline whose output contains `Ran 0 tests in` fails, so an
-empty suite cannot let every mutant survive. Only a generated `cargo test` has
-a separate untimed build step.
+empty suite cannot let every mutant survive. Only a generated Cargo suite —
+`cargo test`, or the fail-fast `cargo nextest run` of #123 — has a separate
+untimed build step.
 
 Python and TypeScript coverage uses #4's runner rules — the same package
 roots, interpreter, pytest detection, `--source` tops, `npm run coverage` /

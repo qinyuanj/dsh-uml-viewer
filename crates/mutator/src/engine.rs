@@ -81,11 +81,13 @@ impl Command {
                 .join(" "),
         }
     }
-    /// Whether this is the generated `cargo test` whose compile step runs
-    /// untimed before the baseline (the original's `build_command`).
+    /// Whether this is a Cargo test suite — `cargo test` or the fail-fast
+    /// nextest suite — whose compile step runs untimed before the baseline (the
+    /// original's `build_command`). The nextest run reuses the test binaries
+    /// `cargo test --no-run` leaves behind, so it warms the target the same way.
     fn is_cargo_test(&self) -> bool {
         match self {
-            Command::Shell(command) => command == "cargo test",
+            Command::Shell(command) => crate::rust_suite::is_suite(command),
             Command::Argv(argv) => argv.starts_with(&["cargo".to_string(), "test".to_string()]),
         }
     }
@@ -157,8 +159,11 @@ fn plan(root: &Path, options: &Options, source: &Path) -> (Command, PathBuf) {
     if let Some((argv, directory)) = planned {
         return (Command::Argv(argv), directory);
     }
+    // The fail-fast nextest suite, in the package's own directory (#123):
+    // `cargo test` there selects the same tests, but stable libtest cannot stop
+    // at the first failure, and that stop is where a killed mutant's cost is.
     (
-        Command::Shell("cargo test".into()),
+        Command::Shell(crate::rust_suite::command()),
         nearest(source, "Cargo.toml", root).unwrap_or_else(|| root.to_path_buf()),
     )
 }
@@ -1443,7 +1448,7 @@ fn pristine(
                     &check,
                     root,
                     cwd,
-                    &Command::Shell("cargo test --no-run".into()),
+                    &Command::Shell(crate::rust_suite::BUILD.into()),
                     None,
                     None,
                 )?;
@@ -2135,6 +2140,48 @@ pub fn mutate(
         3
     } else {
         0
+    }
+}
+
+/// #123: the Rust path plans the fail-fast nextest suite, in the package's own
+/// directory, and the untimed build still recognizes it. A quiet change back to
+/// `cargo test` would restore the cost the ticket removes, so the wiring is
+/// pinned here instead of living only in a comment.
+#[cfg(test)]
+mod rust_plan_tests {
+    use super::*;
+
+    fn repository_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("the workspace root")
+            .to_path_buf()
+    }
+
+    #[test]
+    fn a_rust_source_plans_the_fail_fast_nextest_suite() {
+        let root = repository_root();
+        let source = root.join("crates/scene/src/layout.rs");
+        let (command, directory) = plan(&root, &Options::default(), &source);
+        assert_eq!(Command::Shell(crate::rust_suite::command()), command);
+        assert_eq!(root.join("crates/scene"), directory);
+        assert!(command.is_cargo_test(), "the untimed build must still run");
+    }
+
+    /// `--test-command` still decides the suite: the nextest plan is only the
+    /// default for a Rust source.
+    #[test]
+    fn an_explicit_test_command_still_wins() {
+        let root = repository_root();
+        let source = root.join("crates/scene/src/layout.rs");
+        let mut options = Options::default();
+        options
+            .values
+            .insert("--test-command".into(), "cargo test --lib".into());
+        let (command, directory) = plan(&root, &options, &source);
+        assert_eq!(Command::Shell("cargo test --lib".into()), command);
+        assert_eq!(root, directory);
     }
 }
 

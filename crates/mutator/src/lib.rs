@@ -26,6 +26,7 @@ mod metrics;
 mod operators;
 mod python;
 pub mod queue;
+mod rust_suite;
 mod scratch;
 pub mod sites;
 pub use metrics::{

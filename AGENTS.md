@@ -51,8 +51,12 @@
   `docs/plugin-development.md` for workspace checks and `UML_VIEWER_BIN`.
   Use a scratch DSH home; keep the user's live profile untouched.
 - Prerequisites are the Rust toolchain pinned by `rust-toolchain.toml`,
-  git, Node 24 and pnpm (the plugin packages), and Python 3.11+ for
-  `scripts/check.py`. The single Rust binary runs
+  git, Node 24 and pnpm (the plugin packages), Python 3.11+ for
+  `scripts/check.py`, and stable `cargo-nextest` for the Rust mutation
+  suite (#123): `cargo install cargo-nextest --locked`. The suite is
+  `cargo nextest run --max-fail 1:immediate … && cargo test --doc`; a
+  missing nextest fails the baseline loudly instead of falling back to
+  `cargo test`. The single Rust binary runs
   the panel's `resident` session (the only viewer; the standalone egui
   window was deleted in #30), IR generation, the four
   scanners and the three quality tools (`crap`, `mutate`, `dry`, or

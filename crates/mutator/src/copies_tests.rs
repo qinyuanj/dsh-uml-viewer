@@ -5,13 +5,16 @@
 //! A copy is the only isolation Windows has (ADR 0002), so these tests use the
 //! same unprivileged directory junction the runtime meets, and none of them
 //! needs a toolchain or a test command.
-use super::{Exclusions, copy_tree, hidden_paths, runs_javascript};
+use super::{Exclusions, copy_tree, hidden_paths, is_cargo_test_command, runs_javascript};
 use crate::scratch;
 use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
 };
+
+/// The suite the Rust mutation path plans (#123).
+const SUITE: &str = crate::rust_suite::RUN;
 
 /// A scratch root holding one empty project directory.
 fn scratch_project() -> (scratch::Root, PathBuf) {
@@ -215,13 +218,14 @@ fn a_javascript_command_keeps_the_dependency_tree() {
 }
 
 /// The command, not the path, decides whether a dependency tree is hidden:
-/// this repository's own mutation command is `cargo test`, so its
+/// this repository's own mutation command is Cargo's test suite, so its
 /// `node_modules` never reaches a copy.
 #[test]
 fn only_a_javascript_command_asks_for_a_dependency_tree() {
     for (command, javascript) in [
         ("cargo test", false),
         ("cargo test --no-run", false),
+        (SUITE, false),
         ("pytest -q", false),
         ("go test ./...", false),
         ("npm test", true),
@@ -229,6 +233,25 @@ fn only_a_javascript_command_asks_for_a_dependency_tree() {
         ("node --test out/book.js", true),
     ] {
         assert_eq!(runs_javascript(command), javascript, "{command}");
+    }
+}
+
+/// #123: the fail-fast nextest suite is Cargo's suite too, so the incremental
+/// compilation reuse (#112) that `cargo test` had keeps working, and no other
+/// command inherits it.
+#[test]
+fn the_fail_fast_nextest_suite_is_a_cargo_test_command() {
+    let suite = crate::rust_suite::command();
+    for command in ["cargo test", "cargo test --no-run", suite.as_str(), SUITE] {
+        assert!(is_cargo_test_command(command), "{command}");
+    }
+    for command in [
+        "cargo nextest",
+        "cargo nextest list",
+        "cargo llvm-cov --lcov",
+        "npm test",
+    ] {
+        assert!(!is_cargo_test_command(command), "{command}");
     }
 }
 

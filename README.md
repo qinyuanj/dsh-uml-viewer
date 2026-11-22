@@ -164,7 +164,9 @@ clean. `uml-viewer quality dry` writes the snapshot the panel reads.
 ## Run
 
 Needs the Rust toolchain pinned by `rust-toolchain.toml` (1.99.1 with
-`rustfmt` and `clippy`), `git`, and for the plugin Node 24 and pnpm.
+`rustfmt` and `clippy`), `git`, and for the plugin Node 24 and pnpm. Rust
+mutation — and the mutator's own Rust tests — also need stable
+`cargo-nextest` (#123): `cargo install cargo-nextest --locked`.
 Development checks require Python 3.11+; the binary
 itself has no Python, Herdr, Java, Clojure, Lua, LOVE or PowerShell dependency.
 
