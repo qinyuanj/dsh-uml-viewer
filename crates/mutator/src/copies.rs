@@ -477,12 +477,11 @@ impl Exclusions {
     }
 }
 
-/// Whether `command` is Cargo's test command (`cargo test ...`): the one the
-/// Rust mutation path runs, and the only command incremental compilation is
-/// allowed to accelerate.
+/// Whether `command` is Cargo's test suite (`cargo test …`, or the fail-fast
+/// nextest suite of #123): the one the Rust mutation path runs, and the only
+/// command incremental compilation is allowed to accelerate.
 fn is_cargo_test_command(command: &str) -> bool {
-    let mut words = command.split_whitespace();
-    matches!(words.next(), Some("cargo")) && matches!(words.next(), Some("test"))
+    crate::rust_suite::is_suite(command)
 }
 
 /// Whether `command` runs the project's JavaScript toolchain, which reads its

@@ -188,6 +188,13 @@ jobs:
         run: rustup component add llvm-tools
       - name: cargo-llvm-cov for the coverage goldens
         run: cargo install cargo-llvm-cov --locked
+      # #123: the Rust mutation suite is a fail-fast `cargo nextest` run, and the
+      # mutator's own Rust cases run it. A missing nextest fails the baseline
+      # loudly, so this step is a requirement of the lane, not a speed-up.
+      - name: cargo-nextest for the fail-fast Rust suite
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - uses: Swatinem/rust-cache@v2
       # The mutator's own Python coverage test needs coverage.py, and
       # MUTATOR_REQUIRE_TOOLCHAINS makes a missing toolchain a failure here, so
@@ -274,6 +281,12 @@ jobs:
       - name: Rust toolchain pinned by rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+      # #123: scripts/check.py runs the workspace tests, and the mutator's own
+      # Rust cases mutate real fixtures with the fail-fast nextest suite.
+      - name: cargo-nextest for the fail-fast Rust suite
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

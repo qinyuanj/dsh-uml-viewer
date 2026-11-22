@@ -229,6 +229,69 @@ command runs with, so the wrapper panics before compiling anything
 (`Unable to retrieve dist cache directory`); fixing it would mean weakening the
 redirected home, which is the isolation.
 
+## The Rust suite: nextest's first-failure stop (#123)
+
+A Rust mutant is decided by Cargo's suite in its package's own directory. That
+suite is
+
+```sh
+cargo nextest run --max-fail 1:immediate --retries 0 --ignore-default-filter \
+  --no-tests=fail && cargo test --doc
+```
+
+(`crates/mutator/src/rust_suite.rs`), and `cargo test --no-run` still compiles
+the test binaries untimed before the baseline, so #112's target directory and
+incremental-compilation reuse keep working for it.
+
+`cargo test` runs every test even after one has failed, and stable libtest has
+no fail-fast: the flag is nightly-only, and this repository does not take a
+nightly dependency. `cargo-nextest` is a separate stable binary, and its
+first-failure stop is what makes a killed mutant cheap — test execution is ~87%
+of a scene mutant's cost (#112).
+
+### `--max-fail 1:immediate` is that stop
+
+`--fail-fast` is `--max-fail 1` in nextest's default `wait` mode: it stops
+*scheduling* new tests and waits for the ones already running. One test here,
+`scene::integration scaling::levels_scenes_compile_near_linearly_across_four_sizes`,
+runs for 68.9 s of the suite's 69.0 s, so a test that fails while it runs cannot
+end a `wait` run early: measured 69.8 s, against 71.4 s for `cargo test`.
+`:immediate` is the same first-failure stop with the running tests terminated,
+which is the fail-fast this ticket needs: measured 2.69 s, with 14 running tests
+cancelled. nextest refuses both flags together, so the suite names only the mode
+it uses.
+
+### The red line: a killed mutant stays killed
+
+| what could go wrong | how the suite answers |
+| --- | --- |
+| nextest does not run doctests, and `cargo test` did | `&& cargo test --doc` after the stop |
+| a project `default-filter` narrows the selection | `--ignore-default-filter` |
+| a failure that passes on retry | `--retries 0` |
+| an empty selection reading as "every mutant survived" | `--no-tests=fail` |
+| a surviving mutant running less than the whole suite | nothing is skipped: no failure means every test runs |
+
+A project's own `slow-timeout` policy is left alone: it can only make a failure
+louder, never turn one into a pass. `--no-tests=fail` is a deliberate difference
+from `cargo test`: a package whose selection is empty now fails the baseline
+instead of reporting every mutant as surviving.
+
+### Measured on this host
+
+`crates/scene`, 193 tests, `--max-workers 3`, a warm target directory:
+
+| case | `cargo test` | nextest |
+| --- | --- | --- |
+| suite passing (a surviving mutant) | 69.6 s, 70.8 s | 69.4 s, 71.1 s |
+| suite failing (a killed mutant) | 71.4 s | 2.69 s |
+| worker time per killed mutant (`-j 3`) | 214 s | 8.1 s |
+| doctest pass, warm | 0.33 s | part of the suite |
+
+A survived mutant does not get faster — it still runs the whole suite — so the
+saving is proportional to the killed share of the selected sites: the issue's
+347-mutant `layout.rs` estimate becomes
+`(killed × 2.7 s + survived × 70.4 s) / 3` wall instead of `mutants × 70.8 s / 3`.
+
 ## Paths outside the project root (`--copy`)
 
 A copy holds the project root and nothing beside it, so a relative path that
