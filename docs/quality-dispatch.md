@@ -178,23 +178,33 @@ that command does; the dispatcher reports its real exit.
 
 ## Maintainer refresh acceptance in CI
 
-The native `windows-mutate` job runs the repository-root sequence
-`quality crap`, `quality mutate crates/platform/src/lib.rs`, then
-`ir examples/uml-viewer.policy.edn <temporary output>`, using the job's own
-binary. It builds debug against its existing integration-test artifacts to avoid
-a second release compilation; the `linux` job that used to reuse
-`scripts/check.py`'s release binary was deleted with the host. The 53-line, dependency-free platform crate has small platform
-decision tests and no committed mutation history, bounding the differential run
-without `--mutate-all`, coverage bypasses or a custom test command.
+The native `windows-mutate` job runs the repository-root sequence `quality
+crap`, one diff-limited `quality mutate --lines <changed lines>` over both real
+targets (`crates/ir/src/lib.rs` and `crates/scene/src/dry.rs`), then `ir
+examples/uml-viewer.policy.edn <temporary output>`, using the job's own binary.
+It builds debug against its existing integration-test artifacts to avoid a
+second release compilation. The job passes the PR base SHA (or the previous
+commit on a push) as `UML_REFRESH_BASE_SHA`; a missing or malformed base, more
+than one merge base, or malformed diff output fails closed rather than starting
+an unfiltered lane.
 
-`scripts/ci-refresh.py` runs one native command per step, checks the single
-version-1 stdout record against the actual exit (including valid CRAP 2 and
-mutation 3), and requires both valid records before IR. Reports stay on stderr.
-The disposable checkout may acquire `.metrics/`; records and nonempty IR go
-under `RUNNER_TEMP`, and neither lane uploads them. Steps are bounded to 21/6/1
-minutes within `windows-mutate`'s 45-minute job limit (`windows-quality`'s is 90).
-Adding this gate is not evidence that the refresh passed: criterion 6 needs a
-successful CI execution on the one host.
+`scripts/ci-refresh.py` parses zero-context unified hunks into new-side lines
+for the two targets and passes their union as one positive `--lines` filter in
+one mutation command. Off-line sites are explicitly excluded by the mutator's
+line filter. With no changed target lines it uses a beyond-EOF sentinel,
+removes the two snapshots so `publish()` writes an explicit zero-site result,
+and accepts only empty or `uncovered` outcomes in the fresh snapshots. This
+reduces mutation sites, not tests: `--test-command` is never set, and the
+maintainer refresh below remains full over the changed source files.
+
+The script still runs one native command per step, checks the single version-1
+stdout record against the actual exit (including valid CRAP 2 and mutation 3),
+and requires both valid records before IR. Reports stay on stderr. The
+disposable checkout may acquire `.metrics/`; records and nonempty IR go under
+`RUNNER_TEMP`, and neither lane uploads them. Steps are bounded to 21/6/1
+minutes within `windows-mutate`'s 30-minute job limit (`windows-quality`'s is
+90). Adding this gate is not evidence that the refresh passed: criterion 6 needs
+a successful CI execution on the one host.
 
 ## Samples
 
