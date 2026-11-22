@@ -229,6 +229,15 @@ class WorkflowContract(unittest.TestCase):
         self.assertIn('^[0-9a-f]{40}$', job)
         self.assertIn('git fetch --no-tags origin "$UML_REFRESH_BASE_SHA"', job)
 
+    def test_windows_mutate_checkout_has_full_history(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    '.github/workflows/ci.yml').read_text(encoding='utf-8')
+        job = workflow.split('  windows-mutate:', 1)[1].split('\n  windows-quality:', 1)[0]
+        checkout = job.index('- uses: actions/checkout@v4')
+        fetch = job.index('name: Fetch refresh base SHA')
+        self.assertLess(checkout, fetch)
+        self.assertIn('fetch-depth: 0', job[checkout:fetch])
+
     def test_windows_mutate_keeps_at_least_a_forty_five_minute_budget(self):
         workflow = (Path(__file__).resolve().parents[1] /
                     '.github/workflows/ci.yml').read_text(encoding='utf-8')

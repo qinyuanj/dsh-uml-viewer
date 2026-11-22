@@ -161,6 +161,9 @@ jobs:
       UML_REFRESH_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # merge-base needs the history around the base, not one fetched commit.
+          fetch-depth: 0
       # PR base SHAs are not necessarily present in the PR checkout. Fetch the
       # canonical base before the refresh computes its merge-base diff; an
       # invalid or missing SHA still fails closed in ci-refresh.py.
