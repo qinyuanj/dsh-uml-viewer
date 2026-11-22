@@ -104,11 +104,39 @@ fn changed_inputs_are_repeatable_and_confirmation_controls_the_scope() {
 }
 
 #[test]
-fn a_confirmed_copy_is_part_of_the_narrowed_scope() {
-    let options = parse(&["--copy", "../contracts", "--confirm-changed-inputs"]).unwrap();
+fn a_confirmed_changed_scope_includes_copies() {
+    let options = parse(&[
+        "--changed-input",
+        "src/a.rs",
+        "--copy",
+        "../contracts",
+        "--confirm-changed-inputs",
+    ])
+    .unwrap();
     let canonical = options.test_input_scope().canonical();
     assert!(
         canonical.contains(&format!("F {}:../contracts", "../contracts".len())),
         "{canonical}"
+    );
+}
+
+#[test]
+fn copies_alone_keep_the_global_scope() {
+    use crate::metrics::TestInputScope;
+
+    let options = parse(&["--copy", "../contracts"]).unwrap();
+    assert_eq!(options.test_input_scope(), TestInputScope::Global);
+
+    let confirmed_without_inputs =
+        parse(&["--copy", "../contracts", "--confirm-changed-inputs"]).unwrap();
+    assert!(matches!(
+        confirmed_without_inputs.test_input_scope(),
+        TestInputScope::Changed(_)
+    ));
+    assert!(
+        !confirmed_without_inputs
+            .test_input_scope()
+            .canonical()
+            .contains("../contracts")
     );
 }

@@ -325,6 +325,199 @@ pub fn digests(forms: &[Form]) -> BTreeMap<(String, String), String> {
         .collect()
 }
 
+#[derive(Clone, Copy)]
+enum InputWalk {
+    Global,
+    Changed,
+}
+
+#[derive(Default)]
+struct InputFiles(BTreeMap<String, Vec<u8>>);
+impl InputFiles {
+    fn insert(&mut self, key: String, bytes: Vec<u8>) {
+        self.0.insert(key, bytes);
+    }
+}
+
+/// One traversal for both scopes: global keys are project-relative, declared
+/// keys are prefixed by the input spelling so external `../` paths stay.
+fn walk_inputs(
+    root: &Path,
+    directory: &Path,
+    prefix: &str,
+    mode: InputWalk,
+    found: &mut InputFiles,
+) -> io::Result<()> {
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(directory)? {
+        entries.push(entry?);
+    }
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let key = match mode {
+            InputWalk::Global => match relative_posix(&path, root) {
+                Some(key) => key,
+                None => continue,
+            },
+            InputWalk::Changed => format!("{prefix}/{name}"),
+        };
+        let kind = entry.file_type()?;
+        if kind.is_symlink() {
+            continue;
+        }
+        if kind.is_dir() {
+            if !SKIP_DIRS.contains(&name.as_ref()) && name != ".agents" {
+                walk_inputs(root, &path, &key, mode, found)?;
+            }
+            continue;
+        }
+        if !kind.is_file() {
+            continue;
+        }
+        if matches!(mode, InputWalk::Global)
+            && (name == ".coverage" || name.starts_with(".coverage."))
+        {
+            continue;
+        }
+        let stored = match mode {
+            InputWalk::Global => key,
+            InputWalk::Changed => format!("F:{key}"),
+        };
+        found.insert(stored, fs::read(&path)?);
+    }
+    Ok(())
+}
+
+fn global_inputs(root: &Path) -> io::Result<InputFiles> {
+    let mut files = InputFiles::default();
+    walk_inputs(root, root, "", InputWalk::Global, &mut files)?;
+    Ok(files)
+}
+
+fn declared_path(root: &Path, input: &ChangedInput) -> PathBuf {
+    let path = Path::new(&input.path);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    }
+}
+
+fn project_key(root: &Path, path: &Path) -> io::Result<String> {
+    let key = relative_posix(path, root).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "deleted input is outside project root",
+        )
+    })?;
+    if key == ".." || key.starts_with("../") {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "deleted input is outside project root",
+        ));
+    }
+    Ok(key)
+}
+
+fn git_blob(root: &Path, key: &str) -> io::Result<Vec<u8>> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["show", &format!("HEAD:{key}")])
+        .output()?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("git cannot read deleted input {key}: {detail}"),
+        ));
+    }
+    Ok(output.stdout)
+}
+
+fn changed_inputs(root: &Path, changed: &ChangedInputs) -> io::Result<InputFiles> {
+    if !changed.confirmed {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "changed inputs are not confirmed",
+        ));
+    }
+    if changed.inputs.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "no changed inputs were declared",
+        ));
+    }
+    let mut files = InputFiles::default();
+    for input in &changed.inputs {
+        let path = declared_path(root, input);
+        if input.deleted {
+            if !resolve(&path).starts_with(root) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "deleted input is outside project root",
+                ));
+            }
+            let key = project_key(root, &path)?;
+            files.insert(format!("D:{key}"), git_blob(root, &key)?);
+            continue;
+        }
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("changed input is a symlink: {}", input.path),
+            ));
+        }
+        let key = relative_posix(&path, root)
+            .unwrap_or_else(|| path.to_string_lossy().replace('\\', "/"));
+        if metadata.is_dir() {
+            walk_inputs(root, &path, &key, InputWalk::Changed, &mut files)?;
+        } else if metadata.is_file() {
+            files.insert(format!("F:{key}"), fs::read(&path)?);
+        } else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "changed input is not a regular file or directory: {}",
+                    input.path
+                ),
+            ));
+        }
+    }
+    Ok(files)
+}
+
+fn normalized_command(raw_root: &Path, resolved_root: &Path, command: &str) -> String {
+    let raw = raw_root.to_string_lossy().into_owned();
+    let resolved = resolved_root.to_string_lossy().into_owned();
+    // A caller may spell the root in its short (8.3) or long form, and the
+    // command may use either separator. Normalize every spelling we know so
+    // the digest describes the inputs, not where the project happens to sit.
+    [raw, resolved]
+        .into_iter()
+        .flat_map(|spelling| [spelling.clone(), spelling.replace('\\', "/")])
+        .fold(command.to_string(), |text, spelling| {
+            text.replace(&spelling, "<root>")
+        })
+}
+
+fn hash_inputs(scope: &TestInputScope, command: &str, files: InputFiles) -> String {
+    let canonical = scope.canonical();
+    let mut hash = Sha256::new();
+    hash.update(format!("mutator-test-input-{}\n", scope.tag()).as_bytes());
+    hash.update(format!("scope {}\0{}\0", canonical.len(), canonical).as_bytes());
+    hash.update(format!("command {}\0{}\0", command.len(), command).as_bytes());
+    for (path, bytes) in files.0 {
+        hash.update(format!("file {}\0{}\0{}\0", path.len(), path, bytes.len()).as_bytes());
+        hash.update(bytes);
+    }
+    format!("{:x}", hash.finalize())
+}
+
 /// SHA-256 of the whole-tree test inputs. This is the default; callers that
 /// narrow the input set use [`test_input_digest_with`].
 pub fn test_input_digest(root: &Path, command: &str) -> io::Result<String> {
@@ -343,190 +536,14 @@ pub fn test_input_digest_with(
     command: &str,
     scope: &TestInputScope,
 ) -> io::Result<String> {
-    fn walk(
-        root: &Path,
-        directory: &Path,
-        found: &mut BTreeMap<String, Vec<u8>>,
-    ) -> io::Result<()> {
-        let mut entries = Vec::new();
-        for entry in fs::read_dir(directory)? {
-            let entry = entry?;
-            entries.push(entry);
-        }
-        entries.sort_by_key(|entry| entry.file_name());
-        for entry in entries {
-            let path = entry.path();
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            let kind = entry.file_type()?;
-            if kind.is_symlink() {
-                continue;
-            }
-            if kind.is_dir() {
-                if !SKIP_DIRS.contains(&name.as_ref()) && name != ".agents" {
-                    walk(root, &path, found)?;
-                }
-                continue;
-            }
-            if !kind.is_file() || name == ".coverage" || name.starts_with(".coverage.") {
-                continue;
-            }
-            let Some(key) = relative_posix(&path, root) else {
-                continue;
-            };
-            found.insert(key, fs::read(&path)?);
-        }
-        Ok(())
-    }
-
-    fn walk_declared(
-        directory: &Path,
-        prefix: &str,
-        found: &mut BTreeMap<String, Vec<u8>>,
-    ) -> io::Result<()> {
-        let mut entries = Vec::new();
-        for entry in fs::read_dir(directory)? {
-            let entry = entry?;
-            entries.push(entry);
-        }
-        entries.sort_by_key(|entry| entry.file_name());
-        for entry in entries {
-            let path = entry.path();
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            let key = format!("{prefix}/{name}");
-            let kind = entry.file_type()?;
-            if kind.is_symlink() {
-                continue;
-            }
-            if kind.is_dir() {
-                if !SKIP_DIRS.contains(&name.as_ref()) && name != ".agents" {
-                    walk_declared(&path, &key, found)?;
-                }
-            } else if kind.is_file() {
-                found.insert(format!("F:{key}"), fs::read(&path)?);
-            }
-        }
-        Ok(())
-    }
-
-    fn declared_path(root: &Path, input: &ChangedInput) -> PathBuf {
-        let path = Path::new(&input.path);
-        if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            root.join(path)
-        }
-    }
-
-    fn project_key(root: &Path, path: &Path) -> io::Result<String> {
-        let key = relative_posix(path, root).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "deleted input is outside project root",
-            )
-        })?;
-        if key == ".." || key.starts_with("../") {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "deleted input is outside project root",
-            ));
-        }
-        Ok(key)
-    }
-
-    fn git_blob(root: &Path, key: &str) -> io::Result<Vec<u8>> {
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(root)
-            .args(["show", &format!("HEAD:{key}")])
-            .output()?;
-        if !output.status.success() {
-            let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("git cannot read deleted input {key}: {detail}"),
-            ));
-        }
-        Ok(output.stdout)
-    }
-
-    let raw_root = root.to_string_lossy().into_owned();
+    let raw_root = root.to_path_buf();
     let root = resolve(root);
-    let resolved_root = root.to_string_lossy().into_owned();
-    // A caller may spell the root in its short (8.3) or long form, and the
-    // command may use either separator. Normalize every spelling we know so
-    // the digest describes the inputs, not where the project happens to sit.
-    let normalized = [raw_root, resolved_root]
-        .into_iter()
-        .flat_map(|spelling| [spelling.clone(), spelling.replace('\\', "/")])
-        .fold(command.to_string(), |text, spelling| {
-            text.replace(&spelling, "<root>")
-        });
-    let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
-    match scope {
-        TestInputScope::Global => walk(&root, &root, &mut files)?,
-        TestInputScope::Changed(changed) => {
-            if !changed.confirmed {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "changed inputs are not confirmed",
-                ));
-            }
-            if changed.inputs.is_empty() {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "no changed inputs were declared",
-                ));
-            }
-            for input in &changed.inputs {
-                let path = declared_path(&root, input);
-                if input.deleted {
-                    if !resolve(&path).starts_with(&root) {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "deleted input is outside project root",
-                        ));
-                    }
-                    let key = project_key(&root, &path)?;
-                    files.insert(format!("D:{key}"), git_blob(&root, &key)?);
-                    continue;
-                }
-                let metadata = fs::symlink_metadata(&path)?;
-                if metadata.file_type().is_symlink() {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        format!("changed input is a symlink: {}", input.path),
-                    ));
-                }
-                let key = relative_posix(&path, &root)
-                    .unwrap_or_else(|| path.to_string_lossy().replace('\\', "/"));
-                if metadata.is_dir() {
-                    walk_declared(&path, &key, &mut files)?;
-                } else if metadata.is_file() {
-                    files.insert(format!("F:{key}"), fs::read(&path)?);
-                } else {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        format!(
-                            "changed input is not a regular file or directory: {}",
-                            input.path
-                        ),
-                    ));
-                }
-            }
-        }
-    }
-    let canonical = scope.canonical();
-    let mut hash = Sha256::new();
-    hash.update(format!("mutator-test-input-{}\n", scope.tag()).as_bytes());
-    hash.update(format!("scope {}\0{}\0", canonical.len(), canonical).as_bytes());
-    hash.update(format!("command {}\0{}\0", normalized.len(), normalized).as_bytes());
-    for (path, bytes) in files {
-        hash.update(format!("file {}\0{}\0{}\0", path.len(), path, bytes.len()).as_bytes());
-        hash.update(bytes);
-    }
-    Ok(format!("{:x}", hash.finalize()))
+    let command = normalized_command(&raw_root, &root, command);
+    let files = match scope {
+        TestInputScope::Global => global_inputs(&root)?,
+        TestInputScope::Changed(changed) => changed_inputs(&root, changed)?,
+    };
+    Ok(hash_inputs(scope, &command, files))
 }
 
 /// Whether the history records exactly the current form set and its digests.
@@ -543,6 +560,21 @@ pub fn unchanged(forms: &[Form], history: &History) -> bool {
         })
 }
 
+/// Only a known scope and a known digest can authorize survived reuse.
+/// Two failures are never equal: `None == None` must not become a match.
+fn survived_reuse(
+    history: &History,
+    scope: Option<&TestInputScope>,
+    test_input: Option<&str>,
+) -> bool {
+    let (Some(scope), Some(test_input)) = (scope, test_input) else {
+        return false;
+    };
+    let canonical = scope.canonical();
+    history.test_input_scope.as_deref() == Some(canonical.as_str())
+        && history.test_input.as_deref() == Some(test_input)
+}
+
 pub fn decide(
     sites: &[Site],
     covered: &BTreeMap<String, bool>,
@@ -551,9 +583,9 @@ pub fn decide(
     mutate_all: bool,
     lines: Option<&BTreeSet<usize>>,
     test_input: Option<&str>,
-    scope: &TestInputScope,
+    scope: Option<&TestInputScope>,
 ) -> BTreeMap<String, Decision> {
-    let scope = scope.canonical();
+    let reusable = survived_reuse(history, scope, test_input);
     let digests: BTreeMap<_, _> = forms
         .iter()
         .map(|form| ((form.namespace.clone(), form.id.clone()), &form.digest))
@@ -579,10 +611,7 @@ pub fn decide(
                 ("executed", "digest-changed")
             } else if previous == "killed" {
                 ("reused", "unchanged-killed")
-            } else if previous == "survived"
-                && history.test_input_scope.as_deref() == Some(scope.as_str())
-                && history.test_input.as_deref() == test_input
-            {
+            } else if previous == "survived" && reusable {
                 ("reused", "unchanged-survived")
             } else if previous == "survived" {
                 ("executed", "test-input-changed")
@@ -606,9 +635,8 @@ pub fn carry_forward(
     history: &History,
     forms: &[Form],
     test_input: Option<&str>,
-    scope: &TestInputScope,
+    scope: Option<&TestInputScope>,
 ) -> BTreeMap<String, String> {
-    let scope = scope.canonical();
     let digests: BTreeMap<_, _> = forms
         .iter()
         .map(|form| ((form.namespace.clone(), form.id.clone()), &form.digest))
@@ -625,10 +653,7 @@ pub fn carry_forward(
                 return None;
             }
             let outcome = history.outcomes.get(&site.mutation_id)?;
-            if outcome == "survived"
-                && (history.test_input_scope.as_deref() != Some(scope.as_str())
-                    || history.test_input.as_deref() != test_input)
-            {
+            if outcome == "survived" && !survived_reuse(history, scope, test_input) {
                 return None;
             }
             Some((site.mutation_id.clone(), outcome.clone()))
@@ -753,10 +778,8 @@ pub fn render_snapshot(
         ("source", s(source)),
         ("namespace", s(namespace)),
     ];
-    if let Some(test_input) = test_input {
+    if let (Some(test_input), Some(test_input_scope)) = (test_input, test_input_scope) {
         fields.push(("test-input", s(test_input)));
-    }
-    if let Some(test_input_scope) = test_input_scope {
         fields.push(("test-input-scope", s(test_input_scope)));
     }
     fields.push(("outcomes", outcomes));
@@ -1403,7 +1426,7 @@ mod tests {
             false,
             None,
             Some("input-1"),
-            &global,
+            Some(&global),
         );
         assert_eq!(
             decisions[&sites[0].mutation_id],
@@ -1414,7 +1437,14 @@ mod tests {
             }
         );
         assert_eq!(
-            carry_forward(&sites, &covered, &same, &forms, Some("input-1"), &global),
+            carry_forward(
+                &sites,
+                &covered,
+                &same,
+                &forms,
+                Some("input-1"),
+                Some(&global),
+            ),
             BTreeMap::from([(sites[0].mutation_id.clone(), "survived".to_string())])
         );
 
@@ -1427,7 +1457,7 @@ mod tests {
             false,
             None,
             Some("input-1"),
-            &changed,
+            Some(&changed),
         );
         assert_eq!(decisions[&sites[0].mutation_id].action, "executed");
         assert_eq!(
@@ -1435,7 +1465,15 @@ mod tests {
             "test-input-changed"
         );
         assert!(
-            carry_forward(&sites, &covered, &same, &forms, Some("input-1"), &changed).is_empty()
+            carry_forward(
+                &sites,
+                &covered,
+                &same,
+                &forms,
+                Some("input-1"),
+                Some(&changed),
+            )
+            .is_empty()
         );
 
         let unscoped = history(Some("input-1"), None);
@@ -1447,7 +1485,7 @@ mod tests {
             false,
             None,
             Some("input-1"),
-            &global,
+            Some(&global),
         );
         assert_eq!(decisions[&sites[0].mutation_id].action, "executed");
         assert_eq!(
@@ -1469,7 +1507,7 @@ mod tests {
             false,
             None,
             Some("input-1"),
-            &TestInputScope::global(),
+            Some(&TestInputScope::global()),
         );
         assert_eq!(decisions[&sites[0].mutation_id].action, "executed");
         assert_eq!(
@@ -1493,7 +1531,7 @@ mod tests {
             false,
             None,
             None,
-            &TestInputScope::global(),
+            Some(&TestInputScope::global()),
         );
         assert_eq!(decisions[&sites[0].mutation_id].action, "reused");
         assert_eq!(decisions[&sites[0].mutation_id].reason, "unchanged-killed");
@@ -1504,7 +1542,7 @@ mod tests {
                 &past,
                 &forms,
                 None,
-                &TestInputScope::global()
+                Some(&TestInputScope::global())
             ),
             BTreeMap::from([(sites[0].mutation_id.clone(), "killed".to_string())])
         );
@@ -1536,23 +1574,59 @@ mod tests {
     #[test]
     fn a_failed_digest_publishes_no_reusable_scope() {
         let scratch = Scratch::new();
-        let outcomes = BTreeMap::from([(site().mutation_id.clone(), "survived".to_string())]);
+        let sites = [site()];
+        let forms = [form()];
+        let covered = BTreeMap::from([(sites[0].mutation_id.clone(), true)]);
+        let outcomes = BTreeMap::from([(sites[0].mutation_id.clone(), "survived".to_string())]);
+
+        // A successful publish first puts a survived verdict on disk.
         write_results(
             &scratch.root(),
             "src/a.rs",
-            &[form()],
+            &forms,
+            &outcomes,
+            Some("digest-42"),
+            Some("global-v1"),
+            "2026-11-07T12:00:00+00:00",
+            "namespace-view",
+        )
+        .unwrap();
+        // A failed enumeration must not persist a scope beside the missing
+        // digest, even if an older caller passes one through.
+        write_results(
+            &scratch.root(),
+            "src/a.rs",
+            &forms,
             &outcomes,
             None,
-            None,
-            "2026-11-07T12:00:00+00:00",
+            Some("global-v1"),
+            "2026-11-08T12:00:00+00:00",
             "namespace-view",
         )
         .unwrap();
         let text = fs::read_to_string(scratch.root().join(".metrics/mutate/n.edn")).unwrap();
         assert!(!text.contains(":test-input "), "{text}");
         assert!(!text.contains(":test-input-scope "), "{text}");
+
         let loaded = load_history(&scratch.root(), "src/a.rs");
         assert_eq!(loaded.test_input, None);
         assert_eq!(loaded.test_input_scope, None);
+        let global = TestInputScope::global();
+        let decisions = decide(
+            &sites,
+            &covered,
+            &loaded,
+            &forms,
+            false,
+            None,
+            None,
+            Some(&global),
+        );
+        assert_eq!(decisions[&sites[0].mutation_id].action, "executed");
+        assert_eq!(
+            decisions[&sites[0].mutation_id].reason,
+            "test-input-changed"
+        );
+        assert!(carry_forward(&sites, &covered, &loaded, &forms, None, Some(&global),).is_empty());
     }
 }

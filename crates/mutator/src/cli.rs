@@ -34,12 +34,15 @@ impl Options {
     pub fn value(&self, name: &str) -> Option<&str> {
         self.values.get(name).map(String::as_str)
     }
-    /// The digest scope selected by this call. An explicit input list, or any
-    /// declared copy path, opts into the changed scope; without confirmation
-    /// its digest is unavailable and survived reuse fails closed.
+    /// The digest scope selected by this call. Only explicit changed or
+    /// deleted inputs opt in, and only with confirmation. Copies join a
+    /// confirmed changed scope; copies alone keep the global default. An
+    /// unconfirmed list or a confirmation without explicit inputs leaves the
+    /// digest unavailable, so survived reuse fails closed.
     pub fn test_input_scope(&self) -> TestInputScope {
         let explicit = !self.changed_inputs.is_empty() || !self.deleted_inputs.is_empty();
-        if !self.flag("--confirm-changed-inputs") && !explicit && self.copies.is_empty() {
+        let confirmed = self.flag("--confirm-changed-inputs");
+        if !explicit && !confirmed {
             return TestInputScope::Global;
         }
         let mut inputs = BTreeSet::new();
@@ -49,13 +52,12 @@ impl Options {
         for path in &self.deleted_inputs {
             inputs.insert(ChangedInput::deleted(path.clone()));
         }
-        for path in &self.copies {
-            inputs.insert(ChangedInput::changed(path.clone()));
+        if confirmed && explicit {
+            for path in &self.copies {
+                inputs.insert(ChangedInput::changed(path.clone()));
+            }
         }
-        TestInputScope::Changed(ChangedInputs {
-            inputs,
-            confirmed: self.flag("--confirm-changed-inputs"),
-        })
+        TestInputScope::Changed(ChangedInputs { inputs, confirmed })
     }
 }
 

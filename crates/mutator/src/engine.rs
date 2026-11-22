@@ -126,8 +126,8 @@ pub struct Prepared {
     /// Hash of the test command and the scoped inputs that can affect it.
     /// None when the declared inputs could not be enumerated.
     pub test_input: Option<String>,
-    /// The scope that digest was computed for.
-    pub test_input_scope: TestInputScope,
+    /// The scope that digest was computed for; absent when hashing failed.
+    pub test_input_scope: Option<TestInputScope>,
     /// The module's Lua spec index, when this file has one.
     pub index: Option<Index>,
 }
@@ -1178,7 +1178,7 @@ fn decide(item: &mut Prepared, lines: Option<&BTreeSet<usize>>, root: &Path, opt
         options.flag("--mutate-all"),
         options.lines.as_ref(),
         item.test_input.as_deref(),
-        &item.test_input_scope,
+        item.test_input_scope.as_ref(),
     );
     item.outcomes = metrics::carry_forward(
         &item.sites,
@@ -1186,7 +1186,7 @@ fn decide(item: &mut Prepared, lines: Option<&BTreeSet<usize>>, root: &Path, opt
         &history,
         &item.forms,
         item.test_input.as_deref(),
-        &item.test_input_scope,
+        item.test_input_scope.as_ref(),
     );
 }
 
@@ -1219,15 +1219,15 @@ pub fn prepare(
             &format!("{} @ {}", command.display(), directory.display()),
             &scope,
         ) {
-            Ok(digest) => (Some(digest), scope.clone()),
+            Ok(digest) => (Some(digest), Some(scope.clone())),
             Err(error) => {
-                // Fail closed: without a digest no survived outcome may be
-                // reused, while killed outcomes keep their form-only reuse.
+                // Fail closed: without both a digest and a scope no survived
+                // outcome may be reused; killed outcomes keep form-only reuse.
                 eprintln!(
                     "Cannot hash test inputs for {} (survived reuse disabled): {error}",
                     file.display()
                 );
-                (None, scope.clone())
+                (None, None)
             }
         };
         let covered = sites
@@ -1242,7 +1242,7 @@ pub fn prepare(
             options.flag("--mutate-all"),
             options.lines.as_ref(),
             test_input.as_deref(),
-            &scope,
+            test_input_scope.as_ref(),
         );
         prepared.push(Prepared {
             file: file.clone(),
@@ -1549,10 +1549,10 @@ fn publish(
         options.lines.as_ref(),
     );
     let survived = item.forms.iter().any(|form| form.survived > 0);
-    let scope_tag = item
-        .test_input
-        .as_ref()
-        .map(|_| item.test_input_scope.canonical());
+    let scope_tag = match (&item.test_input, &item.test_input_scope) {
+        (Some(_), Some(scope)) => Some(scope.canonical()),
+        _ => None,
+    };
     if let Err(error) = metrics::write_results(
         root,
         &item.key,

@@ -57,12 +57,13 @@ Options:
                                 Its last committed bytes come from git and
                                 are hashed into the digest. May be repeated.
   --confirm-changed-inputs      Opt into the narrowed test-input digest built
-                                from --changed-input, --deleted-input and
-                                --copy. Without it the whole-tree digest
-                                stays the default. A confirmation with no
-                                declared input, an unconfirmed list, or an
-                                input that cannot be enumerated disables
-                                survived reuse instead of reusing a verdict.
+                                from --changed-input and --deleted-input. A
+                                confirmed input set also includes every --copy
+                                path. Without this flag, or without at least
+                                one changed/deleted input, the whole-tree
+                                digest stays the default. An unconfirmed list
+                                or an empty confirmation disables survived
+                                reuse instead of reusing a verdict.
   --scan                        List mutation sites. Do not run tests or
                                 write metrics.
   --mutate-all                  Run every covered site, including ones the
