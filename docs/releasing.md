@@ -1,14 +1,15 @@
 # Release packaging and publishing
 
-Status (2026-11-16): `v1.1.0` is **published**. [Run 43828881235](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/43828881235)
-assembled all four platforms, verified the inventory and published all five
-archives with SLSA provenance from GitHub Actions. The first attempt failed with
-`ENEEDAUTH` because no package had a trusted publisher yet; after the five were
-configured, the failed `publish` job was rerun and succeeded without a rebuild.
+Status (2026-11-22): `v1.2.0` is **published**. [Run 45017205734](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45017205734)
+assembled the native Windows x64 platform archive and the main archive, verified
+the inventory and published both with SLSA provenance. This is the first
+tag-driven release after the one-host decision (ADR 0002, #5, #12).
 
-That run predates the one-host decision (ADR 0002, #5, #12). The pipeline
-described below now ships **one** platform package, so a comparable run
-assembles and publishes two archives, not five; the 1.1.0 record is history.
+The previous `v1.1.0` release (2026-11-16) assembled all four platforms and
+published all five archives; it predates that decision and is history. Its first
+attempt failed with `ENEEDAUTH` because no package had a trusted publisher yet;
+after the five were configured, the failed `publish` job was rerun and succeeded
+without a rebuild.
 
 Historical CI7 evidence (2026-11-09): **remote packaging and publish dry-run
 passed**. Each run below passed all four native platform builds, real
@@ -200,8 +201,8 @@ ticket ran none of them.
 git switch main
 git pull --ff-only
 node scripts/version.mjs --check    # prints the single release version
-git tag -s v1.1.0 -m "dsh-uml-viewer 1.1.0"   # substitute the printed version
-git push origin v1.1.0
+git tag -a v1.2.0 -m "dsh-uml-viewer 1.2.0"   # substitute the printed version
+git push origin v1.2.0
 ```
 
 Pushing the tag starts the only publishing path. Never create the tag on a fork,
@@ -213,7 +214,7 @@ Node only, no network, no archive mocking beyond the controlled fixtures:
 
 ```sh
 pnpm test:package                              # contract, stale payload, release guards
-node scripts/release.mjs check-tag v1.1.0      # tag/version guard
+node scripts/release.mjs check-tag v1.2.0      # tag/version guard
 ```
 
 `scripts/release.test.mjs` drives the real `stage`, `verify` and `plan` commands
