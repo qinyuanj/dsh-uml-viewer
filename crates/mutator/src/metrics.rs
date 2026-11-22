@@ -3,13 +3,13 @@ use crate::sites::{Form, Site, mutation_file, mutation_namespace};
 use quality_core::edn::Value;
 use quality_core::language::SKIP_DIRS;
 use quality_core::paths::{relative_posix, resolve};
+use quality_core::process::{self, Program};
 use quality_core::sha2::{Digest, Sha256};
 use quality_core::snapshot::{decimal, string};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 #[derive(Clone, Debug, Default)]
 pub struct PriorForm {
@@ -423,17 +423,19 @@ fn project_key(root: &Path, path: &Path) -> io::Result<String> {
 }
 
 fn git_blob(root: &Path, key: &str) -> io::Result<Vec<u8>> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["show", &format!("HEAD:{key}")])
-        .output()?;
+    let argv = [
+        "git".to_string(),
+        "-C".to_string(),
+        root.to_string_lossy().into_owned(),
+        "show".to_string(),
+        format!("HEAD:{key}"),
+    ];
+    let output = process::output(&Program::Argv(&argv), root)?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("git cannot read deleted input {key}: {detail}"),
-        ));
+        return Err(io::Error::other(format!(
+            "git cannot read deleted input {key}: {detail}"
+        )));
     }
     Ok(output.stdout)
 }
@@ -560,6 +562,15 @@ pub fn unchanged(forms: &[Form], history: &History) -> bool {
         })
 }
 
+/// The selection and reuse inputs that are constant for one decision pass.
+#[derive(Clone, Copy)]
+pub struct DecideContext<'a> {
+    pub mutate_all: bool,
+    pub lines: Option<&'a BTreeSet<usize>>,
+    pub test_input: Option<&'a str>,
+    pub scope: Option<&'a TestInputScope>,
+}
+
 /// Only a known scope and a known digest can authorize survived reuse.
 /// Two failures are never equal: `None == None` must not become a match.
 fn survived_reuse(
@@ -580,12 +591,9 @@ pub fn decide(
     covered: &BTreeMap<String, bool>,
     history: &History,
     forms: &[Form],
-    mutate_all: bool,
-    lines: Option<&BTreeSet<usize>>,
-    test_input: Option<&str>,
-    scope: Option<&TestInputScope>,
+    context: DecideContext<'_>,
 ) -> BTreeMap<String, Decision> {
-    let reusable = survived_reuse(history, scope, test_input);
+    let reusable = survived_reuse(history, context.scope, context.test_input);
     let digests: BTreeMap<_, _> = forms
         .iter()
         .map(|form| ((form.namespace.clone(), form.id.clone()), &form.digest))
@@ -601,9 +609,12 @@ pub fn decide(
             let prior = history.forms.get(&key);
             let (action, reason) = if !covered.get(&site.mutation_id).copied().unwrap_or(false) {
                 ("uncovered", "uncovered")
-            } else if lines.is_some_and(|lines| !lines.contains(&site.line)) {
+            } else if context
+                .lines
+                .is_some_and(|lines| !lines.contains(&site.line))
+            {
                 ("excluded", "line-filter")
-            } else if mutate_all {
+            } else if context.mutate_all {
                 ("executed", "explicit-all")
             } else if prior.is_none() {
                 ("executed", "no-history")
@@ -755,16 +766,28 @@ fn render(value: &Value) -> String {
         Value::Tagged(_, value) => render(value),
     }
 }
-pub fn render_snapshot(
-    namespace: &str,
-    source: &str,
-    forms: Vec<Value>,
-    outcomes: &BTreeMap<String, String>,
-    test_input: Option<&str>,
-    test_input_scope: Option<&str>,
-    tested_at: &str,
-    isolation: &str,
-) -> String {
+/// The fields of one published snapshot.
+pub struct SnapshotContent<'a> {
+    pub namespace: &'a str,
+    pub source: &'a str,
+    pub forms: Vec<Value>,
+    pub outcomes: &'a BTreeMap<String, String>,
+    pub test_input: Option<&'a str>,
+    pub test_input_scope: Option<&'a str>,
+    pub tested_at: &'a str,
+    pub isolation: &'a str,
+}
+pub fn render_snapshot(content: SnapshotContent<'_>) -> String {
+    let SnapshotContent {
+        namespace,
+        source,
+        forms,
+        outcomes,
+        test_input,
+        test_input_scope,
+        tested_at,
+        isolation,
+    } = content;
     let outcomes = Value::Map(
         outcomes
             .iter()
@@ -843,16 +866,26 @@ fn remove_empty_dirs(directory: &Path) -> io::Result<()> {
 }
 /// Replace one source's results, retaining other sources in shared namespaces.
 /// Publication is atomic per namespace; legacy artifacts are removed afterwards.
-pub fn write_results(
-    root: &Path,
-    file_key: &str,
-    forms: &[Form],
-    outcomes: &BTreeMap<String, String>,
-    test_input: Option<&str>,
-    test_input_scope: Option<&str>,
-    tested_at: &str,
-    isolation: &str,
-) -> io::Result<Vec<PathBuf>> {
+/// One publication request: what changed and the snapshot fields to write.
+pub struct PublishRequest<'a> {
+    pub file_key: &'a str,
+    pub forms: &'a [Form],
+    pub outcomes: &'a BTreeMap<String, String>,
+    pub test_input: Option<&'a str>,
+    pub test_input_scope: Option<&'a str>,
+    pub tested_at: &'a str,
+    pub isolation: &'a str,
+}
+pub fn write_results(root: &Path, request: PublishRequest<'_>) -> io::Result<Vec<PathBuf>> {
+    let PublishRequest {
+        file_key,
+        forms,
+        outcomes,
+        test_input,
+        test_input_scope,
+        tested_at,
+        isolation,
+    } = request;
     let root = resolve(root);
     // Publication and cleanup stay under the project: a symlinked snapshot
     // directory is refused instead of written through.
@@ -946,16 +979,16 @@ pub fn write_results(
         } else {
             quality_core::atomic::write_bytes(
                 &path,
-                render_snapshot(
+                render_snapshot(SnapshotContent {
                     namespace,
-                    &source,
-                    unique,
-                    &merged,
+                    source: &source,
+                    forms: unique,
+                    outcomes: &merged,
                     test_input,
                     test_input_scope,
                     tested_at,
                     isolation,
-                )
+                })
                 .as_bytes(),
             )?;
             written.push(path);
@@ -1214,12 +1247,12 @@ mod tests {
     }
 
     fn git(root: &Path, args: &[&str]) {
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(root)
-            .args(args)
-            .output()
-            .unwrap();
+        let argv: Vec<String> = std::iter::once("git".to_string())
+            .chain(args.iter().map(|arg| arg.to_string()))
+            .collect();
+        let output =
+            quality_core::process::output(&quality_core::process::Program::Argv(&argv), root)
+                .unwrap();
         assert!(
             output.status.success(),
             "git {args:?}: {}",
@@ -1423,10 +1456,12 @@ mod tests {
             &covered,
             &same,
             &forms,
-            false,
-            None,
-            Some("input-1"),
-            Some(&global),
+            DecideContext {
+                mutate_all: false,
+                lines: None,
+                test_input: Some("input-1"),
+                scope: Some(&global),
+            },
         );
         assert_eq!(
             decisions[&sites[0].mutation_id],
@@ -1454,10 +1489,12 @@ mod tests {
             &covered,
             &same,
             &forms,
-            false,
-            None,
-            Some("input-1"),
-            Some(&changed),
+            DecideContext {
+                mutate_all: false,
+                lines: None,
+                test_input: Some("input-1"),
+                scope: Some(&changed),
+            },
         );
         assert_eq!(decisions[&sites[0].mutation_id].action, "executed");
         assert_eq!(
@@ -1482,10 +1519,12 @@ mod tests {
             &covered,
             &unscoped,
             &forms,
-            false,
-            None,
-            Some("input-1"),
-            Some(&global),
+            DecideContext {
+                mutate_all: false,
+                lines: None,
+                test_input: Some("input-1"),
+                scope: Some(&global),
+            },
         );
         assert_eq!(decisions[&sites[0].mutation_id].action, "executed");
         assert_eq!(
@@ -1504,10 +1543,12 @@ mod tests {
             &covered,
             &history(None, Some("global-v1")),
             &forms,
-            false,
-            None,
-            Some("input-1"),
-            Some(&TestInputScope::global()),
+            DecideContext {
+                mutate_all: false,
+                lines: None,
+                test_input: Some("input-1"),
+                scope: Some(&TestInputScope::global()),
+            },
         );
         assert_eq!(decisions[&sites[0].mutation_id].action, "executed");
         assert_eq!(
@@ -1528,10 +1569,12 @@ mod tests {
             &covered,
             &past,
             &forms,
-            false,
-            None,
-            None,
-            Some(&TestInputScope::global()),
+            DecideContext {
+                mutate_all: false,
+                lines: None,
+                test_input: None,
+                scope: Some(&TestInputScope::global()),
+            },
         );
         assert_eq!(decisions[&sites[0].mutation_id].action, "reused");
         assert_eq!(decisions[&sites[0].mutation_id].reason, "unchanged-killed");
@@ -1554,13 +1597,15 @@ mod tests {
         let outcomes = BTreeMap::from([(site().mutation_id.clone(), "survived".to_string())]);
         write_results(
             &scratch.root(),
-            "src/a.rs",
-            &[form()],
-            &outcomes,
-            Some("digest-42"),
-            Some("global-v1"),
-            "2026-11-07T12:00:00+00:00",
-            "namespace-view",
+            PublishRequest {
+                file_key: "src/a.rs",
+                forms: &[form()],
+                outcomes: &outcomes,
+                test_input: Some("digest-42"),
+                test_input_scope: Some("global-v1"),
+                tested_at: "2026-11-07T12:00:00+00:00",
+                isolation: "namespace-view",
+            },
         )
         .unwrap();
         let text = fs::read_to_string(scratch.root().join(".metrics/mutate/n.edn")).unwrap();
@@ -1582,26 +1627,30 @@ mod tests {
         // A successful publish first puts a survived verdict on disk.
         write_results(
             &scratch.root(),
-            "src/a.rs",
-            &forms,
-            &outcomes,
-            Some("digest-42"),
-            Some("global-v1"),
-            "2026-11-07T12:00:00+00:00",
-            "namespace-view",
+            PublishRequest {
+                file_key: "src/a.rs",
+                forms: &forms,
+                outcomes: &outcomes,
+                test_input: Some("digest-42"),
+                test_input_scope: Some("global-v1"),
+                tested_at: "2026-11-07T12:00:00+00:00",
+                isolation: "namespace-view",
+            },
         )
         .unwrap();
         // A failed enumeration must not persist a scope beside the missing
         // digest, even if an older caller passes one through.
         write_results(
             &scratch.root(),
-            "src/a.rs",
-            &forms,
-            &outcomes,
-            None,
-            Some("global-v1"),
-            "2026-11-08T12:00:00+00:00",
-            "namespace-view",
+            PublishRequest {
+                file_key: "src/a.rs",
+                forms: &forms,
+                outcomes: &outcomes,
+                test_input: None,
+                test_input_scope: Some("global-v1"),
+                tested_at: "2026-11-08T12:00:00+00:00",
+                isolation: "namespace-view",
+            },
         )
         .unwrap();
         let text = fs::read_to_string(scratch.root().join(".metrics/mutate/n.edn")).unwrap();
@@ -1617,10 +1666,12 @@ mod tests {
             &covered,
             &loaded,
             &forms,
-            false,
-            None,
-            None,
-            Some(&global),
+            DecideContext {
+                mutate_all: false,
+                lines: None,
+                test_input: None,
+                scope: Some(&global),
+            },
         );
         assert_eq!(decisions[&sites[0].mutation_id].action, "executed");
         assert_eq!(

@@ -249,7 +249,9 @@ impl Drop for Fixture {
 
 /// The pinned originals predate the test-input digest. Golden comparisons
 /// ignore that one provenance field; the digest itself is pinned by its own
-/// unit tests. Cross-worker determinism below still compares the full bytes.
+/// unit tests. The scope tag is this port's deliberate addition to the pinned
+/// bytes, so every golden carries it. Cross-worker determinism below still
+/// compares the full bytes.
 fn without_test_input(bytes: &[u8]) -> Vec<u8> {
     let text = String::from_utf8_lossy(bytes);
     let marker = ":test-input \"";

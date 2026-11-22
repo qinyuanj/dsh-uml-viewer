@@ -4,7 +4,7 @@ use crate::{
     isolation::{self, Failure, View},
     java,
     lua::{self, Index},
-    metrics::{self, Decision, TestInputScope},
+    metrics::{self, DecideContext, Decision, PublishRequest, TestInputScope},
     python,
     sites::{self, Form, Site},
     typescript,
@@ -1175,10 +1175,12 @@ fn decide(item: &mut Prepared, lines: Option<&BTreeSet<usize>>, root: &Path, opt
         &item.covered,
         &history,
         &item.forms,
-        options.flag("--mutate-all"),
-        options.lines.as_ref(),
-        item.test_input.as_deref(),
-        item.test_input_scope.as_ref(),
+        DecideContext {
+            mutate_all: options.flag("--mutate-all"),
+            lines: options.lines.as_ref(),
+            test_input: item.test_input.as_deref(),
+            scope: item.test_input_scope.as_ref(),
+        },
     );
     item.outcomes = metrics::carry_forward(
         &item.sites,
@@ -1239,10 +1241,12 @@ pub fn prepare(
             &covered,
             &history,
             &forms,
-            options.flag("--mutate-all"),
-            options.lines.as_ref(),
-            test_input.as_deref(),
-            test_input_scope.as_ref(),
+            DecideContext {
+                mutate_all: options.flag("--mutate-all"),
+                lines: options.lines.as_ref(),
+                test_input: test_input.as_deref(),
+                scope: test_input_scope.as_ref(),
+            },
         );
         prepared.push(Prepared {
             file: file.clone(),
@@ -1555,13 +1559,15 @@ fn publish(
     };
     if let Err(error) = metrics::write_results(
         root,
-        &item.key,
-        &item.forms,
-        &item.outcomes,
-        item.test_input.as_deref(),
-        scope_tag.as_deref(),
-        &clock(),
-        isolation::level(),
+        PublishRequest {
+            file_key: &item.key,
+            forms: &item.forms,
+            outcomes: &item.outcomes,
+            test_input: item.test_input.as_deref(),
+            test_input_scope: scope_tag.as_deref(),
+            tested_at: &clock(),
+            isolation: isolation::level(),
+        },
     ) {
         return Err(Failure::Message(format!(
             "Cannot publish mutation snapshot: {error}"
