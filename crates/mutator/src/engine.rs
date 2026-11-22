@@ -4,7 +4,7 @@ use crate::{
     isolation::{self, Failure, View},
     java,
     lua::{self, Index},
-    metrics::{self, Decision},
+    metrics::{self, Decision, TestInputScope},
     python,
     sites::{self, Form, Site},
     typescript,
@@ -123,8 +123,11 @@ pub struct Prepared {
     pub decisions: BTreeMap<String, Decision>,
     pub outcomes: BTreeMap<String, String>,
     pub covered: BTreeMap<String, bool>,
-    /// Hash of the test command and the project files that can affect it.
-    pub test_input: String,
+    /// Hash of the test command and the scoped inputs that can affect it.
+    /// None when the declared inputs could not be enumerated.
+    pub test_input: Option<String>,
+    /// The scope that digest was computed for.
+    pub test_input_scope: TestInputScope,
     /// The module's Lua spec index, when this file has one.
     pub index: Option<Index>,
 }
@@ -1174,14 +1177,16 @@ fn decide(item: &mut Prepared, lines: Option<&BTreeSet<usize>>, root: &Path, opt
         &item.forms,
         options.flag("--mutate-all"),
         options.lines.as_ref(),
-        &item.test_input,
+        item.test_input.as_deref(),
+        &item.test_input_scope,
     );
     item.outcomes = metrics::carry_forward(
         &item.sites,
         &item.covered,
         &history,
         &item.forms,
-        &item.test_input,
+        item.test_input.as_deref(),
+        &item.test_input_scope,
     );
 }
 
@@ -1191,6 +1196,7 @@ pub fn prepare(
     files: &[PathBuf],
     timings: &mut Timings,
 ) -> Result<Vec<Prepared>, i32> {
+    let scope = options.test_input_scope();
     let mut prepared = Vec::new();
     for file in files {
         let raw = fs::read(file).map_err(|error| {
@@ -1208,14 +1214,22 @@ pub fn prepare(
         })?;
         let history = metrics::load_history(root, &key);
         let (command, directory) = plan(root, options, file);
-        let test_input = metrics::test_input_digest(
+        let (test_input, test_input_scope) = match metrics::test_input_digest_with(
             root,
             &format!("{} @ {}", command.display(), directory.display()),
-        )
-        .map_err(|error| {
-            eprintln!("Cannot hash test inputs for {}: {error}", file.display());
-            2
-        })?;
+            &scope,
+        ) {
+            Ok(digest) => (Some(digest), scope.clone()),
+            Err(error) => {
+                // Fail closed: without a digest no survived outcome may be
+                // reused, while killed outcomes keep their form-only reuse.
+                eprintln!(
+                    "Cannot hash test inputs for {} (survived reuse disabled): {error}",
+                    file.display()
+                );
+                (None, scope.clone())
+            }
+        };
         let covered = sites
             .iter()
             .map(|site| (site.mutation_id.clone(), true))
@@ -1227,7 +1241,8 @@ pub fn prepare(
             &forms,
             options.flag("--mutate-all"),
             options.lines.as_ref(),
-            &test_input,
+            test_input.as_deref(),
+            &scope,
         );
         prepared.push(Prepared {
             file: file.clone(),
@@ -1240,6 +1255,7 @@ pub fn prepare(
             outcomes: BTreeMap::new(),
             covered,
             test_input,
+            test_input_scope,
             index: None,
         });
     }
@@ -1533,12 +1549,17 @@ fn publish(
         options.lines.as_ref(),
     );
     let survived = item.forms.iter().any(|form| form.survived > 0);
+    let scope_tag = item
+        .test_input
+        .as_ref()
+        .map(|_| item.test_input_scope.canonical());
     if let Err(error) = metrics::write_results(
         root,
         &item.key,
         &item.forms,
         &item.outcomes,
-        &item.test_input,
+        item.test_input.as_deref(),
+        scope_tag.as_deref(),
         &clock(),
         isolation::level(),
     ) {

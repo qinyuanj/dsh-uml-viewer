@@ -47,6 +47,22 @@ Options:
                                 accepts and validates it, and copies nothing: a
                                 view is mounted over the real project root, so
                                 .. already reaches the real parent.
+  --changed-input <path>        Declare a file or directory whose contents
+                                affect test outcomes. May be repeated. Tests,
+                                fixtures and manifests are accepted; this is
+                                not the source-file selection filter. Paths
+                                are relative to --root, or may be an outside
+                                ../ path already declared with --copy.
+  --deleted-input <path>        Declare an input path deleted from the tree.
+                                Its last committed bytes come from git and
+                                are hashed into the digest. May be repeated.
+  --confirm-changed-inputs      Opt into the narrowed test-input digest built
+                                from --changed-input, --deleted-input and
+                                --copy. Without it the whole-tree digest
+                                stays the default. A confirmation with no
+                                declared input, an unconfirmed list, or an
+                                input that cannot be enumerated disables
+                                survived reuse instead of reusing a verdict.
   --scan                        List mutation sites. Do not run tests or
                                 write metrics.
   --mutate-all                  Run every covered site, including ones the

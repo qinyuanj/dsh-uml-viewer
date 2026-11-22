@@ -9,17 +9,96 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[derive(Clone, Debug, Default)]
 pub struct PriorForm {
     pub digest: String,
 }
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ChangedInput {
+    /// Project-relative path, or a `../` path for an external copy input.
+    pub path: String,
+    /// True when the path is gone and its committed bytes must come from git.
+    pub deleted: bool,
+}
+impl ChangedInput {
+    pub fn changed(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            deleted: false,
+        }
+    }
+    pub fn deleted(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            deleted: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ChangedInputs {
+    pub inputs: BTreeSet<ChangedInput>,
+    /// The caller has confirmed this is the complete set of relevant inputs.
+    pub confirmed: bool,
+}
+
+/// Which inputs a survived verdict depends on.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum TestInputScope {
+    /// The default: every regular file under the project root.
+    #[default]
+    Global,
+    /// Only the explicitly declared changed inputs, including deletions.
+    Changed(ChangedInputs),
+}
+impl TestInputScope {
+    pub fn global() -> Self {
+        Self::Global
+    }
+    pub fn changed(inputs: impl IntoIterator<Item = ChangedInput>) -> Self {
+        Self::Changed(ChangedInputs {
+            inputs: inputs.into_iter().collect(),
+            confirmed: true,
+        })
+    }
+    /// The versioned tag persisted beside the digest.
+    pub fn tag(&self) -> &'static str {
+        match self {
+            Self::Global => "global-v1",
+            Self::Changed(_) => "changed-v1",
+        }
+    }
+    /// A canonical, comparable record of the scope and its declared inputs.
+    pub fn canonical(&self) -> String {
+        match self {
+            Self::Global => self.tag().to_string(),
+            Self::Changed(scope) => {
+                let mut text = self.tag().to_string();
+                if !scope.confirmed {
+                    text.push_str("\nunconfirmed");
+                }
+                for input in &scope.inputs {
+                    text.push('\n');
+                    text.push(if input.deleted { 'D' } else { 'F' });
+                    text.push_str(&format!(" {}:{}", input.path.len(), input.path));
+                }
+                text
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct History {
     pub forms: BTreeMap<(String, String), PriorForm>,
     pub outcomes: BTreeMap<String, String>,
     /// The digest of the test inputs recorded by the snapshot, when present.
     pub test_input: Option<String>,
+    /// The canonical scope tag recorded with that digest. Older snapshots have
+    /// none, so they cannot authorize survived reuse.
+    pub test_input_scope: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Decision {
@@ -209,6 +288,7 @@ pub fn load_history(root: &Path, file_key: &str) -> History {
             continue;
         };
         history.test_input = text(data, "test-input").map(str::to_string);
+        history.test_input_scope = text(data, "test-input-scope").map(str::to_string);
         for form in forms_of(data) {
             if form_file(&form, data) != Some(file_key) {
                 continue;
@@ -245,13 +325,29 @@ pub fn digests(forms: &[Form]) -> BTreeMap<(String, String), String> {
         .collect()
 }
 
-/// SHA-256 of the test inputs a mutant verdict depends on: the command and
-/// every regular file under the project root that is not a cache or build
-/// output. Absolute project paths in the command are normalized, so a fixture
-/// can be copied elsewhere. Contents are hashed, so a coverage stamp's
-/// path/size/mtime fingerprint can never stand in for this digest.
+/// SHA-256 of the whole-tree test inputs. This is the default; callers that
+/// narrow the input set use [`test_input_digest_with`].
 pub fn test_input_digest(root: &Path, command: &str) -> io::Result<String> {
-    fn walk(root: &Path, directory: &Path, found: &mut Vec<(String, Vec<u8>)>) -> io::Result<()> {
+    test_input_digest_with(root, command, &TestInputScope::Global)
+}
+
+/// SHA-256 of the test inputs a mutant verdict depends on under `scope`.
+///
+/// A global scope keeps the original whole-tree digest. A changed scope hashes
+/// only the declared inputs: ordinary or deleted project files, directories
+/// of either, and external copy paths. Every declaration must be complete and
+/// enumerable; a missing file, an unreadable path or a git failure is an error
+/// so the caller cannot authorize survived reuse with a partial digest.
+pub fn test_input_digest_with(
+    root: &Path,
+    command: &str,
+    scope: &TestInputScope,
+) -> io::Result<String> {
+    fn walk(
+        root: &Path,
+        directory: &Path,
+        found: &mut BTreeMap<String, Vec<u8>>,
+    ) -> io::Result<()> {
         let mut entries = Vec::new();
         for entry in fs::read_dir(directory)? {
             let entry = entry?;
@@ -278,9 +374,81 @@ pub fn test_input_digest(root: &Path, command: &str) -> io::Result<String> {
             let Some(key) = relative_posix(&path, root) else {
                 continue;
             };
-            found.push((key, fs::read(&path)?));
+            found.insert(key, fs::read(&path)?);
         }
         Ok(())
+    }
+
+    fn walk_declared(
+        directory: &Path,
+        prefix: &str,
+        found: &mut BTreeMap<String, Vec<u8>>,
+    ) -> io::Result<()> {
+        let mut entries = Vec::new();
+        for entry in fs::read_dir(directory)? {
+            let entry = entry?;
+            entries.push(entry);
+        }
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let key = format!("{prefix}/{name}");
+            let kind = entry.file_type()?;
+            if kind.is_symlink() {
+                continue;
+            }
+            if kind.is_dir() {
+                if !SKIP_DIRS.contains(&name.as_ref()) && name != ".agents" {
+                    walk_declared(&path, &key, found)?;
+                }
+            } else if kind.is_file() {
+                found.insert(format!("F:{key}"), fs::read(&path)?);
+            }
+        }
+        Ok(())
+    }
+
+    fn declared_path(root: &Path, input: &ChangedInput) -> PathBuf {
+        let path = Path::new(&input.path);
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            root.join(path)
+        }
+    }
+
+    fn project_key(root: &Path, path: &Path) -> io::Result<String> {
+        let key = relative_posix(path, root).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "deleted input is outside project root",
+            )
+        })?;
+        if key == ".." || key.starts_with("../") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "deleted input is outside project root",
+            ));
+        }
+        Ok(key)
+    }
+
+    fn git_blob(root: &Path, key: &str) -> io::Result<Vec<u8>> {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["show", &format!("HEAD:{key}")])
+            .output()?;
+        if !output.status.success() {
+            let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("git cannot read deleted input {key}: {detail}"),
+            ));
+        }
+        Ok(output.stdout)
     }
 
     let raw_root = root.to_string_lossy().into_owned();
@@ -295,11 +463,64 @@ pub fn test_input_digest(root: &Path, command: &str) -> io::Result<String> {
         .fold(command.to_string(), |text, spelling| {
             text.replace(&spelling, "<root>")
         });
-    let mut files = Vec::new();
-    walk(&root, &root, &mut files)?;
-    files.sort_by(|left, right| left.0.cmp(&right.0));
+    let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    match scope {
+        TestInputScope::Global => walk(&root, &root, &mut files)?,
+        TestInputScope::Changed(changed) => {
+            if !changed.confirmed {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "changed inputs are not confirmed",
+                ));
+            }
+            if changed.inputs.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "no changed inputs were declared",
+                ));
+            }
+            for input in &changed.inputs {
+                let path = declared_path(&root, input);
+                if input.deleted {
+                    if !resolve(&path).starts_with(&root) {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "deleted input is outside project root",
+                        ));
+                    }
+                    let key = project_key(&root, &path)?;
+                    files.insert(format!("D:{key}"), git_blob(&root, &key)?);
+                    continue;
+                }
+                let metadata = fs::symlink_metadata(&path)?;
+                if metadata.file_type().is_symlink() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("changed input is a symlink: {}", input.path),
+                    ));
+                }
+                let key = relative_posix(&path, &root)
+                    .unwrap_or_else(|| path.to_string_lossy().replace('\\', "/"));
+                if metadata.is_dir() {
+                    walk_declared(&path, &key, &mut files)?;
+                } else if metadata.is_file() {
+                    files.insert(format!("F:{key}"), fs::read(&path)?);
+                } else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!(
+                            "changed input is not a regular file or directory: {}",
+                            input.path
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    let canonical = scope.canonical();
     let mut hash = Sha256::new();
-    hash.update(b"mutator-test-input-v1\n");
+    hash.update(format!("mutator-test-input-{}\n", scope.tag()).as_bytes());
+    hash.update(format!("scope {}\0{}\0", canonical.len(), canonical).as_bytes());
     hash.update(format!("command {}\0{}\0", normalized.len(), normalized).as_bytes());
     for (path, bytes) in files {
         hash.update(format!("file {}\0{}\0{}\0", path.len(), path, bytes.len()).as_bytes());
@@ -329,8 +550,10 @@ pub fn decide(
     forms: &[Form],
     mutate_all: bool,
     lines: Option<&BTreeSet<usize>>,
-    test_input: &str,
+    test_input: Option<&str>,
+    scope: &TestInputScope,
 ) -> BTreeMap<String, Decision> {
+    let scope = scope.canonical();
     let digests: BTreeMap<_, _> = forms
         .iter()
         .map(|form| ((form.namespace.clone(), form.id.clone()), &form.digest))
@@ -356,7 +579,10 @@ pub fn decide(
                 ("executed", "digest-changed")
             } else if previous == "killed" {
                 ("reused", "unchanged-killed")
-            } else if previous == "survived" && history.test_input.as_deref() == Some(test_input) {
+            } else if previous == "survived"
+                && history.test_input_scope.as_deref() == Some(scope.as_str())
+                && history.test_input.as_deref() == test_input
+            {
                 ("reused", "unchanged-survived")
             } else if previous == "survived" {
                 ("executed", "test-input-changed")
@@ -379,8 +605,10 @@ pub fn carry_forward(
     covered: &BTreeMap<String, bool>,
     history: &History,
     forms: &[Form],
-    test_input: &str,
+    test_input: Option<&str>,
+    scope: &TestInputScope,
 ) -> BTreeMap<String, String> {
+    let scope = scope.canonical();
     let digests: BTreeMap<_, _> = forms
         .iter()
         .map(|form| ((form.namespace.clone(), form.id.clone()), &form.digest))
@@ -397,7 +625,10 @@ pub fn carry_forward(
                 return None;
             }
             let outcome = history.outcomes.get(&site.mutation_id)?;
-            if outcome == "survived" && history.test_input.as_deref() != Some(test_input) {
+            if outcome == "survived"
+                && (history.test_input_scope.as_deref() != Some(scope.as_str())
+                    || history.test_input.as_deref() != test_input)
+            {
                 return None;
             }
             Some((site.mutation_id.clone(), outcome.clone()))
@@ -504,7 +735,8 @@ pub fn render_snapshot(
     source: &str,
     forms: Vec<Value>,
     outcomes: &BTreeMap<String, String>,
-    test_input: &str,
+    test_input: Option<&str>,
+    test_input_scope: Option<&str>,
     tested_at: &str,
     isolation: &str,
 ) -> String {
@@ -514,16 +746,22 @@ pub fn render_snapshot(
             .map(|(id, status)| (s(id), Value::Keyword(status.clone())))
             .collect(),
     );
-    let data = map(vec![
+    let mut fields = vec![
         ("version", n(1)),
         ("tested-at", s(tested_at)),
         ("isolation", Value::Keyword(isolation.to_string())),
         ("source", s(source)),
         ("namespace", s(namespace)),
-        ("test-input", s(test_input)),
-        ("outcomes", outcomes),
-        ("forms", Value::Vector(forms)),
-    ]);
+    ];
+    if let Some(test_input) = test_input {
+        fields.push(("test-input", s(test_input)));
+    }
+    if let Some(test_input_scope) = test_input_scope {
+        fields.push(("test-input-scope", s(test_input_scope)));
+    }
+    fields.push(("outcomes", outcomes));
+    fields.push(("forms", Value::Vector(forms)));
+    let data = map(fields);
     format!("{}\n", render(&data))
 }
 fn mentions_file(data: &Value, file_key: &str) -> bool {
@@ -587,7 +825,8 @@ pub fn write_results(
     file_key: &str,
     forms: &[Form],
     outcomes: &BTreeMap<String, String>,
-    test_input: &str,
+    test_input: Option<&str>,
+    test_input_scope: Option<&str>,
     tested_at: &str,
     isolation: &str,
 ) -> io::Result<Vec<PathBuf>> {
@@ -685,7 +924,14 @@ pub fn write_results(
             quality_core::atomic::write_bytes(
                 &path,
                 render_snapshot(
-                    namespace, &source, unique, &merged, test_input, tested_at, isolation,
+                    namespace,
+                    &source,
+                    unique,
+                    &merged,
+                    test_input,
+                    test_input_scope,
+                    tested_at,
+                    isolation,
                 )
                 .as_bytes(),
             )?;
@@ -868,11 +1114,14 @@ mod tests {
 
     impl Scratch {
         fn new() -> Self {
-            let root = std::env::temp_dir().join(format!(
-                "mutator-test-input-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
+            let root = std::env::current_dir()
+                .unwrap()
+                .join("target")
+                .join(format!(
+                    "mutator-test-input-{}-{}",
+                    std::process::id(),
+                    NEXT.fetch_add(1, Ordering::Relaxed)
+                ));
             fs::create_dir_all(&root).unwrap();
             Self { root }
         }
@@ -927,7 +1176,7 @@ mod tests {
         }
     }
 
-    fn history(input: Option<&str>) -> History {
+    fn history(input: Option<&str>, scope: Option<&str>) -> History {
         History {
             forms: BTreeMap::from([(
                 ("n".into(), "f".into()),
@@ -937,7 +1186,22 @@ mod tests {
             )]),
             outcomes: BTreeMap::from([(site().mutation_id, "survived".into())]),
             test_input: input.map(str::to_string),
+            test_input_scope: scope.map(str::to_string),
         }
+    }
+
+    fn git(root: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[test]
@@ -983,12 +1247,164 @@ mod tests {
     }
 
     #[test]
-    fn survived_outcome_is_reused_only_for_a_matching_test_input() {
+    fn changed_scope_ignores_unrelated_files_but_tracks_every_declared_input() {
+        let scratch = Scratch::new();
+        for (path, text) in [
+            ("src/a.rs", "old source"),
+            ("tests/a_test.rs", "old test"),
+            ("Cargo.toml", "[package]"),
+            ("fixtures/data.txt", "old fixture"),
+        ] {
+            scratch.write(path, text);
+        }
+        let scope = TestInputScope::changed([
+            ChangedInput::changed("src/a.rs"),
+            ChangedInput::changed("tests/a_test.rs"),
+            ChangedInput::changed("Cargo.toml"),
+            ChangedInput::changed("fixtures"),
+        ]);
+        let mut previous = test_input_digest_with(&scratch.root(), "cargo test", &scope).unwrap();
+
+        scratch.write("README.md", "unrelated");
+        scratch.write("src/unrelated.rs", "unrelated source");
+        assert_eq!(
+            test_input_digest_with(&scratch.root(), "cargo test", &scope).unwrap(),
+            previous
+        );
+
+        for (path, text) in [
+            ("src/a.rs", "new source"),
+            ("tests/a_test.rs", "new test"),
+            ("Cargo.toml", "[package]\nname = \"a\""),
+            ("fixtures/data.txt", "new fixture"),
+        ] {
+            scratch.write(path, text);
+            let current = test_input_digest_with(&scratch.root(), "cargo test", &scope).unwrap();
+            assert_ne!(current, previous, "{path} did not change the digest");
+            previous = current;
+        }
+    }
+
+    #[test]
+    fn changed_scope_includes_external_copy_inputs() {
+        let scratch = Scratch::new();
+        scratch.write("src/a.rs", "source");
+        let outside = Scratch::new();
+        outside.write("contracts.txt", "first");
+        let name = outside
+            .root()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let scope = TestInputScope::changed([ChangedInput::changed(format!("../{name}"))]);
+
+        let first = test_input_digest_with(&scratch.root(), "cargo test", &scope).unwrap();
+        outside.write("contracts.txt", "second");
+        let second = test_input_digest_with(&scratch.root(), "cargo test", &scope).unwrap();
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn empty_or_unconfirmed_changed_scope_cannot_digest() {
+        let scratch = Scratch::new();
+        scratch.write("src/a.rs", "source");
+        let empty = TestInputScope::Changed(ChangedInputs::default());
+        assert!(test_input_digest_with(&scratch.root(), "cargo test", &empty).is_err());
+
+        let unconfirmed = TestInputScope::Changed(ChangedInputs {
+            inputs: BTreeSet::from([ChangedInput::changed("src/a.rs")]),
+            confirmed: false,
+        });
+        assert!(test_input_digest_with(&scratch.root(), "cargo test", &unconfirmed).is_err());
+    }
+
+    #[test]
+    fn an_input_that_cannot_be_enumerated_cannot_digest() {
+        let scratch = Scratch::new();
+        let missing = TestInputScope::changed([ChangedInput::changed("gone.rs")]);
+        assert!(test_input_digest_with(&scratch.root(), "cargo test", &missing).is_err());
+
+        let outside = TestInputScope::changed([ChangedInput::deleted("../gone.rs")]);
+        assert!(test_input_digest_with(&scratch.root(), "cargo test", &outside).is_err());
+    }
+
+    #[test]
+    fn global_and_changed_scopes_never_share_a_digest() {
+        let scratch = Scratch::new();
+        scratch.write("src/a.rs", "source");
+        let changed = TestInputScope::changed([ChangedInput::changed("src/a.rs")]);
+        assert_ne!(
+            test_input_digest(&scratch.root(), "cargo test").unwrap(),
+            test_input_digest_with(&scratch.root(), "cargo test", &changed).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_deleted_input_without_git_history_fails_closed() {
+        let scratch = Scratch::new();
+        scratch.write("src/a.rs", "source");
+        let scope = TestInputScope::changed([ChangedInput::deleted("src/a.rs")]);
+        assert!(test_input_digest_with(&scratch.root(), "cargo test", &scope).is_err());
+    }
+
+    #[test]
+    fn a_deleted_input_comes_from_the_committed_blob() {
+        let scratch = Scratch::new();
+        git(&scratch.root(), &["init", "-q"]);
+        let scope = TestInputScope::changed([ChangedInput::deleted("deleted.txt")]);
+        let sign = [
+            "-c",
+            "user.name=mutator",
+            "-c",
+            "user.email=mutator@example.invalid",
+        ];
+
+        scratch.write("deleted.txt", "first");
+        git(&scratch.root(), &["add", "deleted.txt"]);
+        git(
+            &scratch.root(),
+            &sign
+                .iter()
+                .copied()
+                .chain(["commit", "-q", "-m", "first"])
+                .collect::<Vec<_>>(),
+        );
+        fs::remove_file(scratch.root().join("deleted.txt")).unwrap();
+        let first = test_input_digest_with(&scratch.root(), "cargo test", &scope).unwrap();
+
+        scratch.write("deleted.txt", "second");
+        git(&scratch.root(), &["add", "deleted.txt"]);
+        git(
+            &scratch.root(),
+            &sign
+                .iter()
+                .copied()
+                .chain(["commit", "-q", "-m", "second"])
+                .collect::<Vec<_>>(),
+        );
+        fs::remove_file(scratch.root().join("deleted.txt")).unwrap();
+        let second = test_input_digest_with(&scratch.root(), "cargo test", &scope).unwrap();
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn survived_outcome_is_reused_only_for_an_equal_scope_and_digest() {
         let sites = [site()];
         let forms = [form()];
         let covered = BTreeMap::from([(sites[0].mutation_id.clone(), true)]);
-        let same = history(Some("input-1"));
-        let decisions = decide(&sites, &covered, &same, &forms, false, None, "input-1");
+        let global = TestInputScope::global();
+        let same = history(Some("input-1"), Some(global.canonical().as_str()));
+        let decisions = decide(
+            &sites,
+            &covered,
+            &same,
+            &forms,
+            false,
+            None,
+            Some("input-1"),
+            &global,
+        );
         assert_eq!(
             decisions[&sites[0].mutation_id],
             Decision {
@@ -998,14 +1414,46 @@ mod tests {
             }
         );
         assert_eq!(
-            carry_forward(&sites, &covered, &same, &forms, "input-1"),
+            carry_forward(&sites, &covered, &same, &forms, Some("input-1"), &global),
             BTreeMap::from([(sites[0].mutation_id.clone(), "survived".to_string())])
         );
 
-        let changed = decide(&sites, &covered, &same, &forms, false, None, "input-2");
-        assert_eq!(changed[&sites[0].mutation_id].action, "executed");
-        assert_eq!(changed[&sites[0].mutation_id].reason, "test-input-changed");
-        assert!(carry_forward(&sites, &covered, &same, &forms, "input-2").is_empty());
+        let changed = TestInputScope::changed([ChangedInput::changed("src/a.rs")]);
+        let decisions = decide(
+            &sites,
+            &covered,
+            &same,
+            &forms,
+            false,
+            None,
+            Some("input-1"),
+            &changed,
+        );
+        assert_eq!(decisions[&sites[0].mutation_id].action, "executed");
+        assert_eq!(
+            decisions[&sites[0].mutation_id].reason,
+            "test-input-changed"
+        );
+        assert!(
+            carry_forward(&sites, &covered, &same, &forms, Some("input-1"), &changed).is_empty()
+        );
+
+        let unscoped = history(Some("input-1"), None);
+        let decisions = decide(
+            &sites,
+            &covered,
+            &unscoped,
+            &forms,
+            false,
+            None,
+            Some("input-1"),
+            &global,
+        );
+        assert_eq!(decisions[&sites[0].mutation_id].action, "executed");
+        assert_eq!(
+            decisions[&sites[0].mutation_id].reason,
+            "test-input-changed"
+        );
     }
 
     #[test]
@@ -1016,11 +1464,12 @@ mod tests {
         let decisions = decide(
             &sites,
             &covered,
-            &history(None),
+            &history(None, Some("global-v1")),
             &forms,
             false,
             None,
-            "input-1",
+            Some("input-1"),
+            &TestInputScope::global(),
         );
         assert_eq!(decisions[&sites[0].mutation_id].action, "executed");
         assert_eq!(
@@ -1030,7 +1479,39 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_records_the_test_input_digest() {
+    fn a_killed_outcome_still_reuses_by_form_digest_alone() {
+        let sites = [site()];
+        let forms = [form()];
+        let covered = BTreeMap::from([(sites[0].mutation_id.clone(), true)]);
+        let mut past = history(None, None);
+        past.outcomes.insert(site().mutation_id, "killed".into());
+        let decisions = decide(
+            &sites,
+            &covered,
+            &past,
+            &forms,
+            false,
+            None,
+            None,
+            &TestInputScope::global(),
+        );
+        assert_eq!(decisions[&sites[0].mutation_id].action, "reused");
+        assert_eq!(decisions[&sites[0].mutation_id].reason, "unchanged-killed");
+        assert_eq!(
+            carry_forward(
+                &sites,
+                &covered,
+                &past,
+                &forms,
+                None,
+                &TestInputScope::global()
+            ),
+            BTreeMap::from([(sites[0].mutation_id.clone(), "killed".to_string())])
+        );
+    }
+
+    #[test]
+    fn snapshot_records_the_test_input_digest_and_scope() {
         let scratch = Scratch::new();
         let outcomes = BTreeMap::from([(site().mutation_id.clone(), "survived".to_string())]);
         write_results(
@@ -1038,18 +1519,40 @@ mod tests {
             "src/a.rs",
             &[form()],
             &outcomes,
-            "digest-42",
+            Some("digest-42"),
+            Some("global-v1"),
             "2026-11-07T12:00:00+00:00",
             "namespace-view",
         )
         .unwrap();
         let text = fs::read_to_string(scratch.root().join(".metrics/mutate/n.edn")).unwrap();
         assert!(text.contains(":test-input \"digest-42\""), "{text}");
-        assert_eq!(
-            load_history(&scratch.root(), "src/a.rs")
-                .test_input
-                .as_deref(),
-            Some("digest-42")
-        );
+        assert!(text.contains(":test-input-scope \"global-v1\""), "{text}");
+        let loaded = load_history(&scratch.root(), "src/a.rs");
+        assert_eq!(loaded.test_input.as_deref(), Some("digest-42"));
+        assert_eq!(loaded.test_input_scope.as_deref(), Some("global-v1"));
+    }
+
+    #[test]
+    fn a_failed_digest_publishes_no_reusable_scope() {
+        let scratch = Scratch::new();
+        let outcomes = BTreeMap::from([(site().mutation_id.clone(), "survived".to_string())]);
+        write_results(
+            &scratch.root(),
+            "src/a.rs",
+            &[form()],
+            &outcomes,
+            None,
+            None,
+            "2026-11-07T12:00:00+00:00",
+            "namespace-view",
+        )
+        .unwrap();
+        let text = fs::read_to_string(scratch.root().join(".metrics/mutate/n.edn")).unwrap();
+        assert!(!text.contains(":test-input "), "{text}");
+        assert!(!text.contains(":test-input-scope "), "{text}");
+        let loaded = load_history(&scratch.root(), "src/a.rs");
+        assert_eq!(loaded.test_input, None);
+        assert_eq!(loaded.test_input_scope, None);
     }
 }

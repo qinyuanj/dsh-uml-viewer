@@ -1,3 +1,4 @@
+use crate::metrics::{ChangedInput, ChangedInputs, TestInputScope};
 use quality_core::select::Scope;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -21,6 +22,10 @@ pub struct Options {
     /// `--copy`: paths outside the project root that every view must show.
     /// May be repeated; validated by `isolation::resolve_outside`.
     pub copies: Vec<String>,
+    /// `--changed-input`: an explicitly relevant input path, repeatable.
+    pub changed_inputs: Vec<String>,
+    /// `--deleted-input`: an input path removed from the tree, repeatable.
+    pub deleted_inputs: Vec<String>,
 }
 impl Options {
     pub fn flag(&self, name: &str) -> bool {
@@ -28,6 +33,29 @@ impl Options {
     }
     pub fn value(&self, name: &str) -> Option<&str> {
         self.values.get(name).map(String::as_str)
+    }
+    /// The digest scope selected by this call. An explicit input list, or any
+    /// declared copy path, opts into the changed scope; without confirmation
+    /// its digest is unavailable and survived reuse fails closed.
+    pub fn test_input_scope(&self) -> TestInputScope {
+        let explicit = !self.changed_inputs.is_empty() || !self.deleted_inputs.is_empty();
+        if !self.flag("--confirm-changed-inputs") && !explicit && self.copies.is_empty() {
+            return TestInputScope::Global;
+        }
+        let mut inputs = BTreeSet::new();
+        for path in &self.changed_inputs {
+            inputs.insert(ChangedInput::changed(path.clone()));
+        }
+        for path in &self.deleted_inputs {
+            inputs.insert(ChangedInput::deleted(path.clone()));
+        }
+        for path in &self.copies {
+            inputs.insert(ChangedInput::changed(path.clone()));
+        }
+        TestInputScope::Changed(ChangedInputs {
+            inputs,
+            confirmed: self.flag("--confirm-changed-inputs"),
+        })
     }
 }
 
@@ -87,6 +115,7 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
         "--use-existing-coverage",
         "--reuse-coverage",
         "--changed",
+        "--confirm-changed-inputs",
         "--scan",
         "--mutate-all",
         "--since-last-run",
@@ -109,6 +138,8 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
         "--max-workers",
         "--lines",
         "--copy",
+        "--changed-input",
+        "--deleted-input",
     ];
     let mut index = 0;
     while index < args.len() {
@@ -127,6 +158,8 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
                 "--exclude" => options.scope.exclusions.push(value.clone()),
                 // Repeatable: every value is an outside path the call needs.
                 "--copy" => options.copies.push(value.clone()),
+                "--changed-input" => options.changed_inputs.push(value.clone()),
+                "--deleted-input" => options.deleted_inputs.push(value.clone()),
                 "--max-workers" => {
                     options.max_workers = Some(
                         python_int(value)

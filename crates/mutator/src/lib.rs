@@ -28,6 +28,9 @@ mod python;
 pub mod queue;
 mod scratch;
 pub mod sites;
+pub use metrics::{
+    ChangedInput, ChangedInputs, TestInputScope, test_input_digest, test_input_digest_with,
+};
 pub mod slot;
 mod typescript;
 mod workers;
