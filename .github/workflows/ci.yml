@@ -161,6 +161,15 @@ jobs:
       UML_REFRESH_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
     steps:
       - uses: actions/checkout@v4
+      # PR base SHAs are not necessarily present in the PR checkout. Fetch the
+      # canonical base before the refresh computes its merge-base diff; an
+      # invalid or missing SHA still fails closed in ci-refresh.py.
+      - name: Fetch refresh base SHA
+        shell: bash
+        run: |
+          if [[ "$UML_REFRESH_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            git fetch --no-tags origin "$UML_REFRESH_BASE_SHA"
+          fi
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:

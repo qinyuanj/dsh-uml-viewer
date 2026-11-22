@@ -217,5 +217,17 @@ class MainFlow(unittest.TestCase):
             self.assertTrue((state / 'mutate.json').is_file())
 
 
+class WorkflowContract(unittest.TestCase):
+    def test_windows_mutate_fetches_the_canonical_base_sha(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    '.github/workflows/ci.yml').read_text(encoding='utf-8')
+        job = workflow.split('  windows-mutate:', 1)[1].split('\n  windows-quality:', 1)[0]
+        checkout = job.index('- uses: actions/checkout@v4')
+        fetch = job.index('name: Fetch refresh base SHA')
+        self.assertLess(checkout, fetch)
+        self.assertIn('^[0-9a-f]{40}$', job)
+        self.assertIn('git fetch --no-tags origin "$UML_REFRESH_BASE_SHA"', job)
+
+
 if __name__ == '__main__':
     unittest.main()
