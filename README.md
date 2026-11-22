@@ -15,13 +15,13 @@ row. Its one exact-version optional dependency targets native Windows x64, the
 only delivered host ([qinyuanj/home-uml-viewer ADR 0002](https://github.com/qinyuanj/home-uml-viewer/blob/main/docs/adr/0002-macos-is-not-a-supported-host.md));
 any other host refuses activation with a reason. End users need DSH
 (`>=0.2.2-rc.1 <0.3.0`) and git; native packages require no Rust, Python or
-Herdr installation. Version 1.1.0 is published, with SLSA provenance from the
+Herdr installation. Version 1.2.0 is published, with SLSA provenance from the
 tag-driven release. Local package assembly also remains available.
 
 Install local archives through DSH plugin management (use absolute paths):
 
 ```sh
-dsh plugin --profile web add /absolute/dsh-uml-viewer-1.1.0.tgz /absolute/dsh-uml-viewer-win32-x64-1.1.0.tgz
+dsh plugin --profile web add /absolute/dsh-uml-viewer-1.2.0.tgz /absolute/dsh-uml-viewer-win32-x64-1.2.0.tgz
 dsh plugin --profile web remove dsh-uml-viewer @dsh-uml-viewer/win32-x64
 ```
 
@@ -85,7 +85,7 @@ the one optional dependency constraint. To verify an assembled archive:
 
 ```sh
 UML_VIEWER_PACKAGE_REPORT=/absolute/scratch/packages/package-report.json pnpm test:package
-UML_VIEWER_PACKAGE_MAIN=/absolute/scratch/packages/dsh-uml-viewer-1.1.0.tgz UML_VIEWER_PACKAGE_PLATFORM=/absolute/scratch/packages/dsh-uml-viewer-win32-x64-1.1.0.tgz UML_VIEWER_E2E_SCRATCH=/absolute/scratch/e2e pnpm test:e2e package.spec.mjs
+UML_VIEWER_PACKAGE_MAIN=/absolute/scratch/packages/dsh-uml-viewer-1.2.0.tgz UML_VIEWER_PACKAGE_PLATFORM=/absolute/scratch/packages/dsh-uml-viewer-win32-x64-1.2.0.tgz UML_VIEWER_E2E_SCRATCH=/absolute/scratch/e2e pnpm test:e2e package.spec.mjs
 ```
 
 Set explicit `npm_config_cache`, `npm_config_store_dir`, `PNPM_CACHE_DIR`,

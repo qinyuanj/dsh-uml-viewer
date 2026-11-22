@@ -133,8 +133,8 @@ fails before installation. On Windows use Windows-absolute paths:
 
 ```powershell
 $env:UML_VIEWER_E2E_SCRATCH = 'D:/scratch/uml-viewer-e2e'
-$env:UML_VIEWER_PACKAGE_MAIN = 'D:/scratch/uml-viewer-pack/dsh-uml-viewer-1.1.0.tgz'
-$env:UML_VIEWER_PACKAGE_PLATFORM = 'D:/scratch/uml-viewer-pack/dsh-uml-viewer-win32-x64-1.1.0.tgz'
+$env:UML_VIEWER_PACKAGE_MAIN = 'D:/scratch/uml-viewer-pack/dsh-uml-viewer-1.2.0.tgz'
+$env:UML_VIEWER_PACKAGE_PLATFORM = 'D:/scratch/uml-viewer-pack/dsh-uml-viewer-win32-x64-1.2.0.tgz'
 pnpm --filter @dsh-uml-viewer/e2e test:e2e package.spec.mjs
 ```
 
