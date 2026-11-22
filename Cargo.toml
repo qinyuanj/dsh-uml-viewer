@@ -9,7 +9,7 @@ exclude = ["rust-fixture"]
 
 [workspace.package]
 # Authoritative release version; npm manifests are checked/synced by scripts/version.mjs.
-version = "1.2.0"
+version = "1.2.1"
 edition = "2024"
 rust-version = "1.99.1"
 publish = false

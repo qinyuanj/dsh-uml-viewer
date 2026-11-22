@@ -3,30 +3,66 @@
   "manifestVersion": "0.15",
   "id": "dsh-uml-viewer",
   "name": "dsh-uml-viewer",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "license": "UNLICENSED",
   "facets": {
-    "host": { "entry": "lib/host.js", "apiVersion": "v1alpha1" }
+    "host": {
+      "entry": "lib/host.js",
+      "apiVersion": "v1alpha1"
+    }
   },
   "requires": {
-    "contracts": [{ "apiVersion": "tools.dsh/v1alpha1", "kind": "Tool" }]
+    "contracts": [
+      {
+        "apiVersion": "tools.dsh/v1alpha1",
+        "kind": "Tool"
+      }
+    ]
   },
   "permissions": [
-    { "name": "uml-viewer.process", "scope": "subprocess", "reason": "Run the native IR generator and quality tools through the session sandbox policy and DSH subprocess provider." },
-    { "name": "uml-viewer.read", "scope": "filesystem-read", "reason": "Read policy and source files in the session project and locate the plugin binary." },
-    { "name": "uml-viewer.write", "scope": "filesystem-write", "reason": "Generate project IR and quality snapshots under the session sandbox policy." },
-    { "name": "uml-viewer.home", "scope": "dsh-home", "reason": "Copy the packaged executable into the plugin's version directory and persist per-session viewer state under DSH_HOME/dsh-uml-viewer only." }
+    {
+      "name": "uml-viewer.process",
+      "scope": "subprocess",
+      "reason": "Run the native IR generator and quality tools through the session sandbox policy and DSH subprocess provider."
+    },
+    {
+      "name": "uml-viewer.read",
+      "scope": "filesystem-read",
+      "reason": "Read policy and source files in the session project and locate the plugin binary."
+    },
+    {
+      "name": "uml-viewer.write",
+      "scope": "filesystem-write",
+      "reason": "Generate project IR and quality snapshots under the session sandbox policy."
+    },
+    {
+      "name": "uml-viewer.home",
+      "scope": "dsh-home",
+      "reason": "Copy the packaged executable into the plugin's version directory and persist per-session viewer state under DSH_HOME/dsh-uml-viewer only."
+    }
   ],
   "contributes": {
-    "x-components": [{
-      "id": "dsh-uml-viewer",
-      "entry": "dsh-uml-viewer",
-      "defaultEnabled": true,
-      "platforms": ["win32"],
-      "targets": ["win32-x64"],
-      "tools": ["uml_ir", "uml_crap", "uml_mutate", "uml_dry", "uml_display"],
-      "notes": "Host and Web client panel with IR, the three quality tools and display. One optional platform package, @dsh-uml-viewer/win32-x64, provides the executable; every other host refuses activation with a stated reason (native Windows x64 is the only supported host). The browser half is declared in package.json dsh.client and the ./client export (dsh-std 0.15 has no client facet key). Runtime compatibility is package.json engines.dsh."
-    }]
+    "x-components": [
+      {
+        "id": "dsh-uml-viewer",
+        "entry": "dsh-uml-viewer",
+        "defaultEnabled": true,
+        "platforms": [
+          "win32"
+        ],
+        "targets": [
+          "win32-x64"
+        ],
+        "tools": [
+          "uml_ir",
+          "uml_crap",
+          "uml_mutate",
+          "uml_dry",
+          "uml_display"
+        ],
+        "notes": "Host and Web client panel with IR, the three quality tools and display. One optional platform package, @dsh-uml-viewer/win32-x64, provides the executable; every other host refuses activation with a stated reason (native Windows x64 is the only supported host). The browser half is declared in package.json dsh.client and the ./client export (dsh-std 0.15 has no client facet key). Runtime compatibility is package.json engines.dsh."
+      }
+    ]
   },
   "subscriptions": []
 }
