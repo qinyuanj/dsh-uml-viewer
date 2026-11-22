@@ -1,12 +1,3 @@
-// #52 seam: request status B — FIFO attribution and the end of a turn. A real
-// Cordis Context hosts the built plugin, a real child speaks the resident
-// protocol and the quality/IR tools, and the fake DSH appends the session
-// events a real one appends (`session/event`): `turn/start`, the admitted
-// `user/message` echoing its prompt `rpcId`, and `turn/end`.
-//
-// The spec's transition table and the attribution rules are checked here rather
-// than in the browser: each row needs a whole simulated conversation there
-// (qinyuanj/dsh-uml-viewer#41, Testing Decisions).
 import { Context } from '@deepseek-ai/cordis'
 import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -23,7 +14,6 @@ import type { Agent, HostServices, SpawnSpec, ToolDefinition, ToolRunContext } f
 const goldenFrame = fileURLToPath(new URL('../../../crates/frame/tests/fixtures/frames/root.frame.json', import.meta.url))
 const fakeBinary = [process.execPath, fileURLToPath(new URL('./fixtures/quality.mjs', import.meta.url))]
 
-/** What the fake resident says each element of the shown diagram covers. */
 const TARGETS: Record<string, Record<string, unknown>> = {
   'session-a': {
     ':core': { kind: 'component', files: ['src/core/order.ts'] },
@@ -32,7 +22,6 @@ const TARGETS: Record<string, Record<string, unknown>> = {
   'session-b': { ':api': { kind: 'class', files: ['src/session-b/api.ts'] } },
 }
 
-/** The spec's reason for a turn that ended while its request was unfinished. */
 const TURN_ENDED = 'the companion ended this turn without completing the display'
 
 const roots: string[] = []
@@ -83,14 +72,11 @@ async function setup() {
   const home = await mkdtemp(path.join(os.tmpdir(), 'uml request status home '))
   roots.push(home)
   const admitted: PromptRequest[] = []
-  /** Whether the fake controller holds the next admission, and its open gates. */
   let held = false
   const releases: (() => void)[] = []
   const sessionController = {
     async prompt(request: PromptRequest) {
       admitted.push(request)
-      // A held admission lets the test append the durable message before the
-      // panel's own admission resolves, as DSH can.
       if (held) await new Promise<void>(resolve => releases.push(resolve))
       return { accepted: true as const }
     },
@@ -118,7 +104,6 @@ async function setup() {
   const tool = (name: string, args: unknown, session = 'session-a') =>
     definitions.get(name)!.execute(args, { agent: agents[session], signal: new AbortController().signal } as ToolRunContext) as unknown as
       Promise<Record<string, unknown>>
-  /** Open a panel stream and keep reading it, so every pushed list is seen. */
   const open = async (session: string) => {
     const controller = new AbortController()
     controllers.push(controller)
@@ -136,17 +121,14 @@ async function setup() {
     return {
       events,
       lists,
-      /** The latest list once `condition` holds for it. */
       async status(condition: (list: RequestStatusEntry[]) => boolean) {
         await until(() => { const last = lists().at(-1); return last !== undefined && condition(last) })
         return lists().at(-1)!
       },
     }
   }
-  /** One session event, as DSH appends it: the fake DSH is the event's author. */
   const append = (session: string, event: Record<string, unknown>) =>
     (ctx as unknown as { emit(name: string, ...args: unknown[]): void }).emit('session/event', { id: session }, event)
-  /** The durable user message an admitted prompt becomes: it echoes the prompt id. */
   const message = (session: string, prompt: PromptRequest | undefined) => append(session, {
     type: 'user/message', seq: 1, time: 0,
     data: { role: 'user', id: `m-${prompt?.requestId}`, content: prompt?.content ?? [],
@@ -156,9 +138,7 @@ async function setup() {
   const turnEnd = (session: string) => append(session, { type: 'turn/end', seq: 2, time: 0, data: { turn: 1, reason: { kind: 'completed' } } })
   const write = (session: string, file: string, value: unknown) =>
     writeFile(path.join(projects[session]!, file), JSON.stringify(value))
-  /** Hold the next admission open, past the panel's own `prompt()` call. */
   const holdPrompts = () => { held = true }
-  /** Let every held admission resolve. */
   const releasePrompts = () => {
     held = false
     for (const release of releases.splice(0)) release()
@@ -175,7 +155,6 @@ async function until(condition: () => boolean, ms = 5000): Promise<void> {
   }
 }
 
-/** One request's entry as the panel sees it, in the order the table implies. */
 const entry = (op: string, target: unknown, state: RequestStatusEntry['state'], extra: Partial<RequestStatusEntry> = {}) =>
   ({ id: expect.any(String), op, target, state, reason: null, exitCode: null, ...extra })
 
@@ -187,7 +166,6 @@ it('marks the head in progress on the companion’s first uml_* call, and keeps 
   expect(await s.tool('uml_crap', {})).toMatchObject({ validResult: true })
   expect(await panel.status(list => list[0]?.state === 'running')).toEqual([
     entry('refresh-crap', { id: ':api', kind: 'class' }, 'running')])
-  // A later call of the same turn belongs to the same running request: no new state.
   const pushed = panel.lists().length
   expect(await s.tool('uml_ir', {})).toMatchObject({ validResult: true })
   await new Promise(resolve => setTimeout(resolve, 100))
@@ -229,7 +207,6 @@ it('completes the head on a successful display, and the display names the elemen
   expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: { id: ':core', kind: 'component' } })
   expect(await panel.status(list => list[0]?.state === 'done')).toEqual([
     entry('refresh-crap', { id: ':core', kind: 'component' }, 'done')])
-  // The next display answers no request: the target belonged to the one completed.
   expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: null })
 })
 
@@ -240,12 +217,10 @@ it('attributes a granted uml_ir to the request its id names, exactly, not to the
   await s.act('session-a', { action: 'new-proposal', name: 'Next' })
   const [omit, proposal] = await panel.status(list => list.length === 2)
   expect([omit!.state, proposal!.state]).toEqual(['queued', 'queued'])
-  // The companion answers the *second* request first: its id says so.
   const ir = s.tool('uml_ir', { request: proposal!.id })
   expect(await panel.status(list => list[1]?.state === 'running')).toEqual([
     omit!, { ...proposal!, state: 'running' }])
   expect(await ir).toMatchObject({ status: 'ok', validResult: true })
-  // A failing IR that presents that id fails that request, not the head.
   expect(await s.tool('uml_ir', { request: proposal!.id })).toMatchObject({ validResult: false,
     reason: expect.stringMatching(/unknown or was already used/) })
   expect(await panel.status(list => list[1]?.state === 'failed')).toEqual([
@@ -255,15 +230,10 @@ it('attributes a granted uml_ir to the request its id names, exactly, not to the
 it('completes the request its granted IR answered, not the head, on a successful display', async () => {
   const s = await setup()
   const panel = await s.open('session-a')
-  // Two requests wait; the companion answers the second one first, as its id says.
   await s.act('session-a', { action: 'omit', id: ':api' })
   await s.act('session-a', { action: 'omit', id: ':core' })
   const [first, second] = await panel.status(list => list.length === 2)
   expect(await s.tool('uml_ir', { request: second!.id })).toMatchObject({ status: 'ok', validResult: true })
-  // The display shows the diagram that IR wrote, so it answers that request:
-  // its target is the second element, and the head is still queued (#84). The
-  // kind is the shown frame's own — `:core` is a class there (`TARGETS` above
-  // only answers `quality-target`, so it says nothing about an omitted element).
   expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: { id: ':core', kind: 'class' } })
   expect(await panel.status(list => list[1]?.state === 'done')).toEqual([first, { ...second!, state: 'done' }])
 })
@@ -271,19 +241,14 @@ it('completes the request its granted IR answered, not the head, on a successful
 it('never completes a request queued after the IR whose diagram it shows (#84)', async () => {
   const s = await setup()
   const panel = await s.open('session-a')
-  // Two requests wait; a hand-run IR takes up the head, the first request.
   await s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':core' })
   await s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':api' })
   const [first, second] = await panel.status(list => list.length === 2)
   expect(await s.tool('uml_ir', {})).toMatchObject({ validResult: true })
-  // That request fails before the display runs, so the head is now the second
-  // request — one this display did not answer.
   await s.write('session-a', 'quality-binary.json', { exitCode: 1, reason: 'no coverage data for the configured scope' })
   expect(await s.tool('uml_crap', {})).toMatchObject({ validResult: false })
   const failed = { ...first!, state: 'failed', reason: 'no coverage data for the configured scope', exitCode: 1 }
   expect(await panel.status(list => list[0]?.state === 'failed')).toEqual([failed, second!])
-  // The display answers the request the IR took up, and that entry is already
-  // finished: it names no element, and the second request keeps waiting.
   expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: null })
   expect(panel.lists().at(-1)).toEqual([failed, second!])
 })
@@ -293,8 +258,6 @@ it('fails the head when the companion’s turn ends without completing the displ
   const panel = await s.open('session-a')
   await s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':api' })
   await panel.status(list => list.length === 1)
-  // The companion's turn claims the admitted message, then ends: the display it
-  // did not run is what the request still waited for.
   s.turnStart('session-a')
   s.message('session-a', s.admitted[0])
   s.turnEnd('session-a')
@@ -321,9 +284,6 @@ it('fails a request admitted before a turn that ends without consuming it', asyn
   const panel = await s.open('session-a')
   await s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':api' })
   await panel.status(list => list.length === 1)
-  // The request was queued before this turn began, so the turn owned it — and
-  // ended without consuming its message (a rejected or empty turn, or a
-  // companion that never reached the request). It must not stay queued forever.
   s.turnStart('session-a')
   s.turnEnd('session-a')
   expect(await panel.status(list => list[0]?.state === 'failed')).toEqual([
@@ -333,8 +293,6 @@ it('fails a request admitted before a turn that ends without consuming it', asyn
 it('leaves a request admitted during a running turn queued for the next one', async () => {
   const s = await setup()
   const panel = await s.open('session-a')
-  // The turn was already running when the panel queued the request: only the
-  // next turn can handle it, so this turn's end must not fail it.
   s.turnStart('session-a')
   s.message('session-a', { requestId: 'the-user-s-own-message', sessionId: 'session-a', mode: 'queue', content: [] })
   await s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':api' })
@@ -344,7 +302,6 @@ it('leaves a request admitted during a running turn queued for the next one', as
   await new Promise(resolve => setTimeout(resolve, 100))
   expect(panel.lists()).toHaveLength(pushed)
   expect(panel.lists().at(-1)![0]!.state).toBe('queued')
-  // Its own turn then ends without a display: now it fails.
   s.turnStart('session-a')
   s.message('session-a', s.admitted[0])
   s.turnEnd('session-a')
@@ -358,8 +315,6 @@ it('settles the request whose message a turn consumed before its admission resol
   s.holdPrompts()
   const acting = s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':api' })
   await until(() => s.admitted.length === 1)
-  // DSH starts the turn and appends the durable message before the panel's own
-  // admission returns: the claim must survive the record that follows it.
   s.turnStart('session-a')
   s.message('session-a', s.admitted[0])
   s.releasePrompts()
@@ -379,7 +334,6 @@ it('fails only the head a turn ended with, leaving the requests behind it queued
   s.turnStart('session-a')
   s.message('session-a', s.admitted[0])
   s.turnEnd('session-a')
-  // The second request was not this turn's: it still waits in DSH's queue.
   expect(await panel.status(list => list[0]?.state === 'failed')).toEqual([
     { ...first!, state: 'failed', reason: TURN_ENDED }, second!])
 })
@@ -390,13 +344,10 @@ it('attributes a quality call the user runs by hand to the head of the queue, an
   await s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':core' })
   await s.act('session-a', { action: 'quality-request', request: 'refresh-mutate', id: ':core' })
   const [first, second] = await panel.status(list => list.length === 2)
-  // Not the companion's call and not asked for by the panel: the head takes it.
   await s.write('session-a', 'quality-binary.json', { exitCode: 1, reason: 'the user asked for this run' })
   expect(await s.tool('uml_crap', {})).toMatchObject({ validResult: false })
   const failed = { ...first!, state: 'failed', reason: 'the user asked for this run', exitCode: 1 }
   expect(await panel.status(list => list[0]?.state === 'failed')).toEqual([failed, second!])
-  // FIFO moves on: the next successful quality run, IR and display answer the
-  // second request.
   await s.write('session-a', 'quality-binary.json', { exitCode: 0 })
   expect(await s.tool('uml_crap', {})).toMatchObject({ validResult: true })
   expect(await panel.status(list => list[1]?.state === 'running')).toEqual([failed, { ...second!, state: 'running' }])
@@ -411,13 +362,11 @@ it('never attributes one session’s calls to another session’s requests', asy
   const b = await s.open('session-b')
   await s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':api' })
   await a.status(list => list.length === 1)
-  // Session B runs the same tools; A's request stays queued.
   expect(await s.tool('uml_crap', {}, 'session-b')).toMatchObject({ validResult: true })
   await s.turnEnd('session-b')
   await new Promise(resolve => setTimeout(resolve, 100))
   expect(a.lists().at(-1)![0]!.state).toBe('queued')
   expect(b.lists().at(-1) ?? []).toEqual([])
-  // A's own call is what moves A's request.
   s.turnStart('session-a')
   s.message('session-a', s.admitted[0])
   expect(await s.tool('uml_crap', {})).toMatchObject({ validResult: true })

@@ -81,15 +81,8 @@ export type ResidentEvent =
   | { version: 1; seq: unknown; event: 'ack' }
   | { version: 1; seq: unknown; event: 'error'; message: string }
 
-/**
- * The events this version knows. The list is a version-1 fact, not a
- * whitelist on the wire: a name outside it is an added event (#84), and the
- * reader ignores it instead of ending the stream.
- */
 const EVENTS: ReadonlySet<string> = new Set(['ready', 'frame', 'search', 'context', 'state', 'ack', 'error',
-  // #27 overlays: additive, version 1 is unchanged. #47 deleted `inspector`.
   'card', 'source',
-  // #28 panel request targets: additive, version 1 is unchanged.
   'quality-target'])
 
 class Invalid extends Error {}
@@ -293,8 +286,6 @@ export function validateResidentEvent(value: unknown, label = 'resident event'):
       case 'context':
         return { version: RESIDENT_VERSION, seq, event, context: context(source.context, `${label}.context`) }
       case 'state':
-        // #45: the breadcrumb path and the status code ride on this event;
-        // the persisted session state keeps its own contract untouched.
         return { version: RESIDENT_VERSION, seq, event, state: validateSessionState(source.state, `${label}.state`),
           breadcrumbs: validateBreadcrumbs(source.breadcrumbs, `${label}.breadcrumbs`),
           status: validateSessionStatus(source.status, `${label}.status`),

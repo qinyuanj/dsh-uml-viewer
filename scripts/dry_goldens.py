@@ -45,8 +45,6 @@ def original(checkout: Path, name: str) -> None:
 
 
 def scenario(path: Path) -> tuple[str, list[str]]:
-    """The fixture project directory and the literal argv the scenario names."""
-
     lines = path.read_text(encoding="utf-8").splitlines()
     if not lines or not lines[0].startswith("project "):
         raise SystemExit(f"{path}: expected `project <fixture directory>`")
@@ -64,7 +62,6 @@ def scenario(path: Path) -> tuple[str, list[str]]:
 
 
 def setup(root: Path, lines: list[str]) -> None:
-    """Real git setup for --changed; never mutate the committed fixture."""
     for line in lines:
         if not line or line.startswith(("#", "arg ")):
             continue
@@ -90,13 +87,6 @@ def setup(root: Path, lines: list[str]) -> None:
 
 
 def normalized_stderr(data: bytes, root: Path) -> bytes:
-    # CLI output is captured as bytes. Only stderr's host-specific root, the
-    # native separators of the one line that prints an absolute path, and line
-    # endings are normalized. stdout and snapshot stay exact. Every other line
-    # holds `Path.as_posix()` output, which is "/" on every host, so it stays
-    # byte-exact; `Wrote` marks each native separator as <SEP> instead of
-    # flattening them, so a mixed "<ROOT>\\.metrics/dry.edn" cannot compare
-    # equal to the original's "<ROOT>\\.metrics\\dry.edn".
     text = data.decode("utf-8").replace("\r\n", "\n")
     for form in (str(root), root.as_posix()):
         text = text.replace(form, "<ROOT>")

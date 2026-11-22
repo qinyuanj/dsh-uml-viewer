@@ -1,11 +1,3 @@
-//! The shared worker queue, ported from the pinned original's
-//! `tests/test_lua_queue.py` (f772a83).
-//!
-//! The original unit-tests `run_queue` with a fake runner: the scheduling
-//! contract is about which mutant a free worker takes next, when a file's
-//! snapshot is published and what a failure leaves behind, not about Busted.
-//! This port keeps the same seam, so these cases need no Lua toolchain and no
-//! overlay mount; the real Busted queue is exercised in `tests/lua.rs`.
 use mutator::queue::run_queue;
 use mutator::sites::Site;
 use std::collections::BTreeMap;
@@ -14,8 +6,6 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-/// A site whose mutation identity names its file and value, as the original's
-/// fake `Site(source.name + str(value))` does.
 fn site(file: &str, value: usize) -> Site {
     Site {
         file: file.to_string(),
@@ -36,7 +26,6 @@ fn sites(file: &str, values: &[usize]) -> Vec<Site> {
     values.iter().map(|value| site(file, *value)).collect()
 }
 
-/// What the fake executor and publisher saw, in order.
 #[derive(Default)]
 struct Record {
     started: Vec<String>,
@@ -49,7 +38,6 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// A value that a mutant has to wait for: the original's `Event.wait`.
 #[derive(Default)]
 struct Signal {
     set: Mutex<bool>,
@@ -62,7 +50,6 @@ impl Signal {
         self.changed.notify_all();
     }
 
-    /// True when the signal was set before the five-second deadline.
     fn wait(&self) -> bool {
         let deadline = std::time::Duration::from_secs(5);
         let mut set = lock(&self.set);
@@ -82,10 +69,6 @@ impl Signal {
     }
 }
 
-/// Ported from `test_next_file_starts_while_previous_file_runs`: a worker that
-/// finishes a mutant takes the next one from any file, so one file's slowest
-/// mutant never idles the rest. Value 3 kills; value 9 waits until b.lua is
-/// published.
 #[test]
 fn the_next_file_starts_while_the_previous_file_runs() {
     let a = sites("a.lua", &[9, 3]);
@@ -118,7 +101,6 @@ fn the_next_file_starts_while_the_previous_file_runs() {
         "a.lua's slow mutant was still running when b.lua was published"
     );
     let record = record.into_inner().unwrap();
-    // b.lua finished first: its mutants need no wait.
     assert_eq!(
         record
             .published
@@ -143,9 +125,6 @@ fn the_next_file_starts_while_the_previous_file_runs() {
     );
 }
 
-/// Ported from `test_queue_preserves_each_files_survivor_first_order`: the
-/// sites of one file keep the order the engine scheduled them in, and files
-/// enter the queue in order.
 #[test]
 fn the_queue_preserves_each_files_order() {
     let a = sites("a.lua", &[2, 3]);
@@ -181,9 +160,6 @@ fn the_queue_preserves_each_files_order() {
     );
 }
 
-/// Ported from `test_worker_failure_publishes_only_completed_files`: a worker
-/// error stops the queue, keeps the snapshots of files that had finished, and
-/// never publishes one that had not.
 #[test]
 fn a_failing_site_publishes_only_completed_files() {
     let a = sites("a.lua", &[2]);
@@ -216,8 +192,6 @@ fn a_failing_site_publishes_only_completed_files() {
     );
 }
 
-/// Ported from `test_failed_publication_stops_the_queue`: a publication that
-/// fails stops the queue before another file's mutants can run.
 #[test]
 fn a_failed_publication_stops_the_queue() {
     let a = sites("a.lua", &[2]);
@@ -246,12 +220,6 @@ fn a_failed_publication_stops_the_queue() {
     );
 }
 
-/// Ported from the original's rule "after any failure no further file
-/// completes": a file whose last mutant lands after the stop is not published,
-/// even though its own mutant succeeded. The stop is raised inside the
-/// publication lock, so by the time the failing publication returns the queue's
-/// failure is stored; a short grace after the signal keeps the assertion about
-/// that ordering rather than about a scheduler race.
 #[test]
 fn a_stop_after_the_last_mutant_of_a_file_publishes_nothing() {
     let a = sites("a.lua", &[2]);
@@ -292,7 +260,6 @@ fn a_stop_after_the_last_mutant_of_a_file_publishes_nothing() {
     );
 }
 
-/// No jobs is a no-op: nothing runs and nothing publishes.
 #[test]
 fn an_empty_queue_runs_nothing() {
     let jobs: Vec<&[Site]> = Vec::new();
@@ -307,8 +274,6 @@ fn an_empty_queue_runs_nothing() {
     assert_eq!(result, Ok(()));
 }
 
-/// Every site of every file runs exactly once, whatever the worker count: the
-/// outcome map is keyed by mutation id, so no site is dropped or doubled.
 #[test]
 fn every_site_runs_once_across_workers() {
     let a = sites("a.lua", &[2, 3, 4]);

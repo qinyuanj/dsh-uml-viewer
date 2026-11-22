@@ -484,7 +484,6 @@ function legendShape(value: unknown, label: string): LegendShape {
   return shape as LegendShape
 }
 
-/** One row's swatch: the diagram's own roles, so one theme resolves both. */
 function legendSample(value: unknown, label: string): LegendSample {
   const source = record(value, label)
   const kind = str(source.kind, `${label}.kind`)
@@ -508,8 +507,6 @@ function legendSample(value: unknown, label: string): LegendSample {
     case 'ramp':
       return { kind, stops: list(source.stops, `${label}.stops`).map((stop, index) => color(stop, `${label}.stops[${index}]`)) }
     default:
-      // Compatible additive kind: the fields travel through unchanged and the
-      // panel keeps the row's label while drawing no swatch.
       return { ...source, kind } as LegendSample
   }
 }
@@ -624,8 +621,6 @@ function worldItem(value: unknown, label: string): WorldItem {
         marked: bool(source.marked, `${label}.marked`), fill: color(source.fill, `${label}.fill`),
         stroke: color(source.stroke, `${label}.stroke`), strokeWidth: num(source.strokeWidth, `${label}.strokeWidth`), ink: ink() }
     default:
-      // Compatible additive kind: the renderer skips it, so it borrows the base
-      // shape while every producer field travels through unchanged.
       return { ...base, ...source, kind: base.kind, lod: base.lod, bounds: base.bounds, dimmed: base.dimmed } as WorldItem
   }
 }
@@ -673,8 +668,6 @@ function chrome(value: unknown, label: string): ChromeItem {
             ink: color(entry.ink, `${label}.rows[${index}].ink`) }
         }) }
     default:
-      // The five canvas kinds left the frame with #46; a frame that carries
-      // one is a resident the panel cannot draw, so say so instead of drawing it.
       return at(`${label}.kind`, `unknown chrome kind ${JSON.stringify(kind)}; the hover popup is the only one`)
   }
 }
@@ -730,8 +723,6 @@ function hover(value: unknown, label: string): FrameHover {
   if (edges.length + indicators.length > HOVER_LIMITS.items) {
     at(label, `must hold at most ${HOVER_LIMITS.items} edges and indicators`)
   }
-  // `complete: false` carries no data at all: the capability is unavailable
-  // rather than silently partial (crates/frame/src/hover.rs).
   if (!complete && (edges.length > 0 || indicators.length > 0)) at(label, 'must carry no items when incomplete')
   const rowCount = [...edges, ...indicators].reduce((total, item) => total + item.rows.length, 0)
   if (rowCount > HOVER_LIMITS.rows) at(label, `must hold at most ${HOVER_LIMITS.rows} rows`)

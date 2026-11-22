@@ -1,19 +1,3 @@
-/**
- * The discussion-context switcher (#47, ADR 0015): the top bar's dropdown
- * that names the discussion context and changes it. It lists the source
- * diagram, then each proposal of the shown diagram (from the resident's
- * `state` event), and ends with 「新建提案」. It replaced the inspector's
- * proposal list, the canvas's proposal banner and the `Namespace tree` button.
- *
- * Choosing reuses the existing panel actions: `context` (the host switches the
- * view and tells the companion with a message in the conversation) and
- * `new-proposal` (the default name is still the local time). **P** is the
- * same as choosing the source diagram here: back to the namespace tree's root.
- *
- * Plain markup styled from host theme tokens (ADR 0013). Same rule as the
- * More menu: `role="menu"` only while open, because the host's shortcut
- * service treats any `[role="menu"]` in the document as an open modal.
- */
 import type { DiscussionContext, ProposalEntry } from '@dsh-uml-viewer/contracts'
 import { ENGLISH_TEXT, type PanelText } from './locale.js'
 
@@ -49,39 +33,26 @@ export const SWITCHER_STYLE = `
 .dsh-uml-viewer-switcher-separator { height: 1px; margin: 4px 0; background: var(--dsw-alias-border-l2); }
 `
 
-/** What the switcher asks for; `index.ts` wires these to the overlay controller. */
 export interface SwitcherActions {
-  /** The `context` action: the source diagram (null) or a proposal id. */
   choose(proposalId: string | null): void
-  /** The `namespace-tree` action: the source diagram's root, no context change. */
   namespaceTree(): void
-  /** The `new-proposal` action, with the local time as the default name. */
   newProposal(): void
 }
 
-/** What the switcher shows: the panel's discussion context and proposal list. */
 export interface SwitcherView {
   context: DiscussionContext | null
   proposals: readonly ProposalEntry[]
 }
 
-/** The proposal under discussion, or null for the source diagram. */
 function discussed(context: DiscussionContext | null): string | null {
   return context?.kind === 'proposal' ? context.proposalId ?? null : null
 }
 
-/**
- * **P** and the switcher's source-diagram row: back to the namespace tree's
- * root of the source diagram. Leaving a proposal is a context switch the
- * companion is told about; already on the source diagram only the view returns
- * to the root, so the conversation gets no repeat message.
- */
 export function returnToSourceTree(context: DiscussionContext | null, actions: SwitcherActions): void {
   if (context?.kind === 'proposal') actions.choose(null)
   else actions.namespaceTree()
 }
 
-/** The name the switcher's button shows for the current discussion context. */
 export function contextName(view: SwitcherView, text: PanelText): string {
   const id = discussed(view.context)
   if (view.context?.kind !== 'proposal') return text.t('switcher.source')
@@ -91,7 +62,6 @@ export function contextName(view: SwitcherView, text: PanelText): string {
 export interface ContextSwitcherOptions {
   text?: PanelText
   actions: SwitcherActions
-  /** Put the keyboard back where it was after a choice. */
   onDone?: () => void
 }
 
@@ -105,7 +75,6 @@ export interface ContextSwitcher {
 
 let counter = 0
 
-/** Build the switcher; the caller places `element` in the top bar. */
 export function mountContextSwitcher(doc: Document, options: ContextSwitcherOptions): ContextSwitcher {
   const text = options.text ?? ENGLISH_TEXT
   const root = doc.createElement('div')
@@ -191,8 +160,6 @@ export function mountContextSwitcher(doc: Document, options: ContextSwitcherOpti
       heading.textContent = text.t('switcher.proposals')
       rows.push(heading)
       for (const proposal of view.proposals) {
-        // The proposal already under discussion stays as it is: choosing it
-        // again would tell the companion nothing new.
         const choice = item(proposal.name, 'menuitemradio', () => {
           if (proposal.id !== discussed(view.context)) options.actions.choose(proposal.id)
         }, proposal.id === active)
@@ -229,8 +196,6 @@ export function mountContextSwitcher(doc: Document, options: ContextSwitcherOpti
   }
 
   const onTrigger = (): void => show()
-  // A press outside the switcher closes it; the trigger's own click toggles.
-  // The listener exists only while the menu is open, like its `menu` role.
   const dismiss = (event: Event): void => {
     if (!open) return
     const target = event.target as Node | null
@@ -261,7 +226,6 @@ export function mountContextSwitcher(doc: Document, options: ContextSwitcherOpti
           : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
     items[next]?.focus()
   }
-  // The trigger opens the menu from the keyboard too (ArrowDown, like a select).
   const triggerKey = (event: KeyboardEvent): void => {
     if (open || event.isComposing || event.key !== 'ArrowDown') return
     event.preventDefault()
@@ -275,8 +239,6 @@ export function mountContextSwitcher(doc: Document, options: ContextSwitcherOpti
   return {
     element: root,
     render(next) {
-      // Every frame publishes a status; only a changed list or context
-      // rebuilds an open menu, so the keyboard focus in it survives.
       const changed = discussed(next.context) !== discussed(view.context)
         || JSON.stringify(next.proposals) !== JSON.stringify(view.proposals)
       view = next

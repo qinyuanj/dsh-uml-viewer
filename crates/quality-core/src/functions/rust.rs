@@ -1,14 +1,3 @@
-//! Rust functions and cyclomatic complexity.
-//!
-//! Decision points are `if` / `if let`, `for`, `while` / `while let`, `loop`,
-//! each `match` arm, `?`, and `&&` / `||`. Free functions are namespaced by
-//! the module path (`crate::foo::bar`), methods by the self type
-//! (`crate::foo::Widget`). Test code is not scored: a `tests` module (inline
-//! or a `tests.rs` file), a file or module opening with `#![cfg(test)]`, an
-//! item marked `#[test]`, `#[bench]`, `#[<runner>::test]`, or a `cfg` that
-//! holds only under `test` (`cfg(test)`, `cfg(all(test, ...))`; not
-//! `cfg(any(test, ...))`).
-
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
@@ -38,7 +27,6 @@ fn is_decision(node: Node) -> bool {
     DECISIONS.contains(&node.kind()) || binary_logic(node, &["&&", "||"])
 }
 
-/// The comma-separated predicates inside a cfg `token_tree`.
 fn cfg_items(tree: Node) -> Vec<Vec<Node>> {
     let kids = children(tree);
     let inner = if kids.len() >= 2 {
@@ -57,7 +45,6 @@ fn cfg_items(tree: Node) -> Vec<Vec<Node>> {
     items.into_iter().filter(|item| !item.is_empty()).collect()
 }
 
-/// True when this cfg predicate can only hold in a `cfg(test)` build.
 fn requires_test(source: &str, item: &[Node]) -> bool {
     let name = text(source, item[0]);
     if item.len() == 1 {
@@ -94,9 +81,6 @@ fn test_attribute(source: &str, item: Node) -> bool {
     predicates.len() == 1 && requires_test(source, &predicates[0])
 }
 
-/// Per-file lookups that the per-function walk up the tree would otherwise
-/// redo: each node's previous named sibling, and which containers are test
-/// modules. A generated file with thousands of items stays linear.
 struct Context<'t> {
     previous_named: HashMap<usize, Node<'t>>,
     test_modules: RefCell<HashMap<usize, bool>>,
@@ -122,7 +106,6 @@ impl<'t> Context<'t> {
         }
     }
 
-    /// An outer attribute right before `node` marks it as test code.
     fn marked_test(&self, source: &str, node: Node<'t>) -> bool {
         let mut sibling = self.previous_named.get(&node.id()).copied();
         while let Some(current) = sibling {
@@ -179,8 +162,6 @@ fn test_module(source: &str, node: Node) -> bool {
     child_of_kind(node, &["declaration_list"]).is_some_and(|body| inner_test(source, body))
 }
 
-/// The self type of `impl Type` or `impl Trait for Type`, by its last path
-/// segment.
 fn impl_type(source: &str, implementation: Node) -> Option<String> {
     let node = implementation.child_by_field_name("type")?;
     if !SELF_TYPES.contains(&node.kind()) {
@@ -202,8 +183,6 @@ fn impl_owner(source: &str, node: Node) -> Option<String> {
     impl_type(source, owner)
 }
 
-/// The start of the first line beginning with `[package]`, and the end of
-/// its table (the next line beginning with `[`, or the end).
 fn package_block(manifest: &str) -> Option<&str> {
     let bytes = manifest.as_bytes();
     let line_start = |at: usize| at == 0 || bytes[at - 1] == b'\n';
@@ -216,7 +195,6 @@ fn package_block(manifest: &str) -> Option<&str> {
     Some(&manifest[start..end])
 }
 
-/// The first `name = "..."` at the start of a line in the package table.
 fn package_name(block: &str) -> Option<&str> {
     let bytes = block.as_bytes();
     for at in 0..block.len() {
@@ -239,8 +217,6 @@ fn package_name(block: &str) -> Option<&str> {
     None
 }
 
-/// The crate of `file`: the nearest ancestor `Cargo.toml` with a
-/// `[package]` table names it (`-` as `_`); without one it is `crate`.
 fn crate_name(file: &Path) -> (String, Option<PathBuf>) {
     for directory in file.ancestors().skip(1) {
         let cargo = directory.join("Cargo.toml");
@@ -270,8 +246,6 @@ fn stem(file: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// Module segments of a file below its crate root; `lib.rs`, `main.rs` and
-/// `mod.rs` add none.
 fn crate_relative(file: &Path, crate_root: &Path) -> Vec<String> {
     let relative = relative_posix(file, crate_root).unwrap_or_default();
     let relative = relative.strip_prefix("src/").unwrap_or(&relative);
@@ -304,7 +278,6 @@ fn file_modules(file: &Path, crate_name: &str, crate_root: Option<&Path>) -> Vec
     modules
 }
 
-/// Names of the enclosing inline `mod` items, outermost first.
 fn enclosing_modules(source: &str, node: Node) -> Vec<String> {
     let mut names = Vec::new();
     let mut current = node.parent();

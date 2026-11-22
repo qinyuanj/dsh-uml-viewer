@@ -1,8 +1,3 @@
-//! Metrics overlay — the closed_overlay_parity_spec and metrics_spec oracle
-//! (pure parts; adapter IO stays outside this crate's core). Each class is
-//! read through the interface: a view state loaded with the snapshots and
-//! the class card's record, which is the overlaid document's record.
-
 use edn::record::{get, local_name, num};
 use edn::{Value, parse};
 use scene::Snapshot;
@@ -18,7 +13,6 @@ fn classes(doc: &Value) -> Vec<Value> {
     }
 }
 
-/// The overlaid record of every document class, in document order.
 fn overlaid(doc: &Value, files: &[Snapshot]) -> Vec<Value> {
     let state = scene::document::new_state(doc.clone(), None, None, None, files, None);
     classes(doc)
@@ -81,7 +75,6 @@ fn joins_typescript_modules_and_rust_crate_metrics_without_leaking() {
 #[test]
 fn newer_mutation_snapshot_wins_over_older_explicit_or_derived() {
     let doc = parse(r#"{:hierarchical true :classes [{:id :config :ns "demo.config"}]}"#).unwrap();
-    // Lua oracle order: (worse time, pool time, expected killed, expected form).
     for (worse_at, pool_at, killed, op) in [(2000, 1000, 1.0, "worse"), (2000, 3000, 2.0, "pool")] {
         let cs = overlaid(
             &doc,
@@ -192,7 +185,6 @@ fn newest_duplicate_namespace_wins_and_authored_fallback_is_kept() {
         ],
     );
     assert_eq!(Some(7.0), num(get(&cs[0], "killed").unwrap()));
-    // :namespace wins over a contradictory :source path.
     let doc2 = parse(r#"{:hierarchical true :classes [{:id :a :ns "my_module"}]}"#).unwrap();
     let cs = overlaid(
         &doc2,
@@ -207,9 +199,6 @@ fn newest_duplicate_namespace_wins_and_authored_fallback_is_kept() {
 
 #[test]
 fn foreign_and_oval_classes_are_never_painted() {
-    // The Lua spec compiled through read_document + compile_document, which
-    // flattens diagram classes and normalizes a numeric :crap; compile_view
-    // of a non-hierarchical document is that compile of the overlay.
     let doc = scene::ir::read_document(r#"{:diagrams [{:packages [{:label "P" :classes [{:id :a :ns "a" :crap 2 :killed 1 :survived 0} {:id :b :ns "b" :shape :oval}]}]} {:packages [{:label "Q" :classes [{:id :c :ns "c"}]}]}]}"#).unwrap();
     let cs = classes(&scene::document::compile_view(
         &doc,
@@ -221,13 +210,11 @@ fn foreign_and_oval_classes_are_never_painted() {
         &[],
         &Value::Map(vec![]),
     ));
-    // The authored CRAP value survives; the oval class is never painted.
     assert_eq!(
         Some(2.0),
         num(get(get(&cs[0], "crap").unwrap(), "mu").unwrap())
     );
     assert!(get(&cs[1], "crap").is_none());
-    // Empty snapshots leave the document untouched.
     let raw = parse(r#"{:hierarchical true :classes [{:id :a}]}"#).unwrap();
     assert_eq!(classes(&raw), overlaid(&raw, &[]));
 }

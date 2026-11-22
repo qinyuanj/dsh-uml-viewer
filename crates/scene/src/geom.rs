@@ -1,8 +1,3 @@
-//! Geometry over the EDN value boundary (port of `love/uml/domain/geom.lua`).
-//! Rects are EDN maps `{:x :y :w :h}` and points are 2-vectors at the public
-//! boundary; internally the math runs on plain f64 pairs. Record reading
-//! lives in `edn::record`.
-
 use edn::Value;
 use edn::record::{get, num, numval};
 
@@ -99,7 +94,6 @@ pub enum Face {
     Bottom,
 }
 
-/// Nearest rect face to a point (Lua `R.face`).
 pub fn face(r: Rect, p: [f64; 2]) -> Face {
     let ds = [
         (p[0] - r.x).abs(),
@@ -116,7 +110,6 @@ pub fn face(r: Rect, p: [f64; 2]) -> Face {
     [Face::Left, Face::Right, Face::Top, Face::Bottom][bi]
 }
 
-/// `G.union`: bounding rect of all present rects, `None` when empty.
 pub fn union(rects: &[Option<Rect>]) -> Option<Rect> {
     let mut out: Option<Rect> = None;
     for r in rects.iter().flatten() {
@@ -168,9 +161,6 @@ fn lerp(a: [f64; 2], b: [f64; 2], t: f64) -> [f64; 2] {
     [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]
 }
 
-/// `G.gap_segment`: the sub-segments of `a–b` left visible after clipping the
-/// padded obstacle rects. The rect scan order is irrelevant (intervals are
-/// sorted and merged), so callers may source rects from a spatial index.
 #[cfg(test)]
 pub fn gap_segment(a: [f64; 2], b: [f64; 2], rects: &[Rect], pad: f64) -> Vec<[[f64; 2]; 2]> {
     let padded: Vec<Rect> = rects.iter().map(|r| r.inflate(pad)).collect();
@@ -181,14 +171,12 @@ pub fn gap_segment(a: [f64; 2], b: [f64; 2], rects: &[Rect], pad: f64) -> Vec<[[
     out
 }
 
-/// Interval buffers reused across the segments of one polyline.
 #[derive(Default)]
 struct Scratch {
     removed: Vec<[f64; 2]>,
     merged: Vec<[f64; 2]>,
 }
 
-/// Lower and upper corners of the points' bounding box.
 fn corners(ps: &[[f64; 2]]) -> ([f64; 2], [f64; 2]) {
     let (mut lo, mut hi) = (ps[0], ps[0]);
     for p in &ps[1..] {
@@ -207,8 +195,6 @@ fn apart(lo: [f64; 2], hi: [f64; 2], r: Rect) -> bool {
     hi[0] < r.x || lo[0] > r.right() || hi[1] < r.y || lo[1] > r.bottom()
 }
 
-/// `gap_segment` over rects already inflated by the pad: each visible piece
-/// goes to `keep`.
 fn clip_segment(
     a: [f64; 2],
     b: [f64; 2],
@@ -288,13 +274,8 @@ fn clip_segment(
     }
 }
 
-/// Points per block whose bounding box pre-filters the rects.
 const BLOCK: usize = 16;
 
-/// `G.gap_polyline`: every polyline segment clipped, adjacent pieces joined.
-/// Rects are filtered with [`apart`] per block of segments, then per
-/// segment, so a long edge only tests the boxes near each stretch; the
-/// pieces are the same as clipping every segment against every rect.
 pub fn gap_polyline(ps: &[[f64; 2]], rects: &[Rect], pad: f64) -> Vec<Vec<[f64; 2]>> {
     let mut out: Vec<Vec<[f64; 2]>> = Vec::new();
     if ps.len() < 2 {

@@ -37,8 +37,6 @@ test('package build refuses absent native input without emitting archives', asyn
   } finally { await rm(scratch, { recursive: true, force: true }) }
 })
 
-// Run against real assembled archives, never fixture executables. The build command
-// emits the archive inventory, then this public seam verifies that exact payload.
 if (process.env.UML_VIEWER_PACKAGE_REPORT) test('assembled archives contain only the release runtime payload', async () => {
   const report = JSON.parse(await readFile(process.env.UML_VIEWER_PACKAGE_REPORT, 'utf8'))
   assert.equal(report.platform, `${process.platform}-${process.arch}`)
@@ -77,8 +75,6 @@ if (process.env.UML_VIEWER_PACKAGE_REPORT) test('assembled archives contain only
     ['uml_ir', 'uml_crap', 'uml_mutate', 'uml_dry', 'uml_display'])
   assert.deepEqual(manifest.permissions.map(permission => permission.scope).sort(),
     ['dsh-home', 'filesystem-read', 'filesystem-write', 'subprocess'])
-  // One delivery host: the manifest shipped in the main archive names exactly
-  // the platform package this assembly emits.
   assert.deepEqual(manifest.contributes['x-components'][0].platforms, ['win32'])
   assert.deepEqual(manifest.contributes['x-components'][0].targets, ['win32-x64'])
   const patch = extract(report.main.path, 'cordis.patch.yml')

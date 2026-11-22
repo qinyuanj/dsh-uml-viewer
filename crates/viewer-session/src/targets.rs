@@ -1,15 +1,3 @@
-//! Quality refresh targets (#28) as the resident answers them: the elements
-//! `scene::targets` resolved, turned into bounded, deterministic, canonical
-//! project-relative source files. The grouping rules (namespace subtree,
-//! proposal layers and nested groups, `:omit`, `:proposal.unassigned`) stay
-//! in the scene; this module owns only the file boundary, which is the
-//! resident's, exactly as for the source window ([`crate::overlays`]).
-//!
-//! The protocol is `docs/resident-protocol.md`. A class with no `:file`, a
-//! path outside the session project, a missing file or an id the shown tree
-//! does not have is an explicit `error`; nothing is ever delivered with an
-//! empty or partial file list.
-
 use std::collections::BTreeSet;
 use std::path::{Component, Path};
 
@@ -82,8 +70,6 @@ pub fn quality_target_for(
     Ok(payload)
 }
 
-/// The canonical project-relative source files of one target, sorted and
-/// deduplicated: two classes in one file refresh that file once.
 fn target_files(project: &Path, members: &[scene::targets::Member]) -> Result<Vec<String>, String> {
     let project = std::fs::canonicalize(project)
         .map_err(|e| format!("cannot resolve the session project: {e}"))?;
@@ -109,11 +95,6 @@ fn target_files(project: &Path, members: &[scene::targets::Member]) -> Result<Ve
     Ok(files.into_iter().collect())
 }
 
-/// One IR `:file` as a canonical project-relative path: normalized forward
-/// slashes, no `.`/`..` segment, inside the session project, an existing
-/// file. The containment check is the source window's own
-/// ([`crate::overlays::project_source`]), so links and junctions resolve the
-/// same way, and the canonical spelling collapses two paths to one file.
 fn canonical_source(project: &Path, file: &str) -> Result<String, String> {
     let relative = file.replace('\\', "/");
     if relative.len() > QUALITY_TARGET_MAX_PATH_BYTES {

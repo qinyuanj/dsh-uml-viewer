@@ -1,5 +1,3 @@
-//! `uml-viewer scene` argument parsing and the projection it writes.
-
 use crate::cli::{Options, execute, parse_args};
 use edn::Value;
 use edn::record::{get, seq};

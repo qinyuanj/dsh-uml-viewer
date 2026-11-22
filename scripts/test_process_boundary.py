@@ -1,14 +1,3 @@
-"""Production Rust code launches processes only through the named adapters.
-
-Four review-found bugs came from launches outside an adapter (a `.cmd`
-wrapper re-expanding %VAR%, a lost timeout, a bypassed Job Object).
-clippy.toml forbids `std::process::Command::new`; this scan makes every
-escape from that lint in production sources (`crates/*/src`) a deliberate,
-listed one. A crate root may lift it for its own tests only
-(`#![cfg_attr(test, allow(clippy::disallowed_methods))]`). The Herdr
-companion and its OS adapter were deleted with the Python entry (#18); the
-viewer model and session launch no process at all.
-"""
 from pathlib import Path
 import re
 import unittest
@@ -16,7 +5,6 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 ALLOW = re.compile(r'allow\(\s*clippy::disallowed_methods\s*\)')
 TEST_ONLY = re.compile(r'cfg_attr\(\s*test\s*,\s*allow\(\s*clippy::disallowed_methods\s*\)\s*\)')
-# file -> why it may launch.
 ADAPTERS = {
     'crates/quality-core/src/process.rs': 'the quality tools\' one process boundary (ADR 0012)',
     'crates/mutator/src/isolation.rs': 'the Linux namespace view launcher (PR_SET_PDEATHSIG, process group)',
@@ -26,7 +14,6 @@ FIX = ('launch through crates/quality-core/src/process.rs, or add the file to AD
 
 
 def violations(files):
-    """`(relative path, text)` pairs -> one line per lint escape outside ADAPTERS."""
     found = []
     for path, text in files:
         if path in ADAPTERS:

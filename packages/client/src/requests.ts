@@ -23,16 +23,12 @@ const LABELS: Record<QualityRequestOp, TextKey> = {
   'refresh-mutate-all': 'menu.refreshMutateAll',
 }
 
-/** One panel request an element offers: the element menu and the action bar (#48) share these. */
 export interface ElementRequest {
   readonly label: TextKey
-  /** The request for one element id; the host resolves its files. */
   action(id: string): PanelAction
-  /** Slow or rarely wanted: the action bar keeps it in its secondary menu. */
   readonly secondary: boolean
 }
 
-/** The three quality refreshes (#28), then Hide (#29); full mutation is the slow one. */
 export const ELEMENT_REQUESTS: readonly ElementRequest[] = [
   ...QUALITY_REQUESTS.map((op): ElementRequest => ({
     label: LABELS[op],
@@ -42,10 +38,6 @@ export const ELEMENT_REQUESTS: readonly ElementRequest[] = [
   { label: 'menu.hide', action: id => ({ action: 'omit', id }), secondary: false },
 ]
 
-/**
- * Send one element request and put a refusal on the status bar. `live` says
- * whether the surface that asked still exists when the answer comes back.
- */
 export function sendElementRequest(action: PanelAction, options: {
   send(action: PanelAction): Promise<PanelAck | null>
   report(reason: string | (() => string) | null): void
@@ -60,16 +52,9 @@ export function sendElementRequest(action: PanelAction, options: {
   })
 }
 
-/**
- * Attach the element menu to one panel: the quality refreshes (#28) and Hide
- * (#29, `omit`). It sends only a validated element id to
- * that panel's `action` API; the host resolves the files and queues the visible
- * message. It uses no composer API and never focuses or changes a draft.
- */
 export function mountQualityMenu(host: HTMLElement, canvas: HTMLCanvasElement, options: {
   frame(): SceneFrame | null
   send(action: PanelAction): Promise<PanelAck | null>
-  /** A thunk is the panel's own text, re-read in the current language. */
   report(reason: string | (() => string) | null): void
   text?: PanelText
 }): () => void {
@@ -87,8 +72,6 @@ export function mountQualityMenu(host: HTMLElement, canvas: HTMLCanvasElement, o
     menu.removeAttribute('role')
     target = null
   }
-  // All four element requests, the action bar's secondary one included (#48):
-  // each sends the bound id only.
   const labels: (() => void)[] = [() => menu.setAttribute('aria-label', text.t('menu.label'))]
   for (const request of ELEMENT_REQUESTS) {
     const button = document.createElement('button')
@@ -116,7 +99,6 @@ export function mountQualityMenu(host: HTMLElement, canvas: HTMLCanvasElement, o
     const world = cssToWorld(frame, bounds, event.offsetX, event.offsetY)
     const id = world ? hitTest(frame, world) : null
     if (id === null) return
-    // Dependency ports and foreign library ellipses have no element menu.
     const element = frame.world.find(item => (item.kind === 'class' || item.kind === 'package') && item.id === id)
     if (!element || (element.kind === 'class' && element.shape === 'oval')) return
     target = id

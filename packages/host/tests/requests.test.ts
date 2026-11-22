@@ -1,8 +1,3 @@
-// #review H3: one panel request must never hold its session's FIFO forever.
-// The admission (the resident's answer plus DSH's prompt) runs under one
-// deadline, and the signal it aborts is the one every step of that request
-// receives, so a step that never settles fails this request with a reason and
-// the requests queued behind it still run.
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Agent, HostServices, SessionPromptRequest } from '../src/dsh.js'
 import { RequestGrants } from '../src/gate.js'
@@ -50,7 +45,6 @@ it('abandons a prompt that never resolves and admits the request queued behind i
   const second = s.requests.deliver(agent, 'refresh-mutate', ':api')
   await vi.advanceTimersByTimeAsync(ADMISSION_TIMEOUT_MS)
   expect(await first).toEqual({ accepted: false, reason: expect.stringMatching(/not admitted within 20s/) })
-  // The FIFO moved on: the request queued behind the abandoned one still runs.
   expect(await second).toEqual({ accepted: true, reason: null })
 })
 
@@ -62,6 +56,5 @@ it('passes the one abortable signal to the resident answer and aborts it at the 
   expect(await answer).toEqual({ accepted: false, reason: expect.stringMatching(/not admitted within 20s/) })
   expect(s.signals).toHaveLength(1)
   expect(s.signals[0]!.aborted).toBe(true)
-  // Nothing was queued: a request that never resolved names no target.
   expect(s.admitted).toEqual([])
 })

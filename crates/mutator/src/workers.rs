@@ -1,11 +1,3 @@
-//! Worker slots: the private overlay views one call creates and reuses.
-//!
-//! A slot is a `0700` directory under a single scratch root for the whole call.
-//! Every command still runs in a fresh overlay over the same slot path, so a
-//! test's writes reach neither the project nor the next mutant, and the pool's
-//! slots are what "one call, one coverage run, one baseline, reused workers"
-//! means observably: `MUTATOR_VIEW` names the same few slot paths for every
-//! mutant of every target file.
 use crate::{
     interrupts,
     isolation::{Failure, View},
@@ -19,8 +11,6 @@ use std::{
     sync::{Mutex, MutexGuard},
 };
 
-/// Mutants to run at once: the original's
-/// `min(site_count, processors, --max-workers)`, never below one.
 pub fn worker_count(sites: usize, requested: Option<usize>) -> usize {
     let processors = std::thread::available_parallelism().map_or(1, |count| count.get());
     sites
@@ -31,27 +21,18 @@ pub fn worker_count(sites: usize, requested: Option<usize>) -> usize {
 
 pub struct Workers {
     slots: Vec<PathBuf>,
-    // One Cargo target directory per slot (`crate::build_cache`). Each is a
-    // sibling of its `worker-<n>` slot, so the wipe every command performs
-    // cannot remove it, and no worker reads another's compiled objects.
     #[cfg(windows)]
     caches: Vec<crate::build_cache::BuildCache>,
-    // The root owns the slots and the caches: dropping it removes them all.
     _root: scratch::Root,
 }
 
 impl Workers {
-    /// A pool of `count` reusable slots under one private scratch root.
     pub fn new(project: &Path, count: usize) -> io::Result<Self> {
         let root = scratch::Root::new(project)?;
         let count = count.max(1);
         let mut slots = Vec::with_capacity(count);
         #[cfg(windows)]
         let mut caches = Vec::with_capacity(count);
-        // The one directory the workers' caches live in: a sibling of every
-        // `worker-<n>` slot, so no command's wipe reaches it.
-        // The one directory the workers' target directories live in: a sibling
-        // of every `worker-<n>` slot, so no command's wipe reaches it.
         #[cfg(windows)]
         let caches_root = root
             .path()
@@ -63,9 +44,6 @@ impl Workers {
             let slot = root.path().join(format!("worker-{index}"));
             scratch::private_directory(&slot)?;
             slots.push(slot);
-            // Always created, even before anything is compiled into it: an
-            // empty directory inside this call's own scratch root changes
-            // nothing a command can see.
             #[cfg(windows)]
             {
                 let directory = caches_root.join(format!("worker-{index}"));
@@ -85,7 +63,6 @@ impl Workers {
         self.slots.len()
     }
 
-    /// The view of one slot; the caller owns only the command it runs there.
     pub fn view(&self, index: usize) -> View {
         let index = index % self.slots.len();
         let view = View::reused(&self.slots[index]);
@@ -97,11 +74,6 @@ impl Workers {
         view
     }
 
-    /// Run each site once across `count` workers and collect its outcome.
-    ///
-    /// Sites are taken from one queue, so a slow mutant never leaves a worker
-    /// idle. The outcome map is keyed by mutation id, so the published bytes do
-    /// not depend on which worker ran what, or in which order.
     pub fn run_selected(
         &self,
         count: usize,
@@ -152,7 +124,6 @@ impl Workers {
     }
 }
 
-/// A worker panicking must not turn the others' results into a poisoned lock.
 fn locks<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()

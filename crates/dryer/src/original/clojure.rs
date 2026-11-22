@@ -1,5 +1,3 @@
-//! `dryer/tests/test_clojure.py` at pinned b3f72ad, ported case by case.
-
 use super::{duplicates, scratch, write_source};
 use crate::clojure::{Coll, Form, is_candidate_form, max_line, normalize, read_source};
 use crate::normalize::Normalized;
@@ -23,7 +21,6 @@ fn name(form: &Form) -> &str {
         other => panic!("not a symbol or keyword: {other:?}"),
     }
 }
-/// `type(item).__name__` in the original assertions.
 fn tag(form: &Form) -> &'static str {
     match form {
         Form::Sym(..) => "Sym",

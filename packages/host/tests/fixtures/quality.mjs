@@ -1,6 +1,3 @@
-// A real quality child process for the Cordis seam. It records observable
-// starts/ends and argv, then prints the one-line version-1 record the real
-// binary would print. Configuration lives in quality-binary.json.
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 
 const argv = process.argv.slice(2)

@@ -1,8 +1,3 @@
-/**
- * Switch the DSH language through the real host UI
- * (Account menu → Settings → General → Language). Shared by the locale,
- * legend and tool-view specs (#42).
- */
 export async function switchLanguage(page, label) {
   await page.getByRole('button', { name: /^(Account menu|账号菜单)$/ }).first().click()
   await page.locator('[role^="menuitem"]').filter({ hasText: /^(Settings|设置)/ }).first().click()

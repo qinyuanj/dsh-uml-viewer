@@ -1,4 +1,3 @@
-//! TypeScript mutation: sites, privacy, the per-file test plan and coverage.
 use crate::operators;
 use quality_core::{
     grammar::{Grammar, Node},
@@ -13,8 +12,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// `_grammar`: `.tsx` parses with the TSX grammar, every other suffix with
-/// TypeScript's.
 pub fn grammar(path: &Path) -> Grammar {
     if path.to_string_lossy().ends_with(".tsx") {
         Grammar::Tsx
@@ -23,7 +20,6 @@ pub fn grammar(path: &Path) -> Grammar {
     }
 }
 
-/// Python `re.search(r"\bprivate\b", header)` with Unicode word characters.
 pub(crate) fn mentions_private(header: &str) -> bool {
     let word = |ch: char| ch.is_alphanumeric() || ch == '_';
     header.match_indices("private").any(|(at, _)| {
@@ -33,14 +29,10 @@ pub(crate) fn mentions_private(header: &str) -> bool {
     })
 }
 
-/// `_typescript_private`: an ECMAScript `#name` or the `private` keyword in
-/// the declaration's first lines.
 pub fn private(name: &str, header: &str) -> bool {
     name.starts_with('#') || mentions_private(header)
 }
 
-/// The leaf's site under the original's TypeScript rules: `>>>` has one
-/// mutant, `<<`.
 pub fn site(node: Node, token: &str) -> Option<(String, &'static str)> {
     operators::leaf(node, token, |token| {
         if token == ">>>" {
@@ -50,7 +42,6 @@ pub fn site(node: Node, token: &str) -> Option<(String, &'static str)> {
     })
 }
 
-/// `test_plan(root, source, "typescript", None)`: `npm test` at the package.
 pub fn test_plan(root: &Path, source: &Path) -> (Vec<String>, PathBuf) {
     let root = resolve(root);
     let directory = nearest(source, "package.json", &root).unwrap_or(root);
@@ -71,17 +62,12 @@ fn json(path: &Path) -> Option<Value> {
     value.is_object().then_some(value)
 }
 
-/// One package's coverage: a single view command, so the install, the tests
-/// and the report share one upper layer.
 pub struct Coverage {
     pub script: String,
-    /// Project-relative report the caller reads from the view's upper layer.
     pub report: PathBuf,
-    /// `npm run coverage` owns its report location; the others are anchored.
     pub custom: bool,
 }
 
-/// `runners._typescript_command`: the project's script, Vitest, or c8.
 pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Option<Coverage> {
     let data = json(&package.join("package.json"))?;
     let scripts = data.get("scripts").and_then(Value::as_object);
@@ -237,14 +223,12 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Option<Covera
     })
 }
 
-/// Every TypeScript package among the selected files.
 pub fn coverage_roots(root: &Path, files: &[PathBuf]) -> Vec<PathBuf> {
     modules_with(files, Language::TypeScript, "package.json", root)
 }
 
 #[cfg(test)]
 mod tests {
-    //! Ported from the original `tests/test_runner.py` TypeScript plan cases.
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NEXT: AtomicUsize = AtomicUsize::new(0);

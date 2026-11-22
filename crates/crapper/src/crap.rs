@@ -1,6 +1,3 @@
-//! The CRAP formula, the sorted entries, the text report and the
-//! `.metrics/crap.edn` snapshot.
-
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 
@@ -9,7 +6,6 @@ use quality_core::functions::Function;
 use quality_core::language::Language;
 use quality_core::snapshot::{self, Row};
 
-/// One row of the report and of the snapshot.
 #[derive(Clone, Debug)]
 pub struct Entry {
     pub name: String,
@@ -21,7 +17,6 @@ pub struct Entry {
     pub language: Language,
 }
 
-/// CRAP = CC² × (1 − coverage)³ + CC; no score without coverage.
 pub fn crap_score(complexity: u32, coverage_pct: Option<f64>) -> Option<f64> {
     let coverage = coverage_pct?;
     let cc = f64::from(complexity);
@@ -44,7 +39,6 @@ pub fn make_entry(function: &Function, coverage: Option<f64>) -> Entry {
     }
 }
 
-/// Worst CRAP first; unscored rows after scored rows, by complexity.
 pub fn sort_entries(entries: &mut [Entry]) {
     entries.sort_by(|a, b| {
         let rank = |entry: &Entry| match entry.crap {
@@ -62,7 +56,6 @@ pub fn sort_entries(entries: &mut [Entry]) {
     });
 }
 
-/// Entries for every function in `files` (project-relative to `root`).
 pub fn analyze(
     files: &[PathBuf],
     root: &Path,
@@ -87,7 +80,6 @@ pub fn analyze(
     Ok(entries)
 }
 
-/// The snapshot uml-viewer joins on `:namespace` and `:name`.
 pub fn render_edn(entries: &[Entry]) -> String {
     let rows: Vec<Row> = entries
         .iter()
@@ -111,7 +103,6 @@ fn pad(text: &str, width: usize) -> String {
     format!("{text:<width$}")
 }
 
-/// The text report, worst first.
 pub fn format_report(entries: &[Entry]) -> String {
     let widest = |key: fn(&Entry) -> usize| entries.iter().map(key).max().unwrap_or(0);
     let mut name_width = 30;

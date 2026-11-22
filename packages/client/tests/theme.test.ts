@@ -5,7 +5,6 @@ import { fakeCanvas, DARK_TOKENS, LIGHT_TOKENS } from './fakes.js'
 
 describe('layout estimate', () => {
   it('counts CJK and astral characters as two half-width units', () => {
-    // The Rust source of truth: crates/scene/src/layout.rs.
     expect(textWidth16('。')).toBe(2)
     expect(textWidth16('一')).toBe(2)
     expect(textWidth16('ab')).toBe(2)
@@ -16,7 +15,6 @@ describe('layout estimate', () => {
   })
 
   it('shrinks text until it fits maxW, and never grows past the nominal size', () => {
-    // Monospaced 8 px per half-width at 16 px, so 20 units need 160 px.
     const measure = (size: number, text: string): number => (text.length * size) / 2
     expect(fittedSize(measure, 16, 'abcd', 200, false, false)).toBe(16)
     const shrunk = fittedSize(measure, 16, 'a'.repeat(20), 40, false, false)
@@ -26,8 +24,6 @@ describe('layout estimate', () => {
 
   it('accounts for italic shear and bold offset when fitting, like the producer', () => {
     const measure = (size: number, text: string): number => text.length * size
-    // Plain text is 8·16 = 128 wide; italic shear adds 0.2·size, so at a
-    // 130 px budget plain text fits and italic text does not.
     const plain = fittedSize(measure, 16, '01234567', 130, false, false)
     expect(plain).toBe(16)
     const italic = fittedSize(measure, 16, '01234567', 130, false, true)
@@ -50,15 +46,12 @@ describe('host theme tokens', () => {
     expect(dark.mode).toBe('dark')
     expect(dark.frame('canvas')).toBe('#161c20')
     expect(dark.frame('ink')).toBe('#ecece4')
-    // A token the host theme does not define falls back to ink, never to a stray color.
     expect(dark.frame('source-gutter')).toBe('#c7d6cc')
   })
 
   it('keeps the quality and violation hue in both modes, changing only lightness', () => {
     const light = resolveTheme(fakeCanvas({ tokens: LIGHT_TOKENS }))
     const dark = resolveTheme(fakeCanvas({ tokens: DARK_TOKENS, dark: true }))
-    // The ramp anchors are the documented red / yellow-green / green; the light
-    // palette holds their hue.
     for (const [index, grade] of [0, 5, 10].entries()) {
       const lightFill = light.frame('quality-fill', grade)
       const darkFill = dark.frame('quality-fill', grade)
@@ -67,18 +60,13 @@ describe('host theme tokens', () => {
       const darkStroke = dark.frame('quality-stroke', grade)
       expect(Math.abs(hueOf(lightStroke) - hueOf(darkStroke)), `stroke anchor ${grade} (${index})`).toBeLessThanOrEqual(1.5)
     }
-    // Interpolated grades mix the anchors in sRGB exactly like
-    // crates/frame/src/theme.rs, so the hue stays within a few degrees of the
-    // dark ramp rather than jumping colour family.
     for (const grade of [2.5, 7.5]) {
       expect(Math.abs(hueOf(light.frame('quality-fill', grade)) - hueOf(dark.frame('quality-fill', grade))),
         `fill grade ${grade}`).toBeLessThanOrEqual(5)
       expect(Math.abs(hueOf(light.frame('quality-stroke', grade)) - hueOf(dark.frame('quality-stroke', grade))),
         `stroke grade ${grade}`).toBeLessThanOrEqual(5)
     }
-    // 违规关系色 is the same red in both modes.
     expect(Math.abs(hueOf(light.frame('violation')) - hueOf(dark.frame('violation')))).toBeLessThanOrEqual(1.5)
-    // The palettes really do differ in lightness, otherwise the test proves nothing.
     expect(light.frame('canvas')).not.toBe(dark.frame('canvas'))
     expect(DARK_HUES.violation).not.toBe(LIGHT_HUES.violation)
   })
@@ -100,7 +88,6 @@ describe('host theme tokens', () => {
   })
 
   it('paints the 依赖链高亮 in the egui window’s blue, not the host accent', () => {
-    // frame::theme RELATED is #3e98ec; the default dark host accent is gold.
     const dark = resolveTheme(fakeCanvas({ tokens: DARK_TOKENS, dark: true }))
     expect(dark.frame('dependency-chain')).toBe('#3e98ec')
     expect(dark.frame('dependency-chain')).not.toBe(DARK_TOKENS['--dsw-alias-state-business-primary'])
@@ -110,9 +97,6 @@ describe('host theme tokens', () => {
   })
 
   it('a skin that changes every host token leaves the hue-fixed roles unchanged in both modes', () => {
-    // dsh-claude-style overrides the --dsw-alias-* tokens (warm orange accent,
-    // its own reds and surfaces). Only chrome may follow; 质量色, 违规关系色,
-    // 无数据 and 依赖链高亮 keep their colors and differ only by light/dark.
     const skin = (tokens: Record<string, string>): Record<string, string> => Object.fromEntries(
       Object.keys(tokens).map((key, index) => [key, ['#d97757', '#c6613f', '#3d3929', '#f0eee6', '#8a5cf6', '#1f1e1d'][index % 6]!]))
     const hueFixed: [string, number | null][] = [
@@ -122,7 +106,6 @@ describe('host theme tokens', () => {
     for (const [mode, tokens] of [['dark', DARK_TOKENS], ['light', LIGHT_TOKENS]] as const) {
       const host = resolveTheme(fakeCanvas({ tokens, dark: mode === 'dark' }))
       const skinned = resolveTheme(fakeCanvas({ tokens: skin(tokens), dark: mode === 'dark' }))
-      // The skin really changed the chrome, otherwise the comparison proves nothing.
       expect(skinned.frame('canvas')).not.toBe(host.frame('canvas'))
       expect(skinned.frame('relation')).not.toBe(host.frame('relation'))
       for (const [role, grade] of hueFixed) {

@@ -1,24 +1,14 @@
-//! Scene compilation (port of `love/uml/engine/compose.lua`): layout, route,
-//! fit, then `prepare_scene`. The Lua original rebuilt the class index per
-//! edge (O(E·N)); here the index and a spatial grid over class rects are
-//! built once per scene, so preparation is near-linear. Geometry is
-//! unchanged: the grid yields the same obstacle set and `gap_segment`
-//! merges intervals independent of rect order. Strokes are bit-for-bit
-//! those of clipping every segment against every overlapping rect (#186).
-
 use crate::curve;
 use crate::geom::{self, Rect};
 use edn::Value;
 use edn::record::{flag, get, name, numval, put, seq};
 use std::collections::HashMap;
 
-/// Class rectangles keyed by encoded id, plus the obstacle grid. Rects of
-/// dummy boxes are tracked but never clip strokes.
 struct ClassIndex {
     rect_by_id: HashMap<String, Rect>,
     grid: Grid,
-    obstacles: Vec<(Value, Rect, bool)>, // (id, rect, dummy?)
-    seen: Vec<u32>,                      // per obstacle: the last query that saw it
+    obstacles: Vec<(Value, Rect, bool)>,
+    seen: Vec<u32>,
     query: u32,
 }
 
@@ -28,18 +18,13 @@ const CELL: f64 = 256.0;
 /// Skia's 0.25; #187).
 const FLATTEN_TOLERANCE: f64 = 0.25;
 
-/// Inclusive cell span `(x0, y0, x1, y1)` of a rect.
 fn span(r: Rect) -> (i64, i64, i64, i64) {
     let cell = |v: f64| (v / CELL).floor() as i64;
     (cell(r.x), cell(r.y), cell(r.right()), cell(r.bottom()))
 }
 
-/// Most cells a dense grid may hold; a wider spread scans the obstacles
-/// instead (16 MiB of empty cells, 64 times a 2000-class scene).
 const MAX_CELLS: i64 = 1 << 20;
 
-/// Obstacle slots per cell, dense over the cells the obstacles cover. An
-/// empty grid (no obstacles, or more than [`MAX_CELLS`]) covers no cell.
 #[derive(Default)]
 struct Grid {
     x0: i64,
@@ -115,10 +100,6 @@ impl ClassIndex {
         self.rect_by_id.get(&edn::encode(id).unwrap()).copied()
     }
 
-    /// Obstacle rects overlapping the probe, excluding dummy boxes and the
-    /// edge's own endpoints. A probe spanning more cells than there are
-    /// obstacles (a long edge) scans the obstacles directly; the order of
-    /// the rects differs, which `gap_segment` does not see.
     fn obstacles_in(&mut self, probe: Rect, from: Option<&Value>, to: Option<&Value>) -> Vec<Rect> {
         let (x0, y0, x1, y1) = span(probe);
         let admits = |(id, rect, dummy): &(Value, Rect, bool)| {
@@ -155,7 +136,6 @@ impl ClassIndex {
     }
 }
 
-/// The constrained basis path of a routed edge, when it has ≥ 2 points.
 fn path(scene_edge: &Value, index: &ClassIndex) -> Option<Value> {
     let ps = match get(scene_edge, "points") {
         Some(Value::Vector(items)) if items.len() >= 2 => items,
@@ -178,7 +158,6 @@ fn translate(scene: &mut Value, dx: f64, dy: f64) {
             let mut moved = Vec::with_capacity(items.len());
             for mut x in items.into_iter() {
                 shift_rect(&mut x, dx, dy);
-                // Port pills hang off their class and move with it (#189).
                 for k in ["in-ports", "out-ports"] {
                     if let Some(Value::Vector(mut ports)) = get(&x, k).cloned() {
                         for p in ports.iter_mut() {
@@ -229,7 +208,6 @@ fn bounds(scene: &Value, index: &ClassIndex) -> Rect {
 }
 
 fn size(scene: &mut Value) {
-    // Rebuild the index: rects moved since the caller's index was built.
     let index = ClassIndex::new(scene);
     let b = bounds(scene, &index);
     put(
@@ -244,14 +222,8 @@ fn size(scene: &mut Value) {
     );
 }
 
-/// Margin between a frame and the farthest edge it holds, as between a frame
-/// and its boxes (`layout`).
 const FRAME_PAD: f64 = 12.0;
 
-/// Layout fixes a package frame before routing places the detour tracks of
-/// the edges between its classes, so a frame side grows wherever such an
-/// edge's points pass it. The basis curve stays in the hull of its points.
-/// Roll-up boxes keep their rect: they show only when no class does.
 fn hold_inner_edges(scene: &mut Value) {
     let mut owner: HashMap<String, String> = HashMap::new();
     for c in seq(get(scene, "classes")) {
@@ -290,7 +262,6 @@ fn hold_inner_edges(scene: &mut Value) {
         let far = |axis: usize, pick: fn(f64, f64) -> f64| {
             points.iter().map(|q| q[axis]).reduce(pick).unwrap()
         };
-        // A side the points pass moves to the farthest one, plus the margin.
         let lo = |side: f64, reach: f64| {
             if reach < side {
                 reach - FRAME_PAD
@@ -322,9 +293,6 @@ fn fit(scene: &mut Value) {
     size(scene);
 }
 
-/// `prepare_scene`: per edge, clip the flattened curve against every
-/// overlapping class box and record `:tip`, `:behind`, `:draw-bounds` and
-/// `:strokes`; then index classes and packages by id.
 pub fn prepare_scene(scene: &mut Value) {
     let mut index = ClassIndex::new(scene);
     let mut edges: Vec<Value> = Vec::new();
@@ -365,8 +333,6 @@ pub fn prepare_scene(scene: &mut Value) {
     }
 }
 
-/// One diagram: layout, route, fit, prepare; `:hide-edges` swaps strokes for
-/// dependency indicators.
 pub fn compile_diagram(diagram: &Value) -> Value {
     let mut scene = crate::layout::layout(diagram);
     crate::route::route(&mut scene);
@@ -380,8 +346,6 @@ pub fn compile_diagram(diagram: &Value) -> Value {
     scene
 }
 
-/// Rename a scene's ids with a diagram prefix, so several diagrams can share
-/// one merged scene without id collisions.
 fn prefix_ids(scene: &mut Value, prefix: &str) {
     let q = |id: &Value| Value::keyword(&format!("{}{}", prefix, name(id)));
     for key in ["packages", "classes"] {
@@ -414,8 +378,6 @@ fn prefix_ids(scene: &mut Value, prefix: &str) {
     }
 }
 
-/// A document compiled as one or more sections, stacked vertically with
-/// `d<i>-` id prefixes so the sections cannot collide.
 pub fn compile_document(doc: &Value) -> Value {
     let (mut sections, mut classes, mut packages, mut edges) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());

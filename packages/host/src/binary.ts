@@ -39,41 +39,23 @@ export function packageRoot(moduleFile: string = fileURLToPath(import.meta.url))
 export interface BinaryPlatform {
   platform: string
   arch: string
-  /** Main package directory; defaults to the installed plugin. */
   root?: string
 }
 
-/** The one host this plugin ships a platform package for: native Windows x64. */
 export const SUPPORTED_TARGET = 'win32-x64'
 
-/**
- * Why a host outside SUPPORTED_TARGET cannot activate.
- *
- * The refusal is delivered behaviour for every macOS and Linux profile, and for
- * every architecture of them — Linux arm64 is refused for the same reason as
- * Linux x64, and neither is a delivery host — so it states the reason rather
- * than leaving a bare rejection: the plugin ships one platform package, macOS
- * has no mutant isolation path to honour the quality loop, and Linux is not a
- * delivery host (the environment repository's ADR 0002 records both departures
- * and their cost).
- */
 export function unsupportedPlatform(platform: string, arch: string): string {
   return `Unsupported uml-viewer platform: ${platform}/${arch}; only native Windows x64 `
     + `(${SUPPORTED_TARGET}) is supported. dsh-uml-viewer ships one platform package: `
     + 'macOS has no mutant isolation path, and Linux (x64 or arm64) is not a delivery host.'
 }
 
-/** Resolve once at activation. Callers retain this argv for the plugin lifetime. */
 export function activationBinary(config: Config, home: string | undefined, platform: BinaryPlatform = process): ActivatedBinary {
   const target = `${platform.platform}-${platform.arch}`
-  // Refuse before the UML_VIEWER_BIN / config.binary override below: a
-  // non-Windows host has no supported path through this plugin at all.
   if (target !== SUPPORTED_TARGET) throw new Error(unsupportedPlatform(platform.platform, platform.arch))
   const root = platform.root ?? packageRoot()
-  // Trusted overrides and checkout builds are not versioned copies: nothing to lease.
   if (config.binary !== undefined || process.env.UML_VIEWER_BIN !== undefined) return unpinned(binaryArgv(config, root), root)
   const manifest = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'))
-  // Checkout development remains private and uses its local Cargo output.
   if (manifest.private === true && !manifest.optionalDependencies) return unpinned(binaryArgv(config, root), root)
   const dependency = `@dsh-uml-viewer/${target}`
   if (manifest.optionalDependencies?.[dependency] !== manifest.version) {
@@ -83,13 +65,9 @@ export function activationBinary(config: Config, home: string | undefined, platf
     throw new Error('Packaged dsh-uml-viewer has an invalid version')
   }
   let source: string
-  // Only win32-x64 reaches this point, so the payload is always the .exe.
   const name = 'uml-viewer.exe'
   try {
     // An explicitly installed platform package is a sibling of the main one.
-    // Prefer it over the main package's nested semver optional dependency:
-    // after release, pnpm can install that nested copy from the registry even
-    // when the caller supplied both exact-version tarballs for acceptance.
     const modules = path.dirname(root)
     const direct = path.basename(modules) === 'node_modules'
       ? path.join(modules, dependency, 'package.json') : null
@@ -103,25 +81,16 @@ export function activationBinary(config: Config, home: string | undefined, platf
     throw new Error(`Cannot load packaged binary ${dependency}@${manifest.version}: ${error instanceof Error ? error.message : String(error)}. Reinstall dsh-uml-viewer with optional dependencies enabled.`)
   }
   if (!home) throw new Error('Cannot pin packaged uml-viewer binary: configure home or provide dshHomePath / DSH_HOME')
-  // #32: `<home>/<version>/`, verified and leased for this activation. Every
-  // resident and tool call of the activation runs this copy, so an update
-  // only reaches panels opened by a later (fresh) activation.
   const pinned = pinVersion(home, manifest.version, source, name, platform.platform)
   return { argv: [pinned.binary], version: manifest.version, source: 'pinned', root, retain: pinned.retain, release: pinned.release }
 }
 
-/** The executable an activation pinned, and the hold it keeps on that version. */
 export interface ActivatedBinary {
   readonly argv: string[]
-  /** The manifest version this activation pinned, or null for an unversioned executable. */
   readonly version: string | null
-  /** Whether `argv` is a pinned version copy or an override/checkout build that pins nothing. */
   readonly source: 'pinned' | 'unpinned'
-  /** The package directory the executable was resolved from. */
   readonly root: string
-  /** A resident holds the pinned version until its actual process exit. */
   retain(): () => void
-  /** Drop the activation's version lease after its residents stopped. */
   release(): void
 }
 

@@ -1,6 +1,3 @@
-//! Scene composition — the edges_spec.lua compose oracle; golden geometry
-//! parity is covered separately by golden_geometry.rs.
-
 use crate::compose::{compile_diagram, compile_document};
 use crate::geom::{self, Rect};
 use edn::{Value, parse};
@@ -48,8 +45,6 @@ fn hide_edges_replaces_strokes_with_incoming_and_outgoing_indicators() {
 
 #[test]
 fn hide_edges_is_a_lua_truthy_flag() {
-    // compose.lua: `if g(diagram,'hide-edges') then put(scene,'dep-indicators',…)`.
-    // An authored `false` equals omission; any non-nil, non-false value hides.
     let compiled = |hide: &str| {
         compile_diagram(&parse(&format!(
             "{{{hide} :packages [{{:id :p :label \"P\" :classes [{{:id :a :name \"A\"}} {{:id :b :name \"B\"}}]}}] :edges [{{:from :a :to :b :kind :dependency}}]}}"
@@ -66,8 +61,6 @@ fn hide_edges_is_a_lua_truthy_flag() {
 
 #[test]
 fn prepare_scene_clips_strokes_around_a_wall() {
-    // The wall sits between the boxes; strokes split into two runs and the
-    // hidden middle never hits.
     let s = compile_diagram(&parse(
         "{:packages [{:id :p :label \"P\" :classes [{:id :a} {:id :wall} {:id :b}]}] :edges [{:from :a :to :b :kind :dependency}]}",
     ).unwrap());
@@ -111,10 +104,6 @@ fn single_diagram_document_compiles_through_the_same_path() {
     );
 }
 
-// Lua truthiness of authored IR flags (#147 review, #154), moved from
-// `tests/lua_truthiness.rs`: an authored `false` or `nil` is omission and
-// any other value (`:yes`, `1`) is `true`.
-
 const FALSY: [&str; 2] = ["false", "nil"];
 const TRUTHY: [&str; 2] = [":yes", "1"];
 
@@ -122,7 +111,6 @@ fn encoded(v: &Value) -> String {
     edn::encode(v).unwrap()
 }
 
-/// What the scene draws: class rects, packages and edges.
 fn drawn(scene: &Value) -> String {
     let get = edn::record::get;
     let rects: Vec<Value> = edn::record::seq(get(scene, "classes"))
@@ -139,7 +127,6 @@ fn drawn(scene: &Value) -> String {
 
 #[test]
 fn dummy_false_lays_out_and_routes_like_an_ordinary_class() {
-    // layout.lua:106/110, compose.lua:33, route.lua:117: `g(c,'dummy?')`.
     let compiled = |flag: &str| {
         compile_diagram(&edn::parse(&format!(
             r#"{{:packages [{{:id :p :label "P" :classes [{{:id :a :name "A" {flag}}} {{:id :wall :name "W"}} {{:id :b :name "B"}}]}}]
@@ -159,8 +146,6 @@ fn dummy_false_lays_out_and_routes_like_an_ordinary_class() {
 
 #[test]
 fn ports_move_with_their_class_when_a_section_is_stacked() {
-    // #189: stacking translated the class rect but left its port pills
-    // behind, so an out-port landed inside the box it hangs below.
     let s = compile_document(&parse(
         "{:packages [{:id :p :label \"P\" :classes [{:id :a :name \"A\" :in-deps [{:id :x :name \"X\"}] :out-deps [{:id :y :name \"Y\"}]}]}] :edges []}",
     ).unwrap());

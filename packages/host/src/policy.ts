@@ -1,7 +1,6 @@
 import { readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 
-/** Only inspect policy locations; never probe the legacy installation. */
 export async function defaultPolicy(root: string): Promise<string> {
   const preferred = `examples/${path.basename(root)}.policy.edn`
   if (await isFile(path.join(root, preferred))) return preferred

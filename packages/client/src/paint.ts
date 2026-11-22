@@ -1,16 +1,3 @@
-/**
- * Canvas 2D scene-frame painter. The frame is the producer's documented
- * contract (docs/scene-frame.md); this module only *draws* it, never re-derives
- * geometry. Colors resolve through host theme tokens where the theme supplies
- * one, so the panel follows light/dark; the quality and violation roles keep
- * their hue and only change lightness with the mode.
- *
- * World primitives follow the native egui painter (the deleted crates/viewer/src/paint.rs, #30)
- * rule for rule: font sizes on whole pixels, corner radii dropped under 2 px,
- * rect outlines stroked inside the rect, unmeasured outlines dashed square,
- * foreign-package ellipses never dashed, and at the overview tiers class names
- * painted after every box.
- */
 import type { SceneFrame } from '@dsh-uml-viewer/contracts'
 import { cornerPx, fittedSize, fontPx, Measure, rectVisible, viewTransform, worldToScreen, type ViewTransform } from './fit.js'
 import { resolveTheme } from './theme.js'
@@ -25,17 +12,10 @@ interface Painter {
   theme: ReturnType<typeof resolveTheme>
   measure: Measure
   frame: SceneFrame
-  /** The tier of the zoom on screen (a local pan/zoom keeps the producer's items). */
   lod: SceneFrame['lod']
-  /** Overview class names, drawn after every world item (native `names`). */
   deferred: (() => void)[] | null
 }
 
-/**
- * The tier for the camera's zoom (`style.lodZoom`, like the native
- * `lod::tier`). The producer tags every item with its coarsest tier, so a
- * frame drawn after a local wheel zoom paints exactly the window's tier.
- */
 export function tierOf(frame: SceneFrame): SceneFrame['lod'] {
   const zoom = frame.camera.zoom > 0 ? frame.camera.zoom : 1
   if (zoom < frame.style.lodZoom.frames) return 'blocks'
@@ -44,7 +24,6 @@ export function tierOf(frame: SceneFrame): SceneFrame['lod'] {
 }
 
 function dimAlpha(frame: SceneFrame): number {
-  // The producer's dimAlpha is 0-255 in the frame's style.
   return Math.max(0, Math.min(1, frame.style.dimAlpha / 255))
 }
 
@@ -59,7 +38,6 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath()
 }
 
-/** egui `rect_filled` + `rect_stroke(StrokeKind::Inside)`, or `dashed_rect` when unmeasured. */
 function box(
   p: Painter,
   x: number,
@@ -80,7 +58,6 @@ function box(
   ctx.strokeStyle = stroke
   ctx.lineWidth = lineWidth
   if (dashed) {
-    // The four edges of the rect, dash and gap in screen points, square corners.
     ctx.setLineDash([frame.style.widths.dash, frame.style.widths.dashGap])
     ctx.beginPath()
     ctx.moveTo(x, y)
@@ -92,7 +69,6 @@ function box(
     ctx.setLineDash([])
     return
   }
-  // An inside stroke: the centre line runs half the width in from the edge.
   const inset = Math.min(lineWidth / 2, w / 2, h / 2)
   roundRect(ctx, x + inset, y + inset, w - 2 * inset, h - 2 * inset, Math.max(0, corner - inset))
   ctx.stroke()
@@ -112,17 +88,9 @@ function polyline(ctx: CanvasRenderingContext2D, view: ViewTransform, points: re
   }
 }
 
-/**
- * Mid-tier edge strokes (`render_cache::decimated` + `lod::simplify`): at the
- * `frames` tier drop interior points closer than `edgeDecimatePx` on screen,
- * and those within 0.5 screen points of the chord from the last kept point to
- * their successor. Ends always survive. The budget follows the quarter-octave
- * zoom step, not the raw zoom, so pan and small zooms keep the same polyline.
- */
 function decimateEdgePoints(frame: SceneFrame, zoom: number, points: readonly (readonly [number, number])[]): readonly (readonly [number, number])[] {
   if (tierOf(frame) !== 'frames' || points.length <= 2) return points
   const octave = Math.log2(zoom) * 4
-  // Rust f64::round rounds negative halfway values away from zero.
   const step = Math.sign(octave) * Math.round(Math.abs(octave))
   const stepZoom = Math.pow(2, step / 4)
   const minDist = frame.style.edgeDecimatePx / stepZoom
@@ -143,11 +111,6 @@ function decimateEdgePoints(frame: SceneFrame, zoom: number, points: readonly (r
   return out
 }
 
-/**
- * A stroke at the tier the native painter draws as one unfeathered quad mesh
- * (`MESH_EDGE_SCALE`): each segment is its own butt-ended quad, so no round
- * join bulges at a bend. Below that scale a 1.6 pt line needs no anti-aliasing.
- */
 function segments(ctx: CanvasRenderingContext2D, view: ViewTransform, points: readonly (readonly [number, number])[]): void {
   for (let i = 1; i < points.length; i += 1) {
     const [ax, ay] = worldToScreen(view, points[i - 1]![0], points[i - 1]![1])
@@ -162,7 +125,6 @@ function segments(ctx: CanvasRenderingContext2D, view: ViewTransform, points: re
   }
 }
 
-/** The native `paint_head` vertices: tip, wing A, wing C and the diamond back. */
 function headVertices(tx: number, ty: number, bx: number, by: number, len: number): {
   a: [number, number]
   c: [number, number]
@@ -178,7 +140,6 @@ function headVertices(tx: number, ty: number, bx: number, by: number, len: numbe
     dx /= dist
     dy /= dist
   }
-  // egui rotates the direction vector by ±PI/9 (20°).
   const sin = Math.sin(Math.PI / 9)
   const cos = Math.cos(Math.PI / 9)
   return {
@@ -198,7 +159,6 @@ function arrowheadOpen(ctx: CanvasRenderingContext2D, tx: number, ty: number, bx
   }
 }
 
-/** The closed-head outline; the caller fills it before stroking. */
 function headPath(ctx: CanvasRenderingContext2D, tx: number, ty: number, bx: number, by: number, len: number, diamond: boolean): void {
   const { a, c, back } = headVertices(tx, ty, bx, by, len)
   ctx.beginPath()
@@ -216,7 +176,6 @@ interface TextOptions {
   baseline?: 'top' | 'middle'
 }
 
-/** Chrome and badge text: one draw at `px`, vertically centred on `y` by default. */
 function text(p: Painter, value: string, x: number, y: number, px: number, color: string, opts: TextOptions = {}): void {
   const { ctx } = p
   if (px < p.frame.style.minTextPx) return
@@ -226,16 +185,10 @@ function text(p: Painter, value: string, x: number, y: number, px: number, color
   ctx.textAlign = opts.align ?? 'left'
   ctx.fillText(value, x, y)
   if (opts.bold) {
-    // Bold is a second pass offset by 0.05·px, as the native draw_text does.
     ctx.fillText(value, x + px * 0.05, y)
   }
 }
 
-/**
- * Native `draw_text` for canvas labels: `y` is the top of the label, `px` a
- * whole-pixel size; with a `budget` (screen points) the label shrinks to the
- * largest whole pixel that fits, measured in the packaged Sarasa face.
- */
 function label(
   p: Painter,
   value: string,
@@ -301,7 +254,6 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
       box(p, sx, sy, item.rect.w * zoom, item.rect.h * zoom, cornerPx(frame.style.radius.package, zoom),
         colorOf(item.fill), colorOf(item.stroke), item.strokeWidth, item.missing)
       if (item.text !== null) {
-        // The italic title at (12, 8) scaled, fitted to maxW; it dims with its box.
         label(p, item.text, sx + 12 * zoom, sy + 8 * zoom, fontPx(item.size, zoom), colorOf(item.ink),
           { italic: true, budget: item.maxW * zoom })
       }
@@ -316,7 +268,6 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
       const sh = item.rect.h * zoom
       ctx.globalAlpha = alphaOf(item.dimmed)
       if (item.shape === 'oval') {
-        // 外来包椭圆: a filled ellipse with a middle stroke, never dashed.
         ctx.setLineDash([])
         ctx.fillStyle = colorOf(item.fill)
         ctx.strokeStyle = colorOf(item.stroke)
@@ -345,7 +296,6 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
       ctx.fill()
       ctx.stroke()
       if (lod === 'full') {
-        // The letter dims with its badge, as the native ink(*letter, *dimmed).
         text(p, item.text, cx, cy, fontPx(frame.style.fonts.badge, zoom), colorOf(item.ink), { align: 'center' })
       }
       ctx.globalAlpha = 1
@@ -381,7 +331,6 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
       if (px < frame.style.minTextPx) return
       const left = item.center ? item.x + item.maxW / 2 : item.x
       const [sx, top] = worldToScreen(view, left, item.top)
-      // Centred in its slot by the unfitted size, like the native base_y.
       const sy = top + Math.max(0, (item.slot * zoom - px) / 2)
       const ink = colorOf(item.ink)
       const alpha = alphaOf(item.dimmed)
@@ -428,7 +377,6 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
       ctx.moveTo(fx, fy)
       ctx.lineTo(tx, ty)
       ctx.stroke()
-      // The head is 10 screen points at any zoom.
       if (fx !== tx || fy !== ty) arrowheadOpen(ctx, tx, ty, fx, fy, 10)
       ctx.globalAlpha = 1
       return
@@ -441,14 +389,12 @@ function paintWorld(p: Painter, item: SceneFrame['world'][number]): void {
       ctx.globalAlpha = alphaOf(item.dimmed)
       box(p, sx, sy, sw, sh, cornerPx(frame.style.radius.port, zoom), colorOf(item.fill), colorOf(item.stroke),
         item.strokeWidth, false)
-      // Centred, its top 5 points (scaled) above the port's centre.
       label(p, item.text, sx + sw / 2, sy + sh / 2 - 5 * zoom, fontPx(frame.style.fonts.port, zoom), colorOf(item.ink),
         { align: 'center', budget: sw - 6 * zoom })
       ctx.globalAlpha = 1
       return
     }
     default:
-      // An additively added kind the renderer does not know: skip it.
       return
   }
 }
@@ -485,9 +431,6 @@ function paintEdge(p: Painter, edge: SceneFrame['edges'][number]): void {
       ctx.globalAlpha = dim
       arrowheadOpen(ctx, tx, ty, bx, by, len)
     } else {
-      // A closed head's interior stays fully opaque: the canvas or ink fill masks
-      // the shaft that runs through to the tip, and only the outline dims
-      // (docs/scene-frame.md, "Edges"). Never lower alpha for the fill.
       headPath(ctx, tx, ty, bx, by, len, edge.head !== 'triangle')
       ctx.globalAlpha = 1
       ctx.fillStyle = colorOf(edge.fill)
@@ -510,7 +453,6 @@ function paintEdge(p: Painter, edge: SceneFrame['edges'][number]): void {
   ctx.globalAlpha = 1
 }
 
-/** The frame's only chrome (#46): the hover popup. The rest is the panel's DOM. */
 function paintChrome(p: Painter, item: SceneFrame['chrome'][number]): void {
   const { ctx, theme, frame } = p
   const colorOf = (c: { role: string; grade?: number | null; ratio?: number | null }): string =>
@@ -531,7 +473,6 @@ function paintChrome(p: Painter, item: SceneFrame['chrome'][number]): void {
   }
 }
 
-/** A hit test over the frame's item bounds, for pointer selection. */
 export function hitTest(frame: SceneFrame, world: readonly [number, number]): string | null {
   for (let index = frame.world.length - 1; index >= 0; index -= 1) {
     const item = frame.world[index]!

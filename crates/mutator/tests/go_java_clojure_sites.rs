@@ -1,12 +1,3 @@
-//! Go, Java and Clojure mutation sites and forms against the pinned original.
-//!
-//! `fixtures/mutate/sites/go-java-clojure.json` is mutator f772a83's own
-//! `sites_in_file`, `form_spans` and `form_digests` output
-//! (scripts/mutate_goldens_go_java_clojure.py) for a corpus built from its
-//! `test_sites.py` cases plus edge cases (Clojure reader macros, metadata,
-//! malformed forms, Go and Java operators), and for the three mutation fixture
-//! projects. Every field is compared: byte offsets, original and mutant text,
-//! category, owner, form id and mutation id.
 use quality_core::serde_json::{self, Value};
 use std::path::{Path, PathBuf};
 
@@ -32,7 +23,6 @@ fn inventory() -> serde_json::Map<String, Value> {
 fn discovered(label: &str, relative: &str) -> (Value, Value) {
     let root = base(label);
     let path = root.join(relative);
-    // The original reads the bytes as UTF-8 without newline translation.
     let source = String::from_utf8(std::fs::read(&path).unwrap()).unwrap();
     let (sites, mut forms) = mutator::sites::discover(&source, &path, &root, relative).unwrap();
     let sites: Vec<Value> = sites
@@ -74,7 +64,6 @@ fn sorted_forms(forms: &Value) -> Value {
 #[test]
 fn go_java_and_clojure_sites_and_forms_match_the_pinned_original() {
     let inventory = inventory();
-    // Exact: a lost file or site must fail.
     assert_eq!(inventory.len(), FILES);
     let mut sites = 0;
     let mut languages = std::collections::BTreeSet::new();
@@ -98,10 +87,6 @@ fn go_java_and_clojure_sites_and_forms_match_the_pinned_original() {
     );
 }
 
-/// The reader against the grammar on real code: `MUTATOR_CLOJURE_CORPUS` is a
-/// directory of Clojure sources and `MUTATOR_CLOJURE_RAW` the original's
-/// `discover_raw` for each (`scripts/mutate_goldens_go_java_clojure.py
-/// --clojure-corpus DIR --raw-output FILE`).
 #[test]
 #[ignore = "needs an external corpus: set MUTATOR_CLOJURE_CORPUS and MUTATOR_CLOJURE_RAW"]
 fn clojure_reader_matches_the_grammar_on_an_external_corpus() {

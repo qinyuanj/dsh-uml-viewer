@@ -5,16 +5,10 @@ import { OverlayController, type OverlaySnapshot } from './overlays.js'
 import { resolveTheme, type Theme } from './theme.js'
 import { ENGLISH_TEXT, type PanelText } from './locale.js'
 
-/** The controller's panel text; English when a caller supplies none. */
 function textOf(controller: OverlayController): PanelText {
   return (controller as Partial<OverlayController>).text ?? ENGLISH_TEXT
 }
 
-/**
- * The drawer swaps its view in place (card ⇄ source, #49); the button that
- * swapped it is gone, so focus would fall to the page and Esc/P would no
- * longer reach the panel. A view that mounts while focus is lost takes it.
- */
 function useKeepFocus(ref: { current: HTMLElement | null }): void {
   useEffect(() => {
     const element = ref.current
@@ -23,7 +17,6 @@ function useKeepFocus(ref: { current: HTMLElement | null }): void {
   }, [])
 }
 
-/** Map the Rust-provided semantic role through the Canvas palette too. */
 export function roleStyle(color: FrameColor, theme: Theme = resolveTheme(document.body)): string {
   return theme.frame(color.role, color.grade, color.ratio)
 }
@@ -33,10 +26,6 @@ export const OVERLAY_STYLE = `
 .dsh-uml-overlay-root button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--dsw-alias-border-l2); border-radius: 4px; padding: 4px 8px; text-align: left; cursor: pointer; }
 .dsh-uml-overlay-root button:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-uml-overlay-root button:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 1px; }
-/* The drawer (#49): the class card or one source window, rising over the
-   lower half of the canvas so the diagram stays visible above it. From 900px
-   of panel width (layout.ts) it docks on the right beside the diagram. A
-   narrow drawer scrolls sideways; the resident's column plan is unchanged. */
 .dsh-uml-drawer { pointer-events: auto; position: absolute; left: 0; right: 0; bottom: 0; height: 50%; z-index: 2; box-sizing: border-box; display: flex; flex-direction: column; border-top: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-2); box-shadow: var(--dsw-shadow-lv2, 0 -4px 16px rgb(0 0 0 / 16%)); overflow: hidden; }
 .dsh-uml-viewer-panel[data-layout=docked] .dsh-uml-drawer { top: 0; left: auto; height: auto; width: var(--dsh-uml-dock-width, clamp(420px, 42%, 680px)); border-top: 0; border-left: 1px solid var(--dsw-alias-border-l2); }
 .dsh-uml-window-header { flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-3); }
@@ -140,8 +129,6 @@ export function ClassCard({ state, controller, theme = resolveTheme(document.bod
         if (Math.abs(offset - model.scroll) > 0.5) {
           nativeScrolling.current = true
           if (scrollTimer.current !== null) clearTimeout(scrollTimer.current)
-          // Let native keyboard/scrollbar movement settle before publishing its
-          // final offset, so producer replies cannot interrupt browser scrolling.
           scrollTimer.current = setTimeout(() => {
             nativeScrolling.current = false
             scrollTimer.current = null
@@ -153,42 +140,27 @@ export function ClassCard({ state, controller, theme = resolveTheme(document.bod
       ...model.items.map((item, index) => h(CardRow, { key: index, item, id: model.id, controller, theme })))))
 }
 
-/** Source rows are a fixed 20 CSS px (`.dsh-uml-source-line`). */
 export const SOURCE_ROW_HEIGHT = 20
-/** Rows rendered beyond each edge of the visible range. */
 export const SOURCE_OVERSCAN_ROWS = 30
-/** Hard ceiling on rows in the DOM per source window, whatever the box height. */
 export const SOURCE_MAX_RENDERED_ROWS = 240
-/** Box height assumed before the first measurement. */
 const SOURCE_DEFAULT_VIEW = 600
 
-/**
- * The bounded `[start, end)` row range a source window renders. Only the
- * visible rows plus overscan become DOM, so the node count is independent of
- * the file length (the producer's row limit bounds the model itself).
- */
 export function sourceRowWindow(rowCount: number, scrollTop: number, viewHeight: number): { start: number; end: number } {
   const top = Number.isFinite(scrollTop) ? Math.max(0, scrollTop) : 0
   const height = Number.isFinite(viewHeight) && viewHeight > 0 ? viewHeight : SOURCE_DEFAULT_VIEW
   const visible = Math.ceil(height / SOURCE_ROW_HEIGHT) + 1
-  // Past the end (stale offset) still shows the tail rather than nothing.
   const first = Math.min(Math.floor(top / SOURCE_ROW_HEIGHT), Math.max(0, rowCount - visible))
   const start = Math.max(0, Math.min(rowCount, first - SOURCE_OVERSCAN_ROWS))
   const end = Math.min(rowCount, start + Math.min(SOURCE_MAX_RENDERED_ROWS, visible + 2 * SOURCE_OVERSCAN_ROWS))
   return { start, end }
 }
 
-/** Scroll offset that puts the marked declaration row a quarter down the box. */
 export function sourceJumpOffset(rows: readonly { number: number }[], line: number | null, viewHeight: number): number {
   if (line === null) return 0
   const index = rows.findIndex(row => row.number === line)
   return Math.max(0, (index < 0 ? 0 : index) * SOURCE_ROW_HEIGHT - viewHeight / 4)
 }
 
-/**
- * The drawer's source window: it replaces the card it was opened from, and
- * `back` (a card to return to) adds the button that shows the card again.
- */
 export function SourceView({ model, controller, back }: { model: SourceModel; controller: OverlayController; back: boolean }): unknown {
   const scrollRef = useRef<HTMLElement | null>(null)
   const text = textOf(controller)
@@ -238,11 +210,9 @@ export function Overlays({ controller }: { controller: OverlayController }): unk
     setState(controller.current)
     return controller.subscribe(() => setState(controller.current))
   }, [controller])
-  // A DSH language switch re-renders the labels without reopening the tab.
   const [, setLanguage] = useState(textOf(controller).language)
   useEffect(() => textOf(controller).subscribe(() => setLanguage(textOf(controller).language)), [controller])
   return h('div', { className: 'dsh-uml-overlay-root', ref: root },
-    // One drawer: a source shows in the card's place, never beside it (#49).
     state.drawer === 'source' && state.source
       ? h(SourceView, { key: 'source', model: state.source, controller, back: state.card !== null })
       : h(ClassCard, { key: 'card', state, controller, theme }),

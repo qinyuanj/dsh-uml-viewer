@@ -1,5 +1,3 @@
-//! Python function entries and structural cyclomatic complexity.
-
 use std::path::Path;
 
 use tree_sitter::Node;

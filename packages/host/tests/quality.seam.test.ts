@@ -78,7 +78,6 @@ async function setup(options: {
   quality?: Record<string, unknown>
   resident?: Record<string, unknown>
 } = {}) {
-  // Injected records must name the same canonical root as the real child.
   const home = await realpath(await mkdtemp(path.join(os.tmpdir(), 'uml quality home ')))
   roots.push(home)
   const projects: Record<string, string> = {}
@@ -169,7 +168,6 @@ it('forwards every copy path before the mutation targets (#69)', async () => {
   expect((await events(projects['session-a']!)).filter(entry => entry.event === 'start').map(entry => entry.argv))
     .toEqual([['quality', 'mutate', '--copy', '../contracts', '--copy', '../shared/fixtures',
       'crates/engine/src/a.rs', 'src/dir with spaces/b.rs']])
-  // Without copy the call is the one it always was.
   expect(await tool('uml_mutate', { targets: ['src/a.rs'] })).toMatchObject({ validResult: true })
   expect((await events(projects['session-a']!)).filter(entry => entry.event === 'start').at(-1)?.argv)
     .toEqual(['quality', 'mutate', 'src/a.rs'])
@@ -228,7 +226,6 @@ it('returns a binary refusal record and blocks IR with its reason', async () => 
   expect(refusal).toMatchObject({
     operation: 'dry', exitCode: 1, validResult: false, reason,
   })
-  // The dispatcher's own wording travels unchanged; a failed tool is worded differently.
   expect(refusal.reason).not.toMatch(/failed \(exit/)
   expect(await tool('uml_ir', {})).toMatchObject({
     status: 'refused', validResult: false,
@@ -432,12 +429,10 @@ it('blocks uml_ir after an invalid quality result and re-enables display after a
   expect(await tool('uml_ir', {})).toMatchObject({ status: 'ok', validResult: true, exitCode: 0 })
   expect(await tool('uml_display', {})).toMatchObject({ status: 'ok', validResult: true })
 
-  // A later malformed IR invocation revokes the display grant, as #21 repaired it.
   expect(await tool('uml_ir', { policy: '../outside.policy.edn' })).toMatchObject({
     operation: 'ir', status: 'refused', validResult: false,
   })
   expect(await tool('uml_display', {})).toMatchObject({ status: 'refused', validResult: false })
-  // A new successful IR restores it.
   expect(await tool('uml_ir', {})).toMatchObject({ status: 'ok', validResult: true })
   expect(await tool('uml_display', {})).toMatchObject({ status: 'ok', validResult: true })
 })

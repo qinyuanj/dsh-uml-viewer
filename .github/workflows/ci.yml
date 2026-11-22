@@ -1,11 +1,3 @@
-# The guardrails on every push and pull request, on the one supported host
-# (native Windows x64; ADR 0002): formatting, clippy with warnings denied,
-# scripts/check.py (the static source rules, cargo build --release and cargo
-# test --workspace) and the real Python/TypeScript/Lua/Go/Java/Clojure
-# coverage tests.
-# windows-mutate also accepts the maintainer's binary quality
-# crap -> differential mutate -> ir refresh, and no other host does; panel
-# Playwright is panel-e2e.
 name: ci
 
 on:
@@ -16,9 +8,6 @@ on:
 permissions:
   contents: read
 
-# The repository's .cargo/config.toml caps local Cargo jobs at 2 for the
-# maintainer's resource policy (D17). CI's own runners are not capped by it:
-# this overrides build.jobs for every job here.
 env:
   CARGO_BUILD_JOBS: 4
 
@@ -52,7 +41,6 @@ jobs:
     timeout-minutes: 30
     env:
       CARGO_TERM_COLOR: always
-      # The lane rejects the live GUI; these only point it at CI-owned files.
       DSH_CLI: ${{ github.workspace }}\.scratch\dsh-cli\node_modules\.bin\dsh.cmd
       UML_VIEWER_BIN: ${{ github.workspace }}\target\debug\uml-viewer.exe
     steps:
@@ -91,8 +79,6 @@ jobs:
           UML_VIEWER_PACKAGE_MAIN: ${{ github.workspace }}/.scratch/panel-packages/dsh-uml-viewer-${{ steps.panel-version.outputs.version }}.tgz
           UML_VIEWER_PACKAGE_PLATFORM: ${{ github.workspace }}/.scratch/panel-packages/dsh-uml-viewer-win32-x64-${{ steps.panel-version.outputs.version }}.tgz
         run: pnpm --filter @dsh-uml-viewer/e2e exec playwright test package.spec.mjs --output ../../.scratch/e2e/package-results
-      # Run last: the disposable version build reuses target only after every
-      # ordinary lane finished; the immutable release tarballs remain unchanged.
       - name: Build and assemble disposable next-patch upgrade packages
         id: upgrade-packages
         if: ${{ !cancelled() && steps.packaged-acceptance.outcome == 'success' }}
@@ -112,7 +98,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: panel-e2e-diagnostics
-          # Explicit files only: never upload scratch profiles, caches or binaries.
           include-hidden-files: true
           path: |
             .scratch/e2e/results/**
@@ -146,27 +131,17 @@ jobs:
       - name: CRAP integration tests and goldens
         run: cargo test -p uml-viewer --test integration crap_ --locked
 
-  # Native Windows mutation (#10): per-command project copies over the shared
-  # kill-on-close Job Object, with real cargo test inside the copies.
   windows-mutate:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
-      # A missing toolchain must fail here, never skip.
       MUTATOR_REQUIRE_TOOLCHAINS: '1'
-      # #124: the refresh computes per-target new-side lines against this
-      # base. PRs use the PR base; pushes use the previous commit. A missing
-      # value fails closed in scripts/ci-refresh.py.
       UML_REFRESH_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
     steps:
       - uses: actions/checkout@v4
         with:
-          # merge-base needs the history around the base, not one fetched commit.
           fetch-depth: 0
-      # PR base SHAs are not necessarily present in the PR checkout. Fetch the
-      # canonical base before the refresh computes its merge-base diff; an
-      # invalid or missing SHA still fails closed in ci-refresh.py.
       - name: Fetch refresh base SHA
         shell: bash
         run: |
@@ -181,41 +156,22 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Rust toolchain pinned by rust-toolchain.toml
         run: rustup toolchain install
-      # cargo llvm-cov needs llvm-profdata; the default-coverage golden uses it.
-      # GitHub's default pwsh shell exits with the LAST command's code only, so a
-      # multiline step can hide a failed first native command: one per step.
       - name: LLVM tools for cargo-llvm-cov
         run: rustup component add llvm-tools
       - name: cargo-llvm-cov for the coverage goldens
         run: cargo install cargo-llvm-cov --locked
-      # #123: the Rust mutation suite is a fail-fast `cargo nextest` run, and the
-      # mutator's own Rust cases run it. A missing nextest fails the baseline
-      # loudly, so this step is a requirement of the lane, not a speed-up.
       - name: cargo-nextest for the fail-fast Rust suite
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
       - uses: Swatinem/rust-cache@v2
-      # The mutator's own Python coverage test needs coverage.py, and
-      # MUTATOR_REQUIRE_TOOLCHAINS makes a missing toolchain a failure here, so
-      # the tool is installed before the suite runs.
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      # The metacharacter fixture's stub fakes only the coverage script's
-      # pytest probe; its baseline really runs -m pytest, so pytest is a fixture
-      # toolchain too.
       - name: Python coverage fixture toolchain
         run: python -m pip install coverage pytest
-      # A Lua suite reports through Busted, LuaCov and cluacov 1.0.0, and the
-      # mutation collector adds the LuaCov LCOV reporter. The pinned installer
-      # proves all of them and exports PATH, LUA_PATH and LUA_CPATH to the later
-      # steps; MUTATOR_REQUIRE_TOOLCHAINS above makes it missing a failure.
       - name: Lua 5.4 fixture toolchain
         run: ./scripts/setup-windows-lua.ps1
-      # Go, Java and Clojure: go_java_clojure's cases are part of `cargo test -p
-      # mutator` below, and MUTATOR_REQUIRE_TOOLCHAINS above turns a missing one
-      # into a failure rather than the skip it used to be (#15).
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25.3'
@@ -230,47 +186,20 @@ jobs:
         run: cargo test -p mutator --locked
       - name: Mutation integration tests
         run: cargo test -p uml-viewer --test integration mutate --locked
-      # Reuse the integration tests' debug artifacts; release would compile twice.
       - name: Build the Windows refresh binary
         run: cargo build --locked -p uml-viewer
-      # #125: TypeScript coverage runs host seam tests that import lib/host.js.
-      # The mutation lane owns the CRAP refresh, so it must build the package
-      # before quality collection reads those seams.
       - name: Build the host package for quality collection
         run: pnpm build
-      # One binary call per step, including validation of valid exits 2/3.
-      # Never upload .metrics or the temporary records/IR from this runner.
       - name: Maintainer refresh - CRAP (Windows)
         timeout-minutes: 21
         run: python -I scripts/ci-refresh.py target/debug/uml-viewer.exe crap
-      # #109/#124: mutate two real business files in one call, filtered to
-      # changed new-side lines from the PR-base merge-base diff. The mutator's
-      # line filter excludes off-line sites; a zero-line diff publishes an
-      # explicit zero-site record and fresh snapshots. The full test command
-      # is never narrowed.
       - name: Maintainer refresh - differential mutation (Windows)
-        # scene/dry.rs is test-bound at ~74 s per mutant, which made an
-        # unfiltered dry.rs edit a 20-30 minute lane. Changed-line sites are
-        # few, so 6 minutes covers the filtered run plus baselines.
         timeout-minutes: 6
         run: python -I scripts/ci-refresh.py target/debug/uml-viewer.exe mutate
       - name: Maintainer refresh - gated IR (Windows)
         timeout-minutes: 1
         run: python -I scripts/ci-refresh.py target/debug/uml-viewer.exe ir
 
-  # The gates that used to live only in the deleted `linux` job, on the one
-  # supported host: formatting, clippy with warnings denied, the real
-  # Python/TypeScript/Lua/Go/Java/Clojure coverage integration tests, and
-  # scripts/check.py, plus the Python/TypeScript mutation run the Linux job took
-  # with it (#11). The Linux job pulled those fixture toolchains from apt;
-  # here Python 3.12 comes from the Python setup action, Node 24 from the Node
-  # setup action, Lua 5.4 from the repository's own Windows installer that
-  # windows-mutate already runs, Go 1.25.3 and Temurin JDK 17 from their setup
-  # actions, and Maven plus the Clojure CLI from
-  # scripts/setup-windows-maven-clojure.ps1 (#15). Those last three are what
-  # make crap_runner_smoke's Go/Java/Clojure cases and mutator's
-  # go_java_clojure cases execute; the steps below turn a missing toolchain
-  # into a failure, so a skip cannot pass for green.
   windows-quality:
     runs-on: windows-latest
     timeout-minutes: 90
@@ -281,8 +210,6 @@ jobs:
       - name: Rust toolchain pinned by rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      # #123: scripts/check.py runs the workspace tests, and the mutator's own
-      # Rust cases mutate real fixtures with the fail-fast nextest suite.
       - name: cargo-nextest for the fail-fast Rust suite
         uses: taiki-e/install-action@v2
         with:
@@ -295,24 +222,12 @@ jobs:
           # The oracle snapshots in fixtures/crap/live were generated with
           # Node 24 (fixtures/crap/live/README.md); type stripping needs 22.6+.
           node-version: '24'
-      # The measured projects' own test tools, not a Python analysis runtime.
       - name: Python fixture toolchain
         run: python -m pip install coverage pytest
-      # A Lua suite reports through Busted, LuaCov and cluacov 1.0.0, and the
-      # coverage collector adds the LuaCov LCOV reporter. The pinned installer
-      # proves all of them and exports PATH, LUA_PATH and LUA_CPATH to the
-      # later steps. crap_languages probes both `lua5.4` and `lua` the way the
-      # coverage runner does, so the installer's own `lua.exe` is enough here
-      # and no second name is laid down (#15).
       - name: Lua 5.4 fixture toolchain
         run: ./scripts/setup-windows-lua.ps1
-      # Go, Java and Clojure: the three fixture toolchains the deleted Linux job
-      # took from apt (#15). crap_runner_smoke and mutator's go_java_clojure
-      # cases execute on them instead of skipping, and the two steps further
-      # down make a missing one a failure rather than a skip.
       - uses: actions/setup-go@v5
         with:
-          # The same pin the Linux job used.
           go-version: '1.25.3'
           cache: false
       - uses: actions/setup-java@v4
@@ -325,9 +240,6 @@ jobs:
       # the tests can start `clj` through cmd.exe.
       - name: Maven and Clojure fixture toolchain
         run: ./scripts/setup-windows-maven-clojure.ps1
-      # The two fixture report steps the Linux job ran, restored: they prove the
-      # fixtures' own builds on this host and warm the dependency caches the
-      # runners below reuse.
       - name: Java fixture JaCoCo report
         run: mvn -q -f fixtures/crap/java/pom.xml test
       - name: Clojure fixture Cloverage report
@@ -343,10 +255,6 @@ jobs:
         env:
           CRAPPER_REQUIRE_TOOLCHAINS: '1'
         run: cargo test -p uml-viewer --test integration crap_languages -- --test-threads=1
-      # CRAPPER_REQUIRE_TOOLCHAINS and MUTATOR_REQUIRE_TOOLCHAINS turn a missing
-      # toolchain into a failure, so these two steps can only pass by really
-      # running Go, Java and Clojure; a skip is a broken job, not a platform
-      # (#15).
       - name: Go, Java and Clojure coverage runners execute, never skip
         env:
           CRAPPER_REQUIRE_TOOLCHAINS: '1'
@@ -355,14 +263,6 @@ jobs:
         env:
           MUTATOR_REQUIRE_TOOLCHAINS: '1'
         run: cargo test -p mutator --test go_java_clojure --locked -- --test-threads=1
-      # The Python and TypeScript mutation run lived in the deleted `linux` job
-      # (`--test python_ts --test python_ts_sites`); #11 forbade losing a gate, so
-      # it runs here. Neither file is Linux-only any more, and a Windows worker
-      # copy hides `.venv`, so the Python fixture uses the `python` on PATH that
-      # the "Python fixture toolchain" step above fills with coverage.py and
-      # pytest. MUTATOR_REQUIRE_TOOLCHAINS makes a missing one a failure rather
-      # than the skip it used to be, and the snapshot goldens' one host-chosen
-      # field (`:isolation`) is the only thing rewritten before the byte compare.
       - name: Python and TypeScript mutation run on the one host
         env:
           MUTATOR_REQUIRE_TOOLCHAINS: '1'

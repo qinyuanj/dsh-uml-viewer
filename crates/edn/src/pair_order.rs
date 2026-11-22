@@ -10,7 +10,6 @@
 //! `HashCollisionNode`). Only distinct directed keyword pairs are accepted,
 //! in first encounter order.
 
-/// 2^32 as an i64 modulus for the floored-remainder sums.
 const U: i64 = 4_294_967_296;
 
 fn mixk(k: u32) -> u32 {

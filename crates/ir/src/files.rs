@@ -1,16 +1,9 @@
-//! Port of `love/uml/adapters/project_files.lua` over POSIX paths
-//! (`posix_path.lua`) and atomic writes (`atomic_file.lua`): canonicalize
-//! with `realpath` semantics, enumerate sorted entries, refuse source
-//! symlinks, and replace outputs atomically via a same-directory rename.
-
 use std::path::Path;
 
 use edn::Value;
 
 use crate::scan::{Scanner, SourceFile};
 
-/// The IO capability handed to IR orchestration; rooted at the canonical
-/// project root.
 pub struct Adapter {
     root: String,
 }
@@ -24,7 +17,6 @@ fn canonical(path: &str) -> Result<String, String> {
         .map(|p| portable(&p.to_string_lossy()))
 }
 
-/// The one canonical text form IR works in. POSIX paths are already it.
 #[cfg(not(windows))]
 fn portable(path: &str) -> String {
     path.to_owned()
@@ -44,7 +36,6 @@ fn portable(path: &str) -> String {
     path.replace('\\', "/")
 }
 
-/// `X:/…`, `X:\…`, `\\server\…` and `/…` name a file without the root.
 fn absolute(root: &str, path: &str) -> String {
     let native = Path::new(path);
     if native.has_root() || native.is_absolute() {
@@ -67,7 +58,6 @@ fn is_link(meta: &std::fs::Metadata) -> bool {
     meta.file_type().is_symlink()
 }
 
-/// Sorted directory entries; symlinks are refused like `lfs` mode `link`.
 fn entries(path: &str) -> Result<Vec<(String, bool)>, String> {
     let mut result = Vec::new();
     let read = std::fs::read_dir(path).map_err(|e| format!("{path}: {e}"))?;
@@ -85,8 +75,6 @@ fn entries(path: &str) -> Result<Vec<(String, bool)>, String> {
     Ok(result)
 }
 
-/// `atomic_file.write`: temp file next to the target, then rename. The
-/// destination is never deleted first; a failure keeps the old contents.
 fn atomic_write(path: &str, bytes: &str) -> Result<(), String> {
     if let Some(parent) = Path::new(path).parent()
         && parent != Path::new("")
@@ -103,8 +91,6 @@ fn atomic_write(path: &str, bytes: &str) -> Result<(), String> {
     outcome
 }
 
-/// `snapshot`'s walk: sorted entries, descending into accepted directories
-/// inline, matching the Lua recursion order.
 fn walk(
     root: &str,
     relative: &str,
@@ -139,7 +125,6 @@ fn walk(
 }
 
 impl Adapter {
-    /// `new(root, host)`: the root is canonicalized once.
     pub fn new(root: &str) -> Result<Adapter, String> {
         Ok(Adapter {
             root: canonical(root)?,
@@ -159,8 +144,6 @@ impl Adapter {
         atomic_write(&absolute(&self.root, path), text)
     }
 
-    /// `snapshot(path, scanner, opts)`: walks the canonical source root,
-    /// collecting accepted files, then explicitly named metadata paths.
     pub fn snapshot(
         &self,
         path: &str,
@@ -183,8 +166,6 @@ impl Adapter {
         Ok((canonical_root, files))
     }
 
-    /// `filenames()`: project-relative paths under the root, skipping VCS and
-    /// tool directories; only membership is used (language detection).
     pub fn filenames(&self) -> Result<Vec<String>, String> {
         let mut names = Vec::new();
         let mut stack = vec![String::new()];

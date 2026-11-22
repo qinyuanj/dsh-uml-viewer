@@ -1,5 +1,3 @@
-//! `dryer/tests/test_names.py` at pinned b3f72ad, ported case by case.
-
 use super::{scratch, write_source};
 use crate::names::owner;
 use crate::report;
@@ -11,7 +9,6 @@ use std::path::Path;
 #[cfg(unix)]
 use std::path::PathBuf;
 
-/// `(file, namespace, name)` of one candidate side.
 type Side = (String, Option<String>, Option<String>);
 
 fn sides(root: &Path, threshold: f64, min_lines: usize) -> Vec<Vec<Side>> {
@@ -233,10 +230,6 @@ fn edn_sides_end_with_namespace_and_name() {
     );
 }
 
-/// `test_the_snapshot_is_replaced_in_one_step`: the observable half — the
-/// published path, its bytes, no staged leftovers and the file mode. Python's
-/// `os.replace` spy has no equivalent here; the replacement itself is
-/// `quality_core::atomic::write_bytes`.
 #[test]
 fn the_snapshot_is_replaced_in_one_step() {
     let root = scratch("names-publish");

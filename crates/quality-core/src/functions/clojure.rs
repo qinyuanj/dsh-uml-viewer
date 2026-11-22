@@ -1,4 +1,3 @@
-//! Crapper's custom Clojure reader, preserving the original scanner semantics.
 use super::Function;
 use crate::language::Language;
 use std::path::Path;
@@ -157,8 +156,6 @@ fn namespace(source: &str, path: &str, root: &Path) -> String {
     if root != "." && relative.starts_with(&prefix) {
         relative = relative[prefix.len()..].to_string();
     }
-    // crapper `strip_src`: a leading `src/`, else everything after the
-    // first `/src/`.
     if let Some(rest) = relative.strip_prefix("src/") {
         relative = rest.to_string();
     } else if let Some((_, rest)) = relative.split_once("/src/") {

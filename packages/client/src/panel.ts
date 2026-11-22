@@ -1,49 +1,26 @@
-/**
- * The panel's view controller: it owns the browser side of the session-bound
- * panel stream. Everything visual goes through the injected `paint` function so
- * the controller itself can be exercised without a browser canvas.
- *
- * The interaction boundary is ADR 0013's: drill-in/back/P, select and search go
- * through the host to the resident (`drill-in`, `back`, `namespace-tree`,
- * `select`, `search`, `locate`); pan, zoom, fit and hover are local camera or
- * feedback work. Hover restyles the resident's frame locally (`hover.ts`) and
- * never changes the frame itself. The local camera math mirrors `scene::events` (on_wheel,
- * on_scroll, zoom_at, fit) so the panel behaves like the egui window.
- */
 import type { BreadcrumbLevel, DeclutterMode, DiscussionContext, PanelAck, PanelAction, PanelEvent, PanelOwner,
   ProposalEntry, RequestStatusEntry, SceneFrame, SearchResult, SessionStatus } from '@dsh-uml-viewer/contracts'
 import { hitTest, paintFrame } from './paint.js'
 import { hoverAt, sameHover, showsPopup, withHover, type HoverHit } from './hover.js'
 import { cssToWorld, screenToWorld, viewTransform } from './fit.js'
 
-/** A Remote stream handle: async-iterable, with the carrier's own teardown. */
 export interface PanelStream extends AsyncIterable<PanelEvent> {
   dispose?(): void
   end?(): void
 }
 
-/** What the panel hands to the host side of the Remote. */
 export interface PanelRemoteApi {
   watch(sessionId: string): PanelStream
-  /** `language` is the DSH language (#44); the resident lays its text out in it. */
   watchOwned?(sessionId: string, owner: PanelOwner, language: string): PanelStream
   closeOwned?(sessionId: string, owner: PanelOwner): Promise<unknown>
   action(sessionId: string, action: PanelAction): Promise<unknown>
-  /**
-   * The explicit close (#32, D13). A stream ending is a carrier loss — the host
-   * keeps that session's resident for a bounded grace — so closing the panel
-   * must say so. Optional: a host without the added Remote method still works,
-   * and the resident then falls back to its grace.
-   */
   close?(sessionId: string): Promise<unknown>
 }
 
-/** The search overlay: the egui window's Ctrl+F box and its result list. */
 export interface SearchState {
   active: boolean
   query: string
   results: SearchResult[]
-  /** The explicitly selected result (Down/Up), Enter locates it. */
   selection: number
 }
 
@@ -52,59 +29,31 @@ export interface PanelStatus {
   reason: string | null
   actions: readonly string[]
   frame: SceneFrame | null
-  /** The discussion context carried by this session's stream. */
   context: DiscussionContext | null
   search: SearchState
-  /**
-   * The tree path from the resident's state event (#45), root first; the
-   * panel's top bar draws it. Empty until a diagram is loaded.
-   */
   breadcrumbs: readonly BreadcrumbLevel[]
-  /**
-   * The canvas status code from the same event (#45). The panel localizes it;
-   * the code never carries text of its own.
-   */
   statusCode: SessionStatus | null
-  /**
-   * What the canvas shows (#46): the discussion's source tree, or a proposal
-   * layer. The resident's `:proposal-id` is the view's own flag — the frame no
-   * longer carries a banner to read it from — so the summary and its e2e
-   * assertions take it from `state`.
-   */
   view: 'source' | 'proposal'
-  /**
-   * The shown diagram's proposals from the same event (#47), in its order:
-   * the discussion-context switcher lists them after the source diagram.
-   */
   proposals: readonly ProposalEntry[]
-  /**
-   * The session's request-status list (#51), oldest first, as the host last
-   * pushed it; the status bar shows the current one.
-   */
   requests: readonly RequestStatusEntry[]
 }
 
 export interface PanelDeps {
   canvas: HTMLCanvasElement
   api: PanelRemoteApi
-  /** Injected for tests; defaults to the Canvas 2D painter. */
   paint?: (frame: SceneFrame, canvas: HTMLCanvasElement) => void
   onStatus?: (status: PanelStatus) => void
-  /** A new holder per open; the document identity stays stable on remount. */
   owner?: () => PanelOwner
-  /** The DSH language, read when the stream opens and on every switch (#44). */
   language?: () => string
 }
 
 export interface KeyModifiers { control?: boolean; shift?: boolean }
 
-/** The panel's drawer (#49), as the Esc chain sees it. */
 export interface DrawerHook {
   open(): boolean
   close(): void
 }
 
-/** The legend's popover (#50), as the Esc chain sees it; a resident legend is not a layer. */
 export interface LegendHook {
   isOpen(): boolean
   close(): void
@@ -112,11 +61,8 @@ export interface LegendHook {
 
 type Listener = () => void
 
-/** `scene::events`: one wheel notch and the pan unit. */
 export const ZOOM_STEP = 1.1
 const SCROLL_UNIT = 48
-// scene::compose::bounds inflates content by 16 world units; size then
-// reserves another 40 around it. Fit must use that scene extent, not ink.
 const SCENE_BOUNDS_INSET = 16
 const SCENE_OUTER_MARGIN = 40
 const ZOOM_MIN = 0.1
@@ -135,28 +81,20 @@ export class PanelController {
   private owner: PanelOwner | null = null
   private readonly makeOwner: (() => PanelOwner) | undefined
   private readonly language: () => string
-  /** The language this stream opened with; a switch sends the new one. */
   private sentLanguage: string | null = null
   private frame: SceneFrame | null = null
   private status: PanelStatus = { kind: 'connecting', reason: null, actions: [], frame: null, context: null,
     search: EMPTY_SEARCH, breadcrumbs: [], statusCode: null, view: 'source', proposals: [], requests: [] }
   private observer: MutationObserver | null = null
   private readonly listeners = new Set<Listener>()
-  /** Last mode reported by the resident's existing `state` event. */
   private mode = 'full'
   public get declutterMode(): string { return this.mode }
-  /** The selected hit (EDN) from the same `state` event; the action bar (#48) reads it. */
   private selectedHit: string | null = null
   public get selected(): string | null { return this.selectedHit }
-  // Pending pointer gesture, in screen pixels.
   private drag: { x: number; y: number; moved: boolean } | null = null
-  /** Last pointer position: the zoom anchor, like `Dims.pointer`. */
   private pointer: { x: number; y: number } | null = null
-  /** What the pointer hovers; painted over the resident's frame, never sent. */
   private hoverHit: HoverHit | null = null
-  /** The class card / source drawer; Esc closes it before going back. */
   private drawer: DrawerHook | null = null
-  /** The legend popover, below the search box and above the drawer on Esc. */
   private legend: LegendHook | null = null
 
   public constructor(deps: PanelDeps) {
@@ -177,21 +115,14 @@ export class PanelController {
     return () => this.listeners.delete(listener)
   }
 
-  /** Open the stream bound to this session; a second open replaces the first. */
   public async open(sessionId: string): Promise<void> {
     const previous = this.sessionId
     const previousOwner = this.owner
-    // Rebinding is not a close: when the same session is replaced (a panel
-    // body remount during a right-sidebar presentation change), saying
-    // "closed" would stop the resident the new stream is about to re-attach
-    // to. Only a different session is left behind.
     this.teardown()
     if (previous !== null && previous !== sessionId) this.sayClosed(previous, previousOwner)
     this.sessionId = sessionId
     const abort = new AbortController()
     this.abort = abort
-    // A new binding starts with nothing said: the first frame's `save` brings
-    // this session's breadcrumbs, status and selection.
     this.selectedHit = null
     this.publish({ kind: 'connecting', reason: null, actions: [], frame: this.frame, context: null,
       search: EMPTY_SEARCH, breadcrumbs: [], statusCode: null, view: 'source', proposals: [], requests: [] })
@@ -217,8 +148,6 @@ export class PanelController {
             }
             break
           } catch (error) {
-            // A host from before the owned methods refuses them before any
-            // event; that host only understands the session-wide pair.
             if (abort.signal.aborted || received || this.owner === null) throw error
             this.owner = null
             stream = this.api.watch(sessionId)
@@ -239,26 +168,17 @@ export class PanelController {
     })()
   }
 
-  /**
-   * Follow a DSH language switch (#44): the resident lays the frame, the
-   * 无数据 markers and the open class card out again, so the panel redraws
-   * the frame it receives and re-requests the card. The language is the
-   * resident's, never part of this session's saved view.
-   */
   public async setLanguage(language: string): Promise<void> {
     if (this.sessionId === null || language === this.sentLanguage) return
     this.sentLanguage = language
-    // The answer is a frame in the new language; a refusal keeps the old one.
     await this.send({ action: 'language', language })
   }
 
-  /** Presentation teardown is withdrawal; it carries no user close intent. */
   public detach(): void {
     this.teardown()
     this.listeners.clear()
   }
 
-  /** Close the panel and tell the host this is a close, not a lost carrier. */
   public close(): Promise<void> {
     const sessionId = this.sessionId
     const owner = this.owner
@@ -269,14 +189,11 @@ export class PanelController {
     return sessionId !== null ? this.sayClosed(sessionId, owner) : Promise.resolve()
   }
 
-  /** Send the explicit-close Remote call; best effort, never blocks teardown. */
   private sayClosed(sessionId: string, owner: PanelOwner | null): Promise<void> {
     try {
       const closing = owner ? this.api.closeOwned?.(sessionId, owner) : this.api.close?.(sessionId)
       return Promise.resolve(closing).then(() => {}, () => {})
     } catch {
-      // The host keeps the resident for its withdrawal grace when this call
-      // never arrives, so a failed send only delays the stop.
       return Promise.resolve()
     }
   }
@@ -288,20 +205,16 @@ export class PanelController {
     this.owner = null
     const stream = this.stream
     this.stream = null
-    // The Remote handle owns the carrier subscription; ending it releases this
-    // panel's hold on the session's resident on the host side.
-    try { stream?.end?.() } catch { /* already closed */ }
-    try { stream?.dispose?.() } catch { /* already closed */ }
+    try { stream?.end?.() } catch {}
+    try { stream?.dispose?.() } catch {}
     this.observer?.disconnect()
     this.observer = null
   }
 
-  /** Repaint the last frame, e.g. after the host theme flips light/dark. */
   public repaint(): void {
     if (this.frame) this.draw(this.frame)
   }
 
-  /** Paint a resident frame with the local hover feedback on top. */
   private draw(frame: SceneFrame): void {
     const bounds = this.canvas.getBoundingClientRect()
     const pointer = this.pointer && bounds.width > 0 && bounds.height > 0
@@ -314,13 +227,10 @@ export class PanelController {
     if (this.sessionId === null) return null
     const binding = this.abort
     const result = await this.api.action(this.sessionId, action)
-    // A continuation must not act on a closed or replacement panel binding,
-    // even when the replacement opens the same session id.
     if (binding !== this.abort || binding?.signal.aborted) return null
     return ackOf(result)
   }
 
-  /** Apply local camera work now; the resident only acknowledges and saves it. */
   private updateCamera(camera: SceneFrame['camera']): void {
     if (!this.frame) return
     const frame = { ...this.frame, camera }
@@ -330,15 +240,9 @@ export class PanelController {
     void this.send({ action: 'camera', ...camera })
   }
 
-  /**
-   * Tell the host the panel's canvas size so it lays the frame out for this
-   * viewport. The size is in CSS pixels; the painter renders at device pixels.
-   */
   public setViewport(width: number, height: number): void {
     if (width <= 0 || height <= 0) return
     this.viewport = { width, height }
-    // An early action could acquire the old resident before owned watch gets
-    // to apply its fresh-document boundary. `ready` sends the initial size.
     if (this.status.kind === 'live') void this.send({ action: 'viewport', viewport: { width, height } })
   }
 
@@ -354,7 +258,6 @@ export class PanelController {
     return screenToWorld(viewTransform(this.frame, this.viewport.width, this.viewport.height), x, y)
   }
 
-  /** Pointer down starts a pan gesture; a click without motion selects. */
   public pointerDown(x: number, y: number): void {
     this.pointer = { x, y }
     if (this.status.search.active) return
@@ -384,20 +287,12 @@ export class PanelController {
     if (world) void this.send({ action: 'select', at: world })
   }
 
-  /** Double-click: drill into what is at the point (the canvas has no hotspot, #46). */
   public doubleClick(x: number, y: number): void {
     if (this.status.search.active) return
     const world = this.world(x, y)
-    // The resident's own hit test decides whether this is drillable; a class
-    // card (double-click on a leaf class) is #25's surface.
     if (world) void this.send({ action: 'drill-in', at: world })
   }
 
-  /**
-   * Hover is local feedback (ADR 0013): no round trip. A change of what is
-   * under the pointer repaints; so does a move while the overview popup, which
-   * follows the pointer, is showing.
-   */
   public hover(x: number, y: number): void {
     this.pointer = { x, y }
     if (!this.frame) return
@@ -409,28 +304,23 @@ export class PanelController {
     this.draw(this.frame)
   }
 
-  /** The pointer left the canvas: drop the hover feedback. */
   public hoverEnd(): void {
     if (this.hoverHit === null) return
     this.hoverHit = null
     if (this.frame) this.draw(this.frame)
   }
 
-  /** Wheel: plain pans (shift/horizontal pans sideways), Ctrl zooms at the cursor. */
   public wheel(x: number, y: number, delta: number, modifiers: KeyModifiers = {}, horizontalDelta = 0): void {
     this.pointer = { x, y }
     if (!this.frame || !this.viewport || this.status.search.active) return
     if (modifiers.control) {
       this.zoomAt(ZOOM_STEP ** delta, x, y)
     } else {
-      // Match scene::events::on_wheel: a native horizontal axis takes
-      // precedence; Shift maps a vertical-only wheel onto that same axis.
       const amount = horizontalDelta !== 0 ? horizontalDelta : delta
       if (amount !== 0) this.scroll(-amount, horizontalDelta !== 0 || modifiers.shift === true)
     }
   }
 
-  /** Zoom about a screen point, keeping the world point under it fixed. */
   public zoomAt(factor: number, x: number, y: number): void {
     if (!this.frame) return
     const old = this.frame.camera.zoom
@@ -442,7 +332,6 @@ export class PanelController {
     })
   }
 
-  /** The scene extent, the same `size`/`min-x` bounds `scene::events` scrolls in. */
   private sceneBounds(): { x0: number; y0: number; x1: number; y1: number } | null {
     if (!this.frame) return null
     let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity
@@ -455,7 +344,6 @@ export class PanelController {
     return Number.isFinite(x0) ? { x0, y0, x1, y1 } : null
   }
 
-  /** `on_scroll`: 48/zoom world units per notch, clamped to the scene. */
   public scroll(amount: number, horizontal: boolean): void {
     if (!this.frame || !this.viewport) return
     const camera = this.frame.camera
@@ -470,11 +358,6 @@ export class PanelController {
     this.updateCamera({ ...camera, ...(horizontal ? { x: value } : { y: value }) })
   }
 
-  /**
-   * Ctrl+0 and the More menu's Fit view: the whole scene in the canvas, like
-   * `scene::events::fit`. The canvas is the frame's whole viewport (#46): the
-   * top bar and the status bar are DOM outside it, so nothing is reserved.
-   */
   public fit(): void {
     if (!this.frame || !this.viewport) return
     const bounds = this.sceneBounds()
@@ -494,13 +377,11 @@ export class PanelController {
     })
   }
 
-  /** The class or package under a screen point, from the frame's own bounds. */
   public hit(x: number, y: number): string | null {
     const world = this.world(x, y)
     return world && this.frame ? hitTest(this.frame, world) : null
   }
 
-  /** Whether the view is below the tree's root: the breadcrumb path says so (#45). */
   private hasBack(): boolean {
     return this.status.breadcrumbs.length > 1
   }
@@ -509,53 +390,32 @@ export class PanelController {
     return this.send({ action: 'back' })
   }
 
-  /**
-   * A breadcrumb click: return to the level whose id `target` is (`null` is
-   * the source diagram's root) instead of one level up.
-   */
   public async backTo(target: string | null): Promise<PanelAck | null> {
     return this.send({ action: 'back', target })
   }
 
-  /**
-   * The More menu's Remove arrows toggle (#46): name the declutter mode instead
-   * of cycling to it. An accepted mode is live at once; the next `state` event
-   * confirms what the resident persisted (#120).
-   */
   public async setDeclutter(mode: DeclutterMode): Promise<void> {
     const ack = await this.send({ action: 'declutter', mode })
     if (!ack?.accepted) return
     this.mode = mode
     try {
-      // A failed save only means the resident's next frame saves anyway; the
-      // menu must not show the old checked state while that frame is in flight.
       await this.send({ action: 'save' })
     } catch {
-      // The next frame's save reports the resident's real mode.
     }
   }
 
-  /** **P**: return to the source diagram's namespace tree. */
   public async namespaceTree(): Promise<PanelAck | null> {
     return this.send({ action: 'namespace-tree' })
   }
 
-  /** The drawer the Esc chain closes; null detaches it. */
   public setDrawer(drawer: DrawerHook | null): void {
     this.drawer = drawer
   }
 
-  /** The legend popover the Esc chain closes (#50); null detaches it. */
   public setLegend(legend: LegendHook | null): void {
     this.legend = legend
   }
 
-  /**
-   * Escape: close search, else the legend popover, else the drawer, else back
-   * one level, else clear the selection. Layers close topmost first: the
-   * search box and the legend are popovers over the canvas, the drawer rises
-   * over its lower half.
-   */
   public escape(): void {
     if (this.status.search.active) {
       this.closeSearch()
@@ -579,7 +439,6 @@ export class PanelController {
     this.publish({ ...this.status, search: { ...this.status.search, active: false } })
   }
 
-  /** Typing or pasting into the search box asks the resident; no local matching. */
   public setSearchQuery(query: string): void {
     this.publish({ ...this.status, search: { ...this.status.search, active: true, query, selection: -1 } })
     void this.send({ action: 'search', query })
@@ -592,16 +451,11 @@ export class PanelController {
     this.publish({ ...this.status, search: { ...search, selection } })
   }
 
-  /** Enter: locate the explicitly selected result (the search box stays open). */
   public activateSearch(): void {
     const result = this.status.search.results[this.status.search.selection]
     if (result) void this.send({ action: 'locate', id: result.id })
   }
 
-  /**
-   * One key, as the egui window maps it. Returns true when the key was consumed;
-   * an open search box captures every canvas shortcut and pointer gesture.
-   */
   public key(key: string, modifiers: KeyModifiers = {}): boolean {
     const k = key.toLowerCase()
     const control = modifiers.control === true
@@ -639,7 +493,6 @@ export class PanelController {
           context: this.status.context, search: this.status.search,
           breadcrumbs: this.status.breadcrumbs, statusCode: this.status.statusCode, view: this.status.view,
           proposals: this.status.proposals, requests: this.status.requests })
-        // The panel names its viewport before the first frame can be laid out.
         if (this.viewport) void this.send({ action: 'viewport', viewport: this.viewport })
         return
       case 'state':
@@ -655,8 +508,6 @@ export class PanelController {
           breadcrumbs: this.status.breadcrumbs, statusCode: this.status.statusCode, view: this.status.view,
           proposals: this.status.proposals, requests: this.status.requests })
         this.draw(event.frame)
-        // Rebuilds and display can change the mode. Read actual resident state,
-        // including a restored mode, instead of advancing a local click count.
         void this.send({ action: 'save' })
         return
       case 'context':
@@ -684,7 +535,6 @@ export class PanelController {
           proposals: this.status.proposals, requests: this.status.requests })
         return
       default:
-        // state events are the host's own persistence traffic, not panel UI.
         if (signal.aborted) return
         return
     }
@@ -710,7 +560,6 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** Unary Remote calls return `{ok, value|error}`; a stub may return the ack itself. */
 function ackOf(result: unknown): PanelAck | null {
   if (result && typeof result === 'object' && 'ok' in result) {
     const envelope = result as { ok: boolean; value?: unknown; error?: { message?: string } }

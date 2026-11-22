@@ -1,15 +1,9 @@
-//! The forms each language compares: dryer's `extract.py`, ported per
-//! language. Clojure compares every top-level list except `ns`; the other
-//! languages compare the functions and methods crapper scores, with each
-//! language's own picker. These pickers are deliberately not unified.
-
 use crate::clojure;
 use crate::normalize::normalized_shape;
 use quality_core::grammar::{Grammar, Node, children, end_line, preorder, start_line, text};
 use quality_core::language::Language;
 use std::collections::HashSet;
 
-/// One normalized form ready to compare (dryer `model.Entry`).
 #[derive(Clone)]
 pub(crate) struct Entry {
     pub language: Language,
@@ -68,7 +62,6 @@ fn inside(node: Node, kinds: &[&str]) -> bool {
     false
 }
 
-/// A function inside another function; a class in between keeps the method.
 fn python_nested(node: Node) -> bool {
     let mut current = node.parent();
     while let Some(parent) = current {
@@ -208,8 +201,6 @@ fn nodes<'t>(language: Language, source: &str, root: Node<'t>) -> Vec<Node<'t>> 
     }
 }
 
-/// The entries of one file, plus a Clojure reader warning
-/// (`dryer.extract.entries_in_source`). `path` picks the TypeScript grammar.
 pub(crate) fn entries_in_source(
     language: Language,
     source: &str,

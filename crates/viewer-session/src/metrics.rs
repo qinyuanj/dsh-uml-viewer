@@ -1,8 +1,3 @@
-//! Metrics snapshot loading (port of `love/uml/adapters/metrics.lua`): the
-//! `.metrics` root walk and the immutable snapshot records the pure overlay
-//! consumes. The stamp is the encoded vector of `[path mtime size]`; mtimes
-//! carry nanoseconds so equal-byte-length edits still reload.
-
 use edn::Value;
 use scene::Snapshot;
 use std::path::{Path, PathBuf};
@@ -33,8 +28,6 @@ pub fn root(path: &Path) -> PathBuf {
     }
 }
 
-/// `rel` is the `/`-separated snapshot path below `base` on every host: it is
-/// EDN-visible (the snapshot name and the reload stamp).
 fn collect(base: &Path, rel: &str, files: &mut Vec<Snapshot>) {
     let dir = base.join(rel);
     let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -73,8 +66,6 @@ pub fn snapshot(base: &Path) -> (Vec<Snapshot>, Value) {
             Value::String(mtime),
         ));
     }
-    // The duplicate-structure snapshot joins the same set, so the reload stamp
-    // below covers it: refreshing dry alone reloads the panel.
     let dry = base.join(".metrics/dry.edn");
     if dry.is_file()
         && let Ok(text) = std::fs::read_to_string(&dry)

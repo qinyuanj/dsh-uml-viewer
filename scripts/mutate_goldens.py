@@ -29,17 +29,10 @@ EXPECTED = {
     "util.edn": (412, "31190035242fa75d52f3ee27f0c6f431189198236bc4a5174f2bcd6bd66fe8c8"),
 }
 TARGETS = ["util/src/lib.rs", "app/src/lib.rs", "app/src/more.rs"]
-# A zero-mutation function changes the form digests, so the file is not
-# reusable; the original republishes its snapshot without running a test.
 ZERO_SITE_FUNCTION = b"\npub fn no_sites() {}\n"
 ZERO_SITE_COMMAND = "grep -q 'x + x' app/src/lib.rs"
 ZERO_SITE_GOLDEN = "app-no-sites.edn"
 EXPECTED_ZERO_SITE = (601, "49a18a35b755671f972712523d78187064c2924b3121273f920c0df458ac5433")
-# `fixtures/mutate/help.txt` is not the pinned original's `HELP` string: this port
-# added `--copy` (ADR 0016) and the bare `..` refusal to it, and the binary reads
-# the same fixture through `include_str!`, so a regeneration that republished the
-# original would delete both from `uml-viewer mutate --help` with no test going
-# red. These are the port-only rules the published text must still carry.
 PORT_HELP_RULES = {
     "--copy <path>": "the --copy option (ADR 0016)",
     "parent directory itself": "the bare .. refusal",
@@ -47,22 +40,12 @@ PORT_HELP_RULES = {
 
 
 def port_help_gaps(text: str) -> list[str]:
-    """The port-only help rules `text` lacks, each as `<marker>: <what it is>`."""
-    # The help wraps its paragraphs, so a rule may break across lines: compare
-    # on collapsed whitespace, the way a reader sees the paragraph.
     flattened = " ".join(text.split())
     return [f"{marker}: {rule}" for marker, rule in PORT_HELP_RULES.items()
             if marker not in flattened]
 
 
 def publish_help(destination: Path, text: str) -> None:
-    """Publish this port's help text, refusing the original's.
-
-    The pinned original module's `HELP` is an input to this oracle, not this
-    repository's help: it predates `--copy` and the bare `..` rule. Overwriting
-    the fixture with it would silently shrink `uml-viewer mutate --help`, so the
-    script stops and names what is missing instead of writing.
-    """
     gaps = port_help_gaps(text)
     if gaps:
         # Precomputed: a same-quote string nested in an f-string is PEP 701,
@@ -86,12 +69,6 @@ LUA_TARGETS = ["src/calc.lua", "src/odd name.lua", "nested/lib/mathx.lua"]
 
 
 def _deps(refs: Path, scratch: Path, *, redirect_home: bool = True) -> None:
-    """Pinned Python dependencies and import paths, all inside native scratch.
-
-    The Lua case keeps the caller's HOME: LuaRocks resolves busted and cluacov
-    from `~/.luarocks`, and the pinned interpreter is probed with that HOME.
-    """
-
     os.environ.update(PYTHONDONTWRITEBYTECODE="1", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
                       PIP_NO_CACHE_DIR="1", PIP_DISABLE_PIP_VERSION_CHECK="1")
     if redirect_home:
@@ -109,13 +86,6 @@ def _deps(refs: Path, scratch: Path, *, redirect_home: bool = True) -> None:
 
 
 def lua_oracle(refs: Path, output: Path) -> None:
-    """The Lua case: site oracle, fixed-clock snapshots and the reuse rerun.
-
-    The fixture project is copied to native /tmp first; the checked-in fixture is
-    never mutated. Snapshots and the site table are written back for the Rust
-    parity tests.
-    """
-
     for requirement in ("lua5.4", "busted"):
         assert shutil.which(requirement), f"{requirement} is required for the Lua oracle"
     scratch = Path(tempfile.mkdtemp(prefix="spec203-t11-python.", dir="/tmp")).resolve()
@@ -146,8 +116,6 @@ def lua_oracle(refs: Path, output: Path) -> None:
                 result = run(flags)
             print(stdout.getvalue(), end="")
             print(stderr.getvalue(), end="", file=sys.stderr)
-            # The fixture deliberately holds one survivor (`//` to `/` is the
-            # same function on even input), so exit 3 is the expected outcome.
             assert result in (0, 3), result
             codes.append(result)
             logs.append(stdout.getvalue() + stderr.getvalue())
@@ -168,9 +136,6 @@ def lua_oracle(refs: Path, output: Path) -> None:
                 [list(key), value] for key, value in form_digests(source, path, root).items())
         for name, data in before.items():
             assert (root / name).read_bytes() == data, f"the oracle mutated {name}"
-        # A named .busted task is a test filter: only its specs run, so the
-        # functions no spec covers stay uncovered. The nested module has no
-        # such task, so this case targets the root module only.
         task_root = scratch / "task"
         shutil.copytree(fixture, task_root)
         stdout, stderr = io.StringIO(), io.StringIO()
@@ -290,9 +255,6 @@ def main() -> None:
             assert len(data) == size and hashlib.sha256(data).hexdigest() == digest, name
             assert b"\r" not in data and data.endswith(b"\n")
         assert all((parent / name).read_bytes() == data for name, data in before.items())
-        # The differential guard: a function with no mutation sites still makes
-        # the file unreusable, so the snapshot is republished with the new form
-        # set and the carried outcomes instead of being kept.
         zero = scratch / "zero-site"
         shutil.copytree(parent, zero)
         zero_root = zero / "project"
@@ -321,8 +283,6 @@ def main() -> None:
         for name, revision in PINS.items():
             assert git(refs / name, "rev-parse", "HEAD") == revision
             assert not git(refs / name, "status", "--porcelain"), name
-        # Only the external dependency spelling changes in the portable copy.
-        # Source/test bytes (and therefore occurrence offsets/digests) stay exact.
         for name, data in before.items():
             if name.as_posix() == "project/app/Cargo.toml":
                 data = data.replace((parent / "extdep").as_posix().encode(), b"../../extdep")

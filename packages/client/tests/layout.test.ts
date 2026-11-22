@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DOCK_WIDTH, layoutFor, observeLayout } from '../src/layout.js'
 
-/** A ResizeObserver the test drives by hand, one per observed element. */
 function fakeResize() {
   const observers: { callback: () => void; disconnected: boolean }[] = []
   class FakeResizeObserver {

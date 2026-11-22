@@ -7,7 +7,6 @@ import { mountQualityMenu } from '../src/requests.js'
 
 const frame = JSON.parse(readFileSync(new URL('../../../crates/frame/tests/fixtures/frames/root.frame.json', import.meta.url), 'utf8')) as SceneFrame
 
-/** The first canvas point that hits an element with a menu, in canvas pixels. */
 const at = (() => {
   const bounds = { width: frame.viewport.width, height: frame.viewport.height }
   for (let y = 20; y < bounds.height; y += 20) {
@@ -47,7 +46,6 @@ function fakeMenuElement() {
 }
 
 function harness() {
-  // `mountQualityMenu` builds its markup through `document.createElement`.
   const created: ReturnType<typeof fakeMenuElement>[] = []
   ;(globalThis as { document?: { createElement(name: string): unknown } }).document = {
     createElement: () => {
@@ -87,12 +85,6 @@ function harness() {
   }), menu, pointerdown: () => host.fire('pointerdown', { target: null }) }
 }
 
-/**
- * The host's shortcut service reads every `[role="menu"]` in the document as an
- * open modal, whether or not it is visible, and a modal blocks commands that do
- * not admit it — the tab refresh among them (#43). So the menu may only carry
- * that role while it is open.
- */
 describe('element menu role', () => {
   it('exposes role="menu" only while open', () => {
     const h = harness()

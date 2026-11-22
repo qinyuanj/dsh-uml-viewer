@@ -24,7 +24,6 @@ use std::{
     time::Duration,
 };
 
-/// The original `--timings` totals: one line per phase in first-run order.
 #[derive(Default)]
 pub struct Timings {
     phases: Vec<(String, f64, usize)>,
@@ -52,15 +51,12 @@ impl Timings {
     }
 }
 
-/// A test command: the original's shell string, or the Lua suite's argv, so a
-/// spec file name with a space or a quote stays one argument.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Command {
     Shell(String),
     Argv(Vec<String>),
 }
 impl Command {
-    /// The command as the original echoes it.
     fn display(&self) -> String {
         match self {
             Command::Shell(command) => command.clone(),
@@ -81,17 +77,12 @@ impl Command {
                 .join(" "),
         }
     }
-    /// Whether this is a Cargo test suite — `cargo test` or the fail-fast
-    /// nextest suite — whose compile step runs untimed before the baseline (the
-    /// original's `build_command`). The nextest run reuses the test binaries
-    /// `cargo test --no-run` leaves behind, so it warms the target the same way.
     fn is_cargo_test(&self) -> bool {
         match self {
             Command::Shell(command) => crate::rust_suite::is_suite(command),
             Command::Argv(argv) => argv.starts_with(&["cargo".to_string(), "test".to_string()]),
         }
     }
-    /// `[*command, *tail]` for both command shapes.
     fn extend(&self, tail: &[String]) -> Self {
         match self {
             Command::Shell(command) => {
@@ -111,8 +102,6 @@ impl Command {
     }
 }
 
-/// One baseline run's outcome: exit code, duration and captured output, keyed
-/// by the command and directory it ran in.
 type Baselines = BTreeMap<(Command, PathBuf), Result<(i32, Duration, String), Failure>>;
 
 pub struct Prepared {
@@ -125,16 +114,11 @@ pub struct Prepared {
     pub decisions: BTreeMap<String, Decision>,
     pub outcomes: BTreeMap<String, String>,
     pub covered: BTreeMap<String, bool>,
-    /// Hash of the test command and the scoped inputs that can affect it.
-    /// None when the declared inputs could not be enumerated.
     pub test_input: Option<String>,
-    /// The scope that digest was computed for; absent when hashing failed.
     pub test_input_scope: Option<TestInputScope>,
-    /// The module's Lua spec index, when this file has one.
     pub index: Option<Index>,
 }
 
-/// The test command and the directory it runs in.
 fn plan(root: &Path, options: &Options, source: &Path) -> (Command, PathBuf) {
     if let Some(command) = options.value("--test-command") {
         return (Command::Shell(command.to_string()), root.to_path_buf());
@@ -146,8 +130,6 @@ fn plan(root: &Path, options: &Options, source: &Path) -> (Command, PathBuf) {
             module,
         );
     }
-    // A generated Python or TypeScript plan is an argument vector too, so a
-    // package path stays one argument.
     let planned = match language_of(source) {
         Some(Language::Python) => Some(python::test_plan(root, source)),
         Some(Language::TypeScript) => Some(typescript::test_plan(root, source)),
@@ -159,17 +141,12 @@ fn plan(root: &Path, options: &Options, source: &Path) -> (Command, PathBuf) {
     if let Some((argv, directory)) = planned {
         return (Command::Argv(argv), directory);
     }
-    // The fail-fast nextest suite, in the package's own directory (#123):
-    // `cargo test` there selects the same tests, but stable libtest cannot stop
-    // at the first failure, and that stop is where a killed mutant's cost is.
     (
         Command::Shell(crate::rust_suite::command()),
         nearest(source, "Cargo.toml", root).unwrap_or_else(|| root.to_path_buf()),
     )
 }
 
-/// The Lua module directory a source belongs to: the nearest ancestor with a
-/// `.busted` file or a rockspec, or the project root.
 fn lua_module(root: &Path, source: &Path) -> PathBuf {
     quality_core::runners::lua::modules(root, &[source.to_path_buf()])
         .into_keys()
@@ -202,10 +179,6 @@ fn execute(
     Ok((result.code, result.elapsed, result.output))
 }
 
-/// `os.path.relpath`: `path` as seen from `base`, both absolute.
-///
-/// The generated commands of a copied project use it to spell a path relative
-/// to their own directory, never the real project's absolute path.
 pub(crate) fn relative_from(base: &Path, path: &Path) -> Option<PathBuf> {
     let base: Vec<_> = base.components().collect();
     let path: Vec<_> = path.components().collect();
@@ -225,13 +198,6 @@ pub(crate) fn relative_from(base: &Path, path: &Path) -> Option<PathBuf> {
     Some(relative)
 }
 
-/// A path as a generated command spells it: relative to the directory the
-/// command runs in when that directory is a copy of the project (native
-/// Windows), and the real absolute path otherwise.
-///
-/// A Windows command runs in a copy, so an absolute path would name the real
-/// project and write there. A Linux view is mounted at the real path, so its
-/// scripts keep the original's absolute ones.
 pub(crate) fn command_path(directory: &Path, path: &Path) -> String {
     if cfg!(windows) {
         relative_from(&resolve(directory), &resolve(path))
@@ -243,16 +209,6 @@ pub(crate) fn command_path(directory: &Path, path: &Path) -> String {
     }
 }
 
-/// A package as a generated Windows script's diagnostic names it: relative to
-/// the project root, so the copy never prints the real project's absolute path,
-/// and quoted for cmd.
-///
-/// cmd parses an `echo`'s text before it runs the line: an unquoted `&` ends the
-/// `echo` and runs the rest as a command, and an unquoted `(`/`)` makes cmd
-/// reject the whole `/c` line, so the script never reaches its own coverage
-/// command and the report silently goes missing. The quotes do not stop
-/// `%VAR%` expansion; a project path containing a percent sign would still
-/// expand, quoted or not.
 pub(crate) fn diagnostic_label(root: &Path, package: &Path) -> String {
     let root = resolve(root);
     let package = resolve(package);
@@ -286,13 +242,6 @@ fn collect_reports(directory: &Path, records: &mut Records) {
     }
 }
 
-/// crapper's LCOV reports for the languages its stamp calls fresh.
-///
-/// Only a fresh language may be read from disk: a stale language's report is
-/// an earlier run's result, and reading it would let an old `lcov.info` decide
-/// this run's coverage when the regeneration silently wrote nothing. Lua is
-/// never gated — the stamp does not speak for it; its own instrumented suite
-/// ran in this run.
 fn collect_crapper_reports(directory: &Path, fresh: &[&str], records: &mut Records) {
     let mut crapper = Records::default();
     collect_reports(directory, &mut crapper);
@@ -305,18 +254,12 @@ fn collect_crapper_reports(directory: &Path, fresh: &[&str], records: &mut Recor
     }
 }
 
-/// Everything one run's selection reads: the LCOV records of the languages
-/// that report through LCOV, and the Lua spec index per module.
 #[derive(Default)]
 struct Coverage {
     records: Records,
     indexes: BTreeMap<PathBuf, Index>,
-    /// Go, Clojure and the LCOV of every language, as `load_bundle` reads the
-    /// reports the views produced.
     native: Option<quality_core::native_coverage::NativeReports>,
-    /// JaCoCo's covered source lines per report key (`package/File.java`).
     java: Option<Vec<(String, BTreeSet<usize>)>>,
-    /// Fresh module reports have authority only over that module's sources.
     modules: Vec<ModuleCoverage>,
 }
 
@@ -333,7 +276,6 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
     let standard =
         options.value("--test-command").is_none() && options.value("--coverage-command").is_none();
     if standard && !reuse {
-        // Lua suites report through their own instrumented collection.
         let lua_files: Vec<PathBuf> = files
             .iter()
             .filter(|file| language_of(file) == Some(Language::Lua))
@@ -375,9 +317,6 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
     if !standard {
         let command = options.value("--coverage-command");
         let Some(command) = command else {
-            // Only --test-command was given: the original still measures the
-            // languages crapper measures, so Python and TypeScript do, and
-            // crapper's stamp decides which of them are regenerated.
             let (stale, fresh) = stale_coverage_files(root, files, None);
             report_reused(&fresh);
             collect_crapper_reports(&root.join("coverage"), &fresh, &mut coverage.records);
@@ -387,8 +326,6 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
             collect_native(root, files, Some(&stale), &mut coverage)?;
             return Ok(coverage);
         };
-        // Stale reports are removed before the command, in the host shell's
-        // own spelling; a fresh copy has an empty coverage directory anyway.
         let removal = if cfg!(windows) {
             "del /f /q coverage\\lcov.info coverage\\luacov.stats.out luacov.stats.out 2>nul & "
         } else {
@@ -423,10 +360,6 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
         collect_custom_native(root, files, &mut coverage, &view)?;
         return Ok(coverage);
     }
-    // The original's runner order: TypeScript, Python, Rust, Go, Java,
-    // Clojure, then Lua (already collected above). crapper's stamp decides
-    // which languages are regenerated; the rest are read from its reports, and
-    // the run says so, as the original and the help text promise.
     let (stale, fresh) = stale_coverage_files(root, files, None);
     report_reused(&fresh);
     collect_crapper_reports(&root.join("coverage"), &fresh, &mut coverage.records);
@@ -438,12 +371,6 @@ fn coverage(root: &Path, options: &Options, files: &[PathBuf]) -> Result<Coverag
     Ok(coverage)
 }
 
-/// Files to regenerate, and the languages crapper's stamp says are fresh.
-///
-/// A language is measured for all of its files or none, as the original's
-/// `_stale` decides: one stale file makes every file of that language stale.
-/// Lua is left out: it reports through its own instrumented collection, which
-/// this run just redid.
 fn stale_coverage_files(
     root: &Path,
     files: &[PathBuf],
@@ -475,8 +402,6 @@ fn stale_coverage_files(
     (stale, fresh)
 }
 
-/// The original prints one line when crapper's reports are reused, naming the
-/// fresh languages sorted, and nothing at all when every language is stale.
 fn report_reused(fresh: &[&str]) {
     if let Some(line) = reuse_message(fresh) {
         eprintln!("{line}");
@@ -492,8 +417,6 @@ fn reuse_message(fresh: &[&str]) -> Option<String> {
     })
 }
 
-/// Every Rust module's LCOV report, each in its own view. A missing tool or a
-/// failed run is the original's fatal coverage error.
 fn rust_coverage(root: &Path, files: &[PathBuf], records: &mut Records) -> Result<(), i32> {
     let rust_files: Vec<PathBuf> = files
         .iter()
@@ -513,9 +436,6 @@ fn rust_coverage(root: &Path, files: &[PathBuf], records: &mut Records) -> Resul
             .map(|module| {
                 let report = quality_core::runner::coverage_report(root, &module, "rust");
                 let relative = report.strip_prefix(root).unwrap_or(&report).to_path_buf();
-                // Windows runs this in a copy of the project: the report path
-                // must be relative to the command's own directory, or it would
-                // name the real project and write there.
                 let command = if cfg!(windows) {
                     let parent = relative_from(&module, report.parent().unwrap())
                         .unwrap_or_else(|| report.parent().unwrap().to_path_buf());
@@ -543,7 +463,6 @@ fn rust_coverage(root: &Path, files: &[PathBuf], records: &mut Records) -> Resul
         let result =
             view.run(root, &cwd, &command, None, None)
                 .map_err(|failure| match failure {
-                    // The interrupt path reports and cleans up; no exit here.
                     Failure::Interrupted => 2,
                     Failure::Message(error) | Failure::Unavailable(error) => {
                         eprintln!("Isolation unavailable: {error}");
@@ -565,7 +484,6 @@ fn rust_coverage(root: &Path, files: &[PathBuf], records: &mut Records) -> Resul
     Ok(())
 }
 
-/// One generated coverage command in a package's own overlay view.
 fn view_step(view: &View, root: &Path, cwd: &Path, script: &str) -> Result<(i32, String), i32> {
     view.run(root, cwd, script, None, None)
         .map_err(|failure| match failure {
@@ -579,8 +497,6 @@ fn view_step(view: &View, root: &Path, cwd: &Path, script: &str) -> Result<(i32,
         .map(|result| (result.code, result.output))
 }
 
-/// Read a report from the view's upper layer, anchored as crapper's runner
-/// anchors it, and merge it into the records.
 fn merge_report(records: &mut Records, view: &View, report: &Path, package: &Path, anchor: bool) {
     let path = isolation::report_path(view, report);
     let Ok(text) = fs::read_to_string(&path) else {
@@ -594,8 +510,6 @@ fn merge_report(records: &mut Records, view: &View, report: &Path, package: &Pat
     records.update(parse_lcov(&text));
 }
 
-/// `runners._python_coverage` per package, inside views. A missing module or a
-/// failed run leaves that language uncovered, as the original's N/A does.
 fn python_coverage(root: &Path, files: &[PathBuf], records: &mut Records) -> Result<(), i32> {
     for package in python::coverage_roots(root, files) {
         let coverage = python::coverage(root, &package, files);
@@ -609,9 +523,6 @@ fn python_coverage(root: &Path, files: &[PathBuf], records: &mut Records) -> Res
     Ok(())
 }
 
-/// `runners._typescript_coverage` per package, inside views. `npm run coverage`
-/// owns its report location and is read without anchoring; the generated
-/// commands' reports are anchored to the package.
 fn typescript_coverage(root: &Path, files: &[PathBuf], records: &mut Records) -> Result<(), i32> {
     for package in typescript::coverage_roots(root, files) {
         let Some(coverage) = typescript::coverage(root, &package, files) else {
@@ -631,7 +542,6 @@ fn typescript_coverage(root: &Path, files: &[PathBuf], records: &mut Records) ->
     Ok(())
 }
 
-/// The lines a report records a hit for, or None when the file is absent.
 fn record_lines(records: &Records, root: &Path, file: &str) -> Option<BTreeSet<usize>> {
     let absolute = quality_core::paths::posix(&root.join(file));
     let candidates = [file, absolute.as_str()];
@@ -659,8 +569,6 @@ fn hits(lines: &quality_core::coverage::Lines) -> BTreeSet<usize> {
         .collect()
 }
 
-/// mutator `coverage._candidates`: a report path and its resolved absolute
-/// form, normalized the way crapper normalizes report keys.
 fn candidates(root: &Path, key: &str) -> Vec<String> {
     let absolute = quality_core::paths::posix(&quality_core::paths::resolve(&root.join(key)));
     let mut found = vec![quality_core::coverage::normalize_path(key)];
@@ -671,7 +579,6 @@ fn candidates(root: &Path, key: &str) -> Vec<String> {
     found
 }
 
-/// `coverage._suffix_hit` on report segments.
 fn suffix_hit(key: &str, candidates: &[String]) -> bool {
     candidates.iter().any(|candidate| {
         quality_core::coverage::report_suffix_match(key, candidate)
@@ -679,8 +586,6 @@ fn suffix_hit(key: &str, candidates: &[String]) -> bool {
     })
 }
 
-/// `coverage._lookup`: an exact candidate first, then the first record whose
-/// path is a suffix of a candidate or ends with one.
 fn lookup<'r>(
     records: &'r Records,
     candidates: &[String],
@@ -701,13 +606,6 @@ fn lookup<'r>(
         .map(|(_, lines)| lines)
 }
 
-/// Native reports after a custom command, read as its disposable view showed
-/// them before the view guard drops. The original runs the command in place
-/// and reads every report globally from the project root, so reports the
-/// command left unchanged count too. A module whose own report is visible
-/// scopes its sources to that report; any other module falls back to the
-/// root-level globs. A selected source no report names returns None, and the
-/// caller warns that its sites are uncovered, as the original does.
 fn collect_custom_native(
     root: &Path,
     files: &[PathBuf],
@@ -735,7 +633,6 @@ fn collect_custom_native(
             2
         })?
     } else {
-        // Java's own reader skips malformed XML; it never calls load_bundle.
         Default::default()
     };
     native.rebase(&base, root);
@@ -780,7 +677,6 @@ fn collect_custom_native(
     Ok(())
 }
 
-/// Read the language-native reports before their view is dropped.
 fn merge_root_native(coverage: &mut Coverage, view: &View) -> Result<(), i32> {
     let base = isolation::report_path(view, Path::new(""));
     let mut reports =
@@ -788,8 +684,6 @@ fn merge_root_native(coverage: &mut Coverage, view: &View) -> Result<(), i32> {
             eprintln!("{error}");
             2
         })?;
-    // This root command generated Clojure reports only. A copied Go/Java
-    // sibling report has no provenance from this command.
     reports.invalidate(Language::Go);
     coverage
         .native
@@ -798,9 +692,6 @@ fn merge_root_native(coverage: &mut Coverage, view: &View) -> Result<(), i32> {
     Ok(())
 }
 
-/// crapper's native reports already on disk, then the stale languages among
-/// `regenerate` regenerated in disposable views. Reports and build output never
-/// reach the project. `None` reads crapper's reports and runs no command.
 fn collect_native(
     root: &Path,
     files: &[PathBuf],
@@ -826,14 +717,12 @@ fn collect_native(
                 2
             })?
         } else {
-            // Java's own reader skips malformed XML; it never calls load_bundle.
             quality_core::native_coverage::NativeReports::default()
         },
     );
     let Some(stale) = regenerate else {
         return Ok(());
     };
-    // A language is measured for all selected files or none.
     let languages: BTreeSet<Language> = stale.iter().filter_map(|file| language_of(file)).collect();
     for language in &languages {
         if let Some(reports) = &mut coverage.native {
@@ -856,8 +745,6 @@ fn collect_native(
     Ok(())
 }
 
-/// Bind one module's freshly generated report to that module. A sibling's
-/// report in the same copied view is not this command's provenance.
 fn merge_module_native(
     coverage: &mut Coverage,
     view: &View,
@@ -902,7 +789,6 @@ fn merge_module_native(
     Ok(())
 }
 
-/// crapper's Go runner per stale module, in its own view.
 fn go_coverage(root: &Path, files: &[PathBuf], coverage: &mut Coverage) -> Result<(), i32> {
     if !files
         .iter()
@@ -943,8 +829,6 @@ fn go_coverage(root: &Path, files: &[PathBuf], coverage: &mut Coverage) -> Resul
     Ok(())
 }
 
-/// crapper's Maven JaCoCo runner per stale module: the stale report and data
-/// go, the plugin prepares the agent, tests run, the report is written.
 fn java_coverage(root: &Path, files: &[PathBuf], coverage: &mut Coverage) -> Result<(), i32> {
     if !files
         .iter()
@@ -994,8 +878,6 @@ fn java_coverage(root: &Path, files: &[PathBuf], coverage: &mut Coverage) -> Res
     Ok(())
 }
 
-/// crapper's Clojure runner at the root: `clj -M:cov --lcov`, retried without
-/// `--lcov` when Cloverage has no LCOV reporter.
 fn clojure_coverage(root: &Path, coverage: &mut Coverage) -> Result<(), i32> {
     if !root.join("deps.edn").is_file() && !root.join("bb.edn").is_file() {
         eprintln!("No deps.edn or bb.edn; skipping Clojure coverage.");
@@ -1006,22 +888,11 @@ fn clojure_coverage(root: &Path, coverage: &mut Coverage) -> Result<(), i32> {
         1
     })?;
     let script: String = if cfg!(windows) {
-        // One `&` chain, like the Python, TypeScript and Java runners: cmd
-        // runs only the first line of a multi-line `/c` string. A `||` block stays
-        // whole, and the trailing `exit /b 0` is the Linux script's message plus its
-        // zero: a toolchain that fails leaves Clojure uncovered and says so,
-        // instead of failing the run.
         "clj -M:cov --lcov || (echo clj -M:cov --lcov failed; retrying without --lcov. 1>&2 & clj -M:cov) || (echo Clojure coverage exited non-zero. Clojure coverage will be N/A. 1>&2) & exit /b 0".into()
     } else {
         "clj -M:cov --lcov\ncode=$?\nif [ $code -ne 0 ]; then echo 'clj -M:cov --lcov failed; retrying without --lcov.' >&2; clj -M:cov; code=$?; fi\nif [ $code -ne 0 ]; then echo \"Clojure coverage exited $code. Clojure coverage will be N/A.\" >&2; fi\nexit 0".into()
     };
     let cleanup = if cfg!(windows) {
-        // Keep the other languages' report directories and the stamp. Each loop
-        // is parenthesized and the chain is one line: after a bare
-        // `for ... do <command>` cmd reads the rest of the line as part of that
-        // body and repeats it once per iteration, and a newline in the same
-        // `/c` string would drop everything after the first line -- which is how
-        // this command silently measured nothing on Windows.
         "(for /d %D in (target\\coverage\\*) do @if not \"%~nxD\"==\"go\" if not \"%~nxD\"==\"java\" if not \"%~nxD\"==\"rust\" if not \"%~nxD\"==\"python\" if not \"%~nxD\"==\"typescript\" if not \"%~nxD\"==\"lua\" rmdir /s /q \"%D\") & (for %F in (target\\coverage\\*) do @if not \"%~nxF\"==\"crapper-stamp.json\" del /f /q \"%F\" 2>nul) & "
     } else {
         "for entry in target/coverage/* target/coverage/.[!.]* target/coverage/..?*; do\n  if [ ! -e \"$entry\" ] && [ ! -L \"$entry\" ]; then continue; fi\n  case \"${entry##*/}\" in typescript|rust|go|python|lua|crapper-stamp.json) ;; *) rm -rf -- \"$entry\" || exit 1;; esac\ndone\n"
@@ -1031,17 +902,12 @@ fn clojure_coverage(root: &Path, coverage: &mut Coverage) -> Result<(), i32> {
     Ok(())
 }
 
-/// A path under `root` as a relative one, for a view's upper layer.
 fn relative(root: &Path, path: &Path) -> PathBuf {
     path.strip_prefix(quality_core::paths::resolve(root))
         .unwrap_or(path)
         .to_path_buf()
 }
 
-/// The lines this file's tests hit: the Lua index where one exists, else the
-/// language's own report. Java reads JaCoCo source lines, Go its statement
-/// profile, Clojure Cloverage form counts before LCOV, and every other
-/// language LCOV. None means the file has no coverage data at all.
 fn covered_lines(
     coverage: &Coverage,
     root: &Path,
@@ -1063,8 +929,6 @@ fn covered_lines(
         let local = quality_core::paths::posix(&relative(&scope.root, file));
         let names = candidates(&scope.root, &local);
         let found = if language == Some(Language::Go) {
-            // Exact module-relative or absolute key first; a bare basename
-            // would let a subpackage's same-named file satisfy this module.
             names
                 .last()
                 .and_then(|absolute| scope.native.go_lines_exact(absolute))
@@ -1110,8 +974,6 @@ fn covered_lines(
             if let Some(lines) = native.and_then(|reports| lookup(reports.forms(), &candidates)) {
                 return Some(hits(lines));
             }
-            // Custom/generated LCOV was collected from a view; existing
-            // reports were loaded from the project's native report bundle.
             record_lines(&coverage.records, root, key).or_else(|| {
                 native.and_then(|reports| lookup(reports.lcov(), &candidates).map(hits))
             })
@@ -1120,10 +982,6 @@ fn covered_lines(
     }
 }
 
-/// Python's `reused_run` contract: the file still owns sites, its form digests
-/// are exactly the recorded ones and no site was selected, treating every site
-/// as covered. Anything else takes the normal path so the snapshot is
-/// republished even when no test runs.
 fn reusable(root: &Path, item: &Prepared) -> bool {
     let history = metrics::load_history(root, &item.key);
     !item.sites.is_empty()
@@ -1147,10 +1005,6 @@ fn backups_hold_files(directory: &Path) -> bool {
     })
 }
 
-/// Refuse to run while an older mutator's backups are present. Mutants only
-/// touch overlay views, so such a backup can only come from a run that still
-/// mutated the project; it records no bytes that run last wrote, so nothing is
-/// written back and no test runs.
 pub fn check_backups(root: &Path) -> Result<(), String> {
     let base = root.join("target").join("mutator-backup");
     if base.is_dir() && backups_hold_files(&base) {
@@ -1228,8 +1082,6 @@ pub fn prepare(
         ) {
             Ok(digest) => (Some(digest), Some(scope.clone())),
             Err(error) => {
-                // Fail closed: without both a digest and a scope no survived
-                // outcome may be reused; killed outcomes keep form-only reuse.
                 eprintln!(
                     "Cannot hash test inputs for {} (survived reuse disabled): {error}",
                     file.display()
@@ -1269,26 +1121,18 @@ pub fn prepare(
         });
     }
     if options.flag("--scan") {
-        // Scanning inventories sites: no coverage command runs and nothing runs.
         return Ok(prepared);
     }
     if prepared.iter().all(|item| reusable(root, item)) {
         return Ok(prepared);
     }
     let coverage = if options.flag("--no-coverage") {
-        // The original never collects coverage for a --no-coverage run.
         Coverage::default()
     } else {
         let started = std::time::Instant::now();
         let coverage = coverage(root, options, files)?;
         timings.add("coverage", started.elapsed());
-        // #110: --reuse-coverage reads whatever is on disk. With nothing on
-        // disk every site would be published as uncovered and the run would
-        // still look successful. Report the missing input instead.
         let reuse = options.flag("--use-existing-coverage") || options.flag("--reuse-coverage");
-        // Lua's reuse path deliberately skips its collection and has no
-        // on-disk report to read; a Lua-only run is not the failure #110
-        // describes.
         let needs_lcov = files
             .iter()
             .any(|file| language_of(file) != Some(Language::Lua));
@@ -1338,8 +1182,6 @@ pub fn prepare(
     Ok(prepared)
 }
 
-/// A pristine run that could not happen is not a test result: an isolation
-/// refusal exits 1 before anything is decided, as the original does.
 fn baseline_exit(item: &Prepared, command: &Command, error: Failure) -> i32 {
     match error {
         Failure::Unavailable(message) => {
@@ -1361,9 +1203,6 @@ fn failure(item: &Prepared, command: &Command, tail: &str) -> i32 {
     2
 }
 
-/// `--select-specs`: run only the specs that cover a mutant, and fall back to
-/// the full suite when an attribution is missing or its subset does not pass.
-/// `pristine` runs a subset's pristine check and reports its seconds.
 fn lua_plans(
     item: &Prepared,
     index: &Index,
@@ -1417,16 +1256,12 @@ fn lua_plans(
     (plans, command.extend(&specs), check_timeout)
 }
 
-/// What one file's publication reported.
 #[derive(Default)]
 struct Published {
     changed: bool,
     survived: bool,
 }
 
-/// One pristine run per command and working directory, shared by every target
-/// file in this call. The pool's first slot runs it; every worker's view is
-/// built the same way, so a per-worker repeat would only repeat the same run.
 #[allow(clippy::too_many_arguments)]
 fn pristine(
     workers: &Workers,
@@ -1462,8 +1297,6 @@ fn pristine(
         baselines.insert(key.clone(), result);
     }
     match baselines.get(&key) {
-        // unittest before 3.12 exits 0 when discovery finds nothing;
-        // every mutant would then survive a suite that tests nothing.
         Some(Ok((0, _, output)))
             if output
                 .lines()
@@ -1490,8 +1323,6 @@ fn pristine(
     }
 }
 
-/// The sites a file's decisions execute, in the order the engine scheduled
-/// them.
 fn selected_sites(item: &Prepared) -> Vec<Site> {
     item.sites
         .iter()
@@ -1511,9 +1342,6 @@ fn executed_count(item: &Prepared) -> usize {
         .count()
 }
 
-/// Write one file's snapshot from its outcomes and report its console line.
-/// A source edited or deleted during the run keeps its previous snapshot and
-/// makes the call exit 4, exactly as the original's `_source_change` does.
 fn publish(
     root: &Path,
     options: &Options,
@@ -1593,16 +1421,12 @@ fn publish(
     })
 }
 
-/// A worker panicking must not turn the others' results into a poisoned lock.
 fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// One queued file's mutants and the command that judges them. Commands differ
-/// per file (covering specs first), so every item carries its own, as the
-/// original's `QueuedFile` does.
 struct Job {
     key: String,
     file: PathBuf,
@@ -1613,26 +1437,14 @@ struct Job {
     sites: Vec<Site>,
 }
 
-/// What the queued files of one call reported.
 #[derive(Default)]
 struct Queued {
     changed: bool,
     survived: bool,
     failed: bool,
-    /// An isolation refusal is not a test result: the call exits 1, keeping the
-    /// snapshots of the files that already finished.
     unavailable: Option<String>,
 }
 
-/// Run every full-suite Lua file of the call on one shared worker queue.
-///
-/// This is the original's `mutate_queued`: each file's baseline is checked
-/// before any mutant runs and a baseline failure stays with its file, every
-/// worker takes the next mutant from any file, and each file's snapshot is
-/// published as soon as its own last mutant finishes. A worker failure keeps
-/// the completed files' snapshots and fails the rest; an interrupt keeps the
-/// finished files and leaves the unfinished ones with their previous
-/// snapshots.
 fn mutate_queued(
     root: &Path,
     options: &Options,
@@ -1653,9 +1465,6 @@ fn mutate_queued(
             command = Command::Argv(index.command.clone());
             run_cwd = index.directory.clone();
             if index.fresh {
-                // The fresh coverage run already proved the pristine suite
-                // passes; its duration is the timeout base (ADR 0001). There is
-                // no captured output to inspect for an empty suite.
                 baselines
                     .entry((command.clone(), index.directory.clone()))
                     .or_insert(Ok((
@@ -1670,7 +1479,6 @@ fn mutate_queued(
         ) {
             Ok(seconds) => seconds,
             Err(Failure::Unavailable(message)) => {
-                // An isolation refusal stops the run: exit 1, keep finished snapshots.
                 result.unavailable.get_or_insert(message);
                 continue;
             }
@@ -1679,7 +1487,6 @@ fn mutate_queued(
                 continue;
             }
             Err(Failure::Message(tail)) => {
-                // A baseline failure stays with its file; the others still run.
                 result.failed = true;
                 failure(&item, &command, &tail);
                 continue;
@@ -1687,7 +1494,6 @@ fn mutate_queued(
         };
         let timeout = (seconds * options.timeout_factor).max(2.0);
         let mut selected = selected_sites(&item);
-        // The original's Lua scheduling: previous survivors first.
         lua::survivors_first(&mut selected, &item.outcomes);
         let mut tail = vec!["--no-keep-going".to_string()];
         if let Some(index) = &item.index {
@@ -1841,8 +1647,6 @@ pub fn mutate(
         }
         return 0;
     }
-    // Reuse the snapshots only when every file is unchanged in the sense of
-    // `reusable`; a new or rewritten form still needs its snapshot republished.
     if prepared.iter().all(|item| reusable(root, item)) {
         println!("No mutations selected; keeping the previous snapshots.");
         return 0;
@@ -1871,8 +1675,6 @@ pub fn mutate(
             single.push(item);
         }
     }
-    // One pool for the whole call: its slots are the workers every target
-    // file's mutants reuse, and dropping it removes them.
     let limit = workers::worker_count(usize::MAX, options.max_workers);
     let pool_size = limit.min(queued_sites.max(single_sites));
     let pool = if pool_size == 0 {
@@ -1889,8 +1691,6 @@ pub fn mutate(
     let mut baselines = Baselines::new();
     let mut changed_any = false;
     let mut survived_any = false;
-    // A file with nothing to run still republishes its snapshot, as the
-    // original does while it prepares the files.
     for item in no_sites {
         match publish(root, options, &clock, item) {
             Ok(published) => {
@@ -1934,16 +1734,12 @@ pub fn mutate(
                 return 2;
             }
             let workers = pool.as_ref().expect("a selected site needs a worker");
-            // `language == "lua" and not test_command`: the generated Busted
-            // command, with or without a coverage index.
             let standard_lua = language_of(&item.file) == Some(Language::Lua)
                 && options.value("--test-command").is_none();
             let mut command = command;
             if standard_lua && let Some(index) = &item.index {
                 command = Command::Argv(index.command.clone());
                 if index.fresh {
-                    // The fresh coverage run already proved the pristine suite
-                    // passes; its duration is the timeout base (ADR 0001).
                     baselines
                         .entry((command.clone(), index.directory.clone()))
                         .or_insert(Ok((
@@ -1960,8 +1756,6 @@ pub fn mutate(
             } else {
                 cwd.clone()
             };
-            // One pristine run per command and working directory, shared by every
-            // target file in this call.
             let mut baseline = |command: &Command,
                                 build: bool,
                                 timeout: Option<Duration>|
@@ -1989,7 +1783,6 @@ pub fn mutate(
             let mut confirmation: Option<(Command, f64)> = None;
             let mut run_command = command.clone();
             if standard_lua {
-                // The original's Lua scheduling: previous survivors first.
                 lua::survivors_first(&mut selected, &item.outcomes);
                 if options.flag("--select-specs")
                     && let Some(index) = &item.index
@@ -2017,9 +1810,6 @@ pub fn mutate(
                     run_command = command.extend(&tail);
                 }
             }
-            // With one worker the pristine plan check is the cached baseline;
-            // the selected-specs union subset still gets its own pristine run
-            // before any mutant can earn a kill.
             if let Err(error) = baseline(
                 &check_command,
                 false,
@@ -2143,10 +1933,6 @@ pub fn mutate(
     }
 }
 
-/// #123: the Rust path plans the fail-fast nextest suite, in the package's own
-/// directory, and the untimed build still recognizes it. A quiet change back to
-/// `cargo test` would restore the cost the ticket removes, so the wiring is
-/// pinned here instead of living only in a comment.
 #[cfg(test)]
 mod rust_plan_tests {
     use super::*;
@@ -2169,8 +1955,6 @@ mod rust_plan_tests {
         assert!(command.is_cargo_test(), "the untimed build must still run");
     }
 
-    /// `--test-command` still decides the suite: the nextest plan is only the
-    /// default for a Rust source.
     #[test]
     fn an_explicit_test_command_still_wins() {
         let root = repository_root();
@@ -2188,8 +1972,3 @@ mod rust_plan_tests {
 #[cfg(test)]
 #[path = "native_report_tests.rs"]
 mod native_report_tests;
-
-// The reuse line is asserted where a caller sees it, on the run's stderr:
-// `tests/coverage_reuse.rs::crapper_stamp_reuses_typescript_coverage_in_the_
-// standard_path`. A unit test of `reuse_message` would pin a private function
-// rather than the line the CLI prints.

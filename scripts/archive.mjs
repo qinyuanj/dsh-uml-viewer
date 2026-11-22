@@ -1,23 +1,9 @@
-// Bounded gzip and ustar tar support shared by the release assembler
-// (scripts/package.mjs) and the release verifier (scripts/release.mjs), so the
-// bytes that will be published are parsed by the same module that wrote them.
-// Node builtins only: no dependency, no external `tar`, no registry access, no
-// process, no network.
-//
-// The reader fails closed. Every archive is capped in compressed size,
-// decompressed size, entries and single-entry size, so a decompression bomb or
-// an entry flood is refused before it can allocate; a malformed gzip stream,
-// corrupt tar header checksum, duplicate or unsafe path, link, device or other
-// non-regular entry is an error, never a skipped member.
 import { gzipSync, gunzipSync } from 'node:zlib'
 import { readFile, stat } from 'node:fs/promises'
 
 const BLOCK = 512
 const MIB = 1024 * 1024
 
-// The real bundled payload is about 25 MiB (the Sarasa face), so these caps
-// leave room for the native binary while bounding what a hostile or broken
-// archive can make the verifier materialise.
 export const archiveLimits = Object.freeze({
   compressedBytes: 128 * MIB,
   totalBytes: 256 * MIB,
@@ -25,12 +11,8 @@ export const archiveLimits = Object.freeze({
   entries: 4096,
 })
 
-// Every released archive is one installable npm package below package/.
 export const entryPrefix = 'package/'
 
-// npm-compatible ustar with fixed metadata, sorted names and gzip timestamp 0.
-// No npm lifecycle hooks, registry access, local dependency rewriting or host
-// mtimes, so the same inputs produce the same bytes.
 export function writeArchive(files) {
   const blocks = []
   for (const [name, bytes] of [...files].sort(([left], [right]) => left.localeCompare(right, 'en'))) {
@@ -80,8 +62,6 @@ function textField(field) {
   return field.subarray(0, end < 0 ? field.length : end).toString('utf8')
 }
 
-// A member name is relative, separator-clean and free of traversal, absolute or
-// drive-letter paths; the archive layout is checked by the caller.
 function safeName(name) {
   if (name === '') throw new Error('tar entry has an empty name')
   if (name.includes('\\')) throw new Error(`tar entry ${JSON.stringify(name)} contains a backslash`)
@@ -137,8 +117,6 @@ function parseTar(raw, limits) {
   return entries
 }
 
-// Parses already-read archive bytes into a name-keyed Map of
-// { name, size, mode, bytes } in archive order.
 export function parseArchive(bytes, limits = archiveLimits) {
   if (!Buffer.isBuffer(bytes)) throw new TypeError('Archive data must be a Buffer')
   if (bytes.length > limits.compressedBytes) {
@@ -159,8 +137,6 @@ export function parseArchive(bytes, limits = archiveLimits) {
   return parseTar(raw, limits)
 }
 
-// Reads one release archive from disk, bounding the read itself before the
-// whole file is materialised.
 export async function readArchive(file, limits = archiveLimits) {
   const info = await stat(file).catch(() => null)
   if (!info?.isFile()) throw new Error(`${file}: release archive is not a regular file`)

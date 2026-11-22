@@ -1,9 +1,6 @@
-//! Java mutation: the per-file test plan.
 use quality_core::{paths::resolve, runner::nearest};
 use std::path::{Path, PathBuf};
 
-/// `test_plan(root, source, "java", None)`: Maven's tests in the nearest
-/// `pom.xml` directory, skipping tests tagged `no-mutate`.
 pub fn test_plan(root: &Path, source: &Path) -> (Vec<String>, PathBuf) {
     let root = resolve(root);
     let directory = nearest(source, "pom.xml", &root).unwrap_or(root);
@@ -17,7 +14,6 @@ pub fn test_plan(root: &Path, source: &Path) -> (Vec<String>, PathBuf) {
 
 #[cfg(test)]
 mod tests {
-    //! Ported from the original `tests/test_runner.py` default plan cases.
     use super::*;
     use std::fs;
 

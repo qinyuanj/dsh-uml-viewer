@@ -1,16 +1,9 @@
-/**
- * The five `uml_*` conversation rows (#54) and 「在面板中查看」. Expected values
- * are the words the language files carry, and the element ids the panel
- * request protocol defines; nothing here reads the row's DOM or its internal
- * state.
- */
 import { describe, expect, it, vi } from 'vitest'
 import type { PanelText } from '../src/locale.js'
 import { translate } from '../src/locale.js'
 import { PanelViews, toolRow, TOOL_NAMES, TOOL_TEXT_KEYS, type ToolBlock, type ToolViewProps } from '../src/tool-views.js'
 import type { OverlayController } from '../src/overlays.js'
 
-// React is host-injected (ADR 0013, D1); these rows' models never render.
 vi.mock('react', () => ({ createElement: vi.fn(), useEffect: vi.fn(), useState: () => [{}, () => {}] }))
 
 const textFor = (language: 'en' | 'zh'): PanelText => ({
@@ -22,7 +15,6 @@ const textFor = (language: 'en' | 'zh'): PanelText => ({
 const en = textFor('en')
 const zh = textFor('zh')
 
-/** A result stage carrying one JSON record, as the host renders it. */
 function result(record: unknown, args: Readonly<Record<string, unknown>> = {}): ToolViewProps {
   return {
     phase: 'result',
@@ -205,7 +197,6 @@ describe('the tool rows follow the DSH language (#54)', () => {
   })
 })
 
-/** A panel controller that only records the locates it was asked to send. */
 function fakeOverlays(): { locate(id: string): Promise<void>, sent: string[] } {
   const sent: string[] = []
   return { sent, locate(id) { sent.push(id); return Promise.resolve() } }
@@ -236,7 +227,6 @@ describe('「在面板中查看」 opens the panel and locates once it can take 
     views.shown('session-a')
     await Promise.resolve()
     expect(overlays.sent).toEqual([':core'])
-    // One request, one locate: a later frame does not repeat it.
     views.shown('session-a')
     await Promise.resolve()
     expect(overlays.sent).toEqual([':core'])

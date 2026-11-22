@@ -1,10 +1,3 @@
-//! `apply_policy` parity, ported from `love/spec/policy_ir_spec.lua` (#136).
-//!
-//! The JVM goldens cover the hierarchical IR that fresh scans produce; these
-//! cases cover what the goldens do not: named proposals, `:omit`, edge-kind
-//! overrides, violations, and the legacy package/diagram document. Expected
-//! values are the spec's independent literals, compared structurally.
-
 use edn::Value;
 
 use crate::policy;
@@ -139,8 +132,6 @@ fn legacy_nested_proposal_layers_rank_the_hierarchy() {
 
 #[test]
 fn edge_kind_overrides_drop_stale_violations() {
-    // `apply_edge_kinds` runs on every packaged diagram; `restamp_ranks` is
-    // the scene core's (#137), so only the override half is pinned here.
     let edges = policy::apply_edge_kinds(
         &[
             parse(r#"{:from :calc :to :io :kind :dependency :violating true}"#),
@@ -192,7 +183,6 @@ fn bundled_violations_survive_until_a_stronger_kind_replaces_them() {
     );
 }
 
-/// Test-only access to the vector payload of a parsed literal.
 trait AsVector {
     fn as_vector(&self) -> &[Value];
 }
@@ -277,7 +267,5 @@ fn a_timestamp_named_proposal_is_kept_but_never_invented() {
 
 #[test]
 fn an_explicit_nil_proposal_has_no_layers() {
-    // policy.lua:113-116: `E.get` finds the key, `get` then yields nil, and
-    // `normalize_proposal(nil)` has no layers. #154: no panic.
     assert!(policy::proposal_layers(&parse("{:proposal nil}")).is_empty());
 }

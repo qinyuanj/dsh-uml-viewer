@@ -7,9 +7,7 @@ import { Element, makeDocument } from './dom.js'
 const golden = (name: string): SceneFrame =>
   JSON.parse(readFileSync(new URL(`../../../crates/frame/tests/fixtures/frames/${name}.frame.json`, import.meta.url), 'utf8')) as SceneFrame
 
-/** The root of the shop sample: drillable namespaces, and `serde` as a foreign package. */
 const root = golden('root')
-/** Inside `core`: leaf classes. */
 const core = golden('core-selected')
 
 describe('the selection the action bar is for (#48)', () => {
@@ -41,7 +39,6 @@ describe('the selection the action bar is for (#48)', () => {
   it('treats a proposal layer as a component and the view frame itself as no element', () => {
     expect(elementSelection('{:kind :package :id :proposal.domain}', golden('proposal')))
       .toEqual({ kind: 'component', id: ':proposal.domain', name: 'Domain' })
-    // A click on blank canvas hits the level's own frame: there is nothing to act on.
     expect(elementSelection('{:kind :package :id :view}', root)).toBeNull()
   })
 
@@ -78,7 +75,6 @@ function harness() {
   }
 }
 
-/** A button counts as shown only when neither it nor an ancestor up to the bar is hidden. */
 function hiddenWithin(child: Element, stop: Element): boolean {
   for (let node: Element | null = child; node && node !== stop; node = node.parent) if (node.hidden) return true
   return stop.hidden
@@ -157,7 +153,6 @@ describe('the selection action bar (#48)', () => {
   it('keeps full mutation in a secondary menu that is a menu only while open', async () => {
     const h = harness()
     h.show({ kind: 'class', id: ':core.order', name: 'Order' })
-    // The host reads any [role="menu"] in the document as an open modal.
     expect(h.menu().hasAttribute('role')).toBe(false)
     expect(h.menu().hidden).toBe(true)
     const more = h.named('More requests')
@@ -170,7 +165,6 @@ describe('the selection action bar (#48)', () => {
     expect(h.actions).toEqual([{ action: 'quality-request', request: 'refresh-mutate-all', id: ':core.order' }])
     expect(h.menu().hasAttribute('role')).toBe(false)
     expect(h.menu().hidden).toBe(true)
-    // Escape and a new selection close it too.
     more.fire('click')
     h.element.fire('keydown', { key: 'Escape', isComposing: false })
     expect(h.menu().hasAttribute('role')).toBe(false)

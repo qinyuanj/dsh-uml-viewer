@@ -30,14 +30,11 @@ export type PanelEvent =
   | { kind: 'ready'; actions: string[] }
   | { kind: 'frame'; seq: number | null; frame: SceneFrame }
   | { kind: 'context'; context: DiscussionContext }
-  // #47: `proposals` lists the shown diagram's proposals for the switcher.
   | { kind: 'state'; state: SessionState; breadcrumbs: BreadcrumbLevel[]; status: SessionStatus | null
       proposals: ProposalEntry[] }
   | { kind: 'search'; query: string; results: SearchResult[] }
   | { kind: 'refused'; reason: string }
   | { kind: 'failed'; reason: string }
-  // #51: this session's whole request-status list, oldest first; sent when the
-  // stream opens and again on every change.
   | { kind: 'request-status'; requests: RequestStatusEntry[] }
 
 /**
@@ -54,35 +51,22 @@ export type PanelAction =
   | { action: 'camera'; x: number; y: number; zoom: number }
   | { action: 'display'; path?: string }
   | { action: 'reload' } | { action: 'namespace-tree' } | { action: 'save' }
-  // #46: the More menu's Remove arrows toggle names the declutter mode it
-  // wants; without one the resident cycles the modes.
   | { action: 'declutter'; mode?: DeclutterMode }
-  // #45: a breadcrumb click names the level to return to; no target is one
-  // level up, and `null` is the source diagram's root.
   | { action: 'back'; target?: string | null }
   | { action: 'drill-in'; id?: string; at?: [number, number] }
   | { action: 'select'; at: [number, number] | null }
   | { action: 'search'; query: string }
   | { action: 'locate'; id: string }
   | { action: 'context'; proposalId: string | null }
-  // #27 overlays: the answers come back on the ack, so one panel's card or
-  // source window never appears in another panel of the same session.
   | { action: 'card'; width?: number; viewHeight?: number }
   | { action: 'open-card'; id?: string; at?: [number, number] }
   | { action: 'close-card' }
   | { action: 'scroll-card'; delta: number; viewHeight: number }
   | { action: 'open-source'; id: string; member?: string }
-  // #28: a right-click quality refresh. The host resolves the files and
-  // queues the visible request message in this panel's session.
   | { action: 'quality-request'; request: QualityRequestOp; id: string }
-  // #29: hiding an element and adding a proposal are messages to this panel's
-  // session too; the companion edits the policy and regenerates the IR.
   | { action: 'omit'; id: string }
   | { action: 'new-proposal'; name?: string }
-  // #44: DSH switched language; the resident lays its text out again.
   | { action: 'language'; language: string }
-  // #53: the user dismissed a finished request; the host drops it from the
-  // session's request-status list and every panel of the session follows.
   | { action: 'dismiss-request'; id: string }
 
 /** Presentation ownership, scoped by the Remote's authoritative agent lookup. */
@@ -187,7 +171,6 @@ function num(value: unknown, label: string): number {
   return value
 }
 
-/** A world point or `null`, as panel actions carry it. */
 function pointOrNull(value: unknown, label: string): [number, number] | null {
   if (value === null || value === undefined) return null
   if (!Array.isArray(value) || value.length !== 2) at(label, 'must be [x, y] or null')
@@ -435,8 +418,6 @@ export const REMOTE_DESCRIPTORS: readonly RemoteDescriptor[] = Object.freeze([
     result: codec('PanelAck', value => parseAck(value)),
   },
   {
-    // Additive to the version-1 panel protocol: the one definite close. A watch
-    // stream ending is a carrier loss and is not this call.
     id: 'dsh-uml-viewer#umlViewer/close',
     service: REMOTE_SERVICE,
     namespace: REMOTE_SERVICE,

@@ -1,4 +1,3 @@
-//! Public binary seam for the Rust dryer port.
 use std::fs;
 use std::process::{Command, Output};
 
@@ -27,12 +26,10 @@ fn help_is_the_original_and_every_language_is_scanned() {
         include_bytes!("../../../fixtures/dry/help.txt")
     );
     assert!(output.stderr.is_empty());
-    // test_exclude_is_in_the_help / test_help_says_source_roots_narrow_paths_and_changed
     let help = String::from_utf8(output.stdout).unwrap();
     assert!(help.contains("--exclude <glob>"));
     assert!(help.contains("outside the source roots"));
 
-    // All seven languages are ported (#6 Rust, #7 the other six).
     project.write("src/other.py", "def duplicate():\n    return 1\n");
     project.write("src/other.lua", "function M.one()\n  return 1\nend\n");
     let output = run(&project, &["--edn"]);
@@ -106,8 +103,6 @@ fn dry_publishes_empty_candidates_when_no_form_clears_size() {
     );
 }
 
-/// Pinned CPython 3.12 refuses more than 4300 digits in an `int()` string and
-/// accepts exactly 4300 (fixtures/dry/count/limits.tsv records the boundary).
 #[test]
 fn count_options_take_the_interpreters_digit_limit_and_refuse_beyond_it() {
     let project = Project::new();
@@ -125,7 +120,6 @@ fn count_options_take_the_interpreters_digit_limit_and_refuse_beyond_it() {
     );
 }
 
-/// `fixtures/dry/threshold/cases.tsv` escapes non-printable ASCII as `\u{X}`.
 fn decode(encoded: &str) -> String {
     let mut text = String::new();
     let mut chars = encoded.chars();
@@ -147,10 +141,6 @@ fn decode(encoded: &str) -> String {
     text
 }
 
-/// Every `--threshold` spelling in the table generated from pinned dryer's
-/// `float()` is accepted or refused by the binary exactly as Python does.
-/// Python's `_take` refuses an empty value or one starting with `-` before
-/// `float()` runs, so those rows expect `requires a value` here.
 #[test]
 fn threshold_accepts_and_refuses_what_pinned_python_float_does() {
     let project = Project::new();
@@ -193,13 +183,6 @@ fn threshold_accepts_and_refuses_what_pinned_python_float_does() {
     assert_eq!(rows, 104);
 }
 
-/// Native Windows above the minimum build prints no platform diagnostic; the
-/// pinned tests cannot reach a real older build here either.
-///
-/// The raw stderr bytes are asserted, not a separator-flattened form: pinned
-/// dryer prints `str(root / ".metrics" / "dry.edn")`, so every separator is
-/// the host's. The golden normalizer marks them `<SEP>`, which would hide a
-/// mixed `<root>\\.metrics/dry.edn`; this assertion cannot.
 #[cfg(windows)]
 #[test]
 fn native_windows_root_has_no_platform_diagnostic() {
@@ -219,11 +202,6 @@ fn wsl_kernel() -> bool {
         .unwrap_or(false)
 }
 
-/// The delivered WSL2 platform: the real candidate binary must print the
-/// original Windows-drive warning before it selects anything. It needs a WSL2
-/// kernel with a writable `/mnt/<drive>`, so it is ignored rather than skipped
-/// silently: on WSL2 run
-/// `cargo test -p uml-viewer --test integration wsl_windows -- --ignored`.
 #[cfg(unix)]
 #[ignore = "needs a WSL2 kernel with a writable /mnt/<drive>; run with --ignored on WSL2"]
 #[test]

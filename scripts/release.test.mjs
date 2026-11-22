@@ -16,10 +16,6 @@ async function scratch() {
   return mkdtemp(path.join(root, '.scratch-release-test-'))
 }
 
-// The fixtures are real small gzip/ustar archives built with the production
-// writer, so every guard sees the bytes a release would ship. Their payload is
-// fixture text, not a built binary, font or plugin bundle: they prove the
-// guards, and they are no claim of native package acceptance.
 const fixtureMainMembers = {
   'README.md': 'fixture readme for a controlled release archive\n',
   'icon.svg': '<svg xmlns="http://www.w3.org/2000/svg"/>\n',
@@ -38,8 +34,6 @@ const source = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'
 const dependencies = version => Object.fromEntries(platforms.map(entry => [`@dsh-uml-viewer/${entry.platform}`, version]))
 const binaryName = os => `bin/uml-viewer${os === 'win32' ? '.exe' : ''}`
 
-// The manifests an assembler run embeds, derived from the source package.json
-// exactly as scripts/package.mjs derives them.
 function mainManifest(version, overrides = {}) {
   const { scripts, devDependencies, private: developmentOnly, packageManager, ...runtime } = source
   return { ...runtime, version, optionalDependencies: dependencies(version), ...overrides }
@@ -81,9 +75,6 @@ const archiveOf = members => writeArchive(new Map(Object.entries(members)
   .map(([name, value]) => [name, Buffer.isBuffer(value) ? value : Buffer.from(value)])))
 const inventory = members => Object.keys(members).sort()
 
-// A hostile tar: the production writer cannot emit duplicate, unsafe or linked
-// members, so the defects the verifier must refuse are built here. Names and
-// header checksums are real tar, so only the intended defect is unusual.
 function hostileTar(entries) {
   const blocks = []
   for (const { name, bytes = Buffer.alloc(0), type = '0', mode = 0o644 } of entries) {
@@ -106,28 +97,21 @@ function hostileTar(entries) {
   return gzipSync(Buffer.concat(blocks), { level: 9 })
 }
 
-// Rewrites a real archive's tar bytes while leaving the gzip stream valid.
 function retar(bytes, change) {
   const tar = gunzipSync(bytes)
   change(tar)
   return gzipSync(tar, { level: 9 })
 }
 
-// A real main archive of this workspace's release version, to corrupt on purpose.
 const validMain = version => archiveOf(mainMembers(version))
 
-// Flips one byte, counting from the end for a negative index.
 function flip(bytes, index) {
   const copy = Buffer.from(bytes)
   copy[index < 0 ? copy.length + index : index] ^= 0xff
   return copy
 }
 
-// A controlled assembler output read by the real `stage` command: real small
-// archives whose inventory and hashes are exactly the report's claim.
 async function assembled(directory, { version, platform, corrupt = false, main, binary }) {
-  // A foreign platform is assembled here only to prove that `stage` refuses a
-  // report from another platform; the platform table itself has one entry.
   const entry = platforms.find(item => item.platform === platform) ?? { platform, os: platform.split('-')[0], cpu: platform.split('-')[1] }
   const packageDir = path.join(directory, `assembled-${platform}`)
   await mkdir(packageDir, { recursive: true })
@@ -152,8 +136,6 @@ async function assembled(directory, { version, platform, corrupt = false, main, 
   return { packageDir, main: inventory(mainContent), platform: inventory(binaryContent) }
 }
 
-// Staged upload trees for the delivered runner, optionally mutated to reproduce a
-// release-guard violation. Every archive is a real gzip/ustar archive.
 async function inventoryFixture(directory, options = {}) {
   const version = options.version ?? await releaseVersion()
   const artifactsDir = path.join(directory, 'artifacts')
@@ -164,8 +146,6 @@ async function inventoryFixture(directory, options = {}) {
   const mainList = options.mainReport ?? inventory(mainContent)
   const optionalDependencies = dependencies(version)
   if (options.optionalShift) optionalDependencies['@dsh-uml-viewer/win32-x64'] = options.optionalShift
-  // Created even when no runner is staged, so "no assemble report at all" fails
-  // on the inventory count instead of on a missing directory.
   await mkdir(artifactsDir, { recursive: true })
   for (const entry of platforms) {
     if (entry.platform === options.omit) continue
@@ -176,7 +156,6 @@ async function inventoryFixture(directory, options = {}) {
       : `dsh-uml-viewer-${entry.platform}-${version}.tgz`
     const content = platformMembers(version, entry, options.platform?.[entry.platform])
     const binary = options.platformBytes?.[entry.platform] ?? archiveOf(content)
-    // dropArchive keeps the assembler report but removes the archive it names.
     if (!options.dropArchive) await writeFile(path.join(upload, platformName), binary)
     const platformList = options.platformReport?.[entry.platform] ?? inventory(content)
     const stagesMain = entry.platform === mainPlatform
@@ -220,8 +199,6 @@ function jobBlock(text, name) {
   return lines.slice(start, end).join('\n')
 }
 
-// The shell body of one workflow step, so the real publish loop can be executed
-// against a stubbed `npm` instead of being asserted as text.
 function stepScript(text, stepName) {
   const lines = text.split(/\r?\n/)
   const start = lines.findIndex(line => line.trim() === `- name: ${stepName}`)
@@ -249,20 +226,14 @@ function hostShell() {
   return 'bash'
 }
 
-// Bounds for an extracted workflow step: a blocking or flooding body must fail
-// the suite with a clear message instead of hanging it or exhausting memory.
 const stepLimits = Object.freeze({ timeout: 30_000, maxBuffer: 1024 * 1024, killSignal: 'SIGKILL' })
 
-// A failure message that names the bound that was hit, so a timeout or a buffer
-// overflow is never reported as a plain assertion mismatch.
 function stepFailure(result, limits = stepLimits) {
   if (result.error) return `the workflow step did not complete (${result.error.code ?? 'error'}): ${result.error.message}`
   if (result.signal) return `the workflow step was killed by ${result.signal} after ${limits.timeout} ms`
   return result.stderr || result.stdout || `the workflow step exited with ${result.status}`
 }
 
-// Runs a workflow shell step with a stub `npm` that records its arguments, so a
-// publish never reaches a registry.
 async function runStep(directory, script, limits = stepLimits, { failCall = 0 } = {}) {
   const bin = path.join(directory, 'stub-bin')
   await mkdir(bin, { recursive: true })
@@ -290,7 +261,7 @@ async function runStep(directory, script, limits = stepLimits, { failCall = 0 } 
   try {
     calls = (await readFile(log, 'utf8')).trim().split(/\r?\n/).filter(Boolean)
       .map(line => { const [command, ...args] = line.split('\t'); return { command, args } })
-  } catch { /* the step produced no npm call */ }
+  } catch {}
   return { result, calls }
 }
 
@@ -309,7 +280,6 @@ test('the workflow matrix is exactly the delivered platforms on native runners',
   const entries = [...text.matchAll(/-\s+platform:\s*(\S+)\s*\r?\n\s+runner:\s*(\S+)\s*\r?\n\s+binary:\s*(\S+)/g)]
     .map(([, platform, runner, binary]) => ({ platform, runner, binary }))
   assert.deepEqual(entries, platforms.map(({ platform, runner, binary }) => ({ platform, runner, binary })))
-  // The main archive is staged by one runner only, named in one place.
   assert.equal((text.match(new RegExp(`matrix\\.platform == '${mainPlatform}'`, 'g')) ?? []).length, 1)
   assert.equal((text.match(/--main/g) ?? []).length, 1)
 })
@@ -351,8 +321,6 @@ test('pull requests stop at offline package dry runs', async () => {
   assert.match(inventory, /npm pack "\$archive" --dry-run --ignore-scripts/)
   assert.doesNotMatch(inventory, /npm publish/)
   assert.match(publish, /npm publish "\$archive" --provenance/)
-  // The private source package is never the pack or publish target; only
-  // staged archives are, and every npm invocation names one.
   const packs = inventory.split(/\r?\n/).filter(line => /^\s*npm pack\b/.test(line))
   assert.equal(packs.length, 1)
   for (const line of packs) assert.match(line, /npm pack "\$archive"/)
@@ -373,7 +341,6 @@ test('the publish job guards the tag, verifies, dry-runs, then publishes platfor
     assert.notEqual(position, -1, `publish job is missing ${order[index]}`)
     if (index > 0) assert.ok(position > positions[index - 1], `${order[index]} must follow ${order[index - 1]}`)
   }
-  // A shorter plan must fail instead of silently publishing fewer archives.
   assert.match(publish, /wc -l < "\$RUNNER_TEMP\/publish-order\.txt"/)
   assert.match(publish, /test "\$planned" -eq 2/)
   assert.match(publish, /while IFS= read -r archive; do/)
@@ -452,8 +419,6 @@ test('a real publish conflict stops the remaining publishes', async t => {
     for (const call of real) {
       assert.deepEqual(call.args.slice(1), ['--provenance', '--access', 'public', '--ignore-scripts'])
     }
-    // The platform package is published before the main package, so a real
-    // publish conflict on it leaves the main package unpublished.
     assert.match(real.at(-1).args[0], new RegExp(`dsh-uml-viewer-win32-x64-${version}\\.tgz$`))
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
@@ -510,7 +475,6 @@ test('a short publish plan stops the workflow before any publish', async t => {
   const directory = await scratch()
   try {
     await inventoryFixture(directory)
-    // A plan with one line must fail instead of publishing one archive.
     const version = await releaseVersion()
     const artifacts = path.join(directory, 'artifacts')
     const plan = path.join(directory, 'publish-order.txt')
@@ -530,7 +494,6 @@ test('the extracted workflow step runner is bounded in time and output', async t
     t.skip("no bash shares this host's paths and environment, so the workflow shell cannot be executed here")
     return
   }
-  // The defaults the real step execution inherits are the bound, not a hint.
   assert.deepEqual({ ...stepLimits }, { timeout: 30_000, maxBuffer: 1024 * 1024, killSignal: 'SIGKILL' })
   const directory = await scratch()
   try {
@@ -597,8 +560,6 @@ test('stage refuses an unknown platform, a stale assembler report and a corrupte
   const directory = await scratch()
   try {
     const version = await releaseVersion()
-    // A report for a platform this release no longer ships proves the platform
-    // table, not a fixture quirk: win32-x64 must refuse it.
     const { packageDir: other } = await assembled(directory, { version, platform: 'linux-x64' })
     await assert.rejects(
       stageArchives({ packageDir: other, platform: 'plan9-x64', uploadDir: path.join(directory, 'plan9') }),
@@ -614,9 +575,6 @@ test('stage refuses an unknown platform, a stale assembler report and a corrupte
 })
 
 test('a plausible large payload stays inside the default archive limits', async () => {
-  // A built native binary is tens of MiB and the packaged Sarasa face is
-  // 25.6 MiB, so the caps must accept a realistic archive, not only reject a
-  // hostile one. This is the production verify path with the default limits.
   const directory = await scratch()
   try {
     const artifactsDir = await inventoryFixture(directory, {
@@ -639,14 +597,11 @@ test('the staged inventory of the delivered platform and one main archive verifi
     assert.deepEqual(release.publishOrder, release.artifacts)
     assert.equal(release.reproducibleMain.runners, 1)
     assert.deepEqual(release.reproducibleMain.files, expectedMain)
-    // Every runner's main hash is evidence; only the staged one is published.
     assert.deepEqual(release.mainHashes.map(item => item.platform), platforms.map(entry => entry.platform))
     for (const item of release.mainHashes) assert.match(item.sha256, /^[0-9a-f]{64}$/)
     for (const artifact of release.artifacts) {
       assert.equal(artifact.sha256, sha(await readFile(artifact.path)))
       assert.equal(artifact.file, path.basename(artifact.path))
-      // The recorded list is read out of the real archive, which is what makes
-      // the inventory evidence rather than a copy of the assembler report.
       assert.deepEqual(artifact.files, [...await readArchive(artifact.path)].map(([name]) => name.slice('package/'.length)).sort())
     }
     assert.deepEqual(release.artifacts.at(-1).files, expectedMain)
@@ -659,8 +614,6 @@ test('the staged inventory of the delivered platform and one main archive verifi
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
-// Options may be a function of the release version, for a fixture that has to
-// corrupt or over-size a real archive of this workspace's version.
 for (const [name, options, message] of [
   ['a platform archive that is not staged at all', { dropArchive: true }, /platform archive is missing/],
   ['no runner reporting an assemble report', { omit: 'win32-x64' }, /assemble reports, found 0/],
@@ -670,7 +623,6 @@ for (const [name, options, message] of [
   ['a stray third archive', { extraArchive: 'dsh-uml-viewer-src-1.0.0.tgz' }, /Expected exactly 2 release archives, found 3/],
   ['optional dependencies that drift from the workspace version', { optionalShift: '0.9.0' }, /optional dependencies must pin exactly/],
   ['a report from another release version', { version: '9.9.9' }, /platform package version 9\.9\.9 != workspace version/],
-  // An archive that is not really an archive is refused instead of trusted.
   ['a plaintext main file named .tgz', { mainBytes: Buffer.from('controlled main archive\n') }, /not gzip data/],
   ['a plaintext platform file named .tgz', { platformBytes: { 'win32-x64': Buffer.from('controlled archive\n') } }, /not gzip data/],
   ['a corrupt gzip header', version => ({ mainBytes: flip(validMain(version), 0) }), /not gzip data/],
@@ -707,8 +659,6 @@ for (const [name, options, message] of [
     limits: { ...archiveLimits, totalBytes: 1024 * 1024 },
   }), /decompressed archive limit/],
   ['an archive over the compressed limit', { limits: { ...archiveLimits, compressedBytes: 64 } }, /compressed archive limit/],
-  // The archive's own manifest must agree with the workspace and the platform
-  // table, not only with the report that describes it.
   ['a main package name that lies', { main: { manifest: { name: 'not-the-viewer' } } }, /main package name .* is not/],
   ['a main package version that lies', { main: { manifest: { version: '9.9.9' } } }, /main package version .* != workspace version/],
   ['main optional dependencies that lie', {
@@ -805,7 +755,6 @@ test('the verify command fails closed on an archive that only looks like one', a
 test('test:package runs the stale-payload guard and the release guards', async () => {
   const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
   assert.equal(manifest.scripts['test:package'], 'node scripts/test-package.mjs')
-  // The source checkout stays private; only assembled archives are published.
   assert.equal(manifest.private, true)
   const runner = await readFile(path.join(root, 'scripts/test-package.mjs'), 'utf8')
   for (const suite of ['scripts/package.test.mjs', 'scripts/package-version.test.mjs', 'scripts/release.test.mjs']) {
@@ -816,8 +765,6 @@ test('test:package runs the stale-payload guard and the release guards', async (
 
 test('the existing CI keeps the package contract step and its jobs', async () => {
   const text = await readFile(path.join(root, '.github/workflows/ci.yml'), 'utf8')
-  // The jobs that survive #11's one-host CI. The guard is that every gate is
-  // still attached to a job, not that the old job names survive.
   for (const job of ['typescript', 'panel-e2e', 'windows-crap', 'windows-mutate', 'windows-quality']) {
     assert.match(text, new RegExp(`^  ${job}:`, 'm'), `ci.yml job ${job}`)
   }

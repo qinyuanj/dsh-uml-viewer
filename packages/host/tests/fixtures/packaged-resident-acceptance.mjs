@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// Diagnostic-only executable for packaged resident attachment acceptance.
-// It reuses the real host protocol fixture without building or running Rust.
 import { existsSync, writeFileSync } from 'node:fs'
 if (process.argv[2] === '--version') {
   process.stdout.write('uml-viewer 1.0.0\n')

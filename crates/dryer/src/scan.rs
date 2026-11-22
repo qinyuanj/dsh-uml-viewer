@@ -1,6 +1,3 @@
-//! Read source files and pair the forms that clear the similarity threshold
-//! (`dryer/scan.py`).
-
 use crate::discover;
 use crate::extract::{Entry, entries_in_source};
 use crate::names;
@@ -27,15 +24,12 @@ pub(crate) struct Candidate {
     pub right_nodes: usize,
 }
 
-/// `lines >= min_lines and nodes >= min_nodes`.
 pub(crate) fn keep(entry: &Entry, min_lines: usize, min_nodes: usize) -> bool {
     // Written as `end + 1 - start >= min_lines` because a huge count
     // (`int()` accepts arbitrary precision) must not overflow.
     entry.end_line + 1 - entry.start_line >= min_lines && entry.nodes >= min_nodes
 }
 
-/// The forms of every selected file, named after crapper's functions, plus
-/// one warning per unreadable Clojure tail (`"<file>:<line>: <message>"`).
 pub(crate) fn scan_files(
     files: &[PathBuf],
     root: &Path,
@@ -73,7 +67,6 @@ fn span(entry: &Entry) -> Span {
     }
 }
 
-/// Pair forms of the same language; each unordered pair is reported once.
 pub(crate) fn duplicates(entries: Vec<Entry>, threshold: f64) -> Vec<Candidate> {
     let mut found = Vec::new();
     for (i, left) in entries.iter().enumerate() {

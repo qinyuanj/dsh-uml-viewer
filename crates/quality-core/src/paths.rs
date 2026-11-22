@@ -1,11 +1,6 @@
-//! Paths the way the Python tools see them: `Path.resolve()` (absolute,
-//! symlinks resolved, a missing tail kept) and `as_posix()`.
-
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-/// `Path.resolve()`: absolute against the current directory, symlinks and
-/// `..` resolved as far as the path exists, the missing rest appended.
 pub fn resolve(path: &Path) -> PathBuf {
     let absolute = if path.is_absolute() {
         path.to_path_buf()
@@ -43,7 +38,6 @@ pub fn resolve(path: &Path) -> PathBuf {
     out
 }
 
-/// Without Windows' verbatim `\\?\` prefix, as Python prints paths.
 fn plain(path: PathBuf) -> PathBuf {
     if !cfg!(windows) {
         return path;
@@ -58,7 +52,6 @@ fn plain(path: PathBuf) -> PathBuf {
     }
 }
 
-/// `as_posix()`: the path with `/` separators.
 pub fn posix(path: &Path) -> String {
     let text = path.to_string_lossy();
     if cfg!(windows) {
@@ -68,7 +61,6 @@ pub fn posix(path: &Path) -> String {
     }
 }
 
-/// `path.relative_to(root).as_posix()`, when `path` is under `root`.
 pub fn relative_posix(path: &Path, root: &Path) -> Option<String> {
     let rest = path.strip_prefix(root).ok()?;
     let parts: Vec<String> = rest
@@ -82,12 +74,10 @@ pub fn relative_posix(path: &Path, root: &Path) -> Option<String> {
     })
 }
 
-/// `relative_posix`, or the whole path in posix form when it is outside.
 pub fn shown(path: &Path, root: &Path) -> String {
     relative_posix(path, root).unwrap_or_else(|| posix(path))
 }
 
-/// `os.path.normcase`: case and separators folded on Windows.
 pub fn normcase(path: &Path) -> String {
     let text = path.to_string_lossy();
     if cfg!(windows) {
@@ -97,7 +87,6 @@ pub fn normcase(path: &Path) -> String {
     }
 }
 
-/// `Path.home()`.
 pub fn home() -> PathBuf {
     let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
     std::env::var_os(var)
@@ -105,7 +94,6 @@ pub fn home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Sort by `as_posix()` and drop duplicates, as the tools order files.
 pub fn sorted_unique(mut files: Vec<PathBuf>) -> Vec<PathBuf> {
     files.sort_by_key(|path| posix(path));
     files.dedup();

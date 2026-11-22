@@ -4,7 +4,6 @@ import { mountContextSwitcher, returnToSourceTree, type SwitcherActions } from '
 import { panelLanguage, translate, type PanelText } from '../src/locale.js'
 import { makeDocument, type Element } from './dom.js'
 
-/** The switcher's own behaviour (#47); the browser walk is `navigation.spec.mjs`. */
 const proposals = [{ id: ':p-shop', name: 'Shop split' }, { id: ':p-2', name: '2026-11-09 14:05:06' }]
 const real: DiscussionContext = { kind: 'real', edn: '{:context :real}' }
 const shop: DiscussionContext = { kind: 'proposal', proposalId: ':p-shop', name: 'Shop split', edn: '{:context :proposal}' }
@@ -32,7 +31,6 @@ describe('discussion-context switcher (#47)', () => {
     const h = mounted(zhText())
     h.switcher.render({ context: shop, proposals })
     expect(h.trigger.attributes['aria-label']).toBe('讨论上下文：Shop split')
-    // The menu is a menu only while open: a hidden [role=menu] blocks host commands.
     expect(h.menu.hidden).toBe(true)
     expect(h.menu.hasAttribute('role')).toBe(false)
     h.open()

@@ -9,7 +9,6 @@ const source: SourceModel = { file: 'src/order.rs', title: 'src/order.rs:82', li
 
 function harness() {
   const actions: PanelAction[] = []
-  // The resident answers `card: null` once no card is open (#47).
   let open = true
   const controller = new OverlayController(async action => {
     actions.push(action)
@@ -25,14 +24,12 @@ function harness() {
   return { controller, actions }
 }
 
-/** Every send stays pending until the test settles it, in any order. */
 function deferred() {
   const pending: { action: PanelAction; resolve: (ack: PanelAck | null) => void; reject: (error: Error) => void }[] = []
   const controller = new OverlayController(action => new Promise((resolve, reject) => {
     pending.push({ action, resolve, reject })
   }))
   const flush = async () => { for (let i = 0; i < 10; i += 1) await Promise.resolve() }
-  /** Take the oldest pending request for `name` (and optional id). */
   const take = (name: PanelAction['action'], id?: string) => {
     const index = pending.findIndex(entry => entry.action.action === name &&
       (id === undefined || ('id' in entry.action && entry.action.id === id)))
@@ -49,7 +46,6 @@ function deferred() {
 const ok = (extra: Partial<PanelAck> = {}): PanelAck => ({ accepted: true, reason: null, ...extra })
 const other: SourceModel = { ...source, file: 'src/other.rs', title: 'src/other.rs:1' }
 
-/** Open a card through a full refresh so the deferred controller holds one. */
 async function withCard(d: ReturnType<typeof deferred>) {
   void d.controller.refresh()
   await d.reply('card', ok({ card }))
@@ -125,7 +121,6 @@ describe('panel overlays: stale replies', () => {
     void d.controller.openCardAt([1, 1])
     void d.controller.openCardAt([2, 2])
     await d.reply('open-card', ok())
-    // The older ack refreshes, but the newer open still owns the card fetch.
     expect(d.pending.map(entry => entry.action.action)).toEqual(['open-card'])
     await d.reply('open-card', ok())
     const second = { ...card, id: ':second' }
@@ -143,7 +138,6 @@ describe('panel overlays: stale replies', () => {
     void d.controller.openSource(':order', 'absent')
     await d.reply('open-source', { accepted: false, reason: 'Source not found' }, ':order')
     expect(d.controller.current.failure).toBe('Source not found')
-    // A failed request rejects; it is still a refusal of the newest request.
     void d.controller.openSource(':order', 'boom')
     d.take('open-source', ':order').reject(new Error('resident gone'))
     await d.flush()
@@ -163,7 +157,6 @@ describe('panel overlays: stale replies', () => {
     await d.flush()
     expect(d.controller.current).toMatchObject({ source: null, drawer: 'card' })
 
-    // An intentional reopen after going back is live.
     void d.controller.openSource(':order', 'again')
     await d.reply('open-source', ok({ source: { ...source, line: 5 } }), ':order')
     expect(d.controller.current.source?.line).toBe(5)
@@ -226,7 +219,7 @@ describe('panel overlays', () => {
     expect(actions.slice(-2)).toEqual([
       { action: 'scroll-card', delta: 4, viewHeight: 500 }, { action: 'card', width: 900, viewHeight: 500 },
     ])
-    expect(controller.current.card?.scroll).toBe(0) // producer response, no local 192px guess
+    expect(controller.current.card?.scroll).toBe(0)
   })
 
   it('synchronizes native scrolling before subsequent wheel input', async () => {
@@ -285,7 +278,6 @@ describe('panel overlays', () => {
     await controller.openSource(':order', 'target')
     expect(actions.at(-1)).toEqual({ action: 'open-source', id: ':order', member: 'target' })
     expect(controller.current).toMatchObject({ drawer: 'source', card, source })
-    // Another source takes the same drawer; nothing stacks.
     await controller.openSource(':second')
     expect(controller.current.source?.file).toBe('src/second.rs')
     controller.backToCard()
@@ -303,7 +295,6 @@ describe('panel overlays', () => {
     await d.reply('open-card', ok())
     const second = { ...card, id: ':second' }
     await d.reply('card', ok({ card: second }))
-    // The double-click on another class owns the drawer; no stale source stays.
     expect(d.controller.current).toMatchObject({ drawer: 'card', source: null, card: second })
   })
 

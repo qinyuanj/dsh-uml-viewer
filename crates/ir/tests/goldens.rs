@@ -1,8 +1,3 @@
-//! Golden parity (#136, Seam A): for each fixture project the `ir` output is
-//! structurally equal to the frozen JVM golden, and byte-identical across
-//! repeated runs. Comparison parses both sides with the same EDN codec, so
-//! golden pretty-printing and key order do not matter.
-
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -30,9 +25,6 @@ fn generate(fixture: &str, output: &Path) -> std::process::ExitCode {
     ir::run(&args)
 }
 
-/// A private output file, removed when dropped. Parallel test runs (mutation
-/// workers) share the temp directory, so a fixed name would let one run read
-/// another's output.
 struct Scratch(PathBuf);
 
 impl Scratch {
@@ -83,7 +75,6 @@ fn touches(item: &edn::Value, ids: &[edn::Value]) -> bool {
         .any(|k| matches!(item.get(&edn::Value::keyword(k)), Some(v) if ids.contains(v)))
 }
 
-/// The document with `key` replaced by its items for which `keep` holds.
 fn filtered(document: &edn::Value, key: &str, keep: impl Fn(&edn::Value) -> bool) -> edn::Value {
     let edn::Value::Map(entries) = document else {
         panic!("not a map");
@@ -149,8 +140,6 @@ fn assert_same_items(want: &[edn::Value], got: &[edn::Value]) {
 
 #[test]
 fn rust_cfg_platform_modules_are_classes_on_every_host() {
-    // `#[cfg(windows)]` and `#[cfg(unix)]` modules are source, not build
-    // configuration: both are classes whichever host generates the IR.
     let scratch = Scratch::new("rust-cfg");
     let output = &scratch.0;
     assert_eq!(
@@ -237,10 +226,6 @@ fn identical_input_produces_byte_identical_output() {
 
 #[test]
 fn lua_namespaces_match_the_crapper_and_mutator_naming() {
-    // The quality overlay joins snapshots by the class :ns, and crapper and
-    // mutator name a module by its project-relative path. For the fixture
-    // (:src "src" :prefix "calc") the scanned namespaces must equal the
-    // snapshot namespaces exactly.
     let scratch = Scratch::new("lua-ns");
     let output = &scratch.0;
     assert_eq!(

@@ -1,10 +1,3 @@
-/**
- * A readable TrueType/OpenType metrics reader for the packaged Sarasa face.
- * Only what a measurement test needs: `head`, `hhea`, `hmtx`, `maxp` and the
- * `cmap` (format 4 and 12 subtables). No shaping, no kerning: the layout
- * estimate is a per-character advance, so the test compares per-character
- * advances too.
- */
 import { readFileSync } from 'node:fs'
 
 export interface FontMetrics {
@@ -43,7 +36,6 @@ function readCmap(buffer: Buffer, offset: number): Cmap {
     const unicodeFull = (platform === 3 && encoding === 10) || (platform === 0 && encoding >= 4)
     const unicodeBmp = platform === 0 || (platform === 3 && (encoding === 1 || encoding === 0))
     if (!unicodeFull && !unicodeBmp) continue
-    // Prefer a full-repertoire subtable, then the first BMP one.
     if (best === null || (unicodeFull && format === 12 && best.format !== 12)) {
       best = { format, offset: subtable }
     }

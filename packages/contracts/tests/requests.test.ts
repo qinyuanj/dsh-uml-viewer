@@ -20,7 +20,6 @@ describe('quality panel requests', () => {
     expect(() => parsePanelAction({ action: 'quality-request', request: 'refresh-crap', id: 'core' })).toThrow(/keyword/)
     expect(() => parsePanelAction({ action: 'quality-request', request: 'refresh-crap', id: ':a b' })).toThrow(/keyword/)
     expect(() => parsePanelAction({ action: 'quality-request', request: 'refresh-crap', id: ':a"]} :x' })).toThrow(/keyword/)
-    // The client names the element only; it can never supply files.
     expect(parsePanelAction({ action: 'quality-request', request: 'refresh-mutate', id: ':core', files: ['/etc/passwd'] }))
       .toEqual({ action: 'quality-request', request: 'refresh-mutate', id: ':core' })
   })
@@ -35,8 +34,6 @@ describe('quality panel requests', () => {
     expect(() => validatePanelRequest({ ...request, files: ['../outside.ts'] })).toThrow(/relative/)
     expect(() => validatePanelRequest({ ...request, files: ['D:/abs.ts'] })).toThrow(/relative/)
     expect(() => validatePanelRequest({ ...request, files: ['src/a.ts', 'src/a.ts'] })).toThrow(/duplicate/)
-    // One rule for every project-relative path (#review M1a): the same
-    // refusals as the model's IR arguments, not a second validator.
     expect(() => validatePanelRequest({ ...request, files: ['src/ab:c.ts'] })).toThrow(/alternate data stream/)
     expect(() => validatePanelRequest({ ...request, files: ['CON'] })).toThrow(/device name/)
     expect(() => validatePanelRequest({ ...request, files: ['src/x.'] })).toThrow(/dot or a space/)
@@ -61,7 +58,6 @@ describe('resident quality targets', () => {
   })
 
   it('keeps the producer bounds and order as one contract', () => {
-    // viewer_session::targets QUALITY_TARGET_* — the numbers must stay equal.
     expect(QUALITY_TARGET_LIMITS).toEqual({ files: 4096, pathBytes: 4096, eventBytes: 1024 * 1024 })
     for (const [value, message] of [
       [{ ...target, id: 'core' }, /keyword/],

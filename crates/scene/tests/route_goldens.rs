@@ -1,43 +1,3 @@
-//! Route geometry goldens (#149, Seam A): representative routing scenarios
-//! whose expected scene geometry in `fixtures/route-goldens/` is static data
-//! produced once by the pre-#144 Lua/LOVE scene core; only `:strokes` was
-//! re-recorded by the Rust core when flattening moved from 16 fixed steps
-//! to a 0.25px tolerance (#187), and `tie`'s `:size :h` when package frames
-//! came to hold the edges between their classes. Every number must
-//! match within 1e-6 (the golden's `:absolute-tolerance`); edges are
-//! compared in order, with their heads and strokes, so a hidden, faded,
-//! re-headed or reordered edge fails.
-//!
-//! | scenario      | what it pins                                                  |
-//! |---------------|---------------------------------------------------------------|
-//! | `direct`      | unobstructed connection is one straight segment               |
-//! | `obstacle`    | a box blocks every direct/track/hop candidate: first clear    |
-//! |               | non-reversing detour, including the original's end sync       |
-//! | `tie`         | same-rank peers with a box between: equal-score detours, the  |
-//! |               | last one wins; two edges in one hop group (`i` = 0, 1)        |
-//! | `rank-hop`    | a connection crossing a rank goes through the gap between    |
-//! |               | that rank's boxes                                             |
-//! | `attachments` | several ends on one class face are spread along it           |
-//! | `curve-lr`    | left-to-right: curved corners, end tangents, inheritance     |
-//! |               | heads, three ends on one face                                 |
-//! | `route148`    | #148 regression: non-hierarchical classes keep their members |
-//! |               | (`:hide-members false`), so LoanService -> Loan stays direct  |
-//! | `proposal`    | hierarchical IR under `{:proposal true}`: layer packages,     |
-//! |               | Unassigned, a foreign oval, detours ranked by the layers      |
-//!
-//! `:curve` is not part of the compiled scene: `compose::prepare_scene`
-//! turns the constrained basis path into `:tip`/`:behind`/`:draw-bounds`/
-//! `:strokes` and does not keep it. The only public output that carries it
-//! is the diagram projection of `scene::cli::project` (the `uml-viewer
-//! scene` command, also the JVM golden seam), and the test compares that
-//! where it exists (`proposal`). Non-hierarchical documents compile to
-//! `:sections`, whose projection passes the scene edges through without a
-//! curve, so for them the test rebuilds it from `:points` with
-//! `cli::edge_curve`, the call the diagram projection and `prepare_scene`
-//! make.
-//! The strokes, tip, behind and draw bounds compared above are the scene's
-//! own output of that path.
-
 use crate::common;
 
 use common::{assert_close, assert_golden_tolerance, items, read_edn};
@@ -62,7 +22,6 @@ fn fixture(name: &str) -> PathBuf {
     common::fixture("route-goldens", name)
 }
 
-/// The view each golden was produced for (`compile_view`'s `extra`).
 fn extra(scenario: &str) -> Value {
     match scenario {
         "proposal" => parse("{:proposal true}").unwrap(),
@@ -79,8 +38,6 @@ fn compiled(scenario: &str) -> Value {
     scene::document::compile_view(&document(scenario), &[], &[], &extra(scenario))
 }
 
-/// Each edge's `:curve` (by edge index), from the projection when it
-/// carries one; see the module comment for the sectioned case.
 fn curves(scenario: &str, scene: &Value) -> Vec<Value> {
     let projection = scene::cli::project(
         &document(scenario),
@@ -125,8 +82,6 @@ fn expected(scenario: &str) -> Value {
     read_edn(&fixture(&format!("{scenario}.geometry.edn")))
 }
 
-/// Size, class rects and every edge (in order) against the golden; each
-/// edge's curve against the projection of the same view.
 fn assert_matches_original(scenario: &str) {
     let scene = compiled(scenario);
     let want = expected(scenario);
@@ -250,8 +205,6 @@ fn equal_score_candidates_pick_the_last_as_in_the_original() {
         let r = rect(&scene, from);
         points(&edge(&scene, from, to))[1][1] - r.bottom()
     };
-    // Three clear right-angle detours score alike; the last (the rank
-    // track, 20 + 10i below the row) wins, not the first (10 + 10i).
     assert_eq!(20.0, below("d0-left", "d0-right"));
     assert_eq!(30.0, below("d0-right", "d0-left"));
 }
@@ -316,9 +269,6 @@ fn curved_corners_and_end_tangents_left_to_right_match_the_original() {
     );
 }
 
-/// #148: the original keeps members on every non-hierarchical class (`IR`
-/// normalizes an absent `:hide-members` to `false`), which keeps the boxes
-/// at their full size and LoanService -> Loan one straight segment.
 #[test]
 fn unobstructed_dependency_with_member_boxes_is_direct_as_in_the_original() {
     assert_matches_original("route148");
@@ -367,8 +317,6 @@ fn point(v: Option<&Value>) -> [f64; 2] {
 
 #[test]
 fn repeated_compilation_gives_identical_geometry() {
-    // Attachment, hop and endpoint groups live in per-call hash maps with
-    // fresh seeds; every compilation must still produce the same scene.
     for scenario in SCENARIOS {
         let first = compiled(scenario);
         for _ in 0..16 {

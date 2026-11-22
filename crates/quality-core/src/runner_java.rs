@@ -1,5 +1,3 @@
-//! Maven's JaCoCo coverage runner; reports remain for the coverage loader.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 

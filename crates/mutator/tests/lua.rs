@@ -1,4 +1,3 @@
-//! Lua mutation: the pinned original's site discovery and its snapshots.
 use mutator::sites;
 use quality_core::serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -10,8 +9,6 @@ fn fixtures() -> PathBuf {
         .expect("the Lua fixtures are checked in")
 }
 
-/// The pinned mutator's `sites_in_file` output for the same bytes: offsets,
-/// originals, mutants, categories, owners and mutation identities.
 #[test]
 fn lua_site_discovery_matches_the_pinned_original() {
     let root = fixtures().join("project");
@@ -97,11 +94,9 @@ fn lua_site_discovery_matches_the_pinned_original() {
     assert_eq!(compared, 16, "every fixture site was compared");
 }
 
-/// The mutated sources of the fixture, as the oracle ran them.
 #[cfg(target_os = "linux")]
 const TARGETS: [&str; 3] = ["src/calc.lua", "src/odd name.lua", "nested/lib/mathx.lua"];
 
-/// A scratch Lua module: the publication contract validates spec paths on disk.
 struct Module {
     directory: PathBuf,
 }
@@ -132,8 +127,6 @@ impl Drop for Module {
     }
 }
 
-/// The collector's publication: spec durations, per-spec line membership and
-/// the fallback lines, exactly the fields the original reads.
 #[test]
 fn lua_publication_decodes_specs_membership_and_fallback() {
     let module = Module::new("decode");
@@ -153,8 +146,6 @@ fn lua_publication_decodes_specs_membership_and_fallback() {
     assert!(membership.fallback[&source].contains(&6));
 }
 
-/// A malformed or incomplete publication is refused, never guessed: the
-/// original raises instead of selecting a subset it cannot trust.
 #[test]
 fn malformed_lua_publications_are_refused() {
     let module = Module::new("refused");
@@ -229,8 +220,6 @@ fn malformed_lua_publications_are_refused() {
     }
 }
 
-/// Unproven attribution is never a selected subset: with `unsafe`, every
-/// attributed line becomes a full-suite fallback.
 #[test]
 fn unsafe_lua_attribution_forces_the_full_suite() {
     let module = Module::new("unsafe");
@@ -264,8 +253,6 @@ fn index_of(module: &Module, membership: mutator::lua::Membership) -> mutator::l
     }
 }
 
-/// The selection contract: exact lines, fallback dominance, and covering specs
-/// first with every other spec still present.
 #[test]
 fn lua_index_selection_is_exact_and_covering_first_keeps_the_suite() {
     let module = Module::new("select");
@@ -301,7 +288,6 @@ fn lua_index_selection_is_exact_and_covering_first_keeps_the_suite() {
     );
     assert_eq!(index.select(&module.source(), 9), None);
     assert_eq!(index.select(&module.directory.join("other.lua"), 3), None);
-    // The duration is per distinct spec, plus the suite's overhead.
     assert_eq!(
         index.seconds_for(&["spec/a_spec.lua".into(), "spec/a_spec.lua".into()]),
         1.1
@@ -330,8 +316,6 @@ fn lua_index_selection_is_exact_and_covering_first_keeps_the_suite() {
     );
 }
 
-/// Shards merge into one index: durations add, memberships union, and a shard
-/// that could not attribute a hit forces the full suite.
 #[test]
 fn lua_shards_merge_into_one_index() {
     let module = Module::new("merge");
@@ -352,11 +336,6 @@ fn lua_shards_merge_into_one_index() {
     assert!(!merged.unsafe_attribution);
 }
 
-/// LuaCov writes its stats in text mode on Windows, so every line of a shard
-/// ends in CRLF. Merging strips that terminator at read time: the hit counts
-/// per source file still add up, and the merged stats are the LF shards'
-/// bytes exactly. Without the terminator strip the trailing `\r` reaches the
-/// last count token and the whole merge fails as `invalid hit count`.
 #[test]
 fn crlf_lua_shard_stats_merge_to_the_lf_bytes() {
     struct Scratch(PathBuf);
@@ -368,8 +347,6 @@ fn crlf_lua_shard_stats_merge_to_the_lf_bytes() {
     let scratch =
         Scratch(std::env::temp_dir().join(format!("lua-crlf-merge-{}", std::process::id())));
     let _ = std::fs::remove_dir_all(&scratch.0);
-    // Three shards of a two-file module: src/calc.lua appears in two of them,
-    // so its counts are a sum and not a copy of one shard's line.
     let shards = [
         (
             "shard-1",
@@ -378,8 +355,6 @@ fn crlf_lua_shard_stats_merge_to_the_lf_bytes() {
         ("shard-2", "4:src/calc.lua\n0 1 0 5 \n"),
         ("shard-3", "2:src/math.lua\n1 0 \n"),
     ];
-    // The two-line-per-file LuaCov format, with the counts summed across the
-    // shards: 1+0, 0+1, 2+0, 0+5 for calc.lua and 0+1, 3+0 for math.lua.
     let expected = "4:src/calc.lua\n1 1 2 5 \n2:src/math.lua\n1 3 \n";
     let shards_of = |newline: &str| -> (Vec<PathBuf>, PathBuf) {
         let directory = scratch.0.join(if newline == "\n" { "lf" } else { "crlf" });
@@ -395,7 +370,6 @@ fn crlf_lua_shard_stats_merge_to_the_lf_bytes() {
     };
     let (lf_parts, lf_target) = shards_of("\n");
     let (crlf_parts, crlf_target) = shards_of("\r\n");
-    // One logical input, two line endings: the merge is the same operation.
     for (parts, target) in [(&lf_parts, &lf_target), (&crlf_parts, &crlf_target)] {
         quality_core::runners::lua::merge_stats(parts, target).expect("the shards merge");
     }
@@ -410,9 +384,6 @@ fn crlf_lua_shard_stats_merge_to_the_lf_bytes() {
     assert!(!crlf.contains(&b'\r'), "the merged stats are LF-only");
 }
 
-/// Ported from the original's `test_lua_scheduling.py`: a Lua selection puts
-/// the sites that survived the previous run first, keeps each group in
-/// discovery order, and changes nothing else about the selection.
 #[test]
 fn lua_scheduling_puts_prior_survivors_first_and_keeps_the_selection() {
     fn named(name: &str, line: usize) -> sites::Site {
@@ -430,7 +401,6 @@ fn lua_scheduling_puts_prior_survivors_first_and_keeps_the_selection() {
             mutation_id: name.to_string(),
         }
     }
-    // The selected sites in discovery order, exactly the original's list.
     let mut selected = ["survivor-a", "killed", "survivor-b", "unknown"]
         .iter()
         .enumerate()
@@ -447,7 +417,6 @@ fn lua_scheduling_puts_prior_survivors_first_and_keeps_the_selection() {
     let mut names: Vec<&str> = order.clone();
     names.sort_unstable();
     assert_eq!(names, ["killed", "survivor-a", "survivor-b", "unknown"]);
-    // Without history the order is the discovery order: the sort is stable.
     let mut untouched = vec![named("a", 1), named("b", 2), named("c", 3)];
     mutator::lua::survivors_first(&mut untouched, &std::collections::BTreeMap::new());
     assert_eq!(
@@ -459,9 +428,6 @@ fn lua_scheduling_puts_prior_survivors_first_and_keeps_the_selection() {
     );
 }
 
-/// The original's `cli._shares_queue` dispatch: full-suite Lua files share one
-/// worker queue; an explicit test command or `--select-specs` takes the
-/// file-by-file path, and no other language ever joins it.
 #[test]
 fn only_full_suite_lua_files_share_the_worker_queue() {
     let lua = Path::new("src/a.lua");
@@ -472,9 +438,6 @@ fn only_full_suite_lua_files_share_the_worker_queue() {
     assert!(!mutator::shares_queue(Path::new("src/a.py"), None, false));
 }
 
-/// Ported from the original's `test_busted_task.py`: a named Busted task is a
-/// single argv entry, exactly like a spaced interpreter or project path, so a
-/// task name with a space is never re-split by a shell.
 #[test]
 fn a_busted_task_is_one_argv_entry_even_with_spaces() {
     let module = Path::new("/tmp/project with spaces");
@@ -494,11 +457,9 @@ fn a_busted_task_is_one_argv_entry_even_with_spaces() {
             .count(),
         1
     );
-    // The default task adds no `--run` at all.
     let plain = mutator::lua::plan(module, None);
     assert!(!plain.iter().any(|argument| argument == "--run"));
 }
-/// One committed snapshot, byte for byte.
 #[cfg(target_os = "linux")]
 fn assert_goldens(root: &Path) {
     for name in ["calc.edn", "nested.lib.mathx.edn", "odd name.edn"] {
@@ -510,7 +471,6 @@ fn assert_goldens(root: &Path) {
             String::from_utf8_lossy(&expected),
             "{name}"
         );
-        // No normalization decides the comparison: the bytes themselves match.
         assert_eq!(actual, expected, "{name}");
         assert!(!actual.contains(&b'\r'), "{name} is LF-only");
     }
@@ -523,7 +483,6 @@ mod linux {
     use std::process::ExitCode;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// The pinned oracle's fixed clock.
     fn fixed_clock() -> String {
         "2026-11-07T12:00:00+00:00".into()
     }
@@ -540,10 +499,6 @@ mod linux {
         }
     }
 
-    /// A private copy of the committed fixture: the project under test is
-    /// never mutated, and nothing is written into this checkout.
-    /// A private fixture directory that removes itself, so a failing assertion
-    /// cannot leave scratch behind.
     struct FixtureDirectory(PathBuf);
 
     impl std::ops::Deref for FixtureDirectory {
@@ -611,17 +566,12 @@ mod linux {
         mutator::run_with_clock(&values, fixed_clock)
     }
 
-    /// The acceptance criterion: a real Busted/cluacov run, in overlay views,
-    /// publishes the pinned original's snapshot bytes. One `//` mutant of the
-    /// fixture survives, so the run reports exit 3.
     #[test]
     fn lua_snapshots_are_the_pinned_originals_bytes() {
         let (directory, root) = project("bytes");
         let first = arguments(&root, &["--mutate-all"]);
         assert_eq!(run_arguments(&first), ExitCode::from(3));
         assert_goldens(&root);
-        // The differential rerun reuses the killed sites, re-runs the survivor
-        // and republishes the same bytes.
         let rerun = arguments(&root, &[]);
         assert_eq!(run_arguments(&rerun), ExitCode::from(3));
         assert_goldens(&root);
@@ -635,8 +585,6 @@ mod linux {
         remove(&directory);
     }
 
-    /// `--select-specs` runs only the covering specs of a mutant and confirms
-    /// survivors on the full suite, so the outcomes and bytes do not move.
     #[test]
     fn selected_lua_specs_keep_the_full_suite_snapshot_bytes() {
         let (directory, root) = project("select-specs");
@@ -646,8 +594,6 @@ mod linux {
         remove(&directory);
     }
 
-    /// `--busted-task first` runs only that task's spec, so the functions no
-    /// spec covers stay uncovered. Byte-exact against the pinned original.
     #[test]
     fn a_named_busted_task_filters_the_suite_and_selection() {
         let (directory, root) = project("task");
@@ -662,8 +608,6 @@ mod linux {
         remove(&directory);
     }
 
-    /// The other selection route: `--no-coverage` runs the covered sites
-    /// anyway. The untested source has no spec at all, so its mutant survives.
     #[test]
     fn an_untested_lua_source_survives_without_coverage() {
         let (directory, root) = project("no-coverage");
@@ -674,14 +618,11 @@ mod linux {
         assert!(calc.contains(":uncovered 0"), "{calc}");
         let untested = std::fs::read_to_string(root.join(".metrics/mutate/odd name.edn")).unwrap();
         assert!(untested.contains(":survived 1"), "{untested}");
-        // No coverage report is ever published into the project.
         assert!(!root.join("target/coverage").exists());
         assert!(!root.join("coverage").exists());
         remove(&directory);
     }
 
-    /// A scratch project this test owns; every file is written relative to its
-    /// root, and no fixture or checkout is ever mutated.
     fn scratch(name: &str, files: &[(&str, &str)]) -> PathBuf {
         static COUNT: AtomicUsize = AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!(
@@ -705,8 +646,6 @@ mod linux {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    /// A marker file beside the project, so concurrent tests and repeated
-    /// runs cannot share one.
     fn marker_for(root: &Path) -> PathBuf {
         root.with_file_name(format!(
             "{}-marker",
@@ -714,8 +653,6 @@ mod linux {
         ))
     }
 
-    /// The full argument vector for one run: the root, the worker count, flags
-    /// and the target files, in the order the original's CLI takes them.
     fn arguments_with(
         root: &Path,
         workers: usize,
@@ -740,9 +677,6 @@ mod linux {
         mutator::run_with_clock(&values, fixed_clock)
     }
 
-    /// One spec invocation, as a marked spec writes it: the spec's own name,
-    /// Busted's `arg`, the worker slot the command ran in and whether it was
-    /// the instrumented coverage run.
     struct Invocation {
         spec: String,
         argc: usize,
@@ -752,15 +686,11 @@ mod linux {
     }
 
     impl Invocation {
-        /// A mutant run is the full suite plus `--no-keep-going`.
         fn mutant(&self) -> bool {
             self.args.iter().any(|arg| arg == "--no-keep-going")
         }
     }
 
-    /// Make every named spec append one marker line per invocation. The marker
-    /// path is absolute and outside the project, exactly like the fixture's
-    /// `MUTATOR_LUA_SPEC_MARKER`, but it needs no process-wide environment.
     fn mark_specs(root: &Path, marker: &Path, specs: &[&str]) {
         for spec in specs {
             let path = root.join(spec);
@@ -799,9 +729,6 @@ mod linux {
             .collect()
     }
 
-    /// Acceptance: every snapshot of a multi-worker Lua run is byte-identical
-    /// to the single-worker run with the same injected clock, and both are the
-    /// pinned original's bytes.
     #[test]
     fn lua_multi_worker_snapshots_match_one_worker_and_the_goldens() {
         let targets = ["src/calc.lua", "src/odd name.lua", "nested/lib/mathx.lua"];
@@ -841,9 +768,6 @@ mod linux {
         remove(&parallel.0);
     }
 
-    /// A spec file name with a space stays one argv entry in every mutant
-    /// command, and the covering spec runs first: both are visible in Busted's
-    /// own `arg`, not inferred from a plausible snapshot.
     #[test]
     fn a_spaced_spec_is_one_argv_and_covering_specs_come_first() {
         let (directory, root) = project("argv");
@@ -853,9 +777,6 @@ mod linux {
             &marker,
             &["spec/add_spec.lua", "spec/double unit_spec.lua"],
         );
-        // One line at a time, so the covering spec is a strict subset of the
-        // suite: line 4 is M.add (covered by add_spec) and line 8 M.double
-        // (covered by the spec whose file name contains a space).
         let mut commands: Vec<Vec<String>> = Vec::new();
         for line in ["4", "8"] {
             let _ = std::fs::remove_file(&marker);
@@ -919,9 +840,6 @@ mod linux {
         remove(&directory);
     }
 
-    /// Acceptance: the Lua files of one call share one worker queue, so the
-    /// next file starts while the previous file's slow mutant is still
-    /// running. A file-by-file scheduler cannot publish b before a finished.
     #[test]
     fn lua_files_share_one_worker_queue() {
         let root = scratch("interleave", &[]);
@@ -980,9 +898,6 @@ mod linux {
         remove_scratch(&root);
     }
 
-    /// Acceptance: worker slots belong to the call, not to the file. With three
-    /// workers every mutant of every Lua file runs in the same three slots,
-    /// each slot is reused, and the pool is removed afterwards.
     #[test]
     fn lua_queue_workers_are_reused_and_private() {
         let (directory, root) = project("workers");
@@ -992,8 +907,6 @@ mod linux {
             &marker,
             &["spec/add_spec.lua", "spec/double unit_spec.lua"],
         );
-        // `--no-coverage` executes every site, so the three slots are reused
-        // across several mutants instead of one site each.
         let run = run_with_arguments(&arguments_with(
             &root,
             3,
@@ -1044,8 +957,6 @@ mod linux {
         remove(&directory);
     }
 
-    /// Acceptance: one coverage run and one pristine baseline per Lua module,
-    /// shared by every target file of the call, instead of one of each per file.
     #[test]
     fn one_coverage_and_one_baseline_are_shared_by_the_lua_modules() {
         let (directory, root) = project("shared-runs");
@@ -1081,15 +992,8 @@ mod linux {
         let pristine = |invocation: &Invocation| !invocation.mutant() && !invocation.coverage;
         assert!(count(false, &mutant) > 0, "the root module's mutants ran");
         assert!(count(true, &mutant) > 0, "the nested module's mutants ran");
-        // The root module has two specs, so its fresh coverage is two shards;
-        // the nested module has one spec and one shard.
         assert_eq!(count(false, &coverage), 2, "one coverage run per root spec");
         assert_eq!(count(true, &coverage), 1);
-        // The fresh coverage run already proved the suite passes, so it seeds
-        // the baseline (its duration is the timeout base) and no second
-        // pristine run happens for either module, however many target files it
-        // has. `without_a_fresh_coverage_run_the_pristine_baseline_runs` proves
-        // the other side of that contract.
         assert_eq!(
             count(false, &pristine),
             0,
@@ -1099,9 +1003,6 @@ mod linux {
         remove(&directory);
     }
 
-    /// Without fresh coverage there is no seed: the pristine baseline really
-    /// runs once before the mutants. (This build does not persist a Lua spec
-    /// index, so `--no-coverage` is the reused/no-fresh path.)
     #[test]
     fn without_a_fresh_coverage_run_the_pristine_baseline_runs() {
         let root = scratch("baseline", &[]);
@@ -1150,8 +1051,6 @@ mod linux {
         remove_scratch(&root);
     }
 
-    /// A baseline failure stays with its file: the other Lua module's snapshot
-    /// is still published, and the call exits 2.
     #[test]
     fn a_lua_baseline_failure_keeps_the_other_files_snapshot() {
         let root = scratch("baseline-failure", &[]);
@@ -1205,11 +1104,6 @@ mod linux {
         remove_scratch(&root);
     }
 
-    /// Ported from the original `test_engine_edit_during_the_queue_keeps_it_and_
-    /// the_other_snapshots`: something outside the run — here this process, as
-    /// the original's editing runner — edits or deletes a source while one of
-    /// its mutants is held in a view. That file publishes nothing and the call
-    /// exits 4, the other file still publishes, and the edit is never undone.
     #[test]
     fn a_source_edited_during_the_queue_keeps_the_other_files_snapshot() {
         for (case, delete) in [("edited", false), ("deleted", true)] {
@@ -1229,11 +1123,6 @@ mod linux {
                 "local M = {}\n\nfunction M.triple(x)\n  return x * 3\nend\n\nreturn M\n",
             )
             .unwrap();
-            // A write made inside a view only reaches that view's overlay, so
-            // the change has to come from outside the run. The spec asks for it
-            // only when the view holds the `a.lua` mutant and then waits for
-            // it, so the edit is certain to land before that file's last
-            // mutant finishes and its snapshot is published.
             let request = marker_for(&root);
             let acknowledgement = request.with_extension("ack");
             let _ = std::fs::remove_file(&request);
@@ -1329,11 +1218,6 @@ mod linux {
         }
     }
 
-    /// Ported from the original `test_lua_shared_state.py`: one spec caches a
-    /// result another spec asserts, so the covering spec on its own cannot
-    /// judge a mutant. `--select-specs` runs that spec, leaves the mutant
-    /// surviving, and survivor confirmation re-runs the full suite and kills
-    /// it, so the outcomes and the published bytes stay the full suite's.
     #[test]
     fn shared_state_keeps_full_suite_kills_under_spec_selection() {
         let root = scratch("shared-state", &[]);
@@ -1343,8 +1227,6 @@ mod linux {
             "return { default = { lpath = './?.lua;' .. package.path, helper = 'helper.lua', sort = true } }\n",
         )
         .unwrap();
-        // The cached result the asserting spec expects, so that spec also
-        // passes when it is the only spec of an instrumented coverage shard.
         std::fs::write(
             root.join("helper.lua"),
             "package.loaded['shared'] = {value = 11}\n",
@@ -1352,8 +1234,6 @@ mod linux {
         .unwrap();
         let source = "local shared = require('shared')\nlocal M = {}\nfunction M.first(x)\n  shared.value = x + 1\n  return shared.value\nend\nreturn M\n";
         std::fs::write(root.join("calc.lua"), source).unwrap();
-        // Only the preparing spec runs the mutated line; the asserting spec
-        // never calls it.
         std::fs::write(
             root.join("spec/a_spec.lua"),
             "local calc = require('calc')\nlocal shared = require('shared')\nit('prepares a cached result', function() shared.value = calc.first(10) end)\n",
@@ -1376,10 +1256,7 @@ mod linux {
         assert_eq!(full, ExitCode::SUCCESS, "the full suite kills the mutant");
         let expected = std::fs::read(&snapshot).unwrap();
         let text = String::from_utf8_lossy(&expected).into_owned();
-        // Both sites of the function — the operator and the literal — are
-        // judged by the asserting spec, not by the covering one.
         assert!(text.contains(":killed 2 :survived 0"), "{text}");
-        // The premise of the case: the preparing spec really runs first.
         let marked = invocations(&marker);
         let order: Vec<&str> = marked
             .iter()
@@ -1428,8 +1305,6 @@ mod linux {
             "the confirmation ran the whole suite, not a subset: {:?}",
             confirmation.args
         );
-        // The confirmation really executed both specs, the asserting one last:
-        // Busted's default suite order names no spec files at all.
         let tail: Vec<&str> = marked
             .iter()
             .rev()
@@ -1453,10 +1328,6 @@ mod linux {
         remove_scratch(&root);
     }
 
-    /// The other half of the original's shared-state pair: selection assumes
-    /// independent specs, so with shared state the subset can kill a mutant the
-    /// full suite lets survive. Selection is opt-in (`--select-specs`), which
-    /// is the documented caveat; the full-suite default keeps its verdict.
     #[test]
     fn spec_selection_can_kill_a_full_suite_survivor_with_shared_state() {
         let root = scratch("shared-caveat", &[]);
@@ -1495,7 +1366,6 @@ mod linux {
         assert_eq!(full, ExitCode::from(3), "the full suite leaves a survivor");
         let text = std::fs::read_to_string(&snapshot).unwrap();
         assert!(text.contains(":killed 0 :survived 1"), "{text}");
-        // The premise of the case: the preparing spec really runs first.
         let marked = invocations(&marker);
         let order: Vec<&str> = marked
             .iter()
@@ -1544,9 +1414,6 @@ mod linux {
         remove_scratch(&root);
     }
 
-    /// Ported from the original `test_busted_task.py`: the default task's
-    /// failing slow spec stops the run before any mutant, while the named task
-    /// excludes it and publishes survivors; the plain rerun then kills them.
     #[test]
     fn a_named_busted_task_excludes_the_failing_slow_spec() {
         let root = scratch("busted task", &[]);
@@ -1599,9 +1466,6 @@ mod linux {
         remove_scratch(&root);
     }
 
-    /// The publication guard holds for Lua snapshots too: a symlinked
-    /// `.metrics/mutate` is refused (exit 2) instead of written or deleted
-    /// through.
     #[test]
     fn a_symlinked_snapshot_directory_is_refused_for_lua() {
         let root = scratch("symlink", &[]);

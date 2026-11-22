@@ -1,16 +1,3 @@
-//! The UI string tables (port of `love/uml/application/strings.lua`). Terms
-//! follow GLOSSARY.md; metric and tool names (CRAP, CC, Cov, mutation,
-//! killed, survived, uncovered, IR) and key names stay English. EDN keywords,
-//! mail commands, stderr and the window title are not UI copy.
-//!
-//! The text the resident lays out for the panel (#44, ADR 0015) — the class
-//! card, the class box's 无数据 and the source error — comes in Chinese and
-//! English through [`Lang::text`]; any other language falls back to English.
-//! The inspector's Chinese-only constants left with it (#47). The canvas
-//! chrome (title, proposal banner, return line, status, hint) left with #46, whose text lives in the panel's locale files.
-//! The window's glyph-coverage probe and F3 performance line left with the
-//! standalone window (dsh-uml-viewer#30).
-
 /// The language the resident lays text out in. The panel passes the DSH
 /// language; only Chinese and English are shipped and the rest read English.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -48,7 +35,6 @@ pub struct Text {
     pub no_data: &'static str,
     /// The source window's error; `%s` is the member or module asked for.
     pub source_not_opened: &'static str,
-    // Class card.
     pub level: &'static str,
     pub package: &'static str,
     pub fields: &'static str,
@@ -96,7 +82,6 @@ pub struct LegendText {
     pub dimmed: &'static str,
 }
 
-// The metric names read the same in every language.
 pub const CRAP_LINE: &str = "Crap μ %s max %s σ %s";
 pub const CRAP_SINGLE: &str = "Crap %s";
 pub const GROUP_CRAP: &str = "--crap--";

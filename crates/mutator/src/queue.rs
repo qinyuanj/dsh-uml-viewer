@@ -1,11 +1,3 @@
-//! One FIFO queue shared by every worker slot of a call.
-//!
-//! The pinned original runs all full-suite Lua files through `run_queue`: a
-//! worker that finishes a mutant takes the next one from *any* file, a file's
-//! snapshot is published as soon as its own last mutant finishes, and after
-//! any failure no further file completes. This module keeps that contract and
-//! nothing else, so it is the same for every caller and testable without an
-//! overlay mount or a Lua toolchain.
 use crate::{interrupts, sites::Site};
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -82,8 +74,6 @@ pub fn run_queue<E: Send>(
                             locks(&outcomes[job])
                                 .insert(site.mutation_id.clone(), outcome.to_string());
                             if remaining[job].fetch_sub(1, Ordering::AcqRel) == 1 {
-                                // Publication is the file's own completion point:
-                                // serialize it, and never publish after a stop.
                                 let mut publish = locks(publish);
                                 if stopped.load(Ordering::Acquire) {
                                     break;
@@ -112,12 +102,10 @@ pub fn run_queue<E: Send>(
     }
 }
 
-/// A stop signal arrived, or the queue was stopped by a failure.
 fn stop_requested(stopped: &AtomicBool) -> bool {
     stopped.load(Ordering::Acquire) || interrupts::pending().is_some()
 }
 
-/// A worker panicking must not turn the others' results into a poisoned lock.
 fn locks<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()

@@ -1,6 +1,3 @@
-//! Port of `love/uml/typescript_language/graph_typescript.lua`: a regex/string
-//! scanner over caller-owned paths. Scanner limitations are preserved.
-
 use std::collections::{HashMap, HashSet};
 
 use edn::Value;
@@ -18,7 +15,6 @@ fn is_id_start(c: u8) -> bool {
     c.is_ascii_alphabetic() || c == b'_' || c == b'$'
 }
 
-/// Captures `ID` = `[A-Za-z_$][%w_$]*` at the start of `s`.
 fn capture_id(s: &[u8]) -> Option<usize> {
     if !s.first().is_some_and(|&c| is_id_start(c)) {
         return None;
@@ -34,9 +30,7 @@ fn trim(s: &[u8]) -> &[u8] {
     text::trim(s)
 }
 
-/// `part:match('%f[%w_$]as%s+(ID)%s*$')`: a trailing `as name`.
 fn match_as_name(part: &[u8]) -> Option<Vec<u8>> {
-    // Frontier before 'as': walk candidate splits from the left.
     let mut search = 0;
     while let Some(off) = find_subslice(&part[search.min(part.len())..], b"as") {
         let p = search + off;
@@ -56,7 +50,6 @@ fn match_as_name(part: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
-/// `brace_names(stmt)`: names inside the first `{...}`, comma-separated.
 fn brace_names(stmt: &[u8]) -> Vec<Value> {
     let mut names = Vec::new();
     let body: &[u8] = match stmt.iter().position(|&c| c == b'{') {
@@ -70,7 +63,7 @@ fn brace_names(stmt: &[u8]) -> Vec<Value> {
     for part in body.split(|&c| c == b',') {
         let part = trim(part);
         if part.is_empty() {
-            continue; // gmatch('[^,]+') yields no empty parts
+            continue;
         }
         let part = match part.strip_prefix(b"type") {
             Some(rest) if rest.first().is_some_and(|&c| is_space(c)) => strip_spaces(rest),
@@ -89,7 +82,6 @@ const REGEX_KEYWORDS: &[&[u8]] = &[
     b"do", b"in", b"of",
 ];
 
-/// The last non-space position at or before 1-based `j`; 0 when none.
 fn skip_space_back(s: &[u8], mut j: i64) -> i64 {
     while j > 0 && at(s, j as usize).is_some_and(is_space) {
         j -= 1;
@@ -97,8 +89,6 @@ fn skip_space_back(s: &[u8], mut j: i64) -> i64 {
     j
 }
 
-/// `regex_end(s, i)`: whether the `/` at 1-based `i` opens a regex literal;
-/// returns one past the closing flags.
 fn regex_end(s: &[u8], i: usize) -> Option<usize> {
     let mut j = skip_space_back(s, i as i64 - 1);
     let mut c = at(s, j.max(0) as usize);
@@ -178,9 +168,6 @@ fn quoted_end(s: &[u8], i: usize, quote: u8) -> usize {
     s.len() + 1
 }
 
-/// `template_end(s, i)`: one past the template text that the `` ` `` or the
-/// interpolation-closing `}` at 1-based `i` starts, and whether a `${`
-/// (rather than the closing `` ` ``) ends it.
 fn template_end(s: &[u8], i: usize) -> (usize, bool) {
     let mut j = i + 1;
     while let Some(c) = at(s, j) {
@@ -197,13 +184,9 @@ fn template_end(s: &[u8], i: usize) -> (usize, bool) {
     (s.len() + 1, false)
 }
 
-/// `mask(s)`: comments blanked; regexes, quoted strings and template text
-/// kept as holes. A template's `${...}` is code, up to the `}` that closes
-/// it at its own brace depth.
 fn mask(s: &[u8]) -> (Vec<u8>, Vec<(usize, usize)>) {
     let mut out = Vec::new();
     let mut holes = Vec::new();
-    // The brace depth of the code, and that of each open `${`.
     let (mut depth, mut interpolations) = (0usize, Vec::new());
     let mut i = 1;
     while i <= s.len() {
@@ -249,9 +232,6 @@ fn mask(s: &[u8]) -> (Vec<u8>, Vec<(usize, usize)>) {
     (out, holes)
 }
 
-/// `statement_end(s, start, header)`: inclusive end position. A header
-/// closes its braces too: a destructured parameter `({ a }: T)` must not
-/// keep the body's `{` from ending it.
 fn statement_end(s: &[u8], start: usize, header: bool) -> usize {
     let (mut paren, mut brace, mut bracket) = (0i64, 0i64, 0i64);
     let mut i = start;
@@ -284,8 +264,6 @@ fn statement_end(s: &[u8], start: usize, header: bool) -> usize {
     s.len()
 }
 
-/// The `["']([^"']+)["']` tail of a specifier: the first quote of either kind
-/// closes the capture, and the capture holds neither kind.
 fn spec_capture(rest: &[u8]) -> Option<Vec<u8>> {
     let end = rest.iter().position(|&c| c == b'"' || c == b'\'')?;
     if end == 0 {
@@ -294,7 +272,6 @@ fn spec_capture(rest: &[u8]) -> Option<Vec<u8>> {
     Some(rest[..end].to_vec())
 }
 
-/// `from_spec(stmt)`: `from%s*["']([^"']+)["']` anywhere.
 fn from_spec(stmt: &[u8]) -> Option<Vec<u8>> {
     let mut search = 0;
     while let Some(off) = find_subslice(&stmt[search.min(stmt.len())..], b"from") {
@@ -311,7 +288,6 @@ fn from_spec(stmt: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
-/// `return_type(header)`: the `: Name` after the parameter list.
 fn return_type(header: &[u8]) -> Option<Vec<u8>> {
     let open = header.iter().position(|&c| c == b'(')?;
     let mut depth = 1;
@@ -336,10 +312,6 @@ fn return_type(header: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
-/// `^export%s+(type%s+)?` then the `{...}` or `%*(%s+as%s+ID)?` clause, then
-/// `%s*from%s*["']([^"']+)["']`: only the `from` that ends the clause. A
-/// statement without `;` runs on, and `"loaded from './x'"` later is no
-/// specifier.
 fn export_spec(stmt: &[u8]) -> Option<Vec<u8>> {
     let rest = strip_prefix_word(stmt, b"export")?;
     let rest = strip_prefix_word(rest, b"type").unwrap_or(rest);
@@ -361,8 +333,6 @@ fn export_spec(stmt: &[u8]) -> Option<Vec<u8>> {
     spec_capture(&rest[1..])
 }
 
-/// `^=%s*(async%s+)?%b()%s*:%s*(ID)%s*=>`: the declared return type of an
-/// arrow function initializer.
 fn arrow_return_type(init: &[u8]) -> Option<Vec<u8>> {
     let rest = strip_spaces(init.strip_prefix(b"=")?);
     let rest = strip_prefix_word(rest, b"async").unwrap_or(rest);
@@ -372,11 +342,6 @@ fn arrow_return_type(init: &[u8]) -> Option<Vec<u8>> {
     return_type(&rest[..find_subslice(rest, b"=>")?])
 }
 
-/// The `extends` and `implements` names of a class or interface declaration,
-/// read up to its body's `{`. Only names at depth 0 of `<>` and `()` count
-/// (`<T extends B>` is a constraint, `mixin(A, B)` a call; `=>` closes
-/// nothing), each by its first dotted segment (`ns.B` names the namespace
-/// import `ns`). The header would end at a type parameter default's `=`.
 fn heritage(stmt: &[u8]) -> (Vec<Value>, Vec<Value>) {
     let (mut extends, mut implements) = (Vec::new(), Vec::new());
     let mut clause: Option<&mut Vec<Value>> = None;
@@ -415,9 +380,6 @@ fn heritage(stmt: &[u8]) -> (Vec<Value>, Vec<Value>) {
     (extends, implements)
 }
 
-/// An import ends at its first string outside `{...}`, the specifier:
-/// without `;` the statement would run on to the next line's `from "..."`.
-/// A string inside the braces is a name (`{ "kebab-name" as k }`).
 fn through_first_string(stmt: &[u8]) -> &[u8] {
     let mut brace = 0i64;
     let Some(open) = stmt.iter().position(|&c| {
@@ -440,16 +402,12 @@ fn starts_with_word(s: &[u8], word: &[u8]) -> bool {
     s.starts_with(word) && !s.get(word.len()).is_some_and(|&c| is_ts_ident(c))
 }
 
-/// `export_fact(stmt, header)`. The `declare` and `abstract` modifiers and
-/// the `const` of `const enum` leave the declaration visible; a class or an
-/// interface also records its heritage names.
 fn export_fact(stmt: &[u8], header: &[u8]) -> Option<Value> {
     let spec = || {
         export_spec(stmt)
             .map(|s| Value::String(text::text(&s)))
             .unwrap_or(Value::Nil)
     };
-    // `^export%s+type%s*{` or `^export%s+(type%s+)?%*`
     if match_export_type_star(stmt) {
         return Some(record(vec![("spec", spec())]));
     }
@@ -459,8 +417,6 @@ fn export_fact(stmt: &[u8], header: &[u8]) -> Option<Value> {
             ("ops", Value::Vector(brace_names(stmt))),
         ]));
     }
-    // decl = stmt minus `^export%s+` minus `^declare%s+`; tail = decl minus
-    // `^default%s+` minus `^abstract%s+`, and minus the `const` of `const enum`
     let decl = strip_prefix_word(stmt, b"export").unwrap_or(stmt);
     let decl = strip_prefix_word(decl, b"declare").unwrap_or(decl);
     let mut tail = strip_prefix_word(decl, b"default").unwrap_or(decl);
@@ -480,7 +436,6 @@ fn export_fact(stmt: &[u8], header: &[u8]) -> Option<Value> {
     let mut typ: Option<Vec<u8>> = None;
     let (mut extends, mut implements) = (Vec::new(), Vec::new());
     if starts_with_word(tail, b"function") {
-        // `^function%s*%*?%s*(ID)`: `function*` needs no space.
         let rest = strip_spaces(&tail[8..]);
         let rest = rest.strip_prefix(b"*").map(strip_spaces).unwrap_or(rest);
         n = capture_id(rest).map(|len| rest[..len].to_vec());
@@ -488,7 +443,6 @@ fn export_fact(stmt: &[u8], header: &[u8]) -> Option<Value> {
     } else if starts_with_word(tail, b"class") {
         let rest = strip_spaces(&tail[5..]);
         if tail[5..].iter().take_while(|&&c| is_space(c)).count() > 0 {
-            // `class extends Base` is anonymous.
             n = capture_id(rest)
                 .map(|len| rest[..len].to_vec())
                 .filter(|n| n != b"extends" && n != b"implements");
@@ -512,7 +466,6 @@ fn export_fact(stmt: &[u8], header: &[u8]) -> Option<Value> {
         || starts_with_word(decl, b"let")
         || starts_with_word(decl, b"var")
     {
-        // `^%a+%s+(ID)` on the tail
         let letters = tail
             .iter()
             .take_while(|&&c| c.is_ascii_alphabetic())
@@ -547,28 +500,24 @@ fn export_fact(stmt: &[u8], header: &[u8]) -> Option<Value> {
     Some(record(entries))
 }
 
-/// `^type%s+ID`: a type alias; `type {` and `type *` are re-exports.
 fn match_type_alias(tail: &[u8]) -> bool {
     strip_prefix_word(tail, b"type").is_some_and(|rest| capture_id(rest).is_some())
 }
 
-/// `^export%s+type%s*{` or `^export%s+(type%s+)?%*`.
 fn match_export_type_star(stmt: &[u8]) -> bool {
     let Some(rest) = strip_prefix_word(stmt, b"export") else {
         return false;
     };
     if rest.first() == Some(&b'*') {
-        return true; // `%s*%*`: the strip consumed the required spaces
+        return true;
     }
     let Some(rest) = strip_prefix_word(rest, b"type") else {
         return false;
     };
-    // `type%s*{` or `type%s+%*` — strip_prefix_word required spaces already.
     let rest = strip_spaces(rest);
     matches!(rest.first(), Some(b'{') | Some(b'*'))
 }
 
-/// `^export%s+{`: export, spaces, then `{`.
 fn match_prefix_brace(stmt: &[u8], word: &[u8]) -> bool {
     match strip_prefix_word(stmt, word) {
         Some(rest) => strip_spaces(rest).first() == Some(&b'{'),
@@ -576,7 +525,6 @@ fn match_prefix_brace(stmt: &[u8], word: &[u8]) -> bool {
     }
 }
 
-/// `^word%s+` — strips the word and the following whitespace run.
 fn strip_prefix_word<'a>(s: &'a [u8], word: &[u8]) -> Option<&'a [u8]> {
     let rest = s.strip_prefix(word)?;
     let spaces = rest.iter().take_while(|&&c| is_space(c)).count();
@@ -586,7 +534,6 @@ fn strip_prefix_word<'a>(s: &'a [u8], word: &[u8]) -> Option<&'a [u8]> {
     Some(&rest[spaces..])
 }
 
-/// `%f[%w_$]<kw>%s+ID%s*:%s*(ID)%s*$` on the header.
 fn match_const_typed(header: &[u8], keyword: &[u8]) -> Option<Vec<u8>> {
     let mut search = 0;
     while let Some(off) = find_subslice(&header[search.min(header.len())..], keyword) {
@@ -620,7 +567,6 @@ fn find_subslice(s: &[u8], needle: &[u8]) -> Option<usize> {
     s.windows(needle.len()).position(|w| w == needle)
 }
 
-/// `^%s*word%f[^%w_$]` anchored at 1-based `start`; returns (a, b) inclusive.
 fn find_anchored(text: &[u8], word: &[u8], start: usize) -> Option<(usize, usize)> {
     let mut p = start;
     while at(text, p).is_some_and(is_space) {
@@ -635,7 +581,6 @@ fn find_anchored(text: &[u8], word: &[u8], start: usize) -> Option<(usize, usize
     Some((start, p + word.len() - 1))
 }
 
-/// `read_module(source)`: imports, exports and `invoke("...")` commands.
 pub fn read_module(source: &[u8]) -> Value {
     let (text, holes) = mask(source);
     let mut imports = Vec::new();
@@ -671,7 +616,6 @@ pub fn read_module(source: &[u8]) -> Value {
                                 let rest = strip_spaces(rest);
                                 let comma = rest.first() == Some(&b',');
                                 let from_after = {
-                                    // `^ID%s+from%f[^%w_$]` on the whole tail
                                     let after = strip_spaces(&tail[len..]);
                                     after.starts_with(b"from")
                                         && !after.get(4).is_some_and(|&c| is_ts_ident(c))
@@ -762,11 +706,6 @@ pub fn read_module(source: &[u8]) -> Value {
     ])
 }
 
-/// `import("...")` and `require("...")` with a literal specifier, in source
-/// order; `import x = require("...")` is a require. Not a member call
-/// (`loader.require`; a spread `...require` is a call), not a concatenation
-/// (`"./a/" + b`) and not a template with a `${}`. Comments are blanked and
-/// a call inside a string or regex starts in a hole.
 fn call_specs(text: &[u8], holes: &[(usize, usize)]) -> Vec<Value> {
     let mut found: Vec<(usize, Value)> = Vec::new();
     for word in [&b"import"[..], b"require"] {
@@ -828,7 +767,6 @@ fn call_specs(text: &[u8], holes: &[(usize, usize)]) -> Vec<Value> {
     specs
 }
 
-/// `^import%s*["']([^"']+)["']` — a side-effect import.
 fn match_bare_import(stmt: &[u8]) -> Option<Vec<u8>> {
     let rest = stmt.strip_prefix(b"import")?;
     let rest = strip_spaces(rest);
@@ -839,7 +777,6 @@ fn match_bare_import(stmt: &[u8]) -> Option<Vec<u8>> {
     spec_capture(&rest[1..])
 }
 
-/// `%*%s+as%s+(ID)` anywhere in the statement.
 fn match_star_as(stmt: &[u8]) -> Option<Vec<u8>> {
     let mut search = 0;
     while let Some(off) = find_subslice(&stmt[search.min(stmt.len())..], b"*") {
@@ -859,13 +796,11 @@ fn match_star_as(stmt: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
-/// The 12 `%.[cm]?[jt]sx?$` suffixes, longest first.
 const TS_EXTENSIONS: &[&str] = &[
     ".cjsx", ".ctsx", ".mjsx", ".mtsx", ".cjs", ".cts", ".mjs", ".mts", ".jsx", ".tsx", ".js",
     ".ts",
 ];
 
-/// `accepts(relative)` — the full path is passed, like the Lua scanner.
 fn accepts(path: &str) -> bool {
     if !TS_EXTENSIONS.iter().any(|ext| path.ends_with(ext)) {
         return false;
@@ -876,7 +811,6 @@ fn accepts(path: &str) -> bool {
     {
         return false;
     }
-    // `%.test%.[cm]?[jt]sx?$` and `%.spec%.[cm]?[jt]sx?$`
     for marker in [".test", ".spec"] {
         for ext in TS_EXTENSIONS {
             if path.ends_with(&format!("{marker}{ext}")) {
@@ -890,7 +824,6 @@ fn accepts(path: &str) -> bool {
         || slashed.contains("/target/"))
 }
 
-/// `normalize(path)`: resolve `.` and `..` segments.
 fn normalize(path: &str) -> String {
     let mut parts: Vec<&str> = Vec::new();
     for p in path.split('/') {
@@ -904,7 +837,6 @@ fn normalize(path: &str) -> String {
         }
     }
     let mut out = String::new();
-    // A Windows UNC root (`//server/share`) keeps both of its slashes.
     if path.starts_with("//") {
         out.push('/');
     }
@@ -915,10 +847,8 @@ fn normalize(path: &str) -> String {
     out
 }
 
-/// `module_relative(path, root)`.
 fn module_relative(path: &str, root: &str) -> String {
     let rel = scan::relative_path(path, root);
-    // `gsub('%.[cm]?[jt]sx?$','')`
     let rel = strip_ts_extension(&rel);
     let rel = if rel == "index" {
         String::new()
@@ -943,7 +873,6 @@ fn strip_ts_extension(rel: &str) -> String {
 
 const EXTS: &[&str] = &[".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 
-/// An ESM specifier names the emitted file: `./a.js` is the source `a.ts`.
 const ESM_SOURCES: &[(&str, &[&str])] = &[
     (".js", &[".ts", ".tsx"]),
     (".jsx", &[".tsx"]),
@@ -951,8 +880,6 @@ const ESM_SOURCES: &[(&str, &[&str])] = &[
     (".cjs", &[".cts"]),
 ];
 
-/// `metadata_paths(root)`: the tsconfig (or jsconfig) of the source root,
-/// then of its parent.
 fn metadata_paths(root: &str) -> Vec<String> {
     let mut dirs = vec![root];
     if let Some((parent, _)) = root.rsplit_once('/') {
@@ -968,9 +895,6 @@ fn metadata_paths(root: &str) -> Vec<String> {
         .collect()
 }
 
-/// `compilerOptions.paths` and `baseUrl` of the project tsconfig, made
-/// absolute: `paths` substitutions sit under `baseUrl` when it is set, else
-/// beside the tsconfig.
 #[derive(Default)]
 struct Aliases {
     base: Option<String>,
@@ -1007,9 +931,6 @@ impl Aliases {
         Some(Aliases { base, paths })
     }
 
-    /// The paths a bare specifier may name, in TypeScript's order: the exact
-    /// `paths` key, else the `*` key with the longest prefix, each
-    /// substitution in turn; then the specifier under `baseUrl`.
     fn candidates(&self, spec: &str) -> Vec<String> {
         let exact = self
             .paths
@@ -1041,9 +962,6 @@ impl Aliases {
     }
 }
 
-/// A tsconfig is JSONC: with comments blanked by `mask` and the `:` outside
-/// strings dropped it reads as EDN, where commas (trailing ones too) are
-/// whitespace. An editor's UTF-8 BOM leads no value.
 fn jsonc(source: &[u8]) -> Option<Value> {
     let source = source.strip_prefix(b"\xef\xbb\xbf").unwrap_or(source);
     let (mut text, holes) = mask(source);
@@ -1319,8 +1237,6 @@ mod tests {
         SCANNER.scan(root, &opts, &files, cwd).unwrap()
     }
 
-    /// Scans project `/p` with source root `/p/src`; paths are
-    /// project-relative.
     fn scan(files: &[(&str, &str)]) -> Value {
         let files: Vec<(String, &str)> = files
             .iter()
@@ -1330,7 +1246,6 @@ mod tests {
         scan_files("/p/src", "/p", &files)
     }
 
-    /// `to kind` of each edge out of `from`, in scan order.
     fn edges_from(scan: &Value, from: &str) -> Vec<String> {
         seq(get(scan, "edges"))
             .iter()
@@ -1614,8 +1529,6 @@ mod tests {
 
     #[test]
     fn a_line_continuation_keeps_a_string_open() {
-        // An odd run of `\` before LF or CR LF continues the string; an even
-        // run is escaped backslashes, and the JSX apostrophe ends its line.
         let main = "const lf = \"first \\\nimport { fake } from './fake';\";\n\
                     const crlf = 'first \\\r\nimport { fake } from \"./fake\";';\r\n\
                     const odd = \"a \\\\\\\nimport { fake } from './fake';\";\n\
@@ -1635,7 +1548,6 @@ mod tests {
 
     #[test]
     fn a_call_in_a_template_interpolation_names_a_dependency() {
-        // The `${...}` expression is code; the template text around it is not.
         let main = "const a = `${require(\"./real\")} and require(\"./fake\")`;\n\
                     const b = `outer ${`inner ${import('./nested')}`} import('./fake')`;\n\
                     const c = `${ {k: require('./obj')}.k } require(\"./fake\")`;\n\
@@ -1656,8 +1568,6 @@ mod tests {
 
     #[test]
     fn a_slash_after_a_postfix_update_divides() {
-        // `i++ /` and `i-- /` divide; a unary `+` or a prefix `++` still
-        // precedes a regex, whose `` ` `` opens no template text.
         let inc = "export const f = (i: number, n: number, m: number) => \
                    `${i++ / n}/${m} require(\"./fake\")`;\n\
                    export const g = () => require(\"./real\");\n";
@@ -1749,9 +1659,6 @@ mod tests {
 
     #[test]
     fn a_jsconfig_base_url_resolves_a_bare_specifier_under_it() {
-        // `baseUrl: "."` above the `src` root: the specifier's foreign id
-        // (`src.components.Button`) is not the class id. An editor's BOM
-        // leads the file.
         let files = [
             (
                 "jsconfig.json",
@@ -1784,8 +1691,6 @@ mod tests {
         assert_eq!(vec!["lib dependency"], edges_from(&scan, "main"));
     }
 
-    /// Windows canonical roots (`files::portable`): a drive path and a UNC
-    /// share keep resolving relative and aliased imports.
     #[test]
     fn drive_and_unc_roots_resolve_relative_and_aliased_imports() {
         for project in ["C:/p", "//server/share/p"] {

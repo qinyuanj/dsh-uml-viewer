@@ -1,5 +1,3 @@
-//! TypeScript coverage through a project's script, Vitest, or c8.
-
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -146,14 +144,11 @@ fn ensure_vitest_coverage(package: &Path) -> io::Result<bool> {
     Ok(ready)
 }
 
-/// Rewrite relative LCOV sources using the coverage command's working directory.
-/// Absolute paths (including Windows drives on Unix) remain byte-for-byte intact.
 pub(crate) fn anchor(report: &Path, module: &Path) -> io::Result<()> {
     let text = fs::read_to_string(report)?;
     fs::write(report, anchor_text(&text, module))
 }
 
-/// `anchor` on report text: mutation reads a view's report without writing it.
 pub fn anchor_text(text: &str, module: &Path) -> String {
     let mut output = String::new();
     // Python str.splitlines() includes these Unicode line boundaries too.
@@ -264,7 +259,6 @@ fn cover_package(root: &Path, package: &Path, files: &[PathBuf]) -> bool {
     ran
 }
 
-/// Run every selected package, even when an earlier package fails.
 pub fn cover(root: &Path, files: &[PathBuf]) -> bool {
     let packages = modules_with(files, Language::TypeScript, "package.json", root);
     if packages.is_empty() {

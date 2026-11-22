@@ -34,10 +34,8 @@ describe('packaged Sarasa face', () => {
     expect(faces[0]!.family).toBe(FONT_FAMILY)
     expect(faces[0]!.source).toBe(`url("${PANEL_FONT_PATH}")`)
     expect(registered).toEqual(faces)
-    // The route is the plugin's own font route, not the image-only asset route.
     expect(PANEL_FONT_PATH).toBe('/dsh-uml-viewer/font/SarasaMonoSC-Regular.ttf')
 
-    // Loading twice reuses the same face.
     await loadSarasa()
     expect(faces).toHaveLength(1)
   })

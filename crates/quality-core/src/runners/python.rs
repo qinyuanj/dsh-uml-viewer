@@ -1,5 +1,3 @@
-//! Python's project interpreter runs coverage.py; runner policy stays in Rust.
-
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -235,7 +233,6 @@ fn cover_package(root: &Path, package: &Path, files: &[PathBuf]) -> bool {
     recorded && anchored
 }
 
-/// Run every selected Python package, retaining LCOV even on test failure.
 pub fn cover(root: &Path, files: &[PathBuf]) -> bool {
     roots(root, files)
         .iter()

@@ -1,21 +1,7 @@
-//! Scene compilation scales near-linearly (#137, ADR 0008).
-//!
-//! The Lua `prepare_scene` rebuilt the class index for every edge (O(E·N)):
-//! a 2000-class scene took 532 s to compile. The Rust port indexes classes
-//! once plus a spatial grid, so this must stay in the low seconds and scale
-//! near-linearly. The scenes are the regenerable `:levels` scenes
-//! (`common::levels`); the committed `bench/` scenes were deleted with the
-//! standalone window (dsh-uml-viewer#30). Timing bounds are generous (CI
-//! machines vary); the slope check is the near-linearity evidence.
-
 use edn::Value;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-/// mutator runs each mutant's tests in a slot under `target/mutation-workers/`
-/// on shared cores; a timing bound there measures the machine, not the code,
-/// and a 2000-class debug compile costs every mutant seconds the unit tests
-/// and goldens already cover.
 fn under_mutation() -> bool {
     std::env::var_os("CARGO_TARGET_DIR").is_some_and(|dir| {
         Path::new(&dir)
@@ -33,7 +19,6 @@ fn compile(doc: &Value) -> (Duration, Value) {
 
 use crate::common;
 
-/// Sizes of the regenerated `:levels` scenes, a doubling apart.
 const LEVEL_SIZES: [usize; 4] = [250, 500, 1000, 2000];
 
 #[test]
@@ -83,7 +68,6 @@ fn a_levels_scene_has_the_calibrated_shape() {
 }
 
 #[test]
-// Coverage instrumentation slows the build several-fold; time it uninstrumented.
 #[cfg_attr(coverage, ignore)]
 fn levels_scenes_compile_near_linearly_across_four_sizes() {
     if under_mutation() {
@@ -99,7 +83,6 @@ fn levels_scenes_compile_near_linearly_across_four_sizes() {
             *b = b.min(compile(doc).0.as_secs_f64());
         }
     }
-    // Least-squares slope of log(time) against log(classes).
     let xs: Vec<f64> = LEVEL_SIZES.iter().map(|&n| (n as f64).ln()).collect();
     let ys: Vec<f64> = best.iter().map(|t| t.max(1e-6).ln()).collect();
     let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
@@ -114,7 +97,6 @@ fn levels_scenes_compile_near_linearly_across_four_sizes() {
         eprintln!("scene: levels {n}: {t:.3}s");
     }
     eprintln!("scene: levels log-log slope {slope:.2}");
-    // The same bound as the 500 -> 2000 ratio check: 10x for 4x data.
     assert!(
         slope < 10f64.ln() / 4f64.ln(),
         "levels scenes scale with slope {slope:.2}: not near-linear"

@@ -1,13 +1,3 @@
-/**
- * Relation edges (dsh-uml-viewer#25): the six relation kinds' head shapes,
- * the routed curves, the 移除箭头 compact dependency indicators and the
- * 违规关系色, painted from the producer goldens. Expected numbers come from
- * the deleted native painter itself (#30: crates/viewer/src/paint.rs paint_head,
- * crates/frame/src/render_cache.rs decimated + lod::simplify), never from
- * this module's own arithmetic. Head vertices below are the native f32
- * computation printed by a throwaway frame-crate test; decimated point
- * indices are lod::simplify's output.
- */
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,11 +8,9 @@ import { DARK_TOKENS, type DrawOp, fakeCanvas } from './fakes.js'
 
 type Edge = SceneFrame['edges'][number]
 
-/** The dark host palette for the relation roles (theme.ts token mapping). */
 const RELATION_COLORS: Record<string, string> = {
   relation: '#9db8a8',
   'relation-hover': '#ecece4',
-  // Hue-fixed like the egui window (frame::theme RELATED), not a host token.
   'dependency-chain': '#3e98ec',
   violation: '#c42a24',
   'violation-hot': '#ff4030',
@@ -37,7 +25,6 @@ function golden(name: string): SceneFrame {
   return JSON.parse(readFileSync(path.join(framesDir, `${name}.frame.json`), 'utf8')) as SceneFrame
 }
 
-/** Paint one edge alone on its golden frame and return the draw ops (no clear). */
 function paintEdge(frame: SceneFrame, edge: Edge, camera?: SceneFrame['camera']): DrawOp[] {
   const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true })
   paintFrame({ ...frame, camera: camera ?? frame.camera, world: [], edges: [edge], chrome: [] }, canvas)
@@ -56,7 +43,6 @@ function one(frame: SceneFrame, predicate: (edge: Edge) => boolean, what: string
   return found[0]!
 }
 
-/** Every moveTo/lineTo since beginPath, per stroke/fill, in paint order. */
 function paths(ops: DrawOp[]): { op: DrawOp; points: [number, number][]; closed: boolean }[] {
   const out: { op: DrawOp; points: [number, number][]; closed: boolean }[] = []
   let points: [number, number][] = []
@@ -78,12 +64,6 @@ function points(actual: [number, number][], expected: [number, number][], label:
   })
 }
 
-/**
- * Native paint_head output (f32, egui's Pos2 arithmetic) for the heads of
- * core-selected: tip, wing A, wing C, and the diamond back vertex. Printed by
- * a throwaway frame-crate test from the golden tip/behind/camera, so these are
- * the window's own numbers rather than this suite's reimplementation.
- */
 const NATIVE_HEADS: Record<string, { tip: [number, number]; a: [number, number]; c: [number, number]; back: [number, number] }> = {
   ':core.order→:core.price': { tip: [670, 519.0], a: [664.08026, 504.1354], c: [655.9104, 511.4182], back: [659.3533, 507.0565] },
   ':core.order→:core.cart': { tip: [514.8, 519.0], a: [520.27234, 503.9649], c: [509.32767, 503.9649], back: [514.8, 503.0] },
@@ -96,9 +76,6 @@ describe('relation edges from the producer goldens', () => {
   const focused = golden('core-selected')
 
   it('draws the six relation kinds with the native head geometry and roles', () => {
-    // The shop IR names these five visible relations in the core view.
-    // The sixth, :store.sql→:core.order implements, folds to :store→:core at
-    // root and is asserted separately below. No relation kind is synthetic.
     expect(edgesOf(focused, e => e.kind === 'head').map(e => (e.kind === 'head' ? e.head : '')).sort())
       .toEqual(['diamond', 'diamond-fill', 'open', 'open', 'triangle'])
     for (const edge of focused.edges) {
@@ -107,11 +84,9 @@ describe('relation edges from the producer goldens', () => {
       const drawn = paths(ops)
       const label = `${edge.from}→${edge.to} ${edge.head}`
       const native = NATIVE_HEADS[`${edge.from}→${edge.to}`]!
-      // Native order: tip, wing A, (diamond back), wing C.
       const expected = edge.head === 'diamond' || edge.head === 'diamond-fill'
         ? [native.tip, native.a, native.back, native.c]
         : [native.tip, native.a, native.c]
-      // Every role resolves exactly as the producer named it.
       const role = edge.stroke.role
       const color = RELATION_COLORS[role]!
       const alpha = edge.dimmed ? focused.style.dimAlpha / 255 : 1
@@ -129,7 +104,6 @@ describe('relation edges from the producer goldens', () => {
         expect(drawn.map(d => d.op.op), label).toEqual(['fill', 'stroke'])
         points(drawn[0]!.points, expected, label)
         expect(drawn[0]!.closed, label).toBe(true)
-        // Opaque interior, dimmed outline (the #16 rule), at this zoom too.
         expect(drawn[0]!.op.globalAlpha, `${label} interior`).toBe(1)
         expect(drawn[0]!.op.fillStyle, label).toBe(RELATION_COLORS[edge.fill.role]!)
         expect(drawn[1]!.op.strokeStyle, label).toBe(color)
@@ -145,8 +119,6 @@ describe('relation edges from the producer goldens', () => {
     expect(triangle).toMatchObject({ from: ':store', to: ':core', head: 'triangle', width: 1.6,
       stroke: { role: 'relation' }, fill: { role: 'canvas' } })
     const drawn = paths(paintEdge(root, triangle))
-    // Native paint_head f32 output for :store→:core, re-read at the fit this
-    // frame is produced with (#46: no chrome strip reserved, zoom 0.8700787401574803).
     points(drawn[0]!.points, [
       [620.4925, 569.03153], [627.66124, 557.09795], [618.31335, 555.28189],
     ], 'implements triangle')
@@ -157,22 +129,18 @@ describe('relation edges from the producer goldens', () => {
 
   it('draws every producer stroke point of the full-tier curves, ends included', () => {
     const root = golden('root')
-    // Both views together exercise every kind's producer-sampled curve;
-    // neither the open heads nor the closed ones imply a straight shaft.
     for (const view of [focused, root]) for (const edge of edgesOf(view, e => e.kind === 'stroke')) {
       if (edge.kind !== 'stroke') throw new Error('expected a stroke')
       const drawn = paths(paintEdge(view, edge))
       expect(drawn.length).toBe(1)
       const expected = edge.points.map(([x, y]) =>
         [(x - view.camera.x) * view.camera.zoom, (y - view.camera.y) * view.camera.zoom] as [number, number])
-      // The routed curve: :core→:util is a 41-point arc, not a straight line.
       points(drawn[0]!.points, expected, `${edge.from}→${edge.to}`)
       expect(drawn[0]!.closed).toBe(false)
       expect(drawn[0]!.op.lineWidth).toBe(edge.width)
       expect(drawn[0]!.op.lineDash).toEqual([])
       expect(drawn[0]!.op.strokeStyle).toBe(RELATION_COLORS[edge.stroke.role]!)
     }
-    // A violating relation is 违规关系色 red and 2.4 pt wide, head included.
     const violating = one(root, e => e.kind === 'stroke' && e.stroke.role === 'violation', 'violating stroke')
     if (violating.kind !== 'stroke') throw new Error('expected a stroke')
     expect([violating.from, violating.to, violating.width]).toEqual([':core', ':util', 2.4])
@@ -183,8 +151,6 @@ describe('relation edges from the producer goldens', () => {
   it('decimates frames-tier strokes exactly as the native render cache does', () => {
     const frame = golden('root-hover-frames')
     expect(frame.lod).toBe('frames')
-    // Native `lod::simplify(points, 8/0.29730177875068026, 0.5/0.2973…)`
-    // (quarter-octave step -7 for zoom 0.3), as printed by the frame crate.
     const kept: Record<string, number[]> = {
       ':core→:util': [0, 6, 13, 18, 24, 29, 37, 40],
       ':store→:serde': [0, 14, 21, 23],
@@ -196,7 +162,6 @@ describe('relation edges from the producer goldens', () => {
       if (edge.kind !== 'stroke') throw new Error('expected a stroke')
       const indices = kept[`${edge.from}→${edge.to}`]!
       const drawn = paths(paintEdge(frame, edge))
-      // One butt-ended quad per segment, like the native mesh.
       expect(drawn.length, `${edge.from}→${edge.to} segments`).toBe(Math.max(0, indices.length - 1))
       const flattened: [number, number][] = []
       drawn.forEach((d, i) => flattened.push(...(i === 0 ? d.points : d.points.slice(1))))
@@ -215,14 +180,11 @@ describe('relation edges from the producer goldens', () => {
   })
 
   it('paints heads over their shafts at every zoom, including the 0.4–0.6 band', () => {
-    // The native window flushes its low-zoom shaft mesh after the heads (a
-    // known pre-existing bug); the panel deliberately does not copy it.
     for (const zoom of [1, 0.5, 0.4]) {
       const camera = { ...focused.camera, zoom }
       const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true })
       paintFrame({ ...focused, camera, world: [], chrome: [] }, canvas)
       const ops = canvas.recording.ops
-      // Index of each path's moveTo (the tip for a head, the start for a shaft).
       const starts = ops.map((op, index) => ({ op, index })).filter(({ op }) => op.op === 'moveTo')
       const at = (x: number, y: number): number[] => starts.filter(({ op }) => op.x === x && op.y === y).map(({ index }) => index)
       for (const edge of focused.edges) {
@@ -277,7 +239,6 @@ describe('移除箭头 compact dependency indicators', () => {
       const alpha = edge.dimmed ? frame.style.dimAlpha / 255 : 1
       expect(drawn[0]!.op.fillStyle, label).toBe(color)
       expect(drawn[0]!.op.globalAlpha, label).toBe(alpha)
-      // The outline is the same color at 1 pt, as the native convex_polygon.
       expect(drawn[1]!.op.strokeStyle, label).toBe(color)
       expect(drawn[1]!.op.lineWidth, label).toBe(1)
       expect(drawn[1]!.op.globalAlpha, label).toBe(alpha)
@@ -285,8 +246,6 @@ describe('移除箭头 compact dependency indicators', () => {
   })
 
   it('points up for incoming dependencies and down for outgoing ones, 12 world points wide', () => {
-    // The incoming :util indicator above its box and the outgoing :core one
-    // below are the two violating ones.
     const incoming = frame.edges.find(e => e.kind === 'indicator' && e.id === ':util' && e.violating)!
     const outgoing = frame.edges.find(e => e.kind === 'indicator' && e.id === ':core' && e.violating)!
     if (incoming.kind !== 'indicator' || outgoing.kind !== 'indicator') throw new Error('expected indicators')
@@ -296,7 +255,6 @@ describe('移除箭头 compact dependency indicators', () => {
     expect(outgoing.points).toEqual([
       [201.25925925925927, 696], [213.25925925925927, 696], [207.25925925925927, 706.3923048454133],
     ])
-    // Exactly the producer's triangle, apex first; nothing is recomputed here.
     const drawn = paths(paintEdge(frame, incoming))
     expect(drawn[0]!.op.fillStyle).toBe('#c42a24')
     expect(drawn[0]!.points[0]).toEqual([

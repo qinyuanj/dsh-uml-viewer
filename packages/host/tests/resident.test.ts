@@ -90,9 +90,6 @@ function connection(maxLineBytes?: number, queueMax?: QueueSize) {
 const errorLine = (message: string) => `${JSON.stringify({ version: 1, seq: null, event: 'error', message })}\n`
 const bytes = (text: string) => Buffer.byteLength(text, 'utf8')
 
-// #84: adding an event keeps resident protocol version 1, so a line naming an
-// event this host does not know is ignored; it must not end every panel
-// stream, as a malformed line does.
 it('keeps the stream alive when the resident adds an event this host does not know', async () => {
   const h = connection()
   const queue = h.resident.attach()
@@ -101,8 +98,6 @@ it('keeps the stream alive when the resident adds an event this host does not kn
   expect((await queue.next(AbortSignal.timeout(100))).value).toMatchObject({ event: 'frame', seq: 4 })
   expect(h.terminations()).toBe(0)
   expect(h.resident.isSettled).toBe(false)
-  // A later malformed line still ends the stream: ignoring is for unknown
-  // names only, never for a broken event of a known name.
   h.resident.ingest('{"version":1,"seq":null,"event":"frame"}\n')
   const failed = await queue.next()
   expect(failed.value).toMatchObject({ event: 'error', seq: null })
@@ -149,9 +144,7 @@ it('rejects pending requests, fails panels and stops the child on a record one b
   expect((failed.value as { message: string }).message).toMatch(/resident was stopped/)
   expect((await queue.next()).done).toBe(true)
   expect(h.terminations()).toBe(1)
-  // Settled: a new panel open starts a fresh resident instead of joining this one.
   expect(h.resident.isSettled).toBe(true)
-  // The broken stream refuses later bytes and requests at once.
   h.resident.ingest(errorLine('late'))
   await expect(h.resident.request({ action: 'save' })).rejects.toThrow(/JSONL record over/)
   expect(h.writes).toHaveLength(1)
@@ -187,9 +180,6 @@ it('rejects requests still pending when the resident fails or ends', async () =>
   await expect(ended).rejects.toThrow(/session ended/)
 })
 
-// #review H2: one stalled panel subscriber must not grow host memory without
-// bound. Each panel stream gets its own queue, and a queue that falls more than
-// a few frames behind keeps the newest frames only.
 const goldenFrame = readFileSync(
   new URL('../../../crates/frame/tests/fixtures/frames/root.frame.json', import.meta.url), 'utf8',
 )
@@ -207,7 +197,6 @@ it('delivers the latest frame and critical context after repeated drain and refi
   for (let seq = 1; seq <= 8; seq += 1) {
     h.resident.ingest(frameLine(seq))
     h.resident.ingest(`${JSON.stringify({ version: 1, seq: null, event: 'context', context: { kind: 'real', edn: '{:context :real}' } })}\n`)
-    // End makes a lost frame fail immediately instead of leaving next() blocked.
     if (seq === 8) queue.end()
     expect((await queue.next(AbortSignal.timeout(100))).value).toMatchObject({ event: 'frame', seq })
     expect((await queue.next(AbortSignal.timeout(100))).value).toMatchObject({ event: 'context', context: { kind: 'real' } })
@@ -224,7 +213,6 @@ it('drops the oldest unread frames of a stalled panel, keeping the newest', asyn
     seen.push(((await queue.next()).value as unknown as { seq: number }).seq)
   }
   expect(seen).toEqual([3, 4, 5])
-  // Nothing else was buffered: the three oldest frames are gone.
   h.resident.detach(queue)
   expect((await queue.next()).done).toBe(true)
   expect(h.terminations()).toBe(0)
@@ -235,7 +223,6 @@ it('reports overflow when the sole latest frame exceeds the byte cap', async () 
   const queue = h.resident.attach()
   h.resident.ingest(frameLine(1))
   queue.end()
-  // The newest frame is not superseded: preserve it and explain why the stream ended.
   expect((await queue.next()).value).toMatchObject({ event: 'frame', seq: 1 })
   expect((await queue.next()).value).toMatchObject({ event: 'error', message: expect.stringMatching(/fell behind/) })
   expect((await queue.next()).done).toBe(true)
@@ -265,6 +252,5 @@ it('never truncates ready, refusal or error events: an over-full panel stream en
   expect(last.value).toMatchObject({ event: 'error', seq: null })
   expect((last.value as unknown as { message: string }).message).toMatch(/fell behind: 3 unread events/)
   expect((await queue.next()).done).toBe(true)
-  // That panel stream ended; the resident itself is untouched.
   expect(h.terminations()).toBe(0)
 })

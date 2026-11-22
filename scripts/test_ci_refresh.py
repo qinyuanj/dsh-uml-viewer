@@ -1,4 +1,3 @@
-"""Focused tests for the CI-only diff-limited maintainer refresh."""
 import importlib.util
 import json
 import os

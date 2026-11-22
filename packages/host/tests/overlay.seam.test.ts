@@ -7,11 +7,6 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
 import type { PanelAck, PanelEvent } from '@dsh-uml-viewer/contracts'
 
-/**
- * Host seam (#27): the overlay actions reach the resident child verbatim and
- * their models come back on that action's ack. Another panel watching the same
- * session must not receive a second panel's card or source window.
- */
 const builtHost = new URL('../../../lib/host.js', import.meta.url).href
 const plugin = await import(builtHost) as typeof import('../src/index.js')
 import type { Agent, HostServices, SpawnSpec, ToolDefinition } from '../src/dsh.js'
@@ -28,8 +23,6 @@ const card = {
   }],
 }
 const source = {
-  // A whole, contiguous source model (rows 1..n, tokens joining `display`),
-  // as the bounded contracts validator requires.
   file: 'D:/project/src/order.rs', title: 'src/order.rs:2', line: 2, lang: 'rust',
   rows: [
     { number: 1, text: '// order', display: '// order', marked: false, tokens: [{ text: '// order', kind: 'comment' }] },
@@ -113,7 +106,6 @@ it('answers card and open-source on the ack of their own action', async () => {
   expect(await action({ action: 'card', viewHeight: 120 })).toEqual({ accepted: true, reason: null, card })
   expect(await action({ action: 'open-source', id: ':core.order', member: 'place' }))
     .toEqual({ accepted: true, reason: null, source })
-  // A module source has no target line; the resident's error is a refused ack.
   expect(await action({ action: 'open-source', id: ':core.order' })).toEqual({ accepted: true, reason: null, source })
 })
 
@@ -147,9 +139,6 @@ it('does not broadcast one panel\'s card or source window into another panel\'s 
   const ack = await action({ action: 'open-source', id: ':core.order', member: 'place' })
   expect(ack.source).toEqual(source)
   await action({ action: 'card' })
-  // A following search acts as an ordered sentinel: neither stream gets a
-  // source/card payload before it. Saving state may legitimately emit state
-  // events between actions (navigation ticket #23).
   await action({ action: 'search', query: 'sentinel' })
   for (const watching of [first, second]) {
     const kinds: string[] = []

@@ -4,7 +4,6 @@ import type { HostServices, ToolRunContext } from './dsh.js'
 import type { IrGate } from './gate.js'
 import { READ_ONLY_REASON, Refusal, ResidentSessions } from './resident.js'
 
-/** A display record: ADR 0001 fields, no child process, and the diagram it asked the panel for. */
 export function displayResult(projectRoot: string, patch: Partial<DisplayResult> = {}): DisplayResult {
   return {
     version: 1, operation: 'display', projectRoot, path: null, exitCode: null, validResult: false,
@@ -12,14 +11,6 @@ export function displayResult(projectRoot: string, patch: Partial<DisplayResult>
   }
 }
 
-/**
- * Show the diagram the latest successful `uml_ir` wrote.
- *
- * The gate is checked first (a refusal explains why). The panel is refreshed
- * through the session's resident session: a live one is reused, otherwise a
- * short-lived one is started and stopped again, so the result reports what the
- * resident actually found instead of assuming the panel is up to date.
- */
 export async function runDisplay(
   services: HostServices,
   sessions: ResidentSessions,
@@ -31,8 +22,6 @@ export async function runDisplay(
   if (!agent?.session) return displayResult('', { reason: 'uml_display requires a live DSH session' })
   let root = services.workingDirectory.get(agent.session)
   const path = request.path ?? null
-  // The sandbox decision comes first: in read-only mode no uml_ir can have run,
-  // so "run uml_ir" would be the wrong instruction.
   const policy = services.sandboxPolicy.resolve({ session: agent.session })
   if (policy.mode === 'read-only') return displayResult(root, { status: 'refused', path, reason: READ_ONLY_REASON })
   const gated = gate.check(agent.session.id)

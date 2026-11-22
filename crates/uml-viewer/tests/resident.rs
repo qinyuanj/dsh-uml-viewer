@@ -1,8 +1,3 @@
-//! Seam ① through the real binary (#17): `uml-viewer resident` reads one
-//! JSON action per stdin line and answers with JSON scene frames and events
-//! on stdout (`docs/resident-protocol.md`). The plugin host drives exactly
-//! this; nothing here reaches into the session.
-
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -15,7 +10,6 @@ fn shop_ir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../frame/tests/fixtures/shop/shop.ir.edn")
 }
 
-/// A project directory holding `ir` as its `diagram.edn`.
 fn project_from(label: &str, ir: &Path) -> PathBuf {
     static SERIAL: AtomicUsize = AtomicUsize::new(0);
     let dir = std::env::temp_dir().join(format!(
@@ -33,8 +27,6 @@ fn project(label: &str) -> PathBuf {
     project_from(label, &shop_ir())
 }
 
-/// The state-event golden fixture (#45): two source namespace levels and a
-/// proposal with a layer and a nested group.
 fn levels_ir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/state/levels.ir.edn")
 }
@@ -43,7 +35,6 @@ fn levels_project(label: &str) -> PathBuf {
     project_from(label, &levels_ir())
 }
 
-/// One running resident session.
 struct Resident {
     child: Child,
     stdin: Option<ChildStdin>,
@@ -94,8 +85,6 @@ impl Resident {
             .expect("the resident session answered")
     }
 
-    /// The next line with this `event`, skipping none: the protocol answers
-    /// in order, so anything else first is a failure.
     fn expect(&self, event: &str) -> Value {
         let line = self.next();
         assert_eq!(Some(event), line["event"].as_str(), "{line}");
@@ -103,7 +92,6 @@ impl Resident {
         line
     }
 
-    /// Send an action with `seq` and return its answer of `event`.
     fn ask(&mut self, seq: i64, mut action: Value, event: &str) -> Value {
         action["version"] = json!(1);
         action["seq"] = json!(seq);
@@ -113,7 +101,6 @@ impl Resident {
         line
     }
 
-    /// Close stdin and wait for a clean exit.
     fn finish(mut self) {
         drop(self.stdin.take());
         let status = self.child.wait().unwrap();
@@ -137,7 +124,6 @@ fn opened(project: &Path) -> Resident {
     resident
 }
 
-/// Ids of the class boxes a frame draws.
 fn classes(frame: &Value) -> Vec<String> {
     items(frame, "class")
         .iter()
@@ -154,8 +140,6 @@ fn items<'a>(frame: &'a Value, kind: &str) -> Vec<&'a Value> {
         .collect()
 }
 
-/// The frame's chrome kinds (#46: a view carries none; only the pointer's
-/// hover popup is chrome, and these tests never point).
 fn chrome_kinds(frame: &Value) -> Vec<String> {
     frame["frame"]["chrome"]
         .as_array()
@@ -182,7 +166,6 @@ fn open_answers_the_fitted_namespace_tree_of_the_project_diagram() {
         json!({"width": 1220.0, "height": 884.0}),
         frame["frame"]["viewport"]
     );
-    // The diagram title is the top bar's breadcrumb now, not frame chrome (#46).
     assert_eq!(Vec::<String>::new(), chrome_kinds(&frame));
     let state = resident.ask(2, json!({"action": "save"}), "state");
     assert_eq!(json!("Shop"), state["breadcrumbs"][0]["name"]);
@@ -198,7 +181,6 @@ fn drill_in_enters_a_component_and_back_returns_to_the_namespace_tree() {
     let ids = classes(&frame);
     assert!(ids.contains(&":core.order".to_owned()), "{ids:?}");
     assert!(!ids.contains(&":api".to_owned()), "{ids:?}");
-    // The return line left the frame (#46); the path it named is the state's.
     assert_eq!(Vec::<String>::new(), chrome_kinds(&frame));
     let state = resident.ask(9, json!({"action": "save"}), "state");
     assert_eq!(json!("core"), state["breadcrumbs"][1]["name"]);
@@ -208,8 +190,6 @@ fn drill_in_enters_a_component_and_back_returns_to_the_namespace_tree() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-/// The world centre of a class box, read from the frame the client drew:
-/// the client hit-tests and sends the point.
 fn centre_of(frame: &Value, id: &str) -> [f64; 2] {
     let class = items(frame, "class")
         .into_iter()
@@ -224,8 +204,6 @@ fn centre_of(frame: &Value, id: &str) -> [f64; 2] {
 fn the_declutter_action_sets_the_mode_the_panel_names() {
     let dir = project("declutter mode");
     let mut resident = opened(&dir);
-    // The More menu's Remove arrows toggle names the mode (#46): 移除箭头
-    // draws compact indicators instead of arrows, and `save` reports the mode.
     let frame = resident.ask(
         2,
         json!({"action": "declutter", "mode": "triangles"}),
@@ -239,7 +217,6 @@ fn the_declutter_action_sets_the_mode_the_panel_names() {
     );
     let saved = resident.ask(3, json!({"action": "save"}), "state");
     assert_eq!(json!(":triangles"), saved["state"]["declutter"]);
-    // Naming the mode again is not a cycle: it stays where it was put.
     let again = resident.ask(
         4,
         json!({"action": "declutter", "mode": "triangles"}),
@@ -252,7 +229,6 @@ fn the_declutter_action_sets_the_mode_the_panel_names() {
             .iter()
             .all(|edge| edge["kind"] == "indicator")
     );
-    // No mode still cycles the modes, as any old control did.
     resident.ask(5, json!({"action": "declutter"}), "frame");
     let cycled = resident.ask(6, json!({"action": "save"}), "state");
     assert_eq!(json!(":elements"), cycled["state"]["declutter"]);
@@ -260,8 +236,6 @@ fn the_declutter_action_sets_the_mode_the_panel_names() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-/// #84: an unknown declutter mode is an error event, not a silently dropped
-/// argument: the caller has to know the mode it named took no effect.
 #[test]
 fn an_unknown_declutter_mode_answers_an_error() {
     let dir = project("declutter refuses");
@@ -277,7 +251,6 @@ fn an_unknown_declutter_mode_answers_an_error() {
         message.contains("triangles"),
         "the error names the modes it knows: {error}"
     );
-    // The refusal changes nothing, and the stream keeps answering.
     let saved = resident.ask(3, json!({"action": "save"}), "state");
     assert_eq!(json!(null), saved["state"]["declutter"]);
     resident.ask(
@@ -303,7 +276,6 @@ fn select_highlights_the_dependency_chain_and_dims_the_rest() {
         .find(|c| c["id"] == ":core.order")
         .unwrap();
     assert_eq!(json!(true), order["selected"]);
-    // core.order depends on core.price: that edge is on the chain.
     let chain: Vec<&Value> = frame["frame"]["edges"]
         .as_array()
         .unwrap()
@@ -390,8 +362,6 @@ fn switching_the_discussion_context_reports_it_and_shows_that_diagram() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-/// The state event's breadcrumbs: the path from the tree root to the current
-/// component, each level with the id a `back` target names (#45).
 #[test]
 fn back_with_a_target_returns_to_a_named_breadcrumb_level() {
     let dir = project("back target");
@@ -416,7 +386,6 @@ fn back_with_a_target_returns_to_a_named_breadcrumb_level() {
                {"id": ":core.order", "name": "order"}]),
         deep["breadcrumbs"]
     );
-    // Any level of the path is a target, not only the one above.
     resident.ask(6, json!({"action": "back", "target": ":core"}), "frame");
     let middle = resident.ask(7, json!({"action": "save"}), "state");
     assert_eq!(
@@ -426,7 +395,6 @@ fn back_with_a_target_returns_to_a_named_breadcrumb_level() {
     resident.ask(8, json!({"action": "back", "target": null}), "frame");
     let again = resident.ask(9, json!({"action": "save"}), "state");
     assert_eq!(root["breadcrumbs"], again["breadcrumbs"]);
-    // A target the path does not carry is an error, not one level back.
     for target in [json!(":api"), json!(":missing"), json!(7)] {
         let error = resident.ask(10, json!({"action": "back", "target": target}), "error");
         assert!(
@@ -440,8 +408,6 @@ fn back_with_a_target_returns_to_a_named_breadcrumb_level() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-/// A proposal's breadcrumb path starts at the proposal, not at the source
-/// diagram: its root id is the proposal and its levels are the proposal's.
 #[test]
 fn a_proposal_breadcrumb_path_names_its_layers_and_returns_to_them() {
     let dir = project("proposal crumbs");
@@ -475,8 +441,6 @@ fn a_proposal_breadcrumb_path_names_its_layers_and_returns_to_them() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-/// The state event carries the canvas status as a code the panel localizes,
-/// with the parameters that code needs; frames keep their own text until #46.
 #[test]
 fn the_state_event_reports_the_canvas_status_code() {
     let dir = project("status codes");
@@ -490,7 +454,6 @@ fn the_state_event_reports_the_canvas_status_code() {
     let waiting = resident.ask(2, json!({"action": "save"}), "state");
     assert_eq!(json!([]), waiting["breadcrumbs"], "nothing is loaded yet");
     assert_eq!(json!({"code": "waiting-display"}), waiting["status"]);
-    // A named diagram that is not there says which file is missing.
     resident.ask(
         3,
         json!({"action": "open", "diagram": "missing.edn"}),
@@ -508,8 +471,6 @@ fn the_state_event_reports_the_canvas_status_code() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-/// #84: a missing diagram's status clears once that same path displays
-/// successfully; it used to clear only when the displayed path changed.
 #[test]
 fn a_missing_diagram_status_clears_when_the_same_path_displays() {
     let dir = project("status clears");
@@ -522,7 +483,6 @@ fn a_missing_diagram_status_clears_when_the_same_path_displays() {
         missing["status"]["code"],
         "{missing}"
     );
-    // The file appears and the same path is displayed: the status clears.
     std::fs::copy(dir.join("diagram.edn"), dir.join("late.edn")).unwrap();
     resident.ask(3, json!({"action": "display", "path": "late.edn"}), "frame");
     let shown = resident.ask(4, json!({"action": "save"}), "state");
@@ -565,7 +525,6 @@ fn a_saved_session_state_restores_the_view_and_discussion_context() {
         state["context"]
     );
 
-    // The host persisted the state as data; a new process restores it.
     let mut resident = Resident::start(&dir);
     resident.expect("ready");
     let restored = resident.ask(
@@ -581,8 +540,6 @@ fn a_saved_session_state_restores_the_view_and_discussion_context() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-/// A view off the fitted default (drilled into `:core`, `:core.order`
-/// selected) and the state saved for it: what the host persisted.
 fn saved_view(dir: &Path) -> (Value, Value) {
     let mut resident = opened(dir);
     let core = resident.ask(2, json!({"action": "drill-in", "id": ":core"}), "frame");
@@ -600,8 +557,6 @@ fn waiting_open(state: &Value) -> Value {
 
 #[test]
 fn a_waiting_open_with_a_saved_view_restores_that_view_instead_of_the_empty_canvas() {
-    // The host always opens waiting (a fresh panel shows nothing until
-    // `uml_display`); a saved state is a view the user already had.
     let dir = project("waiting restore");
     let (shown, state) = saved_view(&dir);
     let mut resident = Resident::start(&dir);
@@ -625,7 +580,6 @@ fn a_saved_view_whose_diagram_is_not_there_yet_is_restored_by_its_display() {
     resident.expect("ready");
     let opened = resident.ask(1, waiting_open(&state), "frame");
     assert_eq!(json!(true), opened["frame"]["waiting"]);
-    // Closing the panel before the display must not lose the saved view.
     let pending = resident.ask(2, json!({"action": "save"}), "state");
     assert_eq!(state, pending["state"]);
     std::fs::write(dir.join("diagram.edn"), ir).unwrap();
@@ -673,7 +627,6 @@ fn an_edited_diagram_hot_reloads_into_an_unprompted_frame() {
         .unwrap()
         .replace(":title \"Shop\"", ":title \"Shop v2\"");
     std::fs::write(dir.join("diagram.edn"), text).unwrap();
-    // A later mtime: the stamp is the file's modification time.
     std::fs::File::options()
         .write(true)
         .open(dir.join("diagram.edn"))
@@ -682,7 +635,6 @@ fn an_edited_diagram_hot_reloads_into_an_unprompted_frame() {
         .unwrap();
     let frame = resident.expect("frame");
     assert_eq!(Value::Null, frame["seq"], "a reload answers no action");
-    // The new title shows up in the top bar's path, not in frame chrome (#46).
     assert_eq!(Vec::<String>::new(), chrome_kinds(&frame));
     let state = resident.ask(9, json!({"action": "save"}), "state");
     assert_eq!(json!("Shop v2"), state["breadcrumbs"][0]["name"]);
@@ -796,10 +748,6 @@ fn a_malformed_line_or_unknown_action_is_an_error_event_and_the_session_continue
     let _ = std::fs::remove_dir_all(dir);
 }
 
-/// One inbound action line is bounded exactly like an outbound event (#review):
-/// a line that never ends stops the session with an `error` event and a failing
-/// exit instead of buffering without limit. The host is trusted, but the bound
-/// is documented in both directions.
 #[test]
 fn an_action_line_over_the_transport_cap_stops_the_session_with_a_reason() {
     let project = project("action-cap");
@@ -815,8 +763,6 @@ fn an_action_line_over_the_transport_cap_stops_the_session_with_a_reason() {
     let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
     let ready: Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
     assert_eq!(ready["event"], "ready");
-    // One unterminated line, one byte over the cap. The write itself may end in
-    // a broken pipe: the session stops reading at the cap and exits.
     let over = vec![b'{'; viewer_session::resident::ACTION_LINE_MAX_BYTES + 1];
     let _ = stdin.write_all(&over);
     let _ = stdin.flush();
@@ -839,11 +785,6 @@ fn an_action_line_over_the_transport_cap_stops_the_session_with_a_reason() {
     let _ = std::fs::remove_dir_all(&project);
 }
 
-/// A `state` event golden (#45): the breadcrumb path and the status code the
-/// panel's top bar and status line are built from. Frames have their own
-/// goldens (`crates/frame/tests/golden_frame.rs`); this event has no frame, so
-/// it keeps its own checked-in record. Regenerate with
-/// `UPDATE_STATE_GOLDENS=1` and review the diff like the contract change it is.
 fn state_golden(name: &str, event: &Value) {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/state")
@@ -870,8 +811,6 @@ fn state_golden(name: &str, event: &Value) {
     );
 }
 
-/// The event's #45 fields and the switcher's proposal list (#47). A status's `path` is the machine's, so the golden
-/// records the file it names rather than the checkout it was captured in.
 fn recorded(event: &Value) -> Value {
     let mut status = event["status"].clone();
     if let Some(full) = status.get("path").and_then(Value::as_str) {

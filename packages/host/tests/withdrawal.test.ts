@@ -9,11 +9,6 @@ import type { Agent, HostServices, SpawnSpec } from '../src/dsh.js'
 import { ResidentPool, ResidentSessions, WITHDRAWAL_GRACE_MS } from '../src/resident.js'
 import { SessionStates } from '../src/state.js'
 
-// #32, D13: a panel stream ending is a carrier loss, not a panel close. The
-// resident waits in a bounded grace for the same session to re-attach, and only
-// an explicit close, the grace expiring, or root shutdown stops it. These run
-// against a real fake resident child with a shortened window.
-
 const goldenFrame = fileURLToPath(new URL('../../../crates/frame/tests/fixtures/frames/root.frame.json', import.meta.url))
 const fakeBinary = [process.execPath, fileURLToPath(new URL('./fixtures/uml-viewer.mjs', import.meta.url))]
 
@@ -92,7 +87,6 @@ it('holds a withdrawn resident for its grace and re-attaches instead of double-c
   expect(h.pool.graces.size).toBe(1)
   expect(h.alive()).toBe(1)
 
-  // The same session re-attaches inside the window: one holder, one timer gone.
   const again = await h.sessions.open(h.agent('session-a'), signal())
   expect(again).toBe(opened)
   expect(opened.refs).toBe(1)
@@ -101,7 +95,6 @@ it('holds a withdrawn resident for its grace and re-attaches instead of double-c
   expect(existsSync(h.exitFile('session-a'))).toBe(false)
   expect(h.alive()).toBe(1)
 
-  // A second withdrawal arms a fresh window; the expiry saves the view, then stops.
   await h.sessions.release(again, 'withdrawn')
   expect(h.pool.graces.size).toBe(1)
   await waitFor(() => existsSync(h.exitFile('session-a')))
@@ -122,7 +115,6 @@ it('stops a withdrawn resident at once on an explicit close', async () => {
   await waitFor(() => existsSync(h.exitFile('session-a')))
   expect(h.pool.graces.size).toBe(0)
   expect(JSON.parse(await readFile(h.exitFile('session-a'), 'utf8')).reason).toBe('quit')
-  // Idempotent: nothing is left to close.
   expect(await h.sessions.close(h.agent('session-a'))).toBe(false)
   await h.sessions.dispose()
 })

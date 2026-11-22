@@ -19,9 +19,6 @@ async function tree(files: Record<string, unknown>): Promise<string> {
   return root
 }
 
-// CI14: the scratch DSH home lived inside a dsh-uml-viewer checkout, so a
-// walk past the installed package's own directory found the checkout's
-// manifest and activated its development build instead of the install.
 const checkout = { name: 'dsh-uml-viewer', private: true, main: 'lib/host.js' }
 const installed = 'run/profiles/web/node_modules/dsh-uml-viewer'
 
@@ -35,8 +32,6 @@ it('resolves an installed module to its own package directory', async () => {
 })
 
 it('never adopts a dsh-uml-viewer manifest above the node_modules that holds the module', async () => {
-  // The installed copy's manifest is absent (mid-install, or removed): the
-  // checkout above the profile is not this module's package.
   const root = await tree({ 'package.json': checkout, [`${installed}/lib/host.js`]: '' })
   expect(() => packageRoot(path.join(root, installed, 'lib', 'host.js'))).toThrow(/Cannot locate the dsh-uml-viewer package root/)
 })

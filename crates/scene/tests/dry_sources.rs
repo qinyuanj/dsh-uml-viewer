@@ -1,8 +1,3 @@
-//! Snapshot discovery on the `scene` side: the CLI adapter must collect the
-//! same files the panel adapter does, or the terminal and the panel disagree
-//! about the same project (#92).
-
-/// A throwaway project root with an empty `.metrics` tree.
 fn project(prefix: &str) -> std::path::PathBuf {
     let root = std::env::temp_dir().join(format!("dsh-{prefix}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);

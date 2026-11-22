@@ -162,7 +162,6 @@ impl Parser<'_> {
         self.text.get(self.p).copied()
     }
 
-    /// Skips whitespace, commas, comments and `#_` discarded forms.
     fn skip(&mut self) -> Result<(), Error> {
         while let Some(c) = self.peek() {
             if is_space(c) {
@@ -312,7 +311,6 @@ impl Parser<'_> {
         u32::from_str_radix(std::str::from_utf8(digits).ok()?, 16).ok()
     }
 
-    /// Called just after `\u`; combines a high/low surrogate pair.
     fn read_unicode_escape(&mut self) -> Result<char, Error> {
         let Some(mut code) = self.hex4(self.p) else {
             return self.fail("invalid Unicode escape");

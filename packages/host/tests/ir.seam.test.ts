@@ -16,8 +16,6 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 
-// Narrow DSH subprocess adapter for the test: spawn a real fake binary and expose
-// DSH's collected readers. The plugin never imports child_process.
 function localSubprocess(spec: SpawnSpec) {
   const child = spawn(spec.argv[0]!, spec.argv.slice(1), {
     cwd: spec.cwd, stdio: ['ignore', 'pipe', 'pipe'], signal: spec.signal,
@@ -43,7 +41,6 @@ function localSubprocess(spec: SpawnSpec) {
 }
 
 async function setup(mode: 'read-only' | 'workspace-write' | 'danger-full-access' = 'danger-full-access') {
-  // tmpdir may contain a symlink (macOS /var -> /private/var).
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'uml project & ')))
   roots.push(root)
   await writeFile(path.join(root, 'fake-binary.json'), JSON.stringify({ exitCode: 0 }))

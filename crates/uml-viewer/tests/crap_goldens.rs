@@ -1,9 +1,3 @@
-//! `uml-viewer crap` reproduces the Python crapper byte for byte (ADR 0012).
-//! Each `fixtures/crap/goldens/<scenario>/` names a sample project, setup
-//! steps and argv; Python crapper at the commit in `goldens/SOURCE` published
-//! the committed `crap.edn`, `stdout`, `stderr` and `exit` there
-//! (`scripts/crap_goldens.py`). This test only reads those files.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -38,7 +32,6 @@ fn copy_fresh_lcov() -> &'static str {
     }
 }
 
-/// Set the scenario's project up in `project` and return its argv.
 fn prepare(scenario: &Path, project: &Project) -> Vec<String> {
     let crap = repo().join("fixtures/crap");
     let mut args = Vec::new();
@@ -76,9 +69,6 @@ fn prepare(scenario: &Path, project: &Project) -> Vec<String> {
     args
 }
 
-/// The generator's normalization: root → `<ROOT>`; native separators on
-/// `Wrote` and other root-bearing path tokens → `<SEP>`; no `+ (` echoes.
-/// Every other byte stays exact.
 fn normalize(stderr: &str, root: &Path) -> String {
     let mut text = stderr.replace("\r\n", "\n");
     for form in [
@@ -118,10 +108,6 @@ fn every_scenario_matches_the_python_crapper_byte_for_byte() {
         .iter()
         .map(|dir| dir.file_name().unwrap().to_string_lossy().into_owned())
         .collect();
-    // Exact: 29 base scenarios (24 from #5, four fixtures from #4 and #6's
-    // Unicode-digit threshold) and 64 behavior groups. A dropped scenario,
-    // or a behavior group whose fixtures exist but whose scenario does not,
-    // must fail. The helper-only string-blanking case has no CLI output.
     assert_eq!(names.len(), 93, "scenarios: {names:?}");
     let mut sourced: Vec<String> = Vec::new();
     for language in ["go", "java", "clojure"] {
@@ -152,8 +138,6 @@ fn every_scenario_matches_the_python_crapper_byte_for_byte() {
         behavior, sourced,
         "behavior scenarios vs materialized groups"
     );
-    // The one intended empty selection excludes every file; a base scenario
-    // that selects nothing otherwise means its fixtures moved away.
     let empty: Vec<&String> = names
         .iter()
         .filter(|name| {

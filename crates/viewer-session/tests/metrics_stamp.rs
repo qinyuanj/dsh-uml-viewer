@@ -1,7 +1,3 @@
-//! The reload stamp covers every quality snapshot the overlay reads (#92):
-//! refreshing `.metrics/dry.edn` alone must reload the panel, exactly like a
-//! CRAP or mutation refresh does.
-
 use edn::Value;
 
 fn project(prefix: &str) -> std::path::PathBuf {
@@ -32,15 +28,12 @@ fn the_stamp_covers_the_duplicate_structure_snapshot() {
     assert_eq!(vec![".metrics/crap.edn", ".metrics/mutate/a.edn"], paths);
     assert!(!stamp_text(&before).contains("dry.edn"));
 
-    // The duplicate-structure snapshot joins the same set ...
     std::fs::write(root.join(".metrics/dry.edn"), "{:candidates []}\n").unwrap();
     let (files, after) = viewer_session::metrics::snapshot(&root);
     assert!(files.iter().any(|f| f.path == ".metrics/dry.edn"));
     assert!(stamp_text(&after).contains(".metrics/dry.edn"));
     assert_ne!(stamp_text(&before), stamp_text(&after));
 
-    // ... and it is stamped by path, mtime and size, so rewriting it alone
-    // changes the stamp and the session reloads.
     std::fs::write(root.join(".metrics/dry.edn"), "{:candidates [] }\n").unwrap();
     let (_, rewritten) = viewer_session::metrics::snapshot(&root);
     assert_ne!(stamp_text(&after), stamp_text(&rewritten));

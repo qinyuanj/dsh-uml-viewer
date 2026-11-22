@@ -14,7 +14,6 @@ pub struct Match {
     pub label: String,
 }
 
-/// ASCII-only lowercase, leaving non-ASCII bytes untouched (Lua `:lower()`).
 fn ascii_lower(s: &str) -> String {
     s.bytes()
         .map(|b| b.to_ascii_lowercase())

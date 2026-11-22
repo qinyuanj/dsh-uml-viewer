@@ -1,7 +1,3 @@
-//! Class box layout (port of `love/uml/engine/layout.lua`). Text width is a
-//! pure estimate — `char_w = 8` per half-width character, CJK and astral
-//! characters count as two — so layout never depends on a loaded font.
-
 use crate::config;
 use crate::geom::{self, Rect};
 use edn::Value;
@@ -55,8 +51,6 @@ fn line(kind: &str, text: Option<Value>, extra: Vec<(Value, Value)>) -> Value {
     l
 }
 
-/// The display lines of a class box: stereotype, name, then members (or
-/// drillable children) below rule separators. Private ops are hidden.
 pub fn class_lines(c: &Value) -> Vec<Value> {
     let mut lines = Vec::new();
     if let Some(stereotype) = get(c, "stereotype") {
@@ -67,8 +61,6 @@ pub fn class_lines(c: &Value) -> Vec<Value> {
         ));
     }
     lines.push(line("name", get(c, "name").cloned(), vec![]));
-    // Lua `not g(c,'hide-members')`: an explicit `false` (every normalized
-    // IR class carries one) still shows members (#148).
     if !flag(c, "hide-members") {
         let kids = seq(get(c, "contents"));
         if !kids.is_empty() {
@@ -111,7 +103,6 @@ pub fn class_lines(c: &Value) -> Vec<Value> {
     lines
 }
 
-/// Width, height and lines of one class box.
 pub fn class_box_size(c: &Value) -> (f64, f64, Vec<Value>) {
     let lines = class_lines(c);
     let (mut w, mut h): (f64, f64) = (120.0, 24.0);
@@ -142,7 +133,6 @@ fn port_w(d: &Value) -> f64 {
     )
 }
 
-/// Clone a class with its box metrics and display lines (Lua `pack`).
 fn pack(c: &Value) -> Value {
     let mut c = c.clone();
     let (w, h, lines) = class_box_size(&c);
@@ -179,7 +169,6 @@ fn pack(c: &Value) -> Value {
     c
 }
 
-/// Dependency port rectangles above and below the class box (Lua `ports`).
 fn ports(c: &mut Value) {
     let r = Rect::from_value(get(c, "rect").unwrap()).unwrap();
     let ins = seq(get(c, "in-deps")).to_vec();
@@ -225,47 +214,24 @@ fn ports(c: &mut Value) {
     put(c, "out-ports", Value::Vector(op));
 }
 
-/// Sub-rows a level may split into; deeper chains share the top row, which
-/// bounds the height (and the long edges through it) of a deep level.
 const SUB_ROWS: usize = 3;
 
-/// Classes per row of the grid that collects a levels package's edgeless
-/// classes below its levels.
 const GRID: usize = 4;
 
-/// Rank gap between two levels; sub-rows of one level keep [`RANK_GAP`].
 const LEVEL_GAP: f64 = 220.0;
 const RANK_GAP: f64 = 140.0;
 
-/// Gap between two shelves of the wide layout: a shelf wraps where a level
-/// would start a new one, so the two read alike.
 const SHELF_GAP: f64 = LEVEL_GAP;
 
-/// Gap between two neighbouring lanes, and between a lane and a box.
 const LANE_GAP: f64 = 12.0;
 const LANE_MARGIN: f64 = 20.0;
-/// A lane runs this far into the gaps on both sides of its rank, so the
-/// rounded bend onto it (24px corners, `curve::basis_path`) stays clear of
-/// the rank's boxes, even when the edge comes in nearly level from far off.
 const LANE_REACH: f64 = 50.0;
 
-/// The through-points of one long edge: an entry and an exit per rank it
-/// crosses, ordered from its `:from` end.
 type Lane = (usize, Vec<[f64; 2]>);
 type Pass = (usize, [f64; 2], [f64; 2]);
 
-/// A foreign oval placed in the sink rank: id, rect, rank.
 type Sunk = (String, Rect, f64);
 
-/// Rank classes by dependency depth and place them in rank columns/rows
-/// (Lua `place`). Positions are multiples of 80 with barycentric sweeps.
-/// An edge spanning more than one rank gets a zero-width lane in every rank
-/// between its ends; the lanes are ordered with the boxes, so the edge
-/// passes each rank in a reserved gap instead of across a box. `sinks`
-/// (id, w, h) are foreign ovals of a `:levels` package: they take a rank
-/// below the lowest level, so edges to them pass the ranks between in lanes
-/// too. `wide` (#191) is the target aspect of the wide layout: ranks run
-/// left to right but keep the levels, and a tall rank folds into columns.
 fn place(
     classes: &[Value],
     edges: &[Value],
@@ -356,7 +322,6 @@ fn place(
             levels = true;
         }
     }
-    // Only the wide layout keeps levels across (#191); plain `:lr` ranks by depth.
     let levels = levels && (!horizontal || wide.is_some());
     let level_of = |id: &str| get(&cs[idx[id]], "level").and_then(num).unwrap_or(0.0);
     let sub = if levels {
@@ -379,7 +344,6 @@ fn place(
     } else {
         HashMap::new()
     };
-    // A level holds `rows` sub-rows; without inner dependencies rank = level.
     let rows = sub.values().max().map_or(1, |d| d + 1) as f64;
     let class_rank = |id: &str| {
         if levels {
@@ -391,7 +355,6 @@ fn place(
     let mut groups: HashMap<String, Vec<String>> = HashMap::new();
     let mut keys: Vec<f64> = Vec::new();
     let mut pos: HashMap<String, f64> = HashMap::new();
-    // With levels, a class without any edge leaves its level for the grid.
     let mut alone: Vec<String> = Vec::new();
     for (i, id) in ids.iter().enumerate() {
         pos.insert(id.clone(), (i as f64) * 80.0);
@@ -414,7 +377,6 @@ fn place(
             a.partial_cmp(b).unwrap()
         }
     });
-    // The sink rank sits below the lowest level.
     let sink_rank = keys.last().copied().unwrap_or(0.0) - 1.0;
     if !sink.is_empty() {
         keys.push(sink_rank);
@@ -427,9 +389,7 @@ fn place(
             .or_default()
             .append(&mut ids);
     }
-    // Ranks of the levels; the sink and grid ranks below them are not.
     let level_keys: std::collections::HashSet<String> = keys.iter().map(|r| rank_key(*r)).collect();
-    // The grid of edgeless classes: rows of GRID below everything else.
     let grid_top = if sink.is_empty() {
         sink_rank
     } else {
@@ -468,7 +428,6 @@ fn place(
             (id.clone(), r)
         })
         .collect();
-    // A new level starts after a wider gap; its sub-rows keep RANK_GAP.
     let mut band: HashMap<String, f64> = keys
         .iter()
         .map(|&r| {
@@ -480,8 +439,6 @@ fn place(
             (rank_key(r), b)
         })
         .collect();
-    // The shelf each column of the wide layout sits on; a plain strip, and
-    // the default layout's rows, have one (#89).
     let mut shelf_of: HashMap<String, usize> = HashMap::new();
     if let Some(aspect) = wide {
         sweep(&keys, &groups, &mut pos, &nbr);
@@ -507,13 +464,8 @@ fn place(
                 (rank_at.contains_key(&f) && rank_at.contains_key(&t)).then_some((f, t))
             })
             .collect();
-        // The foreign ovals are no members of this package: a break that
-        // leaves one inside the package's box draws the ellipse over the
-        // fill (#95), so `fold` refuses it.
         let ovals: std::collections::HashSet<String> = sink.keys().cloned().collect();
         let columns = fold(&ranks, &links, aspect, levels, &ovals);
-        // Folded columns are ranks of their own, consecutive from the right;
-        // their shelf says where the strip wraps onto the next one.
         let n = columns.len();
         (keys, groups, band) = (Vec::new(), HashMap::new(), HashMap::new());
         for (j, (b, ids, nth)) in columns.into_iter().enumerate() {
@@ -533,7 +485,6 @@ fn place(
         .enumerate()
         .map(|(k, r)| (rank_key(*r), k))
         .collect();
-    // lane id -> (edge index, step from the :from end, :from nearer rank 0?)
     let mut lane_of: HashMap<String, (usize, usize, bool)> = HashMap::new();
     for (ei, e) in edges.iter().enumerate() {
         let f = edn::encode(get(e, "from").unwrap()).unwrap();
@@ -546,9 +497,6 @@ fn place(
         if kf.abs_diff(kt) < 2 {
             continue;
         }
-        // A lane runs through the columns between its ends, and a shelf is a
-        // contiguous run of them; an edge whose ends wrapped onto different
-        // shelves keeps none and lets `route` find its own way (#89).
         let on_shelf = |k: usize| shelf_of.get(&rank_key(keys[k])).copied().unwrap_or(0);
         if on_shelf(kf) != on_shelf(kt) {
             continue;
@@ -604,8 +552,6 @@ fn place(
         }
         gs.push((*r, xs, w, h, colh));
     }
-    // The columns run by run of one shelf (#89): a shelf wraps at its right
-    // edge, a plain strip never does.
     let nth: Vec<usize> = gs
         .iter()
         .map(|g| shelf_of.get(&rank_key(g.0)).copied().unwrap_or(0))
@@ -617,11 +563,7 @@ fn place(
             _ => shelves.push(k..k + 1),
         }
     }
-    // Levels only: boxes slide toward their box neighbours within the widest
-    // packed row; lanes keep their order in the gaps between boxes (#185).
     let start: Option<HashMap<String, f64>> = levels.then(|| {
-        // A shelf slides its own columns: alignment across shelves means
-        // nothing once the strip wraps (#89).
         let mut out: HashMap<String, f64> = HashMap::new();
         for run in &shelves {
             let rows: Vec<Vec<Slot>> = gs[run.clone()]
@@ -643,10 +585,7 @@ fn place(
     });
     let mut result = Vec::new();
     let mut sunk: Vec<Sunk> = Vec::new();
-    // edge index -> (step, entry, exit) of each rank it passes
     let mut through: HashMap<usize, Vec<Pass>> = HashMap::new();
-    // A shelf starts at the left and stacks below the last one, so the height
-    // grows where the width would have (#89).
     let mut offset = 0.0;
     for run in &shelves {
         let tall = gs[run.clone()].iter().map(|g| g.4).fold(0.0, f64::max);
@@ -694,7 +633,6 @@ fn place(
                 } else {
                     (across, along)
                 };
-                // A wide column centres its boxes; plain `:lr` keeps them flush.
                 let slot = if wide.is_some() { *gw } else { cw };
                 put(
                     &mut c,
@@ -731,8 +669,6 @@ fn place(
     (result, lanes, sunk)
 }
 
-/// `xs` sorted by the mean position of their neighbours (barycentric sweep);
-/// a node without placed neighbours keeps its own position, ties their order.
 fn ordered(
     xs: &[String],
     pos: &std::collections::HashMap<String, f64>,
@@ -768,8 +704,6 @@ fn ordered(
     list.into_iter().map(|x| x.0).collect()
 }
 
-/// Five barycentric sweeps over the ranks `keys`: each rank's nodes take
-/// positions 0, 80, … in their neighbours' order.
 fn sweep(
     keys: &[f64],
     groups: &std::collections::HashMap<String, Vec<String>>,
@@ -785,25 +719,12 @@ fn sweep(
     }
 }
 
-/// One node of a wide rank: id, w, h.
 type Sized = (String, f64, f64);
 
-/// One rank of the wide layout before folding: its band (level) and its
-/// ordered nodes.
 type Column = (f64, Vec<Sized>);
 
-/// Gap between two stacked boxes of one column.
 const BOX_GAP: f64 = 40.0;
 
-/// The wide layout's columns (#191): every rank, in order, folds into
-/// columns no taller than one height limit, then the columns fill shelves no
-/// wider than one width limit; the pair whose diagram fits a canvas of
-/// `aspect` (width / height) at the largest zoom wins. Folded columns keep
-/// their rank's band; the first fold of a rank stays leftmost. A column that
-/// does not fit its shelf starts the next one, so the width stops growing
-/// with the number of ranks while the height grows with the shelves — the
-/// freedom the target aspect needs (#89), except that a wrap which would put
-/// a foreign oval inside its package's box is refused (#95).
 fn fold(
     ranks: &[Column],
     links: &[(String, String)],
@@ -811,7 +732,6 @@ fn fold(
     levels: bool,
     ovals: &std::collections::HashSet<String>,
 ) -> Vec<(f64, Vec<String>, usize)> {
-    // Greedy runs of one rank no taller than `limit`; a tall box runs alone.
     let split = |nodes: &[Sized], limit: f64| -> Vec<std::ops::Range<usize>> {
         let mut runs = Vec::new();
         let (mut start, mut h) = (0, 0.0);
@@ -837,7 +757,6 @@ fn fold(
             })
             .collect()
     };
-    // The gap after a column: a new level opens a wider one.
     let gap = |a: f64, b: f64| {
         if levels && a != b {
             LEVEL_GAP
@@ -845,10 +764,7 @@ fn fold(
             RANK_GAP
         }
     };
-    // Every column's width and height: its widest box, and its boxes, the
-    // gaps between them and the lanes its links reserve.
     let sizes = |cols: &[(f64, &[Sized])]| -> (Vec<f64>, Vec<f64>) {
-        // Lanes each column holds: one per link passing it.
         let at: std::collections::HashMap<&str, usize> = cols
             .iter()
             .enumerate()
@@ -874,11 +790,6 @@ fn fold(
         }
         (ws, hs)
     };
-    // The columns packed left to right then down: they fill a shelf no wider
-    // than `shelf` and wrap onto the next one, so the width stops growing
-    // with the number of columns while the height grows with the shelves.
-    // Answers the packed width, the stacked height, each column's shelf and
-    // its left edge.
     let shelves = |cols: &[(f64, &[Sized])], ws: &[f64], hs: &[f64], shelf: f64| {
         let (mut which, mut xs, mut nth) = (
             Vec::with_capacity(cols.len()),
@@ -901,11 +812,6 @@ fn fold(
         }
         (widest.max(x), y + row, which, xs)
     };
-    // A package draws one box around its members, and its foreign ovals take
-    // the last rank without being members. A box whose columns land on more
-    // than one shelf spans the gutter, so an oval column left inside its
-    // rectangle is painted over the package fill (#95); such a packing is
-    // refused and the strip keeps to one shelf instead.
     let covers = |cols: &[(f64, &[Sized])], which: &[usize], xs: &[f64], ws: &[f64]| -> bool {
         let (mut l, mut r) = (f64::INFINITY, f64::NEG_INFINITY);
         let (mut low, mut high) = (usize::MAX, 0usize);
@@ -929,7 +835,6 @@ fn fold(
                 && xs[k] + ws[k] <= r
         })
     };
-    // Every height a column can reach; the tallest is no fold at all.
     let mut limits: Vec<f64> = ranks
         .iter()
         .flat_map(|(_, nodes)| {
@@ -942,10 +847,6 @@ fn fold(
         .collect();
     limits.sort_by(|a, b| b.partial_cmp(a).unwrap());
     limits.dedup();
-    // Every column height, and every shelf width a column boundary reaches;
-    // the pair whose diagram fits the canvas at the largest zoom wins. The
-    // whole strip on one shelf is among the widths, so the search never does
-    // worse than folding alone.
     let mut best: Option<(f64, f64, f64)> = None;
     for &limit in &limits {
         let cols = columns(limit);
@@ -984,16 +885,11 @@ fn fold(
         .collect()
 }
 
-/// One node of a row: id, width across the row, lane?
 type Slot = (String, f64, bool);
 
-/// Sweeps that move each box toward its neighbours.
 const NEARBY_SWEEPS: usize = 8;
 
-/// The non-decreasing sequence nearest to `targets` in weighted least
-/// squares (pool adjacent violators), each value clamped to `lo..=hi`.
 fn isotonic(targets: &[(f64, f64)], lo: f64, hi: f64) -> Vec<f64> {
-    // Blocks: (weighted sum, weight, members).
     let mut blocks: Vec<(f64, f64, usize)> = Vec::new();
     for &(t, w) in targets {
         blocks.push((t * w, w, 1));
@@ -1012,14 +908,6 @@ fn isotonic(targets: &[(f64, f64)], lo: f64, hi: f64) -> Vec<f64> {
         .collect()
 }
 
-/// Left edge of every node of `rows` (in their order, with the `gap`
-/// spacing). Each row is first packed from 0; the widest packed row fixes
-/// the width. Alternate sweeps then move each box toward the mean centre of
-/// its box neighbours in any row, as one weighted isotonic regression of
-/// the row's shifts clipped to `[0, widest − row width]`, so the diagram is
-/// never wider than packed. Lanes pull no box: each run of lanes between two
-/// boxes keeps its order and spacing and sits, within that gap, nearest the
-/// nodes before and after it on its edge.
 fn nearby(
     rows: &[Vec<Slot>],
     nbr: &std::collections::HashMap<String, Vec<String>>,
@@ -1085,7 +973,6 @@ fn nearby(
                 .map(|&i| {
                     let (id, w, _) = &row[i];
                     let near = mean(&mut nbr[id].iter().filter(|t| !lane(t)), &centre);
-                    // A box without box neighbours holds its place, barely.
                     let (target, weight) = near.unwrap_or((centre[id.as_str()], 0.01));
                     (target - offs[i] - w / 2.0, weight)
                 })
@@ -1134,9 +1021,6 @@ fn nearby(
     left.into_iter().map(|(id, x)| (id.to_owned(), x)).collect()
 }
 
-/// Rows within one level: 0 for a class with no same-level dependency, else
-/// one above its highest same-level dependency. Classes on a cycle share a
-/// row (Tarjan's components, finished dependencies first).
 fn sublayers(
     ids: &[String],
     next: &std::collections::HashMap<String, Vec<String>>,
@@ -1208,13 +1092,10 @@ fn sublayers(
     walk.row
 }
 
-/// Ranks are integral in practice; Lua keyed hop groups by string
-/// concatenation, so any total order preserving distinct values works.
 fn rank_key(r: f64) -> String {
     format!("{r:?}")
 }
 
-/// A foreign class drawn as an oval sized to its name.
 fn oval(c0: &Value) -> (Value, f64, f64) {
     let mut c = c0.clone();
     let w = (80.0_f64).max(
@@ -1230,11 +1111,6 @@ fn oval(c0: &Value) -> (Value, f64, f64) {
     (c, w, h)
 }
 
-/// `L.layout`: package rows with pooled quality, then foreign ovals. A
-/// single package ranked by `:levels` puts them in a sink rank below its
-/// last; otherwise they stack right of the packages' bounding box.
-/// `:lanes` carries each long edge's
-/// through-points (by diagram edge index) to `route`, which consumes it.
 pub fn layout(diagram: &Value) -> Value {
     let mut pkgs: Vec<Value> = Vec::new();
     let mut classes: Vec<Value> = Vec::new();
@@ -1245,8 +1121,6 @@ pub fn layout(diagram: &Value) -> Value {
         stride = stride.max(1.0 + seq(get(p, "classes")).len() as f64);
     }
     let mut ovals: Vec<(Value, f64, f64)> = seq(get(diagram, "foreign")).iter().map(oval).collect();
-    // Only a single package ranked by `:levels` (top to bottom, or wide)
-    // sinks them.
     let direction = get(diagram, "direction").map(name);
     let horizontal = matches!(direction.as_deref(), Some("lr" | "rl"));
     let wide = get(diagram, "wide").and_then(num);
@@ -1281,7 +1155,6 @@ pub fn layout(diagram: &Value) -> Value {
             )
         })
         .collect();
-    // Sub-rows can push a package's ranks past its class count.
     for c in placed.iter().flat_map(|(inner, _, _)| inner) {
         stride = stride.max(1.0 + num(get(c, "rank").unwrap()).unwrap());
     }
@@ -1296,9 +1169,6 @@ pub fn layout(diagram: &Value) -> Value {
             put(c, "rect", r.translate(52.0, y + 44.0).to_value());
             put(c, "rank", numval(i as f64 * stride + rank));
         }
-        // Lanes are reserved inside the package: the frame spans them across
-        // the ranks as it spans the boxes, so a trailing lane is not drawn
-        // beside the frame.
         let mut across: Vec<f64> = Vec::new();
         for (ei, points) in through {
             across.extend(points.iter().map(|q| if horizontal { q[1] } else { q[0] }));

@@ -1,8 +1,3 @@
-//! Acceptance (#135): every EDN file in the repository (IR, policy, JVM
-//! goldens, `.metrics`, mail samples, evidence) round-trips.
-//! Round-trip means parse -> encode -> parse yields the same value, and the
-//! encoded bytes are a fixed point of encode(parse(_)).
-
 use std::path::{Path, PathBuf};
 
 fn repository() -> PathBuf {
@@ -39,8 +34,6 @@ fn repository_files() -> Vec<PathBuf> {
     files
 }
 
-/// Writes every non-ASCII character as `\uXXXX` (UTF-16, so astral
-/// characters become surrogate pairs). Non-ASCII only occurs inside strings.
 fn ascii_escaped(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -58,7 +51,6 @@ fn ascii_escaped(text: &str) -> String {
 
 #[test]
 fn repository_files_read_back_identically_when_written_with_unicode_escapes() {
-    // No checked-in file uses `\u` yet, so derive escaped twins of every file.
     let mut escaped_files = 0;
     let mut failures = Vec::new();
     for file in repository_files() {
@@ -83,8 +75,6 @@ fn repository_files_read_back_identically_when_written_with_unicode_escapes() {
 #[test]
 fn every_repository_edn_file_round_trips_byte_stably() {
     let files = repository_files();
-    // 169 tracked EDN files when this test was written; a walk that finds far
-    // fewer has silently lost a directory.
     assert!(files.len() >= 169, "found only {} EDN files", files.len());
     let mut failures = Vec::new();
     for file in &files {
@@ -119,9 +109,6 @@ fn every_repository_edn_file_round_trips_byte_stably() {
     );
 }
 
-/// An e2e scratch contains a pnpm `node_modules/dsh-uml-viewer` symlink back
-/// into the checkout. The repository walker must skip both the scratch and
-/// dependency trees rather than following that link forever (F9).
 #[test]
 fn repository_walk_skips_e2e_scratch_and_node_modules() {
     use std::sync::atomic::{AtomicUsize, Ordering};

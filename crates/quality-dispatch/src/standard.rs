@@ -1,14 +1,3 @@
-//! The `standardTools` route: the built-in `crap`, `mutate` and `dry`
-//! subcommands with the declared scope, as `uml_quality.py`
-//! `standard_command` builds their argv (ADR 0001 2026-11-01 appendix):
-//!
-//! - crap: `--full-tree --source-root R… --exclude G… <crapperOptions> <args>`
-//! - mutate: `-s R… --exclude G… <mutatorOptions> <options> <targets>`
-//! - dry: `-s R… --exclude G… <dryerOptions> <args>`
-//!
-//! Each runs in this process at the project root, so the tool keeps its own
-//! signal handling and exit contract.
-
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -61,7 +50,6 @@ pub fn run(
     })
 }
 
-/// `-s R…` (or `--source-root R…`) then `--exclude G…`.
 fn scope_args(standard: &Standard, flag: &str) -> Vec<String> {
     let roots = standard
         .source_roots
@@ -97,7 +85,6 @@ fn arguments(
     })
 }
 
-/// Caller options and named targets; `--changed` travels as a target.
 fn split(forward: &[String]) -> Result<(Vec<String>, Vec<String>), String> {
     let mut options = Vec::new();
     let mut names = Vec::new();
@@ -124,7 +111,6 @@ fn split(forward: &[String]) -> Result<(Vec<String>, Vec<String>), String> {
     Ok((options, names))
 }
 
-/// The declared roots, resolved; the project root without any.
 fn roots(root: &Path, standard: &Standard) -> Vec<PathBuf> {
     if standard.source_roots.is_empty() {
         return vec![root.to_path_buf()];
@@ -136,10 +122,6 @@ fn roots(root: &Path, standard: &Standard) -> Vec<PathBuf> {
         .collect()
 }
 
-/// `targets()`: every target in one call. `--changed` alone, or named
-/// files and directories forwarded as project-relative paths in the order
-/// named; out-of-scope targets are dropped with a note; nothing left is
-/// refused without launching.
 fn targets(
     root: &Path,
     standard: &Standard,
@@ -148,7 +130,6 @@ fn targets(
     let (options, names) = split(forward)?;
     if names.iter().any(|name| name == "--changed") && names.iter().any(|name| name != "--changed")
     {
-        // mutator takes only the changed set when given both.
         return Err(
             "--changed cannot be combined with named mutation targets; run them separately"
                 .to_string(),
@@ -204,8 +185,6 @@ fn target(
     Ok(None)
 }
 
-/// The languages each built-in tool reads, checked on its own selection so
-/// an unported language is an explicit error rather than an empty success.
 fn unported(
     root: &Path,
     operation: Operation,
@@ -213,7 +192,7 @@ fn unported(
     args: &[String],
 ) -> Option<String> {
     let reads: fn(Language) -> bool = match operation {
-        Operation::Crap => return None, // crapper reads all seven languages.
+        Operation::Crap => return None,
         Operation::Mutate => mutator::mutates,
         Operation::Dry => dryer::scans,
     };
@@ -247,7 +226,6 @@ fn unported(
     ))
 }
 
-/// Non-option arguments, skipping each value-taking option's value.
 fn positionals(args: &[String]) -> Vec<String> {
     let mut found = Vec::new();
     let mut index = 0;
@@ -267,8 +245,6 @@ fn positionals(args: &[String]) -> Vec<String> {
     found
 }
 
-/// Run `work` with the project root as the current directory, as the
-/// Python dispatch ran its tools (`cwd=root`).
 fn in_project<T>(root: &Path, work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     let previous = std::env::current_dir().map_err(|error| error.to_string())?;
     std::env::set_current_dir(root)

@@ -1,18 +1,3 @@
-//! The original dryer pytest cases, ported. Each file mirrors one Python
-//! test module of the pinned dryer b3f72ad; the expectations are the
-//! original assertions, not values recomputed from this implementation.
-//!
-//! `test_cli.py` is ported at the binary seam instead
-//! (`crates/uml-viewer/tests/{dry.rs,dry_goldens.rs,dry_languages.rs}`),
-//! because that is where the CLI contract is observable. `test_platform.py`
-//! was ported with #6. `test_guardrails.py` and `test_crapper_link.py` police
-//! the Python repository's own source layout and import fallback and have no
-//! Rust behaviour to port; see `fixtures/dry/README.md`.
-
-// Test code is the outside harness: the ported cases launch `git` to build
-// real repositories, exactly as the original pytest cases do. The module lives
-// under `#[cfg(test)]`, so this lift is test-only by construction and takes the
-// documented `cfg_attr(test, allow(...))` form instead of a blanket allow.
 #![cfg_attr(test, allow(clippy::disallowed_methods))]
 
 mod cli;
@@ -48,8 +33,6 @@ fn write_source(root: &Path, name: &str, text: &str) {
     fs::write(path, text).unwrap();
 }
 
-/// `sorted(path for path in root.rglob("*") if path.is_file())`: every file,
-/// not the discovery walk, exactly as the original helpers select.
 fn all_files(root: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
     fn walk(root: &Path, found: &mut Vec<PathBuf>) {
@@ -74,12 +57,10 @@ fn scan(root: &Path, min_lines: usize, min_nodes: usize) -> Vec<Entry> {
     entries
 }
 
-/// `pairs(root)`: every pair at threshold 0.99 with no size filter.
 fn pairs(root: &Path) -> Vec<Candidate> {
     crate::scan::duplicates(scan(root, 1, 1), 0.99)
 }
 
-/// `duplicates(root, ...)` with the original defaults (0.82, 4, 20).
 fn duplicates(root: &Path, threshold: f64, min_lines: usize, min_nodes: usize) -> Vec<Candidate> {
     crate::scan::duplicates(scan(root, min_lines, min_nodes), threshold)
 }

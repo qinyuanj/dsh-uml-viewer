@@ -5,32 +5,13 @@ import {
 } from 'node:fs'
 import path from 'node:path'
 
-/**
- * #32: packaged binaries live in `<home>/<version>/`, one directory per
- * plugin version, published atomically and never rewritten in place. A host
- * activation holds a lease on its version for as long as it may start
- * residents; cleanup removes only versions that are neither current nor
- * leased, and defers (never fails) when the OS still holds one in use.
- *
- * Layout under the plugin home:
- *   <version>/<exe>                 the pinned executable
- *   current.json                    the version the latest activation pinned
- *   leases/<version>/<id>.lease     one per live host activation (mtime heartbeat)
- *   .staging-<uuid>/                an in-progress copy (never used directly)
- *   .trash-<uuid>/                  a removed version whose deletion was deferred
- */
-
 export const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
-/** A lease not renewed for this long belongs to a host that is gone. */
 export const LEASE_TTL_MS = 10 * 60_000
 const HEARTBEAT_MS = 60_000
 
 export interface PinnedVersion {
-  /** The executable inside the version directory. */
   readonly binary: string
-  /** Hold this version until the returned disposer is called (e.g. child exit). */
   retain(): () => void
-  /** Release this activation's lease, then remove versions nobody uses. */
   release(): void
 }
 
@@ -138,7 +119,6 @@ function ownerMayBeAlive(file: string): boolean {
   return processAlive(record.pid as number)
 }
 
-/** PIDs of the live leases on `version`, other than this activation's. */
 function liveLeasePids(home: string, version: string, own: string): number[] {
   const directory = path.join(home, 'leases', version)
   const pids: number[] = []
@@ -157,17 +137,14 @@ function liveLeasePids(home: string, version: string, own: string): number[] {
         if (Number.isSafeInteger(record.pid)) pids.push(record.pid as number)
       }
     } catch {
-      // An unreadable lease is treated as live by cleanup; do not name it.
     }
   }
   return pids
 }
 
-/** Serialize publication and retirement across hosts, so cleanup cannot race a spawn's pin. */
 function withStoreLock<T>(home: string, run: () => T): T {
   const lock = path.join(home, '.store-lock')
   const owner = path.join(lock, 'owner.json')
-  // The critical section is one copy of the executable or one directory move.
   const deadline = Date.now() + 2_000
   for (;;) {
     let acquired = false
@@ -186,17 +163,12 @@ function withStoreLock<T>(home: string, run: () => T): T {
       }
     }
     const age = lockAge(lock)
-    // A mutex section is one copy or one directory move. Nothing legitimate
-    // holds it for the lease grace period, so an ancient lock is reclaimed even
-    // when its PID now belongs to an unrelated process (reuse after a crash).
-    // Publication stays correct without exclusivity: rename plus verification.
     if (age !== null && age > LEASE_TTL_MS) {
       removeQuietly(lock)
       continue
     }
     let holder: number | null = null
     try {
-      // Only inspect the lock's named owner. A reused PID is conservative.
       const record = JSON.parse(readFileSync(owner, 'utf8')) as { pid?: unknown }
       holder = Number.isSafeInteger(record.pid) ? record.pid as number : null
       if (holder !== null && !processAlive(holder)) {
@@ -204,8 +176,6 @@ function withStoreLock<T>(home: string, run: () => T): T {
         continue
       }
     } catch (error) {
-      // A lock with no readable owner is reclaimable once it is clearly not
-      // being written right now, so a truncated record cannot wedge the store.
       if (age !== null && age > 2_000) {
         removeQuietly(lock)
         continue
@@ -238,7 +208,6 @@ function processAlive(pid: number): boolean {
   }
 }
 
-/** Live leases on `version`, other than `own`. Stale ones are removed on the way. */
 function liveLeases(home: string, version: string, own?: string, now = Date.now()): number {
   const directory = path.join(home, 'leases', version)
   let names: string[]
@@ -258,17 +227,13 @@ function liveLeases(home: string, version: string, own?: string, now = Date.now(
       }
       unlinkSync(file)
     } catch (error) {
-      // Only an entry that vanished is known unused. Any other inability to
-      // inspect/remove a lease is conservative: keep the version.
       if (errorCode(error) !== 'ENOENT') live += 1
     }
   }
   if (live === 0 && own === undefined) {
     try {
-      // Only an empty directory goes; a lease written meanwhile keeps it.
       rmdirSync(directory)
     } catch {
-      // Not empty, already gone, or a directory in use.
     }
   }
   return live
@@ -284,12 +249,10 @@ function acquireLease(home: string, version: string): { file: string; stop(): vo
     try {
       utimesSync(file, now, now)
     } catch {
-      // A lease removed as stale (host suspended past the TTL) is written again.
       try {
         mkdirSync(directory, { recursive: true })
         writeFileSync(file, `${JSON.stringify({ pid: process.pid, version, since: now.toISOString() })}\n`)
       } catch {
-        // Best effort; the next heartbeat retries.
       }
     }
   }, HEARTBEAT_MS)
@@ -301,13 +264,11 @@ function acquireLease(home: string, version: string): { file: string; stop(): vo
       try {
         unlinkSync(file)
       } catch {
-        // Already gone.
       }
     },
   }
 }
 
-/** Copy `source` into a private staging directory and verify the copy. */
 function stage(home: string, source: string, name: string, expected: Digest, platform: string): string {
   const staging = path.join(home, `.staging-${randomUUID()}`)
   mkdirSync(staging)
@@ -323,12 +284,6 @@ function stage(home: string, source: string, name: string, expected: Digest, pla
   }
 }
 
-/**
- * Publish `source` as `<home>/<version>/<name>` and lease it for this
- * activation. An existing version directory is reused only when its bytes
- * match the payload; one with other bytes is replaced only when no other
- * host leases it and the OS lets it move, otherwise activation refuses.
- */
 export function pinVersion(home: string, version: string, source: string, name: string,
   platform: string = process.platform): PinnedVersion {
   if (!VERSION_PATTERN.test(version)) throw new Error(`Invalid uml-viewer version directory name: ${version}`)
@@ -337,8 +292,6 @@ export function pinVersion(home: string, version: string, source: string, name: 
 }
 
 function pinLocked(home: string, version: string, source: string, name: string, platform: string): PinnedVersion {
-  // Lease before looking: cleanup re-checks leases after it moved a directory
-  // away, so either it sees this lease and restores, or this sees it gone.
   const lease = acquireLease(home, version)
   try {
     const expected = digest(source)
@@ -383,11 +336,8 @@ function publish(home: string, version: string, directory: string, binary: strin
       } catch (error) {
         if (!['EEXIST', 'ENOTEMPTY', 'EPERM', 'EACCES', 'EBUSY'].includes(errorCode(error) ?? '')) throw error
       }
-      // Another activation published first: its complete copy is as good as ours.
       if (sameDigest(binary, expected)) return
       if (!statExists(directory)) continue
-      // Same version, other bytes. Never write into it; move it away only when
-      // no other host leases it and the OS agrees nothing runs from it.
       if (liveLeases(home, version, ownLease) > 0 || heldOnWindows(directory, platform)) {
         const owners = liveLeasePids(home, version, ownLease)
         const who = owners.length
@@ -427,16 +377,10 @@ function currentVersion(home: string): string | null {
   }
 }
 
-/**
- * Remove every version directory that is neither the current version, nor
- * `keep`, nor leased by a live host. Never throws: a directory the OS still
- * holds (a running exe on Windows) stays until a later cleanup.
- */
 export function cleanupVersions(home: string, keep?: string): void {
   try {
     withStoreLock(home, () => cleanupUnlocked(home, keep))
   } catch {
-    // A busy store is retried by the next activation or lease release.
   }
 }
 
@@ -452,26 +396,20 @@ function cleanupUnlocked(home: string, keep?: string): void {
   for (const name of names) {
     const entry = path.join(home, name)
     if (name.startsWith('.trash-')) {
-      // A version kept aside while its exe was still mapped is removed by a
-      // later cleanup once nothing holds it.
       if (!heldOnWindows(entry, process.platform)) removeQuietly(entry)
       continue
     }
     if (name.startsWith('.staging-')) {
-      // An activation that crashed mid-copy; a live one finishes in seconds.
       try {
         if (now - statSync(entry).mtimeMs > LEASE_TTL_MS) removeQuietly(entry)
       } catch {
-        // Gone meanwhile.
       }
       continue
     }
     if (name.startsWith('current.json.') && name.endsWith('.tmp')) {
-      // A crash during an atomic current.json write; the next one replaces it.
       try {
         if (now - statSync(entry).mtimeMs > LEASE_TTL_MS) removeQuietly(entry)
       } catch {
-        // Gone meanwhile.
       }
       continue
     }
@@ -497,7 +435,6 @@ function retire(home: string, version: string, entry: string): void {
   try {
     renameSync(entry, trash)
   } catch {
-    // An open handle blocks the move. Deferred to the next cleanup.
     return
   }
   if (liveLeases(home, version) > 0 || heldOnWindows(trash, process.platform)) {
@@ -505,7 +442,6 @@ function retire(home: string, version: string, entry: string): void {
       renameSync(trash, entry)
       return
     } catch {
-      // An activation already republished a verified copy there.
     }
   }
   removeQuietly(trash)

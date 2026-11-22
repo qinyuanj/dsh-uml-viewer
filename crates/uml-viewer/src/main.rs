@@ -1,19 +1,8 @@
-//! The single uml-viewer binary (#134). It only dispatches: each role is a
-//! subcommand whose implementation lives in its own workspace library crate
-//! (`crates/<role>`), exposing `pub fn run(args: &[OsString]) -> ExitCode`.
-//! All roles are ported (#134-#139); the standalone `viewer` window was
-//! deleted with its crate (dsh-uml-viewer#30), so the panel's `resident`
-//! session is the only viewer. Arguments after the subcommand are passed on
-//! literally (no re-quoting, no lossy UTF-8 conversion). A missing or
-//! unknown subcommand is a usage error.
-
 use std::ffi::OsString;
 use std::process::ExitCode;
 
 type Entry = fn(&'static str, &[OsString]) -> ExitCode;
 
-/// Role table: each role wraps its crate's `run`, e.g. `|_, args| ir::run(args)`.
-/// The Herdr companion roles left with the companion (#18).
 const ROLES: &[(&str, &str, Entry)] = &[
     (
         "ir",
@@ -52,7 +41,6 @@ const ROLES: &[(&str, &str, Entry)] = &[
     ),
 ];
 
-/// Command-line usage error.
 const USAGE: u8 = 2;
 
 fn usage() -> String {

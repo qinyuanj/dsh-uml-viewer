@@ -1,5 +1,3 @@
-//! `dryer/tests/test_languages.py` at pinned b3f72ad, ported case by case.
-
 use super::{forms, pairs, printed_fingerprints, scratch, spans, write_source};
 use crate::extract::Entry;
 use crate::normalize::normalized;
@@ -585,10 +583,6 @@ fn a_returned_lua_function_is_not_an_entry() {
     assert_eq!(lua_starts(source), Vec::<usize>::new());
 }
 
-/// The original compares `repr(normalize(...))`, whose `K` reprs are object
-/// addresses; the port compares the printed form (`pr`), the value the
-/// fingerprints are actually built from, so the same distinction is asserted
-/// without depending on CPython's allocator.
 #[test]
 fn lua_operators_count_only_in_lua() {
     fn print(language: Option<Language>, source: &str, grammar: Grammar) -> String {

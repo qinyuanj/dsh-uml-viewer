@@ -1,6 +1,3 @@
-//! Rectangle and gap geometry, ported from the `edges_spec`/`viewer_spec`
-//! gap and hit geometry examples (the Lua busted suite is the oracle).
-
 use crate::geom::{self, Rect};
 use edn::{Value, parse};
 
@@ -29,7 +26,6 @@ fn show(strokes: &[Vec<[f64; 2]>]) -> Value {
 
 #[test]
 fn gap_polyline_clips_merged_obstacles_with_jvm_padding() {
-    // edges_spec: merged wall rects 40..60 and 55..70, pad 5.
     let ps = points("[[0 0] [100 0]]");
     let rs = rects("[{:x 40 :y -10 :w 20 :h 20} {:x 55 :y -10 :w 15 :h 20}]");
     let got = show(&geom::gap_polyline(&ps, &rs, 5.0));
@@ -63,7 +59,6 @@ fn rect_algebra_matches_the_lua_helpers() {
 
 #[test]
 fn clipped_strokes_never_hit_the_hidden_gap() {
-    // prepare_scene geometry without compose: build the strokes directly.
     let ps: Vec<[f64; 2]> = vec![[0.0, 0.0], [100.0, 0.0]];
     let strokes = geom::gap_polyline(&ps, &[Rect::new(40.0, -10.0, 20.0, 20.0)], 5.0);
     assert_eq!(2, strokes.len());
@@ -80,8 +75,6 @@ fn clipped_strokes_never_hit_the_hidden_gap() {
     );
 }
 
-/// Every segment clipped against every rect, pieces joined: `gap_polyline`
-/// without its rect filter (#186).
 fn gap_polyline_unfiltered(ps: &[[f64; 2]], rects: &[Rect], pad: f64) -> Vec<Vec<[f64; 2]>> {
     let mut out: Vec<Vec<[f64; 2]>> = Vec::new();
     for seg in ps.windows(2) {
@@ -101,9 +94,6 @@ fn gap_polyline_unfiltered(ps: &[[f64; 2]], rects: &[Rect], pad: f64) -> Vec<Vec
 
 #[test]
 fn the_rect_filter_keeps_strokes_bit_for_bit() {
-    // A long wavy edge past a grid of boxes, then segments lying exactly on
-    // each padded side of a box: the filtered clip must produce the very
-    // same floats as clipping against every rect.
     let ps: Vec<[f64; 2]> = (0..400)
         .map(|i| {
             let t = i as f64 * 0.37;
@@ -130,7 +120,6 @@ fn the_rect_filter_keeps_strokes_bit_for_bit() {
         .collect();
     rs.push(Rect::new(5005.0, 7000.0, 40.0, 40.0));
     rs.push(Rect::new(4900.0, 7105.0, 40.0, 40.0));
-    // Segments lying on the padded left, right, top and bottom sides.
     rs.push(Rect::new(5900.0, 100.0, 95.0, 50.0));
     rs.push(Rect::new(6100.0, 305.0, 50.0, 50.0));
     rs.push(Rect::new(6400.0, 520.0, 50.0, 75.0));

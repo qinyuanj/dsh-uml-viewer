@@ -29,9 +29,6 @@ it('pins the profile’s explicitly installed platform payload instead of a nest
     await writeFile(path.join(directory, 'package.json'), JSON.stringify({ name: dependency, version: '1.0.0' }))
     await writeFile(path.join(directory, 'bin', executable), payload)
   }
-  // pnpm keeps the explicitly supplied tarball at the profile's top level, but
-  // also installs the now-published semver optional dependency below the main
-  // package. Node resolution from the main package sees the latter first.
   await platformPackage(profileModules, 'explicit local platform payload')
   await platformPackage(path.join(root, 'node_modules'), 'published registry platform payload')
 

@@ -1,10 +1,4 @@
 #![cfg_attr(test, allow(clippy::disallowed_methods))]
-//! Copy isolation's two boundaries (#102): what a copy excludes, and which
-//! links it refuses.
-//!
-//! A copy is the only isolation Windows has (ADR 0002), so these tests use the
-//! same unprivileged directory junction the runtime meets, and none of them
-//! needs a toolchain or a test command.
 use super::{Exclusions, copy_tree, hidden_paths, is_cargo_test_command, runs_javascript};
 use crate::scratch;
 use std::{
@@ -13,10 +7,8 @@ use std::{
     process::Command,
 };
 
-/// The suite the Rust mutation path plans (#123).
 const SUITE: &str = crate::rust_suite::RUN;
 
-/// A scratch root holding one empty project directory.
 fn scratch_project() -> (scratch::Root, PathBuf) {
     let temporary = scratch::Root::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
     let project = temporary.path().join("project");
@@ -36,8 +28,6 @@ fn junction(link: &Path, target: &Path) {
     assert!(status.success(), "mklink /J failed for {}", link.display());
 }
 
-/// Copy `project` into a sibling directory, as a command naming `command`
-/// would, and return that copy.
 fn copy(project: &Path, command: &str) -> std::io::Result<PathBuf> {
     let destination = project.with_file_name("copy");
     fs::create_dir(&destination)?;
@@ -49,19 +39,11 @@ fn copy(project: &Path, command: &str) -> std::io::Result<PathBuf> {
     Ok(destination)
 }
 
-/// The ticket's decisive case: a link whose target is gone refuses nothing.
-///
-/// A dangling link cannot carry a write out of the copy, so the copy skips it.
-/// This is the shape that stopped every mutation run in this repository: a
-/// leftover test fixture, and a package manager's broken store entry.
 #[test]
 fn a_link_to_nothing_is_skipped_instead_of_refusing_the_project() {
     let (temporary, project) = scratch_project();
     fs::create_dir(project.join("src")).unwrap();
     fs::write(project.join("src/lib.rs"), b"pub fn one() {}\n").unwrap();
-    // The link exists first and its target is removed after, which is how a
-    // stale test fixture and a package manager's dead store entry appear: a
-    // reparse point whose target is no longer there.
     let target = temporary.path().join("never-built");
     fs::create_dir(&target).unwrap();
     junction(&project.join("src").join("gone"), &target);
@@ -79,9 +61,6 @@ fn a_link_to_nothing_is_skipped_instead_of_refusing_the_project() {
     );
 }
 
-/// The safety property the ticket forbids trading away: a link to a real
-/// directory is still refused, because it is a route a mutant's write could
-/// take back into the checkout.
 #[test]
 fn a_link_to_a_real_directory_is_still_refused() {
     let (temporary, project) = scratch_project();
@@ -96,8 +75,6 @@ fn a_link_to_a_real_directory_is_still_refused() {
     assert_eq!(fs::read(outside.join("keep.txt")).unwrap(), b"original");
 }
 
-/// The overlay rule this ticket must keep: a hidden directory is present and
-/// empty in the copy, never absent.
 #[test]
 fn a_hidden_directory_is_an_empty_directory_in_the_copy() {
     let (_temporary, project) = scratch_project();
@@ -119,9 +96,6 @@ fn a_hidden_directory_is_an_empty_directory_in_the_copy() {
     assert_eq!(fs::read(copy.join("lib.rs")).unwrap(), b"pub fn one() {}\n");
 }
 
-/// The pnpm layout that made the whole repository unmutatable: a workspace
-/// package carries its own `node_modules`, full of links into the store, below
-/// a directory the project does not ignore at its root.
 #[test]
 fn a_package_dependency_tree_is_hidden_at_any_depth() {
     let (temporary, project) = scratch_project();
@@ -158,8 +132,6 @@ fn a_package_dependency_tree_is_hidden_at_any_depth() {
     );
 }
 
-/// An excluded name reaches the list from the project's own declaration, not
-/// from a list in this module: only a literal, top-level directory line counts.
 #[test]
 fn the_project_ignore_rules_supply_the_excluded_names() {
     let (_temporary, _project) = scratch_project();
@@ -179,11 +151,6 @@ fn the_project_ignore_rules_supply_the_excluded_names() {
     }
 }
 
-/// The other half of the rule (#102): an ignored path can be a build input.
-///
-/// The TypeScript lane runs the package's own `node_modules/.bin` shim inside
-/// the copy, so a JavaScript command keeps its dependency tree -- files and
-/// all -- exactly as before this ticket.
 #[test]
 fn a_javascript_command_keeps_the_dependency_tree() {
     let (_temporary, project) = scratch_project();
@@ -217,9 +184,6 @@ fn a_javascript_command_keeps_the_dependency_tree() {
     );
 }
 
-/// The command, not the path, decides whether a dependency tree is hidden:
-/// this repository's own mutation command is Cargo's test suite, so its
-/// `node_modules` never reaches a copy.
 #[test]
 fn only_a_javascript_command_asks_for_a_dependency_tree() {
     for (command, javascript) in [
@@ -236,9 +200,6 @@ fn only_a_javascript_command_asks_for_a_dependency_tree() {
     }
 }
 
-/// #123: the fail-fast nextest suite is Cargo's suite too, so the incremental
-/// compilation reuse (#112) that `cargo test` had keeps working, and no other
-/// command inherits it.
 #[test]
 fn the_fail_fast_nextest_suite_is_a_cargo_test_command() {
     let suite = crate::rust_suite::command();
@@ -255,9 +216,6 @@ fn the_fail_fast_nextest_suite_is_a_cargo_test_command() {
     }
 }
 
-/// #105: a refusal while the copy is being prepared can never be a test
-/// outcome -- no command has run yet -- so the caller's exit code must say
-/// "no isolation", never "a red suite".
 #[test]
 fn a_copy_failure_is_isolation_not_a_test_outcome() {
     let failure = super::copy_failure(std::io::Error::new(
@@ -272,8 +230,6 @@ fn a_copy_failure_is_isolation_not_a_test_outcome() {
     assert!(text.contains("access denied"), "{text}");
 }
 
-/// A copy failure that already names its cause keeps its own words instead of
-/// being wrapped a second time.
 #[test]
 fn a_named_copy_failure_keeps_its_own_message() {
     let named = "Copy isolation cannot place a fixture beside the copy: denied";

@@ -1,5 +1,3 @@
-// Test-only deterministic companion vocabulary, NOT an EDN parser or policy writer.
-// Only the lane's Deep scratch policy and exact panel message forms are supported.
 export const VIEW_POLICY = `; Companion acceptance: keep this comment and the deliberate spacing. 草稿
 {:hierarchical true
  :title "Deep"

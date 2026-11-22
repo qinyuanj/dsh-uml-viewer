@@ -1,8 +1,3 @@
-// #29 seam: hiding an element, choosing the discussion context and adding a
-// proposal become visible queued user messages in the panel's bound session,
-// through DSH's `sessionController.prompt` shape, in click order. The built
-// plugin runs in a real Cordis Context; a real child speaks the resident
-// protocol (its frame is the producer golden) and serves IR and quality too.
 import { Context } from '@deepseek-ai/cordis'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -98,7 +93,6 @@ async function setup(options: { resident?: Record<string, unknown>; controller?:
     watch(agent: Agent, signal: AbortSignal): AsyncIterable<PanelEvent>
     action(agent: Agent, action: unknown): Promise<{ accepted: boolean; reason: string | null }>
   }
-  /** Open a panel stream and keep reading it, so the test sees every event. */
   const open = async (session: string) => {
     const controller = new AbortController()
     controllers.push(controller)
@@ -118,7 +112,6 @@ async function setup(options: { resident?: Record<string, unknown>; controller?:
   const tool = (name: string, args: unknown, session = 'session-a') =>
     definitions.get(name)!.execute(args, { agent: agents[session], signal: new AbortController().signal } as ToolRunContext) as unknown as
       Promise<Record<string, unknown>>
-  /** The actions the fake resident received, in order. */
   const actions = async (session: string): Promise<{ action: string }[]> => {
     const file = path.join(projects[session]!, 'resident-actions.log')
     if (!existsSync(file)) return []
@@ -129,7 +122,6 @@ async function setup(options: { resident?: Record<string, unknown>; controller?:
     hold(fn: typeof hold) { hold = fn }, reject(fn: typeof reject) { reject = fn } }
 }
 
-/** The request id a message carries, so a later tool call can present it. */
 function requestIdOf(text: string): string {
   const match = /:request "([0-9a-f]+)"\}$/.exec(text)
   expect(match, text).not.toBeNull()
@@ -157,11 +149,8 @@ it('hides a class or a component of the shown diagram with one queued message na
   expect(api).toMatch(new RegExp(`^${header}\\{:op :omit :target \\{:id :api :kind :class\\} :context \\{:context :real\\} :request "[0-9a-f]{32}"\\}$`))
   expect(view).toMatch(/^UML viewer panel request:\n\{:op :omit :target \{:id :view :kind :component\} :context \{:context :real\} :request "[0-9a-f]{32}"\}$/)
   expect(requestIdOf(api!)).not.toBe(requestIdOf(view!))
-  // Hiding changes nothing on screen by itself: the panel refreshes only when
-  // the companion's uml_ir succeeded and uml_display showed the new IR.
   await new Promise(resolve => setTimeout(resolve, 100))
   expect(panel.events.filter(event => event.kind === 'frame')).toHaveLength(framesBefore)
-  // Nor is the resident asked to change anything: the companion edits the policy.
   expect((await s.actions('session-a')).slice(actionsBefore)).toEqual([])
 })
 
@@ -190,11 +179,9 @@ it('tells the companion the chosen discussion context, after the resident switch
   const panel = await s.open('session-a')
   expect(await s.act('session-a', { action: 'context', proposalId: ':p-shop' })).toEqual({ accepted: true, reason: null })
   expect(s.texts()).toEqual([`${header}{:op :context :context {:context :proposal :proposal-id :p-shop}}`])
-  // The view switched as before: the resident got the action, the panel the new context.
   expect((await s.actions('session-a')).filter(entry => entry.action === 'context')).toEqual([
     expect.objectContaining({ action: 'context', proposalId: ':p-shop' })])
   await until(() => panel.events.some(event => event.kind === 'context' && event.context.kind === 'proposal'))
-  // Later requests are about that diagram until another context arrives.
   expect(await s.act('session-a', { action: 'omit', id: ':api' })).toEqual({ accepted: true, reason: null })
   expect(s.texts()[1]).toMatch(/^UML viewer panel request:\n\{:op :omit :target \{:id :api :kind :class\} :context \{:context :proposal :proposal-id :p-shop\} :request "[0-9a-f]{32}"\}$/)
   expect(await s.act('session-a', { action: 'context', proposalId: null })).toEqual({ accepted: true, reason: null })
@@ -247,8 +234,6 @@ it('admits hide, context and new-proposal requests strictly in click order, one 
   await until(() => s.started.length >= 1)
   await new Promise(resolve => setTimeout(resolve, 200))
   expect(s.started).toHaveLength(1)
-  // The switch behind the held hide has not reached the resident either, so
-  // the hide still names the source diagram.
   expect((await s.actions('session-a')).some(entry => entry.action === 'context')).toBe(false)
   release()
   const acks = await Promise.all(answers)
@@ -266,11 +251,9 @@ it('runs uml_ir for a granted request after a failed quality call; display still
   const panel = await s.open('session-a')
   await writeFile(path.join(root, 'quality-binary.json'), JSON.stringify({ exitCode: 1 }))
   expect(await s.tool('uml_crap', {})).toMatchObject({ validResult: false })
-  // Without the id nothing changed: the failed quality call blocks IR.
   expect(await s.tool('uml_ir', {})).toMatchObject({ status: 'refused', reason: expect.stringMatching(/latest quality call/) })
   expect(await s.act('session-a', { action: 'omit', id: ':api' })).toEqual({ accepted: true, reason: null })
   const request = requestIdOf(s.texts()[0]!)
-  // A failing IR for the request: it consumed the id, display is refused, the panel is unchanged.
   await writeFile(path.join(root, 'fake-binary.json'), JSON.stringify({ exitCode: 1, stderr: 'policy error\n' }))
   expect(await s.tool('uml_ir', { request })).toMatchObject({ status: 'error', validResult: false, exitCode: 1 })
   expect(JSON.parse(await readFile(path.join(root, 'invocation.json'), 'utf8')).args.join(' ')).not.toContain(request)
@@ -278,11 +261,9 @@ it('runs uml_ir for a granted request after a failed quality call; display still
   expect(await s.tool('uml_display', {})).toMatchObject({ status: 'refused', validResult: false })
   await new Promise(resolve => setTimeout(resolve, 100))
   expect(panel.events.filter(event => event.kind === 'frame')).toHaveLength(frames)
-  // The id is single-use, success or failure.
   await writeFile(path.join(root, 'fake-binary.json'), JSON.stringify({ exitCode: 0 }))
   expect(await s.tool('uml_ir', { request })).toMatchObject({ status: 'refused', reason: expect.stringMatching(/unknown or was already used/) })
   expect(await s.tool('uml_display', {})).toMatchObject({ status: 'refused' })
-  // A fresh request id: IR succeeds, then display refreshes the panel.
   expect(await s.act('session-a', { action: 'new-proposal', name: 'Next' })).toEqual({ accepted: true, reason: null })
   expect(await s.tool('uml_ir', { request: requestIdOf(s.texts()[1]!) })).toMatchObject({ status: 'ok', validResult: true })
   expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', validResult: true })
@@ -301,7 +282,6 @@ it('refuses a request id from another session, an unknown one, and context messa
   expect(await s.tool('uml_ir', { request: 'f'.repeat(32) })).toMatchObject({ status: 'refused',
     reason: expect.stringMatching(/unknown or was already used/) })
   expect(await s.tool('uml_ir', { request: 'nope' })).toMatchObject({ validResult: false, reason: expect.stringMatching(/request id/) })
-  // The foreign presentation did not burn session A's id.
   expect(await s.tool('uml_ir', { request })).toMatchObject({ status: 'ok', validResult: true })
   expect(await s.act('session-a', { action: 'context', proposalId: null })).toEqual({ accepted: true, reason: null })
   expect(s.texts()[1]).not.toContain(':request')
@@ -320,7 +300,6 @@ it('keeps a granted uml_ir behind an in-flight quality call', async () => {
   await new Promise(resolve => setTimeout(resolve, 100))
   expect(existsSync(path.join(root, 'invocation.json'))).toBe(false)
   expect(await crap).toMatchObject({ validResult: false })
-  // It ran after the failed call ended, and the grant let it run anyway.
   expect(await ir).toMatchObject({ status: 'ok', validResult: true })
   expect((await readFile(path.join(root, 'quality-events.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line).event))
     .toEqual(['start', 'end'])
@@ -345,31 +324,22 @@ it('carries the #29 request formats and the request-id rule in the embedded comp
   }
 })
 
-// #54: 「在面板中查看」 locates the element the answered panel request named, so
-// the display result must say which element a request was about, once, and only
-// for the session that made the request.
 it('names the element a display answers in its result, once, for that session alone', async () => {
   const s = await setup({
     resident: { qualityTargets: { ':core': { kind: 'component', files: ['src/core/order.ts'] } } },
   })
   await s.open('session-a')
-  // A display that answers no request names no element: the conversation only opens the tab.
   expect(await s.tool('uml_ir', {})).toMatchObject({ status: 'ok' })
   expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: null })
-  // The request admitted in this session names its element for the display that answers it.
   expect(await s.act('session-a', { action: 'quality-request', request: 'refresh-crap', id: ':core' }))
     .toEqual({ accepted: true, reason: null })
   expect(await s.tool('uml_ir', {})).toMatchObject({ status: 'ok' })
   expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: { id: ':core', kind: 'component' } })
-  // The next display answers no request: the target belonged to the one before it.
   expect(await s.tool('uml_display', {})).toMatchObject({ status: 'ok', target: null })
-  // Another session's display names nothing of this session's request.
   expect(await s.tool('uml_ir', {}, 'session-b')).toMatchObject({ status: 'ok' })
   expect(await s.tool('uml_display', {}, 'session-b')).toMatchObject({ status: 'ok', target: null })
 })
 
-// #51 request status A: a hide and a new proposal are queued under the id their
-// uml_ir presents; a context switch is done once admitted; a refusal fails.
 function statuses(events: PanelEvent[]) {
   return events.flatMap(event => event.kind === 'request-status' ? [event.requests] : [])
 }
@@ -405,8 +375,6 @@ it('fails a refused hide, context switch or proposal with the admission reason',
   await s.act('session-a', { action: 'new-proposal', name: 'Next' })
   await until(() => statuses(panel.events).at(-1)?.length === 3)
   expect(statuses(panel.events).at(-1)).toEqual([
-    // #52 F26: the element the browser clicked is named even though the hide
-    // was refused; a context switch or proposal names none.
     { id: expect.any(String), op: 'omit', target: { id: ':serde', kind: 'class' }, state: 'failed',
       reason: expect.stringMatching(/foreign library/), exitCode: null },
     { id: expect.any(String), op: 'context', target: null, state: 'failed', reason: 'unknown proposal :gone', exitCode: null },

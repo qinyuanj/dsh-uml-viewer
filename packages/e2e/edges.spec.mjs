@@ -2,8 +2,6 @@ import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
 import { producerFrame, sample, same, toScreen, panelCamera, inkCount } from './canvas.mjs'
 
-// #25: real source -> uml_ir -> resident -> panel. The separate binary frame
-// supplies the geometry; assertions read the displayed canvas, not paint calls.
 const relations = {
   association: 'open', dependency: 'open', inheritance: 'triangle',
   implements: 'triangle', aggregation: 'diamond', composition: 'diamond-fill',
@@ -13,7 +11,6 @@ const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t)
 const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1])
 
 async function colors(panel) {
-  // Resolve the host's public theme tokens independently of the painter.
   return panel.panel.evaluate(el => {
     const style = getComputedStyle(el)
     const ctx = document.createElement('canvas').getContext('2d')
@@ -43,8 +40,6 @@ function visible(frame, [x, y], margin = 8) {
   return x > margin && y > 65 && x < frame.viewport.width - margin && y < frame.viewport.height - margin
 }
 
-// Uniform arc-length probes catch dash gaps as well as missing or straightened
-// curves. Skip the heads, class interiors and screen chrome.
 function shaftPoints(frame, stroke) {
   const points = stroke.points.map(p => toScreen(frame, ...p))
   const classes = frame.world.filter(p => p.kind === 'class').map(p => {
@@ -85,14 +80,10 @@ async function expectHeads(panel, frame, palette, { dimmed = false } = {}) {
     const dim = head.dimmed ? frame.style.dimAlpha / 255 : 1
     const relation = mix(background, palette.relation, dim)
     const outline = violating ? (dimmed ? p => p[0] > p[1] + 10 : red) : p => same(p, relation, 35)
-    // Both wings must be inked. Their independent positions come from UML's
-    // 20-degree open/closed head geometry, not a painter helper.
     const wing = Math.sin(Math.PI / 9) * 0.65
     const along = Math.cos(Math.PI / 9) * 0.65
     expect(await near(panel, [at(along, wing), at(along, -wing)], outline), `${head.to} wings`).toEqual([true, true])
     if (head.head !== 'open') {
-      // These pixels lie on the shaft, inside the closed head: the opaque
-      // fill must mask it even when the outline and shaft are dimmed.
       const interior = await sample(panel, [at(0.55), at(0.65)])
       const fill = head.head === 'diamond-fill' ? palette.ink : background
       for (const pixel of interior) expect(same(pixel, fill, 22), `${head.to} opaque interior ${pixel}, fill ${fill}`).toBe(true)
@@ -101,7 +92,7 @@ async function expectHeads(panel, frame, palette, { dimmed = false } = {}) {
 }
 
 async function settled(panel) {
-  await panel.page.mouse.move(2, 2) // no local hover recoloring the sampled edge
+  await panel.page.mouse.move(2, 2)
   await panel.page.waitForTimeout(350)
 }
 
@@ -109,7 +100,6 @@ test('six relation heads and solid curved shafts, with red violating dependencie
   const lane = await launchViewerLane(browser)
   try {
     const panel = await lane.openPanel('nexus')
-    // Enlarge the central head region with real wheel input for interior reads.
     for (let i = 0; i < 6 && (await panelCamera(panel)).zoom < 0.9; i += 1) await lane.wheel(panel, -1)
     await settled(panel)
     const frame = await producerFrame(panel, { root: lane.projects.nexus, home: lane.home })
@@ -141,14 +131,11 @@ test('closed heads stay opaque when relations dim, including the mesh scale', as
     const at = toScreen(frame, observer.rect.x + observer.rect.w / 2, observer.rect.y + observer.rect.h / 2)
     await panel.canvas.click({ position: { x: at[0], y: at[1] } })
     await expect(panel.summary).toHaveAttribute('data-selected', ':observer')
-    // Restore the head region after selecting the observer.
     await panel.canvas.focus()
     await panel.page.keyboard.press('Control+0')
     await settled(panel)
     const palette = await colors(panel)
     for (const zoom of [0.9, 0.5]) {
-      // At 0.5 the native mesh path previously flushed shafts over heads;
-      // the panel must keep the opaque head above its shaft at either scale.
       if (zoom === 0.9) {
         for (let i = 0; i < 6 && (await panelCamera(panel)).zoom < 0.9; i += 1) await lane.wheel(panel, -1)
         await settled(panel)
@@ -172,9 +159,6 @@ test('proposal relation stays solid in full and frames tiers and disappears in b
     const options = { root: lane.projects.ledger, home: lane.home, extra: '{:proposal true :proposal-id :p-ledger}' }
     const palette = await colors(panel)
     let frame = await producerFrame(panel, options)
-    // The proposal banner left the frame (#46): the proposal's name is the top
-    // bar's discussion context and the path's root, and the frame is the
-    // diagram alone.
     expect(frame.chrome).toEqual([])
     await expect(panel.panel.locator('.dsh-uml-viewer-switcher-name')).toHaveText('Ledger proposal')
     await expect(panel.panel.locator('.dsh-uml-viewer-crumbs [aria-current="page"]')).toHaveText('Ledger proposal')
@@ -203,8 +187,6 @@ test('triangles mode paints incoming/outgoing indicators and preserves violating
   const lane = await launchViewerLane(browser)
   try {
     const panel = await lane.openPanel('nexus')
-    // 移除箭头 is the 「更多」 menu's toggle now (#46): it names :triangles
-    // instead of cycling through every declutter mode.
     const more = panel.panel.getByRole('button', { name: 'More actions', exact: true })
     const arrows = () => panel.panel.locator('.dsh-uml-viewer-more-menu')
       .getByRole('menuitemcheckbox', { name: 'Remove arrows', exact: true })
@@ -232,12 +214,8 @@ test('triangles mode paints incoming/outgoing indicators and preserves violating
       const ownerTop = toScreen(frame, owner.rect.x, owner.rect.y)[1]
       const incoming = center[1] < ownerTop
       directions.push(incoming ? 'in' : 'out')
-      // Incoming indicators sit above their owner and point up; outgoing
-      // indicators sit below it and point down (scene::hit::dep_indicators).
       const apex = Math.abs(points[1][1] - points[2][1]) < 0.01 ? points[0] : points[2]
       expect(apex[1] < center[1], `${indicator.id} indicator direction`).toBe(incoming)
-      // The filled triangle's centroid is ink, dimmed like its relation; a
-      // violation keeps its fixed red role.
       const ink = indicator.violating ? red : p => same(p, mix(background, palette.relation, indicator.dimmed ? frame.style.dimAlpha / 255 : 1), 40)
       expect((await near(panel, [center], ink, 1))[0], `${indicator.id} indicator`).toBe(true)
     }

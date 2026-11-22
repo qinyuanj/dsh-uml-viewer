@@ -1,6 +1,3 @@
-//! Real `uml-viewer mutate` on native Windows: abrupt kill, console interrupt
-//! and the abandoned-copy sweep, observed through process handles and the
-//! filesystem, not through internals.
 #![cfg(windows)]
 #![allow(clippy::disallowed_methods)]
 
@@ -21,7 +18,6 @@ unsafe extern "system" {
     fn GenerateConsoleCtrlEvent(event: u32, group: u32) -> i32;
 }
 
-/// A handle pins the identity, so a reused pid cannot pass or be killed.
 struct Watched(*mut c_void);
 impl Watched {
     fn open(pid: u32) -> Self {
@@ -65,8 +61,6 @@ fn main() {
         .stdin(std::process::Stdio::null()).spawn().unwrap();
     let mut file = fs::OpenOptions::new().create(true).append(true).open(arg(2)).unwrap();
     file.write_all(format!("{} {}\n", std::process::id(), child.id()).as_bytes()).unwrap();
-    // The baseline takes a second, so a mutant's timeout is many seconds and
-    // an interrupt arrives long before the mutant could be timed out.
     if Path::new(&env::var("MUTATOR_VIEW").unwrap()).join("mutation").is_file() {
         std::thread::sleep(Duration::from_secs(120));
     } else {
@@ -79,8 +73,6 @@ use std::path::Path;
 
 struct Fixture {
     directory: PathBuf,
-    /// This case's own temporary directory, set as `TMP` (and `TEMP`,
-    /// `TMPDIR`) for every CLI it starts.
     temporary: PathBuf,
 }
 impl Fixture {
@@ -93,11 +85,6 @@ impl Fixture {
         ));
         let project = directory.join("project");
         fs::create_dir_all(project.join("app/src")).unwrap();
-        // A temporary directory of the fixture's own: every mutate call sweeps
-        // the abandoned scratch of its temporary directory, so a case that
-        // inspects abandoned scratch must not share the system one with the
-        // other mutate calls this test binary runs in parallel — the reason the
-        // Linux killed-run case runs in a private `TMPDIR` too.
         let temporary = directory.join("tmp");
         fs::create_dir_all(&temporary).unwrap();
         fs::write(
@@ -154,13 +141,10 @@ impl Fixture {
             .arg("app/src/lib.rs")
             .stdout(stdout)
             .stderr(stderr)
-            // The scratch root is this fixture's, not the machine's: see
-            // `Fixture::new`.
             .env("TMP", &self.temporary)
             .env("TEMP", &self.temporary)
             .env("TMPDIR", &self.temporary);
         if new_group {
-            // A new process group is what GenerateConsoleCtrlEvent addresses.
             command.creation_flags(0x0000_0200);
         }
         Cli(command.spawn().unwrap())
@@ -219,8 +203,6 @@ fn wait_for(condition: impl Fn() -> bool, what: &str) {
     }
 }
 
-/// An abruptly killed CLI must not leave a test process behind, and its
-/// abandoned copies are reclaimed by the next run.
 #[test]
 fn abrupt_cli_kill_ends_the_mutants_and_the_next_run_sweeps_the_copies() {
     let fixture = Fixture::new();
@@ -241,11 +223,6 @@ fn abrupt_cli_kill_ends_the_mutants_and_the_next_run_sweeps_the_copies() {
     }
     let abandoned = fixture.scratch_roots(pid);
     assert!(!abandoned.is_empty(), "the killed run left its copies");
-    // The next call sweeps them before it does anything else, and it has to
-    // finish the job before it returns: the copies of a killed run are released
-    // asynchronously (its Job Object's children are terminated after the owner
-    // is already gone), so a sweep that looked once could still find them
-    // pinned and would never look again (#96).
     let temporary = fixture.temporary.to_string_lossy().into_owned();
     let environment = [
         ("TMP", temporary.as_str()),
@@ -269,18 +246,13 @@ fn abrupt_cli_kill_ends_the_mutants_and_the_next_run_sweeps_the_copies() {
         "the next run did not sweep the killed run's copies: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    // The unfinished file published nothing.
     assert!(!fixture.project().join(".metrics/mutate/app.edn").exists());
 }
 
-/// Ctrl+Break stops the run: the mutants' Job Objects are terminated, the
-/// copies are removed and the exit is 128 + SIGBREAK.
 #[test]
 fn ctrl_break_interrupts_the_run_and_removes_the_copies() {
     let fixture = Fixture::new();
     let mut cli = fixture.spawn(true);
-    // The handler is installed before this line is printed; we wait for either
-    // of them as the signal that the CLI is ready to receive the event.
     wait_for(
         || {
             fs::read_to_string(fixture.directory.join("cli.stdout"))
@@ -299,8 +271,6 @@ fn ctrl_break_interrupts_the_run_and_removes_the_copies() {
     let mut status = None;
     for attempt in 0..3 {
         if unsafe { GenerateConsoleCtrlEvent(1, pid) } == 0 {
-            // A loud skip, and a failure with MUTATOR_REQUIRE_TOOLCHAINS=1:
-            // a panic labelled SKIPPED read like a pass.
             let reason = format!(
                 "this session cannot deliver Ctrl+Break: {}",
                 std::io::Error::last_os_error()
@@ -313,9 +283,6 @@ fn ctrl_break_interrupts_the_run_and_removes_the_copies() {
             let _ = std::io::stderr().write_all(format!("SKIP: {reason}\n").as_bytes());
             return;
         }
-        // A process that already recorded the signal is unwinding: its handler
-        // is gone, so another event would terminate it by default. Only a run
-        // still working after a long wait was never reached.
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(20) {
             if let Some(code) = cli.0.try_wait().unwrap() {

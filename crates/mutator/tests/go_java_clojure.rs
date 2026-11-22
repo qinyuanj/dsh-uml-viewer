@@ -1,16 +1,3 @@
-//! Go, Java and Clojure mutation runs against the pinned original's bytes.
-//!
-//! Java needs a JDK and Maven on PATH with the fixture's dependencies already
-//! in the local repository; Clojure needs a working `clj`; Go needs `go`. A
-//! missing toolchain is a loud SKIP (and a failure when
-//! `MUTATOR_REQUIRE_TOOLCHAINS=1`), never a silent pass.
-//!
-//! On native Windows (the delivery host, ADR 0002) `mvn` and `clj` are `.cmd`
-//! launchers -- the Clojure CLI's official Windows distribution is the
-//! ClojureTools PowerShell module -- and only `cmd.exe` can start one. The
-//! probe below goes through `cmd.exe` there, the way `quality_core::process`
-//! starts the same launchers for the real runs, so it accepts exactly what the
-//! mutation run accepts. scripts/setup-windows-maven-clojure.ps1 installs both.
 #![cfg(any(target_os = "linux", windows))]
 #![allow(clippy::disallowed_methods)]
 use std::{
@@ -29,8 +16,6 @@ fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/mutate")
 }
 
-/// Print a skip reason so it is visible even when libtest captures the test's
-/// own stderr: write to the process's real stderr, not the captured buffer.
 fn loud(message: &str) {
     use std::io::Write;
     let _ = std::io::stderr().write_all(message.as_bytes());
@@ -46,19 +31,11 @@ fn skip(reason: &str) {
     ));
 }
 
-/// A command that ran successfully, started the way the mutation run starts
-/// it: on Windows a `.cmd` launcher (`mvn.cmd`, `clj.cmd`) needs `cmd.exe`, so
-/// the probe goes through `cmd.exe` there instead of assuming an `.exe`;
-/// everywhere else it stays a plain argv launch.
 fn works(program: &str, args: &[&str]) -> bool {
     let mut command = if cfg!(windows) {
         let mut command = std::process::Command::new(
             std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd.exe".into()),
         );
-        // Quoted, not joined: `cmd.exe` splits on spaces and reads `&`, `|` and
-        // `>` as operators, so an argument with one of those in it would change
-        // the command the probe runs. `quality_core::process` quotes the same way
-        // for the real runs.
         let quoted: Vec<String> = std::iter::once(program.to_string())
             .chain(
                 args.iter()
@@ -247,11 +224,6 @@ impl Drop for Fixture {
     }
 }
 
-/// The pinned originals predate the test-input digest. Golden comparisons
-/// ignore that one provenance field; the digest itself is pinned by its own
-/// unit tests. The scope tag is this port's deliberate addition to the pinned
-/// bytes, so every golden carries it. Cross-worker determinism below still
-/// compares the full bytes.
 fn without_test_input(bytes: &[u8]) -> Vec<u8> {
     let text = String::from_utf8_lossy(bytes);
     let marker = ":test-input \"";
@@ -272,8 +244,6 @@ fn without_test_input(bytes: &[u8]) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// Acceptance: snapshots equal the pinned original's bytes, and an unchanged
-/// differential rerun keeps them.
 fn golden_run(language: &'static str) {
     let Some(fixture) = Fixture::new(language) else {
         return;
@@ -290,12 +260,9 @@ fn golden_run(language: &'static str) {
         .map(|(key, bytes)| (key.clone(), without_test_input(bytes)))
         .collect();
     assert_eq!(comparable, golden, "{language} first run bytes");
-    // Surviving mutants in the goldens make this exit 3.
     assert_eq!(first, ExitCode::from(3), "{language} first run");
     fixture.assert_untouched(&before);
     let rerun = fixture.run(1, &fixture.targets());
-    // #107: survivors from the unchanged first run are reused, so no mutant
-    // executes and the differential gate reports success.
     assert_eq!(rerun, ExitCode::from(0), "{language} rerun");
     let comparable: BTreeMap<_, _> = fixture
         .published()
@@ -321,7 +288,6 @@ fn clojure_snapshots_are_the_pinned_originals_bytes() {
     golden_run("clojure");
 }
 
-/// More workers, same bytes (the #9 scheduler serves the new languages too).
 fn parallel_run(language: &'static str) {
     let Some(single) = Fixture::new(language) else {
         return;
@@ -361,7 +327,6 @@ fn clojure_workers_publish_the_same_bytes_as_one_worker() {
     parallel_run("clojure");
 }
 
-/// `--scan` inventories sites without coverage, tests or metrics.
 #[test]
 fn scan_writes_no_metrics() {
     for language in ["go", "java", "clojure"] {

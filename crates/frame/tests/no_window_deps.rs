@@ -1,11 +1,5 @@
-//! The model stays window-free (#16): the resolved dependency closure of
-//! `frame` in the workspace `Cargo.lock` holds no egui, eframe, winit or
-//! wgpu package. Since the standalone window and its `viewer` crate were
-//! deleted (dsh-uml-viewer#30), no workspace package links a GUI stack.
-
 use std::collections::{BTreeMap, BTreeSet};
 
-/// `name -> dependency names` for every `[[package]]` of the lock file.
 fn lock_graph() -> BTreeMap<String, Vec<String>> {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Cargo.lock");
     let text = std::fs::read_to_string(path).unwrap();
@@ -23,7 +17,6 @@ fn lock_graph() -> BTreeMap<String, Vec<String>> {
             } else if in_deps && line == "]" {
                 in_deps = false;
             } else if in_deps {
-                // `"name"` or `"name version"` (several versions locked).
                 let dep = line.trim_end_matches(',').trim_matches('"');
                 deps.push(dep.split(' ').next().unwrap().to_owned());
             }
@@ -55,9 +48,7 @@ fn the_frame_crate_links_no_window_or_gui_stack() {
     }
     let gui: Vec<&String> = seen.iter().filter(|&n| is_gui(n)).collect();
     assert!(gui.is_empty(), "frame depends on {gui:?}");
-    // The closure is the model's own: IR codec, scene core and JSON.
     assert!(seen.contains("scene") && seen.contains("edn"));
-    // #30: the lock file itself holds no window crate or GUI stack.
     let locked: Vec<&String> = graph.keys().filter(|&n| is_gui(n)).collect();
     assert!(locked.is_empty(), "Cargo.lock still locks {locked:?}");
 }

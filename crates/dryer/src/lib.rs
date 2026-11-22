@@ -1,4 +1,3 @@
-//! Candidate duplicate structures, ported from Python dryer b3f72ad.
 use quality_core::{platform, select::Scope};
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -139,9 +138,6 @@ pub(crate) fn parse(args: &[String]) -> Parsed {
     }
     Parsed::Scan(options)
 }
-/// Whether this port scans `language` yet: all seven since
-/// qinyuanj/dsh-uml-viewer#7. Kept as the dispatcher's guard so an
-/// unknown future language is refused rather than silently skipped.
 pub fn scans(language: quality_core::language::Language) -> bool {
     matches!(
         language,
@@ -160,8 +156,6 @@ pub fn run(args: &[OsString]) -> ExitCode {
     run_on(platform::Host::current(), args)
 }
 
-/// The same contract with the host declared, matching the pinned tests'
-/// monkeypatch of `sys.platform`.
 fn run_on(host: platform::Host, args: &[OsString]) -> ExitCode {
     let args: Vec<_> = args
         .iter()
@@ -251,9 +245,6 @@ mod tests {
         vec!["--root".into(), root.as_os_str().to_owned()]
     }
 
-    /// The old build-number gate refused this host before selection; the OS
-    /// alone decides now, so native Windows scans on any build (ADR 0018,
-    /// dryer#5).
     #[test]
     fn native_windows_scans_on_any_build() {
         let root = scratch("any-windows-build");

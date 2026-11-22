@@ -1,7 +1,3 @@
-//! #83: IR names a policy source root that `uml-quality.json` gives no
-//! quality provider for. A class with no data stays red (AGENTS.md); this
-//! warning only explains *why* it can never leave red.
-
 use std::path::PathBuf;
 use std::process::Output;
 
@@ -12,7 +8,6 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
-/// A private project root removed when dropped.
 struct Project(PathBuf);
 
 impl Project {
@@ -44,7 +39,6 @@ impl Project {
     }
 }
 
-/// Classes the IR holds whose `:file` is under `root`.
 fn classes_under(doc: &Value, root: &str) -> usize {
     let prefix = format!("{root}/");
     seq(get(doc, "classes"))
@@ -56,7 +50,6 @@ fn classes_under(doc: &Value, root: &str) -> usize {
         .count()
 }
 
-/// A policy scanning one covered Rust root and one uncovered TypeScript root.
 fn mixed_project(tag: &str) -> Project {
     let project = Project::new(tag);
     project.write(
@@ -78,7 +71,6 @@ fn mixed_project(tag: &str) -> Project {
         "packages/web/src/widget.ts",
         "export class Alpha {\n  size = 1;\n}\nexport class Beta {}\n",
     );
-    // The TypeScript scanner makes one class per source file.
     project.write("packages/web/src/model.ts", "export class Gamma {}\n");
     project
 }
@@ -108,7 +100,6 @@ fn an_uncovered_policy_source_root_is_named_with_its_class_count_and_the_fix() {
     assert!(err.contains(&count_in(uncovered)), "{err}");
     assert!(err.contains("standardTools.sourceRoots"), "{err}");
     assert!(err.contains("uml-quality.json"), "{err}");
-    // The covered root is not reported.
     assert!(!err.contains("\"crates/lib/src\""), "{err}");
 }
 
@@ -140,7 +131,6 @@ fn declared_typescript_source_roots_are_silent() {
 
 #[test]
 fn a_whole_tree_scope_declares_nothing_uncovered() {
-    // No manifest, and an empty root list, both mean the whole tree.
     for (tag, config) in [
         ("absent", None),
         ("empty", Some(r#"{"version":1,"standardTools":{}}"#)),
@@ -163,8 +153,6 @@ fn a_whole_tree_scope_declares_nothing_uncovered() {
 
 #[test]
 fn an_operations_override_is_not_described_by_standard_source_roots() {
-    // An `operations` command owns its own scope; sourceRoots no longer
-    // describe what the quality run scores, so this check stays silent.
     let project = mixed_project("operations");
     project.write(
         "uml-quality.json",
@@ -181,7 +169,6 @@ fn an_operations_override_is_not_described_by_standard_source_roots() {
 
 #[test]
 fn a_sibling_name_sharing_a_prefix_with_a_provider_is_still_uncovered() {
-    // "crates-extra" is not under "crates"; only a path boundary counts.
     let project = Project::new("prefix");
     project.write(
         "policy.edn",

@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest'
 import { KNOWN_WORLD_KINDS, validateSceneFrame } from '../src/index.js'
 import type { SceneFrame } from '../src/index.js'
 
-// The Rust producer's own goldens are the contract (docs/scene-frame.md).
 const frames = path.resolve(fileURLToPath(new URL('../../../crates/frame/tests/fixtures/frames', import.meta.url)))
 const goldenFiles = readdirSync(frames).filter(name => name.endsWith('.frame.json')).sort()
 
@@ -24,7 +23,6 @@ describe('scene frame validation', () => {
     expect(validateSceneFrame(withDry).dry?.clusterList[0]?.classes).toEqual([':scene.a'])
     for (const name of goldenFiles) {
       const value = golden(name)
-      // toEqual proves the validator neither redefines nor normalizes the producer's document.
       expect(validateSceneFrame(value), name).toEqual(value as SceneFrame)
     }
   })
@@ -41,8 +39,6 @@ describe('scene frame validation', () => {
     expect(root.style.dimAlpha).toBe(70)
     expect(root.world.length).toBeGreaterThan(0)
     expect(root.edges.length).toBeGreaterThan(0)
-    // Chrome left the frame with #46: a view has none, the hover popup alone
-    // is left (the `root-hover-frames` golden carries one).
     expect(root.chrome).toEqual([])
   })
 
@@ -65,7 +61,6 @@ describe('scene frame validation', () => {
     for (const name of goldenFiles) {
       for (const item of validateSceneFrame(golden(name)).world) kinds.add(item.kind)
     }
-    // Every produced kind is one the renderer knows; a new kind must be added deliberately.
     for (const kind of kinds) expect(KNOWN_WORLD_KINDS.has(kind), kind).toBe(true)
     expect([...kinds].sort()).toEqual(['band', 'class', 'level', 'marker', 'no-data', 'package', 'port', 'port-link', 'quality', 'rule', 'text'])
   })
@@ -114,7 +109,6 @@ describe('scene frame validation', () => {
     const zh = validateSceneFrame(golden('root.frame.json'))
     const en = validateSceneFrame(golden('root.en.frame.json'))
     const ids = (frame: SceneFrame): string[] => frame.legend.sections.flatMap(section => section.rows.map(row => row.id))
-    // The same legend, worded by the resident in the frame's language.
     expect(ids(zh)).toEqual(ids(en))
     expect(ids(zh)).toContain('dependency-chain')
     expect(ids(zh)).toContain('quality-ramp')
@@ -122,8 +116,6 @@ describe('scene frame validation', () => {
       frame.legend.sections.flatMap(section => section.rows).find(row => row.id === id)!.label
     expect(label(zh, 'no-data')).toMatch(/[\u3400-\u9fff]/)
     expect(label(en, 'no-data')).not.toMatch(/[\u3400-\u9fff]/)
-    // A sample is the diagram's own semantic roles, so the panel resolves it
-    // through the same theme as the canvas.
     const sample = (frame: SceneFrame, id: string): unknown =>
       frame.legend.sections.flatMap(section => section.rows).find(row => row.id === id)!.sample
     expect(sample(zh, 'class-box')).toMatchObject({ kind: 'box', fill: { role: 'quality-fill' }, stroke: { role: 'quality-stroke' } })

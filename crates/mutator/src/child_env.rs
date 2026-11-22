@@ -1,6 +1,3 @@
-//! Do not let an outer coverage run configure isolated Cargo commands.
-//! Apply removals before the adapter's own target directory and before an
-//! inner coverage command installs its own instrumentation settings.
 use std::ffi::{OsStr, OsString};
 
 const OUTER_SETTINGS: &[&str] = &[
@@ -12,9 +9,6 @@ const OUTER_SETTINGS: &[&str] = &[
     "CARGO_TARGET_DIR",
 ];
 
-/// Every inherited name an isolated command must not see. Both adapters set
-/// their own `CARGO_TARGET_DIR`; the coverage prefix is matched by name because
-/// its settings grow between coverage releases.
 pub(crate) fn inherited_removals() -> Vec<OsString> {
     std::env::vars_os()
         .map(|(name, _)| name)

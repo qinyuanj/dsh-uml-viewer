@@ -1,5 +1,4 @@
 #![cfg(target_os = "linux")]
-// Test code is the outside harness; it launches the fixture tools itself.
 #![allow(clippy::disallowed_methods)]
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -10,7 +9,6 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 static NEXT: AtomicUsize = AtomicUsize::new(0);
-/// Every published snapshot under `.metrics/mutate`, by project-relative path.
 fn snapshot_bytes(root: &Path) -> BTreeMap<String, Vec<u8>> {
     fn walk(base: &Path, directory: &Path, found: &mut BTreeMap<String, Vec<u8>>) {
         let Ok(entries) = fs::read_dir(directory) else {
@@ -90,7 +88,6 @@ impl Fixture {
     fn new() -> Self {
         Self::create("")
     }
-    /// A project whose absolute path contains a skipped directory name.
     fn under_skip_named_directory() -> Self {
         Self::create("build")
     }
@@ -127,7 +124,6 @@ impl Drop for Fixture {
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or_default();
-        // Never remove a path this fixture did not create.
         if !self.directory.starts_with(std::env::temp_dir())
             || !name.starts_with("mutator-acceptance-")
         {
@@ -181,17 +177,11 @@ fn rust_snapshots_match_original_bytes_and_unchanged_differential_keeps_them() {
     );
 }
 
-/// `--copy` (ADR 0016) is accepted and copies nothing on Linux: the namespace
-/// view is mounted over the real project root, so `..` already reaches the real
-/// parent directory and a path beside the project is readable without help. The
-/// snapshot must be the same bytes with and without the option.
 #[test]
 fn copy_is_accepted_and_copies_nothing_in_the_namespace_view() {
     let command = |fixture: &Fixture| {
         let parent = quality_core::process::shlex_quote(&fixture.directory.display().to_string());
         format!(
-            // The parent is the real one, not an overlay above it; the outside
-            // bytes are readable; and nothing was copied into the view.
             "test \"$(readlink -f ..)\" = {parent} && \
              grep -q copy-value ../contracts/value.txt && \
              test ! -e \"$MUTATOR_VIEW/contracts\" && \
@@ -232,9 +222,6 @@ fn copy_is_accepted_and_copies_nothing_in_the_namespace_view() {
     assert_eq!(snapshot(&plain).unwrap(), snapshot(&copied).unwrap());
 }
 
-/// Acceptance: with `--max-workers N` for N > 1 every published snapshot is
-/// byte-identical to the single-worker run with the same injected clock. The
-/// comparison covers every file the two runs published, not a sample.
 #[test]
 fn multiple_workers_publish_the_same_bytes_as_one_worker() {
     let targets = [
@@ -252,7 +239,6 @@ fn multiple_workers_publish_the_same_bytes_as_one_worker() {
     let expected = snapshot_bytes(&single.root());
     assert_eq!(expected.len(), 3, "{}", single.root().display());
     assert_eq!(snapshot_bytes(&parallel.root()), expected);
-    // Both runs are the pinned original's bytes, not merely each other's.
     let golden = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/mutate/goldens");
     for (file, bytes) in &expected {
         assert_eq!(
@@ -263,12 +249,9 @@ fn multiple_workers_publish_the_same_bytes_as_one_worker() {
     }
 }
 
-/// Ported from the original `test_concurrent_mutants_use_private_workers`:
-/// with two workers, two mutants of one file are alive at the same time.
 #[test]
 fn concurrent_mutants_run_in_parallel_worker_views() {
     let fixture = Fixture::new();
-    // Two mutation sites and no numeric literal: `(x + x) + x`.
     fs::write(
         fixture.root().join("app/src/extra.rs"),
         "pub fn extra(x: i64) -> i64 { x + x + x }\n",
@@ -278,11 +261,6 @@ fn concurrent_mutants_run_in_parallel_worker_views() {
     for round in ["r1", "r2"] {
         fs::create_dir_all(barrier.join(round)).unwrap();
     }
-    // Two rendezvous rounds. In round one each mutant waits for the other;
-    // only a run that really had both alive reaches round two, where they wait
-    // for each other again. A sequential run leaves the first round's mark
-    // behind, but never a round-two mark: the second mutant is killed waiting
-    // there. A stale mark therefore cannot make this pass by accident.
     let command = format!(
         "f={b}; \
          if grep -q 'x - x + x' app/src/extra.rs; then n=inner; \
@@ -306,7 +284,6 @@ fn concurrent_mutants_run_in_parallel_worker_views() {
                 "app/src/extra.rs"
             ]
         ),
-        // Both mutants see the other one and succeed, so both survive.
         ExitCode::from(3)
     );
     let mut ready: Vec<String> = fs::read_dir(barrier.join("r2"))
@@ -325,8 +302,6 @@ fn concurrent_mutants_run_in_parallel_worker_views() {
     assert!(snapshot.contains(":survived 2"), "{snapshot}");
 }
 
-/// Acceptance: one coverage run and one baseline are shared by every target
-/// file of a single call, and each target still publishes its own snapshot.
 #[test]
 fn one_coverage_run_and_one_baseline_are_shared_by_every_target_file() {
     let fixture = Fixture::new();
@@ -358,7 +333,6 @@ fn one_coverage_run_and_one_baseline_are_shared_by_every_target_file() {
                 "app/src/more.rs"
             ]
         ),
-        // Every mutant's command succeeds, so all three sites survive.
         ExitCode::from(3)
     );
     let text = fs::read_to_string(&marker).unwrap();
@@ -367,14 +341,11 @@ fn one_coverage_run_and_one_baseline_are_shared_by_every_target_file() {
     assert_eq!(count("coverage"), 1, "{text}");
     assert_eq!(count("baseline"), 1, "{text}");
     assert_eq!(count("mutant"), 3, "{text}");
-    // Each target file published its own snapshot.
     let mut published: Vec<String> = snapshot_bytes(&fixture.root()).into_keys().collect();
     published.sort();
     assert_eq!(published, ["app.edn", "app/more.edn", "util.edn"]);
 }
 
-/// Acceptance: worker slots belong to the call, not to the file or the
-/// command. Two files of two sites each use the same two slots.
 #[test]
 fn worker_slots_are_reused_across_target_files() {
     let fixture = Fixture::new();
@@ -432,8 +403,6 @@ fn worker_slots_are_reused_across_target_files() {
         ["app-inner", "app-outer", "util-inner", "util-outer"],
         "{text}"
     );
-    // Both target files' mutants ran in the same two slots: the pool belongs
-    // to the call, not to the file.
     for file in ["app", "util"] {
         let used: BTreeSet<&str> = lines
             .iter()
@@ -444,8 +413,6 @@ fn worker_slots_are_reused_across_target_files() {
     }
 }
 
-/// Acceptance: `--mutate-all` changes decisions, never the selection, and only
-/// the files named on the command line publish snapshots.
 #[test]
 fn mutate_all_applies_only_to_the_explicitly_selected_files() {
     let fixture = Fixture::new();
@@ -471,7 +438,6 @@ fn mutate_all_applies_only_to_the_explicitly_selected_files() {
         String::from_utf8_lossy(&published["app.edn"]).contains(":survived 1"),
         "the selected site must execute under --mutate-all"
     );
-    // A source root still narrows the named files: the flag widens no scope.
     assert_eq!(
         fixture.run(&[
             "--no-coverage",
@@ -491,7 +457,6 @@ fn mutate_all_applies_only_to_the_explicitly_selected_files() {
             .collect::<Vec<String>>(),
         ["app.edn"]
     );
-    // A second file, alone: still exactly one snapshot for it.
     let other = Fixture::new();
     assert_eq!(
         other.run(&[
@@ -512,7 +477,6 @@ fn mutate_all_applies_only_to_the_explicitly_selected_files() {
     );
 }
 
-/// Whether a host process is gone, waiting out the kernel's reaping.
 fn gone(pid: u32) -> bool {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while std::time::Instant::now() < deadline {
@@ -524,9 +488,6 @@ fn gone(pid: u32) -> bool {
     !Path::new(&format!("/proc/{pid}")).exists()
 }
 
-/// A command that leaves a `sleep` behind, recording its host pid in `pids`.
-/// Every command gets its own file; `tail` decides its exit status and runs
-/// once the pid is recorded.
 fn leaves_a_child(fixture: &Fixture, ignore_term: bool, tail: &str) -> (String, PathBuf) {
     let helper = fixture.scratch().join("leave.sh");
     let trap = if ignore_term { "trap '' TERM\n" } else { "" };
@@ -562,8 +523,6 @@ fn recorded_pids(directory: &Path) -> Vec<u32> {
     pids
 }
 
-/// Ported from the original `test_reap.py`: a command's leftovers do not
-/// outlive the view that ran it.
 #[test]
 fn a_child_left_by_a_passing_command_is_reaped() {
     let fixture = Fixture::new();
@@ -576,7 +535,6 @@ fn a_child_left_by_a_passing_command_is_reaped() {
             &command,
             "app/src/lib.rs"
         ]),
-        // The command passes, so the mutant survives.
         ExitCode::from(3)
     );
     let pids = recorded_pids(&pidfile);
@@ -602,7 +560,6 @@ fn a_failing_command_keeps_its_exit_code_and_loses_its_child() {
             &command,
             "app/src/lib.rs"
         ]),
-        // A failing mutant is a killed mutant, not a failed run.
         ExitCode::SUCCESS
     );
     for pid in recorded_pids(&pidfile) {
@@ -629,9 +586,6 @@ fn a_child_that_ignores_sigterm_is_killed_with_its_view() {
     }
 }
 
-/// Ported from the original `test_runtime_failure_removes_workers`: a mutant
-/// that never finishes is killed, the source stays untouched and the call's
-/// scratch root is removed.
 #[test]
 fn a_timed_out_mutant_is_killed_and_the_scratch_root_is_removed() {
     let fixture = Fixture::new();
@@ -784,7 +738,6 @@ fn changed_selection_still_honours_filters_roots_and_exclusions() {
         "pub fn extra(x: i64) -> i64 {\n    x + x\n}\n",
     )
     .unwrap();
-    // A positional text filter narrows the changed selection like any other.
     assert_eq!(
         fixture.run(&[
             "--changed",
@@ -796,7 +749,6 @@ fn changed_selection_still_honours_filters_roots_and_exclusions() {
         ExitCode::SUCCESS
     );
     assert!(!fixture.root().join(".metrics/mutate").exists());
-    // The source root keeps changed files; the exclusion removes one of them.
     assert_eq!(
         fixture.run(&[
             "--changed",
@@ -845,8 +797,6 @@ fn differential_rerun_republishes_a_snapshot_when_a_form_gained_no_sites() {
         ),
     )
     .unwrap();
-    // No site is selected, but the function digests changed, so the snapshot
-    // is republished with the new form set instead of being kept as it was.
     assert_eq!(
         fixture.run(&["--no-coverage", "--test-command", command, "app/src/lib.rs"]),
         ExitCode::SUCCESS
@@ -855,7 +805,6 @@ fn differential_rerun_republishes_a_snapshot_when_a_form_gained_no_sites() {
     assert_ne!(after, before);
     assert!(after.contains("defn/no_sites"), "{after}");
     assert!(after.contains(":killed 1"), "{after}");
-    // The pinned original republishes exactly these bytes for the same edit.
     let golden = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/mutate/goldens/app-no-sites.edn");
     assert_eq!(after.as_bytes(), fs::read(&golden).unwrap().as_slice());
@@ -884,7 +833,6 @@ fn stale_backups_refuse_the_run_before_any_test_executes() {
         "no test may run while an older mutator's backups exist"
     );
     assert!(!fixture.root().join(".metrics/mutate").exists());
-    // The original refuses on a file, not on an empty backup directory.
     fs::remove_file(&backup).unwrap();
     assert_eq!(
         fixture.run(&[
@@ -901,8 +849,6 @@ fn stale_backups_refuse_the_run_before_any_test_executes() {
 
 #[test]
 fn changed_selection_keeps_files_below_a_skip_named_directory() {
-    // The shared changed walk compares project-relative components, so a
-    // project below ".../build/..." is not mistaken for build output.
     let fixture = Fixture::under_skip_named_directory();
     fixture.commit_baseline();
     fs::write(
@@ -940,8 +886,6 @@ fn line_filter_keeps_the_carried_outcomes_of_excluded_sites() {
     let lib = fixture.root().join("app/src/lib.rs");
     let source = fs::read_to_string(&lib).unwrap();
     fs::write(&lib, source.replace("{\n    x + x", "{\n\n    x + x")).unwrap();
-    // Line 5 selects only the changed lib form; more.rs stays filtered out but
-    // keeps the killed outcome its earlier run recorded.
     assert_eq!(
         fixture.run(&[
             "--no-coverage",
@@ -980,7 +924,6 @@ fn worker_views_are_private_and_their_artifacts_are_owner_only() {
             &command,
             "app/src/lib.rs"
         ]),
-        // The recording command always succeeds, so the mutant survives.
         ExitCode::from(3)
     );
     let text = fs::read_to_string(&recorded).unwrap();
@@ -1004,8 +947,6 @@ fn worker_views_are_private_and_their_artifacts_are_owner_only() {
     assert!(views.iter().all(|(mode, _)| mode == "700"), "{text}");
     assert!(!files.is_empty(), "{text}");
     assert!(files.iter().all(|mode| mode == "600"), "{text}");
-    // One scratch root for the whole call: private, directly under the temp
-    // directory, with an unpredictable name.
     let scratch: BTreeSet<&str> = roots.iter().map(|(_, path)| path.as_str()).collect();
     assert_eq!(scratch.len(), 1, "{text}");
     for (mode, root) in &roots {
@@ -1021,7 +962,6 @@ fn worker_views_are_private_and_their_artifacts_are_owner_only() {
             "{name}"
         );
     }
-    // Slots are named and reused: a worker is not a fresh directory per command.
     for (_, view) in &views {
         let view = Path::new(view);
         let name = view.file_name().and_then(|name| name.to_str()).unwrap();
@@ -1036,7 +976,6 @@ fn worker_views_are_private_and_their_artifacts_are_owner_only() {
             view.display()
         );
     }
-    // Nothing the call created survives it.
     for (_, root) in &roots {
         assert!(!Path::new(root).exists(), "{root} survived the run");
     }

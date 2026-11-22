@@ -1,5 +1,3 @@
-//! Differential mutation testing for seven languages in isolated test runs
-//! (Linux, Windows).
 use quality_core::language::{Language, language_of};
 use std::{ffi::OsString, path::Path, process::ExitCode};
 #[cfg(windows)]
@@ -36,10 +34,6 @@ pub mod slot;
 mod typescript;
 mod workers;
 
-/// Whether this port mutates `language`: all seven languages
-/// (qinyuanj/dsh-uml-viewer#14 completed Go, Java and Clojure). Quality
-/// dispatch refuses a selection holding an unknown language instead of
-/// reporting it empty.
 pub fn mutates(_language: quality_core::language::Language) -> bool {
     true
 }
@@ -68,9 +62,6 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String + Sync) -> E
         }
     };
     let root = options.scope.project_root();
-    // `--copy` is a usage error before any work, on every platform: Linux
-    // validates the same arguments and copies nothing (its view sees the real
-    // parent directory), Windows records them for the copy isolation.
     if let Err(error) = validate_outside(&root, &options.copies) {
         eprint!("{error}\n\n{HELP}");
         return ExitCode::from(1);
@@ -85,13 +76,9 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String + Sync) -> E
     ) {
         eprintln!("{warning}");
     }
-    // A run that arrives after a killed one reclaims that run's scratch first.
-    // A live concurrent run's root keeps its owner lock and is left alone.
     if let Err(error) = scratch::sweep(&root) {
         eprintln!("Cannot sweep abandoned mutation scratch: {error}");
     }
-    // From here until the end of the call a stop signal stops the work instead
-    // of killing the process mid-cleanup.
     let _armed = interrupts::Armed::new();
     println!("Isolation: {}", isolation::describe());
     #[cfg(windows)]
@@ -107,12 +94,6 @@ pub fn run_with_clock(args: &[OsString], clock: impl Fn() -> String + Sync) -> E
     }
     code
 }
-/// Validate a call's `--copy` paths before the platform decision and any work.
-///
-/// Every platform refuses the same bad arguments, because a Linux view already
-/// reaches the real parent directory and would otherwise accept a typo that
-/// fails only on Windows. Only copy isolation has to place the paths, so only
-/// Windows records them for `crate::copies`.
 fn validate_outside(root: &Path, requested: &[String]) -> Result<(), String> {
     let outside = isolation::resolve_outside(root, requested)?;
     #[cfg(windows)]
@@ -122,17 +103,6 @@ fn validate_outside(root: &Path, requested: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// The platform decision, before selection and before any command.
-///
-/// Pure in the declared host, so the macOS refusal is testable anywhere.
-/// macOS has neither mechanism: the original's `NamespaceViews` calls
-/// `unshare`, which does not exist there, so the pinned Python crashes with a
-/// traceback. This port says so on one line instead; exit 1 is the original's
-/// isolation-refusal code, and `crap`/`dry` are unaffected.
-///
-/// No Windows build number reaches this decision (ADR 0018, mutator#30): Linux
-/// and native Windows run on any build, and the volume the isolation summary
-/// names describes which copy method a volume supports, not whether it may run.
 fn platform_refusal(os: &str) -> Option<String> {
     if os == "macos" {
         return Some(
@@ -149,8 +119,6 @@ fn platform_refusal(os: &str) -> Option<String> {
     None
 }
 
-/// Full-suite Lua files share one worker queue; every other file runs on its
-/// own, exactly as the original's `cli._shares_queue` decides.
 pub fn shares_queue(file: &Path, test_command: Option<&str>, select_specs: bool) -> bool {
     language_of(file) == Some(Language::Lua) && test_command.is_none() && !select_specs
 }
@@ -161,8 +129,6 @@ fn run_mutation(
     clock: impl Fn() -> String + Sync,
 ) -> ExitCode {
     let mut files = if options.flag("--changed") {
-        // The shared changed selection: source roots narrow it only when they
-        // are given, and the positional filters and exclusions always apply.
         options
             .scope
             .select_changed(&options.positionals, &mut std::io::stderr())
@@ -219,7 +185,6 @@ mod tests {
         assert!(refusal.contains("not supported on macOS"), "{refusal}");
         assert!(refusal.contains("CRAP and dry work"), "{refusal}");
         assert_eq!(platform_refusal("linux"), None);
-        // Any Windows build runs: this host is 19042, below the deleted floor.
         assert_eq!(platform_refusal("windows"), None);
         assert_eq!(
             Some("Mutation testing is not supported on freebsd.".to_string()),

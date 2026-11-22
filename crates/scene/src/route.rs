@@ -1,7 +1,3 @@
-//! Edge routing (port of `love/uml/engine/route.lua`). Obstacle avoidance and
-//! port attachment are golden-protected: the routed point sequences must
-//! reproduce the JVM geometry exactly.
-
 use crate::geom::{self, Face, Rect, face};
 use edn::Value;
 use edn::record::name;
@@ -100,12 +96,9 @@ struct RouteEdge {
     n: usize,
     ps: Path,
     lane: Option<Path>,
-    /// Had a lane path, but it hit a box and an ordinary candidate replaced it.
     fallback: bool,
 }
 
-/// A stub out of a box face that also clears the box's rank row by 20px,
-/// so the bend after it cannot cut a taller neighbour in that row.
 fn stub_point(p: [f64; 2], f: Face, row: Rect) -> [f64; 2] {
     match f {
         Face::Left => [(p[0] - 20.0).min(row.x - 20.0), p[1]],
@@ -115,7 +108,6 @@ fn stub_point(p: [f64; 2], f: Face, row: Rect) -> [f64; 2] {
     }
 }
 
-/// Slide both ends of a path along their boxes and square the stubs.
 fn settle(mut ps: Path, a: Rect, b: Rect) -> Path {
     if ps.len() >= 2 {
         let s = slide(a, ps[0], ps[1]);
@@ -126,8 +118,6 @@ fn settle(mut ps: Path, a: Rect, b: Rect) -> Path {
     ps
 }
 
-/// A long edge through its reserved lanes: stub, the lane entry and exit of
-/// every rank it crosses, stub. `rows` are the rank rows of its two ends.
 fn through_lanes(
     a: &Node,
     b: &Node,
@@ -145,9 +135,7 @@ fn through_lanes(
     collapse(&ps)
 }
 
-/// Candidate point sequences for one edge: the direct attachment run first,
-/// then single, double and per-rank-hops detours.
-#[allow(clippy::too_many_arguments)] // flat parity port of `candidates`
+#[allow(clippy::too_many_arguments)]
 fn candidates(
     a: &Node,
     b: &Node,
@@ -384,7 +372,6 @@ fn choose(paths: Vec<Path>, a: usize, b: usize, nodes: &[Node]) -> Path {
     if let Some(first) = first_ok {
         return first;
     }
-    // All candidates blocked: Lua falls back to the first candidate.
     clear.into_iter().next().unwrap_or(first_any)
 }
 
@@ -443,8 +430,6 @@ fn stable_sort_by<T: Clone, F: Fn(&T) -> f64>(xs: &mut [T], scorefn: F) {
     }
 }
 
-/// `R.route`: route every diagram edge around class boxes. The input scene's
-/// `:edges` is replaced with routed copies carrying `:points` and `:head`.
 pub fn route(scene: &mut Value) {
     let diagram = edn::record::get(scene, "diagram")
         .cloned()
@@ -465,7 +450,6 @@ pub fn route(scene: &mut Value) {
     edn::record::remove(scene, "lanes");
     let mut nodes: Vec<Node> = Vec::new();
     let mut idx: HashMap<String, usize> = HashMap::new();
-    // Rank rows of laid-out classes only: an unranked foreign oval is no row.
     let mut rows: HashMap<String, Rect> = HashMap::new();
     if let Some(Value::Vector(classes)) = edn::record::get(scene, "classes") {
         for c in classes {
@@ -567,8 +551,6 @@ pub fn route(scene: &mut Value) {
             edges[ei].n = n;
         }
     }
-    // Rank bounding boxes are fixed for the whole pass: precompute once
-    // instead of rescanning every class per candidate (O(E·N) -> O(E + N)).
     let mut rank_boxes: HashMap<String, Rect> = HashMap::new();
     for c in &nodes {
         let key = rank_key(c.rank);
@@ -578,7 +560,7 @@ pub fn route(scene: &mut Value) {
             .or_insert(c.r);
     }
     let mut atts: HashMap<String, Vec<(usize, bool, [f64; 2])>> = HashMap::new();
-    #[allow(clippy::needless_range_loop)] // edges[ei] is mutated below
+    #[allow(clippy::needless_range_loop)]
     for ei in 0..edges.len() {
         let (a, b, ft, tt, i, n) = {
             let e = &edges[ei];
@@ -604,9 +586,6 @@ pub fn route(scene: &mut Value) {
         if ps.is_empty() {
             continue;
         }
-        // The settled path still crosses a box, as when a taller box shares
-        // the start row (or end sync bends a clear detour across one): leave
-        // that row, then enter the end row.
         if nodes[a].rank != nodes[b].rank && hits(&ps, a, b, &nodes) {
             let rows_apart = settle(through_lanes(&nodes[a], &nodes[b], (ft, tt), &[], ends, lr));
             if !hits(&rows_apart, a, b, &nodes) {
@@ -646,8 +625,6 @@ pub fn route(scene: &mut Value) {
                 (r.x + 0.12 * r.w, r.right() - 0.12 * r.w)
             };
             for (i, a) in sorted.iter().enumerate() {
-                // Lua's `ipairs` index is 1-based: the first of n slots sits at
-                // lo + (hi-lo)/(n+1), matching the JVM attachment spacing.
                 let v = lo + (i + 1) as f64 * (hi - lo) / (sorted.len() + 1) as f64;
                 let p = if horiz(f) { [a.2[0], v] } else { [v, a.2[1]] };
                 if p != a.2 {
@@ -657,9 +634,6 @@ pub fn route(scene: &mut Value) {
             }
         }
     }
-    // Spreading the attachments can bend a path into a box beside it: take
-    // the first other candidate that stays clear, through the spread ends
-    // where it leaves by the same faces.
     for (e, _) in edges.iter_mut().zip(&spread).filter(|(_, s)| **s) {
         if e.ps.len() < 2 || !hits(&e.ps, e.a, e.b, &nodes) {
             continue;

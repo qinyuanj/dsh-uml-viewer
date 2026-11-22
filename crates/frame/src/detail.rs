@@ -1,9 +1,3 @@
-//! Class card model (#141): port of `application/detail.lua` (card model,
-//! content-space rows, scroll clamping, row hits) and
-//! `application/detail_view.lua` (the paint plan: fixed right-aligned metric
-//! columns, colors, swatches, Cov / kill-rate bars, stripes). Window-free;
-//! the panel only paints [`Item`]s and reports pointer rows.
-
 use edn::Value;
 use edn::record::{flag, get, local_name, num, seq};
 use scene::document::ViewState;
@@ -82,7 +76,6 @@ fn phrase(rel: &Rel, lang: Lang) -> &'static str {
     if rel.outgoing { out } else { inc }
 }
 
-/// The card model of a scene-core neighbourhood: phrasing and names only.
 fn assemble(n: scene::Neighbourhood) -> Model {
     let c = n.class;
     Model {
@@ -121,8 +114,6 @@ pub fn model(scene: &Value, id: &Value) -> Option<Model> {
 /// leaf identities and relationships across namespaces.
 pub fn for_state(state: &ViewState, id: &Value) -> Option<Model> {
     let mut n = scene::class_card(state, id)?;
-    // A crate root module shares its namespace's id; a namespace box on
-    // screen reads as the namespace, with its totals.
     if let Some(shown) = scene::hit::class_by_id(&state.scene, id).filter(|c| flag(c, "drill?")) {
         n.class = shown.clone();
     }
@@ -242,9 +233,6 @@ fn cells(c: &Value, class: bool, lang: Lang) -> Cells {
     r
 }
 
-/// The additive duplicate-structure line of a class card. The three states
-/// are words, never a missing row: `:overlap` carries the numbers, `:none`
-/// says the snapshot measured the class, and anything else is unmeasured.
 fn dry_line(dry: &Value, text: &'static crate::strings::Text) -> String {
     let state = get(dry, "state")
         .and_then(local_name)
@@ -268,8 +256,6 @@ fn dry_line(dry: &Value, text: &'static crate::strings::Text) -> String {
     )
 }
 
-/// Fill `%s` placeholders in order, one per value; a template with fewer
-/// placeholders than values keeps the extra values out.
 fn fill(template: &str, values: &[String]) -> String {
     let mut out = String::with_capacity(template.len());
     let mut values = values.iter();
@@ -374,10 +360,6 @@ pub fn rows(model: &Model, lang: Lang) -> Vec<Row> {
             row("dry", dry_line(dry, text), 0.0, 18.0),
         );
     } else if scene::dry::measured(c) {
-        // The third state is written out: a class no dry snapshot measured
-        // says so, so silence is never read as "no duplicates". A class the
-        // dryer never looked at (an external package, a class with no source)
-        // keeps no line at all: it is not a measurement object.
         emit(
             &mut rows,
             &mut y,

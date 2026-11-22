@@ -1,13 +1,4 @@
-//! Python and TypeScript mutation runs against the pinned original's bytes.
-//!
-//! Both delivered hosts run this: native Windows x64 through per-command project
-//! copies, and Linux (kept, not delivered) through overlay views. The runs need
-//! real coverage.py/pytest and Node/npm. A missing toolchain is a loud SKIP (and
-//! a failure when `MUTATOR_REQUIRE_TOOLCHAINS=1`), never a silent pass: the
-//! `windows-quality` job runs this file with that variable set. The site and
-//! form parity tests live in `python_ts_sites.rs` and run natively too.
 #![cfg(any(target_os = "linux", windows))]
-// Test code is the outside harness; it creates the fixture tool links itself.
 #![allow(clippy::disallowed_methods)]
 use std::{
     collections::BTreeMap,
@@ -29,8 +20,6 @@ fn missing_toolchains_are_fatal() -> bool {
     std::env::var_os("MUTATOR_REQUIRE_TOOLCHAINS").is_some_and(|value| value == "1")
 }
 
-/// Print a skip reason so it is visible even when libtest captures the test's
-/// own stderr: write to the process's real stderr, not the captured buffer.
 fn loud(message: &str) {
     use std::io::Write;
     let _ = std::io::stderr().write_all(message.as_bytes());
@@ -45,7 +34,6 @@ fn skip(reason: &str) {
     ));
 }
 
-/// Whether `interpreter` can import the two tools a Python fixture needs.
 fn imports_coverage_and_pytest(interpreter: &Path) -> bool {
     std::process::Command::new(interpreter)
         .args(["-c", "import coverage, pytest"])
@@ -55,22 +43,12 @@ fn imports_coverage_and_pytest(interpreter: &Path) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-/// The isolation level a snapshot records here: the two values of the crate's
-/// private `isolation::level`, which this integration test cannot call.
 const LEVEL: &str = if cfg!(windows) {
     "copy"
 } else {
     "namespace-view"
 };
 
-/// The interpreter that supplies coverage.py and pytest to a Python fixture.
-///
-/// Linux takes the isolated venv named by `MUTATOR_TEST_PYTHON_VENV`, which the
-/// fixture links into the project at `.venv` so the mounted view carries it.
-/// Native Windows cannot use that link: a worker copy shows `.venv` as an empty
-/// directory and materialises no directory link, so the fixture takes the
-/// `python` on PATH instead, where the `windows-quality` job installs
-/// coverage.py and pytest.
 fn python_interpreter() -> Option<PathBuf> {
     #[cfg(windows)]
     {
@@ -106,7 +84,6 @@ fn node_available() -> bool {
         .stderr(std::process::Stdio::null())
         .status()
         .is_ok_and(|status| status.success());
-    // Windows' npm is a .cmd shim, and CreateProcess needs the extension.
     let npm = std::process::Command::new(if cfg!(windows) { "npm.cmd" } else { "npm" })
         .arg("--version")
         .stdout(std::process::Stdio::null())
@@ -135,9 +112,6 @@ fn copy(from: &Path, to: &Path) {
         }
     }
 }
-/// A path relative to `base`, written with `/` as a snapshot writes it. Windows
-/// keeps backslashes in `strip_prefix`'s remainder, and every name this file
-/// compares or filters is a project-relative path, not a host path (ADR 0010).
 fn relative_name(path: &Path, base: &Path) -> String {
     path.strip_prefix(base)
         .unwrap()
@@ -182,9 +156,6 @@ impl Fixture {
         ));
         let project = directory.join("project");
         copy(&fixture_dir().join(language).join("project"), &project);
-        // The mounted view carries the project's `.venv` link, so the fixture
-        // links the isolated venv in. A Windows worker copy shows `.venv` as an
-        // empty directory, so the fixture there uses the interpreter on PATH.
         #[cfg(not(windows))]
         if language == "python" {
             let venv = PathBuf::from(std::env::var_os("MUTATOR_TEST_PYTHON_VENV")?);
@@ -255,7 +226,6 @@ impl Fixture {
         walk(&base, &base, &mut found);
         found
     }
-    /// No coverage report, test cache or build output reaches the project.
     fn assert_project_untouched(&self, before: &BTreeMap<String, Vec<u8>>) {
         let after = project_files(&self.project);
         let sources: BTreeMap<_, _> = after
@@ -302,13 +272,6 @@ impl Drop for Fixture {
     }
 }
 
-/// The bytes a snapshot must have on this host.
-///
-/// The only field the host decides is `:isolation`: `:namespace-view` on Linux,
-/// `:copy` on native Windows. The goldens were recorded on Linux, so that one
-/// field is rewritten for the host and everything else is compared byte for
-/// byte. A golden that no longer records the field fails here instead of
-/// silently comparing two different strings.
 fn expected_golden(golden: &[u8], language: &str, name: &str) -> Vec<u8> {
     const RECORDED: &str = ":isolation :namespace-view";
     let text = String::from_utf8(golden.to_vec()).unwrap();
@@ -323,8 +286,6 @@ fn expected_golden(golden: &[u8], language: &str, name: &str) -> Vec<u8> {
         .into_bytes()
 }
 
-/// Acceptance: both languages' snapshots equal the pinned original's bytes,
-/// and an unchanged differential rerun keeps them.
 fn golden_run(language: &'static str) {
     let Some(fixture) = Fixture::new(language) else {
         return;
@@ -337,12 +298,9 @@ fn golden_run(language: &'static str) {
     let first = fixture.run(1, &args);
     let published = fixture.published();
     assert_eq!(published, golden, "{language} first run bytes");
-    // The surviving mutants the goldens record make this exit 3.
     assert_eq!(first, ExitCode::from(3), "{language} first run");
     fixture.assert_project_untouched(&before);
     let rerun = fixture.run(1, &fixture.targets());
-    // Every verdict is now reusable: the first run's survivors were executed,
-    // but an identical rerun neither executes nor reports them.
     assert_eq!(rerun, ExitCode::SUCCESS, "{language} rerun");
     assert_eq!(fixture.published(), golden, "{language} rerun bytes");
     fixture.assert_project_untouched(&before);
@@ -358,7 +316,6 @@ fn typescript_snapshots_are_the_pinned_originals_bytes() {
     golden_run("typescript");
 }
 
-/// The #9 scheduler serves the new languages too: more workers, same bytes.
 fn parallel_run(language: &'static str) {
     let Some(single) = Fixture::new(language) else {
         return;
@@ -388,8 +345,6 @@ fn typescript_workers_publish_the_same_bytes_as_one_worker() {
     parallel_run("typescript");
 }
 
-/// `--mutate-all` is a decision, not a wider selection: only the named file
-/// publishes a snapshot.
 #[test]
 fn python_mutate_all_publishes_only_the_named_file() {
     let Some(fixture) = Fixture::new("python") else {
@@ -402,7 +357,6 @@ fn python_mutate_all_publishes_only_the_named_file() {
     assert!(published.contains_key("legacy.tally.core.edn"));
 }
 
-/// `--scan` inventories sites without coverage, tests or metrics.
 #[test]
 fn python_and_typescript_scan_writes_no_metrics() {
     for language in ["python", "typescript"] {
@@ -414,7 +368,6 @@ fn python_and_typescript_scan_writes_no_metrics() {
             fixture.project.clone().into_os_string(),
             OsString::from("--scan"),
         ];
-        // --scan conflicts with --max-workers in the original's CLI.
         args.extend(fixture.targets().iter().map(OsString::from));
         assert_eq!(
             mutator::run_with_clock(&args, || CLOCK.to_string()),
@@ -426,14 +379,11 @@ fn python_and_typescript_scan_writes_no_metrics() {
     }
 }
 
-/// Ported `engine._remember_baseline`: unittest discovery that finds nothing
-/// fails the baseline instead of letting every mutant survive.
 #[test]
 fn python_unittest_discovery_with_no_tests_fails_the_baseline() {
     let Some(venv) = python_interpreter() else {
         return;
     };
-    // Only the mounted view needs the link; the copy hides `.venv`.
     #[cfg(windows)]
     let _ = &venv;
     let directory = std::env::temp_dir().join(format!(
@@ -453,7 +403,6 @@ fn python_unittest_discovery_with_no_tests_fails_the_baseline() {
         "def add(a, b):\n    return a + b\n",
     )
     .unwrap();
-    // The copy hides `.venv`, so only the mounted view needs this link.
     #[cfg(not(windows))]
     std::os::unix::fs::symlink(&venv, project.join(".venv")).unwrap();
     let code = mutator::run_with_clock(
@@ -474,9 +423,6 @@ fn python_unittest_discovery_with_no_tests_fails_the_baseline() {
         fs::read_to_string(project.join("src/demo.py")).unwrap(),
         "def add(a, b):\n    return a + b\n"
     );
-    // The guard itself: a command that exits 0 but reports an empty suite is a
-    // failed baseline, even where unittest's own exit status would not fail.
-    // A command that exits 0 while reporting an empty suite, in the host shell.
     const EMPTY_SUITE: &str = if cfg!(windows) {
         "echo Ran 0 tests in 0.000s & exit 0"
     } else {
@@ -505,12 +451,8 @@ fn python_unittest_discovery_with_no_tests_fails_the_baseline() {
     fs::remove_dir_all(&directory).unwrap();
 }
 
-/// Ported `test_snapshot_bytes.py`: one Python file, one killed mutant, the
-/// original's exact LF bytes with this platform's `:namespace-view`.
 #[test]
 fn a_single_python_file_publishes_the_original_snapshot_bytes() {
-    // The interpreter is `python3` on POSIX and `python` on Windows; the test
-    // command below has to be spelled for the same host shell.
     const PYTHON: &str = if cfg!(windows) { "python" } else { "python3" };
     const TEST_COMMAND: &str = if cfg!(windows) {
         "python -c \"from calc import add; assert add(2, 1) == 3\""

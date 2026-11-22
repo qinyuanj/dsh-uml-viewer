@@ -1,8 +1,3 @@
-//! `uml-quality.json` version 1 (ADR 0001, docs/uml-quality.schema.json),
-//! validated as the frozen qinyuanj/uml-viewer `scripts/uml_quality.py`
-//! `read_config` and `scope` do. All configured operations are validated
-//! before any command runs.
-
 use std::path::{Component, Path, PathBuf};
 
 use serde_json::Value;
@@ -32,8 +27,6 @@ impl Operation {
         }
     }
 
-    /// The standard tool and its own valid exit set (`TOOLS` in
-    /// `uml_quality.py`): crapper 0/2, mutator 0/3, dryer 0.
     pub fn tool(self) -> (&'static str, &'static [u8]) {
         match self {
             Operation::Crap => ("crapper", &[0, 2]),
@@ -43,7 +36,6 @@ impl Operation {
     }
 }
 
-/// Options taking one value inside `<tool>Options`.
 pub const VALUES: &[&str] = &[
     "--coverage-command",
     "--threshold",
@@ -56,11 +48,8 @@ pub const VALUES: &[&str] = &[
     "--min-lines",
     "--min-nodes",
     "--format",
-    // mutate only: a path outside the project root that copy isolation must
-    // show beside every copy (ADR 0016). Its value is not a target name.
     "--copy",
 ];
-/// Scope and routing options only the dispatcher may set.
 const ROUTING: &[&str] = &[
     "--root",
     "--source-root",
@@ -73,10 +62,8 @@ const ROUTING: &[&str] = &[
     "--text",
 ];
 
-/// `standardTools`: declared business scope and per-tool options.
 #[derive(Clone, Debug, Default)]
 pub struct Standard {
-    /// Whether `standardTools` was declared at all.
     pub declared: bool,
     pub source_roots: Vec<String>,
     pub exclude: Vec<String>,
@@ -95,13 +82,11 @@ impl Standard {
     }
 }
 
-/// One `operations` entry.
 #[derive(Clone, Debug)]
 pub struct Override {
     pub argv: Vec<String>,
     pub forward_args: bool,
     pub valid_exit_codes: Vec<u8>,
-    /// `targets` or `whole-tree` for CRAP; None otherwise.
     pub crap_scope: Option<&'static str>,
 }
 
@@ -126,7 +111,6 @@ impl Config {
         }
     }
 
-    /// The project's manifest; absent means the default standard dispatch.
     pub fn read(root: &Path) -> Result<Config, String> {
         let path = root.join("uml-quality.json");
         if !path.exists() {
@@ -141,8 +125,6 @@ impl Config {
         Ok(config)
     }
 
-    /// `scope()`: roots are project-relative directories inside the root;
-    /// exclusions are project-relative.
     fn check_scope(&self, root: &Path) -> Result<(), String> {
         for name in &self.standard.source_roots {
             if escapes(name) {

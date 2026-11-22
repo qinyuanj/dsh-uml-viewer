@@ -15,7 +15,6 @@ interface Harness {
   actions: { sessionId: string; action: PanelAction }[]
   statuses: PanelStatus[]
   painted: SceneFrame[]
-  /** The sessions this panel reported closed, in order. */
   closes: string[]
   ended(): boolean
   emit(event: PanelEvent): void
@@ -88,7 +87,6 @@ function harness(initial: PanelEvent[] = []): Harness {
   }
 }
 
-/** A session state as the resident persists it; only `declutter` matters here. */
 function stateWith(declutter: string | null, proposalId: string | null = null): SessionState {
   return {
     schema: 'dsh-uml-viewer/session-state', version: 1, diagram: null, context: null,
@@ -132,7 +130,6 @@ describe('session-bound panel stream', () => {
     await settle(() => controller.current.kind === 'live', 'the legacy ready')
     expect(calls).toEqual(['watchOwned', 'watch session-a'])
     await controller.close()
-    // The owner was never accepted, so the legacy close is the one that can work.
     expect(calls).toEqual(['watchOwned', 'watch session-a', 'close session-a'])
   })
 
@@ -158,7 +155,6 @@ describe('session-bound panel stream', () => {
     language = 'en'
     await controller.setLanguage('en')
     expect(actions.filter(action => action.action === 'language')).toEqual([{ action: 'language', language: 'en' }])
-    // Saying it twice sends nothing; the resident already draws English.
     await controller.setLanguage('en')
     expect(actions.filter(action => action.action === 'language')).toHaveLength(1)
     await controller.close()
@@ -184,7 +180,6 @@ describe('session-bound panel stream', () => {
     expect(h.controller.current.kind).toBe('live')
     expect(h.controller.current.actions).toEqual(['display', 'reload'])
     expect(h.controller.current.frame).toBe(frame)
-    // The panel names its viewport for this session before it can be laid out.
     await settle(() => h.actions.some(entry => entry.action.action === 'viewport'), 'the viewport action')
     expect(h.actions[0]).toMatchObject({ sessionId: 'session-a', action: { action: 'viewport', viewport: { width: 800, height: 600 } } })
     h.controller.close()
@@ -194,17 +189,12 @@ describe('session-bound panel stream', () => {
     const h = harness([{ kind: 'ready', actions: [] }])
     await h.controller.open('session-a')
     await settle(() => h.controller.current.kind === 'live', 'the ready event')
-    // A panel body remount during a right-sidebar presentation change rebinds
-    // the same session: nothing was closed, so the resident the new stream
-    // re-attaches to must not be told to stop.
     await h.controller.open('session-a')
     expect(h.closes).toEqual([])
-    // A different session is left behind: that one is closed.
     await h.controller.open('session-b')
     expect(h.closes).toEqual(['session-a'])
     h.controller.close()
     expect(h.closes).toEqual(['session-a', 'session-b'])
-    // Closing an already closed panel says nothing twice.
     h.controller.close()
     expect(h.closes).toEqual(['session-a', 'session-b'])
   })
@@ -238,11 +228,9 @@ describe('session-bound panel stream', () => {
     const camera = h.actions.find(entry => entry.action.action === 'camera')!.action
     expect(camera).toMatchObject({ action: 'camera', zoom: frame.camera.zoom })
     if (camera.action === 'camera') {
-      // 20 screen px left at the frame's zoom moves the camera 20/zoom world units right.
       expect(camera.x).toBeCloseTo(frame.camera.x + 20 / frame.camera.zoom, 6)
       expect(camera.y).toBeCloseTo(frame.camera.y + 10 / frame.camera.zoom, 6)
     }
-    // A press without motion is a select, not a pan.
     h.controller.pointerDown(410, 310)
     h.controller.pointerUp(410, 310)
     await settle(() => h.actions.some(entry => entry.action.action === 'select'), 'the select action')
@@ -280,8 +268,6 @@ describe('session-bound panel stream', () => {
     const afterZoom = worldToScreen(viewTransform(zoomed, 800, 600), ...anchor)
     expect(afterZoom[0]).toBeCloseTo(380, 10)
     expect(afterZoom[1]).toBeCloseTo(290, 10)
-    // The resident acknowledges a camera action without sending another frame;
-    // both local camera changes have therefore already been painted.
     expect(h.painted).toHaveLength(3)
     h.controller.close()
   })
@@ -304,13 +290,8 @@ describe('session-bound panel stream', () => {
   })
 
   it('Ctrl+0 restores the resident fit including scene margins after local zoom and pan', async () => {
-    // CI7 Deep: a 647×917 viewport, outer package (56,56,824,180), and
-    // the resident's fresh-load camera. The scene size is 936×292 after
-    // compose::bounds' 16-unit inflation and compose::size's 40-unit margin.
     const outer = frame.world.find(item => item.kind === 'package')!
     const rect = { x: 56, y: 56, w: 824, h: 180 }
-    // The resident's fit for that viewport: the canvas is the whole view, with
-    // no 36pt strip reserved for the frame's old title line (#46).
     const fitted = { x: 0, y: -517.3013910355487, zoom: 0.6912393162393162 }
     const initial: SceneFrame = { ...frame, viewport: { width: 647, height: 917 },
       camera: fitted, world: [{ ...outer, bounds: rect, rect }], edges: [] }
@@ -344,15 +325,12 @@ describe('session-bound panel stream', () => {
     expect(drill.action.at![0]).toBeCloseTo(rect.x + rect.w / 2, 6)
     expect(drill.action.at![1]).toBeCloseTo(rect.y + rect.h / 2, 6)
 
-    // Below the root the state's breadcrumb path has more than one level (#45),
-    // which is what Escape reads; the frame itself carries no back chrome (#46).
     const drilled: SceneFrame = { ...frame }
     h.emit({ kind: 'frame', seq: 2, frame: drilled })
     h.emit({ kind: 'state', state: stateWith(null), breadcrumbs: [
       { id: null, name: 'Shop' }, { id: ':core', name: 'core' },
     ], status: null, proposals: [{ id: ':p-shop', name: 'Shop split' }] })
     await settle(() => h.controller.current.breadcrumbs.length === 2, 'the drilled path')
-    // #47: the switcher's list rides on the same event.
     expect(h.controller.current.proposals).toEqual([{ id: ':p-shop', name: 'Shop split' }])
     expect(h.controller.current.frame!.chrome).toEqual([])
     expect(h.controller.key('Escape')).toBe(true)
@@ -361,9 +339,6 @@ describe('session-bound panel stream', () => {
     expect(h.controller.key('p')).toBe(true)
     await settle(() => h.actions.some(entry => entry.action.action === 'namespace-tree'), 'P returns to the tree')
 
-    // The view summary is the resident's own flag (#46): `:proposal-id` is set
-    // exactly while the canvas shows a proposal layer, so a proposal view that
-    // returns to the source tree reads source, whatever the discussion is.
     expect(h.controller.current.view).toBe('source')
     h.emit({ kind: 'state', state: stateWith(null, ':p-shop'), breadcrumbs: [
       { id: null, name: 'Shop' }, { id: ':core', name: 'core' },
@@ -421,7 +396,6 @@ describe('session-bound panel stream', () => {
       { id: ':beta.price', name: 'price', ns: 'beta.price', label: 'price · beta' },
     ] })
     await settle(() => h.controller.current.search.results.length === 2, 'the results')
-    // An open search box captures P, zoom and pointer gestures.
     expect(h.controller.key('p')).toBe(true)
     h.controller.wheel(400, 300, 1, { control: true })
     h.controller.pointerDown(400, 300)
@@ -437,7 +411,6 @@ describe('session-bound panel stream', () => {
     h.controller.key('Enter')
     await settle(() => h.actions.some(entry => entry.action.action === 'locate'), 'locate the result')
     expect(h.actions.at(-1)!.action).toEqual({ action: 'locate', id: ':beta.price' })
-    // Enter locates without closing; Escape closes the box, not the view.
     expect(h.controller.current.search.active).toBe(true)
     h.controller.key('Escape')
     expect(h.controller.current.search.active).toBe(false)
@@ -462,7 +435,6 @@ describe('session-bound panel stream', () => {
     const h = harness([{ kind: 'frame', seq: 1, frame }])
     await h.controller.open('session-a')
     await settle(() => h.painted.length === 1, 'the frame')
-    // The open panel is the one that started watching the theme attribute.
     expect(FakeMutationObserver.instances.length).toBe(before + 1)
     FakeMutationObserver.instances.at(-1)!.trigger()
     expect(h.painted.length).toBe(2)
@@ -488,10 +460,8 @@ describe('local hover (关系悬停高亮, ADR 0013)', () => {
     const sent = h.actions.length
     h.controller.hover(...coreCenter(frame))
     expect(warm(h.painted.at(-1)!)).toEqual(expectedWarm)
-    // Hover is feedback only: no action, and the resident's frame is unchanged.
     expect(h.actions.length).toBe(sent)
     expect(h.controller.current.frame).toBe(frame)
-    // Moving within the same box does not repaint; leaving the canvas restores the frame.
     const paints = h.painted.length
     h.controller.hover(coreCenter(frame)[0] + 2, coreCenter(frame)[1])
     expect(h.painted.length).toBe(paints)
@@ -530,12 +500,10 @@ describe('local hover (关系悬停高亮, ADR 0013)', () => {
     await h.controller.open('session-a')
     await settle(() => h.painted.length === 1, 'the frame')
     h.controller.hover(...coreCenter(frame))
-    // A wheel pan repaints the hovered frame with the new camera.
     h.controller.wheel(10, 10, -1)
     const panned = h.painted.at(-1)!
     expect(panned.camera).not.toEqual(frame.camera)
     expect(warm(panned)).toEqual(expectedWarm)
-    // A select answer from the resident (say, a reload) is painted with the hover on top.
     const reloaded: SceneFrame = { ...frame }
     h.emit({ kind: 'frame', seq: 2, frame: reloaded })
     await settle(() => h.controller.current.frame === reloaded, 'the next frame')

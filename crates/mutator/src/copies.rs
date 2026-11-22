@@ -1,19 +1,3 @@
-//! Native Windows: every command, coverage, baseline and mutant included,
-//! runs in a fresh copy of the project at its worker slot (ADR 0010).
-//!
-//! The copy is the original's `CopyViews`: the directories that take no part in
-//! a mutation -- build output, dependency trees, and whatever the project's own
-//! ignore rules declare -- become an empty directory (#102), a link to a real
-//! directory is refused before a command runs, a link to nothing is skipped,
-//! file links are materialised as independent files, and `HOME`, `USERPROFILE`,
-//! `TEMP`, `TMP`, `APPDATA` and `LOCALAPPDATA` point beside the copy. The
-//! command's process tree is #3's kill-on-close Job Object in
-//! `quality_core::process`; there is no second containment implementation.
-//!
-//! A call's `--copy` paths are placed beside the copy at their real
-//! project-relative position (ADR 0016): a dependency outside the project root,
-//! such as the contracts a package imports from its repository's root, is
-//! otherwise missing from the copy and the baseline fails before any mutant.
 use crate::{
     interrupts,
     isolation::{self, Completed, Failure},
@@ -31,11 +15,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// The original's `HIDDEN`: build output a copy shows as an empty directory.
-///
-/// These are the tools' own output names, for a project that declares nothing
-/// about its build; `declared_ignored_directories` adds the project's own
-/// answer, so the copy is never tied to this list (`hidden_paths`).
 const HIDDEN: &[&str] = &[
     ".git",
     ".hg",
@@ -58,25 +37,8 @@ const HIDDEN: &[&str] = &[
     ".toolcache",
 ];
 
-/// Dependency directories, hidden at any depth (see `hidden_paths` and
-/// `is_dependency`).
-///
-/// A project's ignore rules name one `node_modules` at its root, but pnpm and
-/// npm give every package of a workspace its own
-/// (`packages/<pkg>/node_modules`), and each of those is a farm of links into
-/// the package manager's store -- which a copy may not hold, because a linked
-/// directory is what `copy_tree` refuses. A mutation never writes inside a
-/// dependency, so the whole tree is an empty directory in the copy.
-///
-/// This is the one name this module contributes rather than reading from the
-/// project, because the *layout*, not the project, is what puts it below a
-/// package directory. The boundary: a project that keeps real sources in a
-/// directory named `node_modules` loses them from the copy.
 const DEPENDENCIES: &[&str] = &["node_modules"];
 
-/// Home, profile, temp and app-data beside the copy, never inside it: each
-/// environment variable and the slot entry (`crate::slot`) it points at, plus
-/// the sub-path inside that entry.
 const REDIRECTED: &[(&str, Entry, &str)] = &[
     ("HOME", Entry::Home, ""),
     ("USERPROFILE", Entry::Home, ""),
@@ -90,13 +52,6 @@ pub fn describe() -> &'static str {
     "copy (a fresh copy of the project per command)"
 }
 
-/// The outside paths one call declared, keyed by the project root it runs on.
-///
-/// Every view of a call must show the same `--copy` paths, and views are created
-/// in more places than the CLI reaches (coverage, baseline, mutants), so the set
-/// is recorded once per call instead of threaded through each one. A root keeps
-/// only its latest call: a call without `--copy` clears it, and a slot deletes
-/// its previous command's copies first, so nothing is inherited.
 pub fn remember_outside(root: &Path, outside: &[isolation::Outside]) {
     let mut registered = registry();
     if outside.is_empty() {
@@ -106,7 +61,6 @@ pub fn remember_outside(root: &Path, outside: &[isolation::Outside]) {
     }
 }
 
-/// The outside paths this call declared for `root`; empty without `--copy`.
 pub fn outside(root: &Path) -> Vec<isolation::Outside> {
     registry().get(root).cloned().unwrap_or_default()
 }
@@ -119,12 +73,8 @@ fn registry() -> MutexGuard<'static, BTreeMap<PathBuf, Vec<isolation::Outside>>>
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// One slot of the pool: a copy per command, plus the file a mutant carries.
 pub struct Slot {
     directory: PathBuf,
-    // This worker's Cargo target directory, when it has one: a position beside
-    // the slot that every command's wipe leaves alone (`crate::build_cache`),
-    // never a name exemption inside it.
     build: Option<crate::build_cache::BuildCache>,
 }
 impl Slot {
@@ -135,29 +85,18 @@ impl Slot {
         }
     }
 
-    /// `build` is a directory above this slot, which the wipe below leaves
-    /// alone: the caller owns it and removes it with the pool.
     pub fn with_build(mut self, build: Option<crate::build_cache::BuildCache>) -> Self {
         self.build = build;
         self
     }
-    /// The directory the copy's `..` resolves to. It sits one level under the
-    /// wiped slot, so both `..` and `../..` from the project land inside the
-    /// slot and the next command's wipe removes them. A collection's published
-    /// scratch lives outside this slot and is opened by absolute path.
     fn beside(&self) -> PathBuf {
         self.directory.join("beside")
     }
 
-    /// One slot entry, named by the declaration that also makes it a `--copy`
-    /// reservation (`crate::slot`), so a slot the copy creates and a name the
-    /// option refuses can never be two separate lists.
     fn entry(&self, entry: Entry) -> PathBuf {
         self.beside().join(entry.name())
     }
 
-    /// One redirected variable's directory: a slot entry, plus the sub-path the
-    /// variable uses inside it.
     fn redirected(&self, entry: Entry, folder: &str) -> PathBuf {
         match folder {
             "" => self.entry(entry),
@@ -175,20 +114,7 @@ impl Slot {
         self.entry(Entry::Mutation)
     }
 
-    /// Reset the slot and copy the project into it. `command` is the command
-    /// that will run (it decides which dependency trees the copy must keep, see
-    /// `Exclusions`), and `mutation` is the mutated source this command must
-    /// see, if any.
     fn copy(&self, root: &Path, command: &str, mutation: Option<(&Path, &str)>) -> io::Result<()> {
-        // The whole slot is fresh for every command: every entry, with no
-        // exemption by name. The copy sits one level down, so a `..` write and a
-        // `../..` write both land here and are gone before the next command
-        // starts, and a mutant's own `lua-coverage` directory is removed like
-        // any other. The one entry a command keeps (`Entry::LuaScratch`) is
-        // kept by a collection's view nesting this slot under it, never here.
-        // The command that just finished may still have a process inside this
-        // slot; `remove_patiently` waits that out instead of failing the copy
-        // the moment a delete is refused (#113).
         for entry in fs::read_dir(&self.directory)? {
             scratch::remove_patiently(&entry?.path())?;
         }
@@ -204,9 +130,6 @@ impl Slot {
         }
         let mark = self.mark();
         scratch::force_remove(&mark)?;
-        // The previous command's mutant is gone from the copy, but its compiled
-        // object is still in this worker's target directory, and the restored
-        // file's older time would let Cargo keep it (`crate::build_cache`).
         if let Some(build) = &self.build {
             build.force_previous(&project)?;
         }
@@ -215,11 +138,7 @@ impl Slot {
             let relative = path
                 .strip_prefix(root)
                 .map_err(|_| io::Error::other("the mutated source is outside the project root"))?;
-            // Cargo treats a source no newer than its last build as unchanged;
-            // every copy is new, but the mutated file is rewritten last.
             fs::write(project.join(relative), source)?;
-            // The command after this one has to force this crate back to the
-            // project's own bytes.
             if let Some(build) = &self.build {
                 build.remember(relative)?;
             }
@@ -227,7 +146,6 @@ impl Slot {
         Ok(())
     }
 
-    /// How `cwd`, an absolute path in the project, maps into the copy.
     fn cwd(&self, root: &Path, cwd: &Path) -> io::Result<PathBuf> {
         let relative = cwd
             .strip_prefix(root)
@@ -235,19 +153,10 @@ impl Slot {
         Ok(self.project().join(relative))
     }
 
-    /// Place one `--copy` path beside the copy, where the copy's `..` reaches it.
-    ///
-    /// The slot was just wiped, so the bytes are copied again from the real path
-    /// for every command: a mutant's write to `..` cannot greet the next
-    /// command, and an outside path that changed mid-call is seen as it is now.
-    /// Nothing is left behind when the call ends, because the whole slot is
-    /// inside the scratch root the pool removes.
     fn place(&self, outside: &isolation::Outside) -> io::Result<()> {
         let source = &outside.source;
         let destination = self.beside().join(&outside.relative);
         let target = format!("{} beside the copy", source.display());
-        // The same link rules as the project copy: a linked directory is
-        // refused, a linked file is materialised as independent bytes.
         if fs::metadata(source)
             .map_err(|error| cannot_place(&target, error))?
             .is_dir()
@@ -275,8 +184,6 @@ impl Slot {
         self.run_program(&Program::Shell(command), root, cwd, mutation, timeout)
     }
 
-    /// An argv command reaches the shared MSVCRT quoting of the process
-    /// boundary instead of a shell string, as the original's argv plans do.
     pub fn run_argv(
         &self,
         root: &Path,
@@ -315,27 +222,14 @@ impl Slot {
             })
             .collect();
         let copy = self.project();
-        // Cargo writes here instead of into the copy, so the crates a mutant
-        // did not touch survive the next command's wipe (`crate::build_cache`
-        // says why that is sound). Without a pool to own one, the target
-        // directory stays inside the copy, as it always did.
         let target = match &self.build {
             Some(build) => build.directory().to_path_buf(),
             None => copy.join("target/mutator-build"),
         };
         environment.push(("CARGO_TARGET_DIR".into(), target.into_os_string()));
-        // A persistent per-worker target directory (above) already lets Cargo
-        // reuse the crates a mutant did not touch; incremental compilation
-        // extends that reuse to the mutated crate itself, so the whole-crate
-        // rebuild every mutant pays becomes a recompile of the changed code
-        // units. Scoped to the project's own `cargo test` command: the coverage
-        // run (`cargo llvm-cov`) and every non-Cargo suite keep the profile the
-        // project declares, and without a pool that owns a stable target
-        // directory there is nothing to reuse, so it stays off there too.
         if self.build.is_some() && is_cargo_test_command(&command) {
             environment.push(("CARGO_INCREMENTAL".into(), "1".into()));
         }
-        // The installed toolchains stay reachable after the home moves.
         if std::env::var_os("CARGO_HOME").is_none() {
             let default = quality_core::paths::home().join(".cargo");
             if default.is_dir() {
@@ -348,9 +242,6 @@ impl Slot {
                 environment.push(("RUSTUP_HOME".into(), default.into_os_string()));
             }
         }
-        // JVM tools use java.user.home for dependency repositories. Cached
-        // jars are independent copies; downloads and lockfiles stay beside
-        // this worker, rather than writing to the user's Maven repository.
         let rendered = program.display();
         if rendered.contains("mvn") || rendered.contains("clj") || rendered.contains("clojure") {
             let jvm_home = home.join("home");
@@ -393,7 +284,6 @@ impl Slot {
 }
 
 impl Slot {
-    /// The copy's root: reports a command wrote live here, never in the project.
     pub fn project_root(&self) -> PathBuf {
         self.project()
     }
@@ -403,21 +293,10 @@ fn message(error: io::Error) -> Failure {
     Failure::Message(error.to_string())
 }
 
-/// Whether a copy failure is an isolation failure rather than a test result.
-///
-/// Freezing the project and placing an outside path both fail before any command
-/// runs, so neither is a test outcome: the run exits 1 (isolation unavailable)
-/// instead of 2 (a failing suite). Every message either step writes starts with
-/// "Copy isolation cannot", and the placement failure names its path.
 fn isolation_failure(text: &str) -> bool {
     text.starts_with("Copy isolation cannot")
 }
 
-/// Every failure of `copy` is an isolation failure, never a test outcome: each
-/// of its steps -- the wipe of the previous command's slot, the copy, a placed
-/// `--copy` path -- runs before the command does, so a bare `io::Error` there
-/// must not be reported as a red suite (#105). A message that already names
-/// itself keeps its own words.
 fn copy_failure(error: io::Error) -> Failure {
     let text = error.to_string();
     let text = if isolation_failure(&text) {
@@ -428,8 +307,6 @@ fn copy_failure(error: io::Error) -> Failure {
     Failure::Unavailable(text)
 }
 
-/// A `--copy` path that could not be placed names itself: a missing dependency
-/// must never look like a broken project.
 fn cannot_place(target: &str, error: io::Error) -> io::Error {
     io::Error::new(
         error.kind(),
@@ -437,24 +314,12 @@ fn cannot_place(target: &str, error: io::Error) -> io::Error {
     )
 }
 
-/// What a copy leaves out: the project-root directories shown as an empty
-/// directory, and whether a dependency tree anywhere in it is hidden too.
 pub(crate) struct Exclusions {
     hidden: Vec<PathBuf>,
-    /// `node_modules` is an empty directory at any depth, because the command
-    /// that will run does not use one (`runs_javascript`).
     dependencies: bool,
 }
 
 impl Exclusions {
-    /// A copy of `root` under `command`: the project's declared exclusions,
-    /// minus the dependency trees the command itself needs.
-    ///
-    /// This is the rule #102 warned about -- an ignored path can be a build
-    /// input, and `node_modules` is one for a JavaScript project: the
-    /// TypeScript lane runs the package's own `node_modules/.bin` shim inside
-    /// the copy. The command is what says so: the same reading that decides the
-    /// JVM home below (`rendered.contains("mvn") ...`) decides this.
     fn project(root: &Path, command: &str) -> Self {
         let dependencies = !runs_javascript(command);
         let hidden = hidden_paths(root)
@@ -467,8 +332,6 @@ impl Exclusions {
         }
     }
 
-    /// A copy that leaves out nothing it did not ask to: a declared `--copy`
-    /// path and a toolchain's own dependency store.
     fn none() -> Self {
         Self {
             hidden: Vec::new(),
@@ -477,15 +340,10 @@ impl Exclusions {
     }
 }
 
-/// Whether `command` is Cargo's test suite (`cargo test …`, or the fail-fast
-/// nextest suite of #123): the one the Rust mutation path runs, and the only
-/// command incremental compilation is allowed to accelerate.
 fn is_cargo_test_command(command: &str) -> bool {
     crate::rust_suite::is_suite(command)
 }
 
-/// Whether `command` runs the project's JavaScript toolchain, which reads its
-/// dependencies from `node_modules`.
 fn runs_javascript(command: &str) -> bool {
     let command = command.to_ascii_lowercase();
     [
@@ -496,10 +354,6 @@ fn runs_javascript(command: &str) -> bool {
     .any(|tool| command.contains(tool))
 }
 
-/// `copy_tree`: a hidden directory becomes empty, a linked directory is
-/// refused (it could route a mutant back into the checkout), a link to nothing
-/// is skipped, a file link is materialised, and every other file is copied with
-/// its timestamps.
 pub(crate) fn copy_tree(
     source: &Path,
     destination: &Path,
@@ -513,21 +367,10 @@ pub(crate) fn copy_tree(
         if exclusions.hidden.contains(&path)
             || (exclusions.dependencies && is_dependency(&path) && metadata.is_dir())
         {
-            // Hidden build output and dependency trees are an empty directory,
-            // as in an overlay: present, so a build that expects the directory
-            // finds one, and empty, so nothing inside it is frozen.
             fs::create_dir(&target)?;
             continue;
         }
         if is_link(&metadata) {
-            // Resolving the link is what separates the two cases #102 turned
-            // on. A link to a real directory -- a junction, or a symlink -- is
-            // a route a mutant's write could take back into the checkout, so
-            // it is refused and the run stops before any command. A link to
-            // nothing is a route nowhere: it is skipped, because it cannot
-            // carry a write out of the copy, and refusing it made one stale
-            // test fixture or one broken package-manager entry price the whole
-            // project's mutation run.
             match fs::metadata(&path) {
                 Ok(resolved) if resolved.is_dir() => {
                     return Err(io::Error::other(format!(
@@ -544,12 +387,8 @@ pub(crate) fn copy_tree(
                     })?;
                     fs::copy(source, target)?;
                 }
-                // Neither directory nor file: nothing a mutation can use.
                 Ok(_) => continue,
-                // Present as a reparse point, absent as a target: dangling.
                 Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                // Any other resolution failure is still refused: this is the
-                // path that must never be guessed at.
                 Err(_) => {
                     return Err(io::Error::other(format!(
                         "Copy isolation cannot freeze unresolved link: {}",
@@ -567,24 +406,11 @@ pub(crate) fn copy_tree(
     Ok(())
 }
 
-/// A symlink, or any reparse point (a junction too), as the original sees it.
 fn is_link(metadata: &fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
     metadata.file_type().is_symlink() || metadata.file_attributes() & 0x400 != 0
 }
 
-/// The directories a copy shows as an empty directory: the tools' own build
-/// output (`HIDDEN`) plus every root directory the project's own ignore rules
-/// declare.
-///
-/// The declaration is the project's, not this module's: `.gitignore` and the
-/// repository's `info/exclude` are where a project says which directories are
-/// generated or fetched, and that is where `target`, `lib`, `node_modules` and
-/// `.agents` are named in this repository (#102). Reusing it is why this is not
-/// a hardcoded three, and why it follows a project that ignores something else.
-/// The mutation scope (`sourceRoots` in `uml-quality.json`) is deliberately not
-/// the input: inverting it would drop `Cargo.toml`, `fixtures/` and every other
-/// file a test needs, and the copy would fail before the first mutant.
 pub fn hidden_paths(root: &Path) -> Vec<PathBuf> {
     let mut names: Vec<String> = HIDDEN.iter().map(|name| (*name).to_owned()).collect();
     for name in declared_ignored_directories(root) {
@@ -599,8 +425,6 @@ pub fn hidden_paths(root: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Root directories `root`'s ignore rules declare: a literal, top-level
-/// directory name in `.gitignore` or in the repository's `info/exclude`.
 fn declared_ignored_directories(root: &Path) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     for file in ignore_files(root) {
@@ -619,13 +443,6 @@ fn declared_ignored_directories(root: &Path) -> Vec<String> {
     names
 }
 
-/// `.gitignore` first, then the repository's `info/exclude`.
-///
-/// A linked worktree -- `.agents/worktrees/<n>` is where a ticket's own tree
-/// lives -- has a `.git` *file* naming its per-worktree directory, and the
-/// ignore rules live in the shared repository that `commondir` names. Reading
-/// only `<root>/.git/info/exclude` would lose `.agents/` exactly where the
-/// ticket works.
 fn ignore_files(root: &Path) -> Vec<PathBuf> {
     let mut files = vec![root.join(".gitignore")];
     if let Some(directory) = git_directory(root) {
@@ -647,7 +464,6 @@ fn git_directory(root: &Path) -> Option<PathBuf> {
     }
 }
 
-/// `path` as `base` reads it; an absolute path stands as written.
 fn resolve(base: &Path, path: PathBuf) -> PathBuf {
     if path.is_absolute() {
         path
@@ -656,13 +472,6 @@ fn resolve(base: &Path, path: PathBuf) -> PathBuf {
     }
 }
 
-/// One ignore-file line naming a single root directory literally.
-///
-/// A negation (`!build/`), a wildcard (`run-*`, `**/tmp`), a nested path
-/// (`.claude/worktrees/`) or a file pattern is not this. Those are left to
-/// `HIDDEN` and to the link rules: guessing at git's pattern language would
-/// silently drop a directory a build needs, which is the failure this ticket
-/// exists to end.
 fn literal_directory(line: &str) -> Option<String> {
     let line = line.trim();
     if line.is_empty() || line.starts_with('#') || line.starts_with('!') {
@@ -675,7 +484,6 @@ fn literal_directory(line: &str) -> Option<String> {
     Some(name.to_owned())
 }
 
-/// Whether `path` names a dependency directory (`DEPENDENCIES`).
 fn is_dependency(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())

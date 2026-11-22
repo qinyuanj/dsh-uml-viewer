@@ -41,7 +41,6 @@ pub fn package_by_id<'a>(scene: &'a Value, id: &Value) -> Option<&'a Value> {
         .map(|v| v as _)
 }
 
-/// Edges touching the class id, in scene order.
 #[cfg(test)]
 pub(crate) fn connected_edges(scene: &Value, id: &Value) -> Vec<Value> {
     seq(edn::record::get(scene, "edges"))
@@ -104,7 +103,6 @@ pub fn dep_indicators(scene: &Value) -> Value {
     Value::Vector(out)
 }
 
-/// Topmost dependency indicator at the point, if any.
 pub(crate) fn indicator_at(scene: &Value, x: f64, y: f64, pad: f64) -> Option<Value> {
     let inds = seq(edn::record::get(scene, "dep-indicators"));
     for a in inds.iter().rev() {
@@ -139,8 +137,6 @@ pub(crate) fn indicator_at(scene: &Value, x: f64, y: f64, pad: f64) -> Option<Va
     None
 }
 
-/// Topmost edge at the point, tested against its clipped strokes (the hidden
-/// gap never hits), else its raw points.
 pub(crate) fn edge_at(scene: &Value, x: f64, y: f64, pad: f64) -> Option<Value> {
     let es = seq(edn::record::get(scene, "edges"));
     for e in es.iter().rev() {

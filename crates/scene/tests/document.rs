@@ -1,7 +1,3 @@
-//! compile_view, reload/retention and proposal write-back — the
-//! proposal_spec.lua and viewer_spec.lua oracle. Expected file contents are
-//! checked structurally against literals from the spec.
-
 use edn::record::get;
 use edn::{Value, parse};
 use scene::Snapshot;
@@ -37,8 +33,6 @@ fn load(text: &str) -> ViewState {
 
 #[test]
 fn policy_relation_kinds_control_the_compiled_dependency_chain() {
-    // Scanned imports are dependencies before the view's policy override.
-    // Selection must follow the policy relation, including the reverse override.
     for (scanned, kind, on_chain) in [
         ("dependency", "association", false),
         ("dependency", "inheritance", false),
@@ -71,8 +65,6 @@ fn policy_relation_kinds_control_the_compiled_dependency_chain() {
         );
         assert_eq!(!on_chain, highlight.dimmed(&kw("c")), "{kind}");
     }
-    // A naturally bundled association can still carry a real parallel
-    // dependency. Only an explicit policy override replaces leaf semantics.
     let state = load(
         "{:hierarchical true :classes [{:id :a} {:id :b}] \
          :edges [{:from :a :to :b :kind :association} \
@@ -193,7 +185,6 @@ fn adds_renames_and_deletes_a_proposal_without_touching_the_ir_path() {
         Some(&Value::String("Fixed".into())),
         get(&records[1], "name")
     );
-    // The same epoch again takes the next de-duplication suffix.
     let again = scene::events::add_proposal(&added, 1_700_000_000, "Again", None);
     let records = seq(again.document.as_ref().unwrap(), "proposals");
     assert_eq!(3, records.len());
@@ -227,7 +218,6 @@ fn adds_renames_and_deletes_a_proposal_without_touching_the_ir_path() {
             "name"
         )
     );
-    // Blank names and missing ids are no-ops.
     assert_eq!(
         renamed.document,
         scene::events::rename_proposal(&renamed, Some(&id), "   ", None).document
@@ -537,7 +527,6 @@ fn context_commands_update_discussion_without_recompiling() {
     assert_eq!(3, ctx.mail_seen);
     assert_eq!(state.scene, ctx.scene);
     assert_eq!(state.revision, ctx.revision);
-    // An unknown op only advances the cursor.
     let other = document::apply_mail(&state, &parse("{:id 5 :op :omit}").unwrap(), &NoIo);
     assert_eq!(5, other.mail_seen);
     assert_eq!(state.scene, other.scene);
@@ -580,8 +569,6 @@ fn lists_named_proposals_in_policy_order_then_the_legacy_singular() {
 
 #[test]
 fn a_drilled_package_frame_names_only_its_own_segment() {
-    // The chrome title and the back link carry the whole path; the frame
-    // repeats only the last segment, so a deep path fits the frame title.
     let doc = scene::ir::read_document(
         "{:hierarchical true :prefix \"x\" \
           :classes [{:id :a.b.c :name \"C\" :ns \"x.a.b.c\"} {:id :a.b.d :name \"D\" :ns \"x.a.b.d\"}] \

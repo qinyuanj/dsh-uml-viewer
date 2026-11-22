@@ -1,9 +1,3 @@
-//! The wide layout (#191) of the self-hosted diagram: each view fits the
-//! viewer canvas at a zoom that draws members, keeps the architecture
-//! levels of the default layout in reading order, and routes no
-//! relationship across a box or oval it does not end at (#89 added the
-//! shelves).
-
 use crate::common;
 
 use edn::Value;
@@ -12,7 +6,6 @@ use scene::document::ViewState;
 use scene::{Dims, Rect, vec2};
 use std::collections::HashMap;
 
-/// The viewer's members threshold (`frame::lod::FULL_ZOOM`).
 const FULL_ZOOM: f64 = 0.4;
 
 fn rect(v: &Value) -> Option<Rect> {
@@ -23,8 +16,6 @@ fn key(v: &Value) -> String {
     edn::encode(v).unwrap()
 }
 
-/// The historical 1500×920 window with the inspector it once had: a 1220px
-/// canvas.
 fn canvas() -> Dims {
     Dims {
         window_w: 1500.0,
@@ -59,7 +50,6 @@ fn every_wide_view_fits_at_members_zoom_and_no_smaller_than_the_default() {
     }
 }
 
-/// Points where a routed edge's polyline crosses a box it does not end at.
 fn crossings(scene: &Value) -> Vec<String> {
     let classes: Vec<(&Value, Rect)> = seq(get(scene, "classes"))
         .iter()
@@ -124,10 +114,6 @@ fn wide_views_keep_every_level_and_violation_of_the_default() {
 
 #[test]
 fn wide_levels_run_from_the_outermost_on_the_left_to_level_zero_then_the_ovals() {
-    // "Left to right" became the layout's reading order once the strip wraps
-    // into shelves (#89): the column rank, highest at the outermost level and
-    // lowest at the oval sink. On one shelf that is the old order of x; a
-    // shelf below starts again at the left, so x alone no longer says it.
     for (focus, scene) in common::self_hosted_views_with(&common::wide()) {
         let edges = seq(get(&scene, "edges"));
         let linked = |id: &Value| {
@@ -135,7 +121,6 @@ fn wide_levels_run_from_the_outermost_on_the_left_to_level_zero_then_the_ovals()
                 .iter()
                 .any(|e| get(e, "from") == Some(id) || get(e, "to") == Some(id))
         };
-        // level -> (leftmost rank, rightmost rank) of its boxes with an edge
         let mut spans: Vec<(f64, f64, f64)> = Vec::new();
         let mut ovals: Vec<f64> = Vec::new();
         for c in seq(get(&scene, "classes")) {
@@ -206,7 +191,6 @@ fn wide_indicators_stay_above_and_below_their_box() {
             }
         }
     }
-    // Indicators stand for edges; a ports-only view (`:main`) draws none.
     assert!(drawn > 0, "the sweep draws indicators");
 }
 
@@ -217,7 +201,6 @@ fn the_wide_layout_depends_on_its_inputs_only() {
     for ((focus, a), (_, b)) in wide.iter().zip(&again) {
         assert_eq!(a, b, "{focus:?} placed twice");
     }
-    // Fitting another window moves the camera, never the boxes.
     let (_, scene) = wide.iter().find(|(focus, _)| *focus == ":scene").unwrap();
     let state = ViewState {
         scene: scene.clone(),
@@ -235,9 +218,6 @@ fn the_wide_layout_depends_on_its_inputs_only() {
 
 #[test]
 fn wide_columns_keep_the_rank_order_of_the_default_rows() {
-    // Both layouts number ranks so that the first row (top) or column
-    // (left) is the highest: levels, their sub-rows, the oval sink and the
-    // edgeless grid keep one order, folds only add columns within a rank.
     let rank = |s: &Value| -> HashMap<String, f64> {
         seq(get(s, "classes"))
             .iter()

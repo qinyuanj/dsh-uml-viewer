@@ -1,10 +1,3 @@
-//! Three-tier zoom LOD, viewport culling and geometry decimation (the #131
-//! prototype's rules; ADR 0008 "即时模式加视口剔除、三档 LOD 已经够用").
-//!
-//! - `Blocks` (zoom < 0.15): filled silhouettes and package titles only.
-//! - `Frames` (zoom < 0.4): frames, titles, C/M dots, edges decimated at 8px.
-//! - `Full`: the complete class-box detail.
-
 use scene::Rect;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

@@ -1,7 +1,3 @@
-//! Nanosecond mtime stamps (port of `love/uml/adapters/posix_watch.lua`).
-//! Whole-second mtimes would hide two edits inside one second. The stamp is
-//! opaque: consumers compare it for equality, never parse it.
-
 use std::io;
 use std::path::Path;
 use std::time::UNIX_EPOCH;

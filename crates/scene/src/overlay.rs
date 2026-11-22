@@ -1,7 +1,3 @@
-//! Quality snapshot overlay (port of `love/uml/application/overlay.lua`).
-//! Snapshot records are inert data — `{:path :text :mtime :size}`; all
-//! filesystem work belongs to callers. Join rule: by class `:ns`, then by id.
-
 use crate::config;
 use crate::dry;
 use edn::Value;
@@ -32,20 +28,12 @@ impl Snapshot {
     }
 }
 
-/// Parsed snapshots ready to join: CRAP entries by namespace, newest mutation
-/// snapshot by namespace, and the newest duplicate-structure candidates.
 pub struct Metrics {
     pub crap: BTreeMap<String, Vec<Value>>,
     pub mutate: BTreeMap<String, Value>,
-    /// `.metrics/dry.edn` candidates; `None` when no dry snapshot was read,
-    /// which is the "unmeasured" state, not "no duplication".
     pub dry: Option<Vec<dry::Candidate>>,
 }
 
-/// What a snapshot file is. Dispatched by path, explicitly: everything that
-/// is not the CRAP snapshot used to be read as mutation data, so a dry
-/// snapshot carrying `:namespace` would have overwritten that namespace's
-/// mutations (#92).
 enum Kind {
     Crap,
     Dry,
@@ -62,8 +50,6 @@ fn kind(path: &str) -> Kind {
     }
 }
 
-/// Sort key from an mtime: a number, or a `"low:high"` statx-style pair, or
-/// a numeric string.
 fn time_key(mtime: &Value) -> (u64, u64) {
     match mtime {
         Value::Integer(n) => (*n as u64, 0),
@@ -83,9 +69,6 @@ fn time_key(mtime: &Value) -> (u64, u64) {
     }
 }
 
-/// Load and order snapshots; later (newer) mutation snapshots win, CRAP
-/// entries append in snapshot order, and the newest dry snapshot is the one
-/// that counts.
 pub fn load(files: &[Snapshot]) -> Metrics {
     let mut crap: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     let mut mutate: BTreeMap<String, Value> = BTreeMap::new();
@@ -121,7 +104,6 @@ pub fn load(files: &[Snapshot]) -> Metrics {
                 && let Some(Value::String(source)) = g(&data, "source")
             {
                 let derived = source.strip_prefix("src/").unwrap_or(source).to_owned();
-                // Drop the last dot-suffix (`%.[^%.]+$`), then `/` become dots.
                 let no_ext = match derived.rsplit_once('.') {
                     Some((stem, ext)) if !ext.is_empty() => stem,
                     _ => &derived,
@@ -153,8 +135,6 @@ fn doc_classes(doc: &Value) -> Vec<Value> {
     cs
 }
 
-/// Owning class for a metric namespace: exact `:ns`, then id, then the
-/// nearest enclosing id, then the lone Rust root crate.
 pub(crate) fn owner<'a>(
     classes: &'a [Value],
     prefix: Option<&Value>,
@@ -280,7 +260,6 @@ fn paint(c: &mut Value, nss: &[String], metrics: &Metrics) {
         }
     }
     let mut ops: Vec<Value> = Vec::new();
-    // Unnamed authored member lines stay, then the named union.
     for op in seq(g(c, "ops")) {
         if g(op, "name").is_none() {
             ops.push(op.clone());
@@ -365,7 +344,6 @@ fn paint(c: &mut Value, nss: &[String], metrics: &Metrics) {
     }
 }
 
-// Insertion-ordered string map mirroring the Lua tables keyed by name.
 struct Ordered<V> {
     entries: Vec<(String, V)>,
 }
@@ -403,7 +381,6 @@ impl<V> Ordered<V> {
     }
 }
 
-/// Join the snapshots into the document (defensively copied).
 pub fn apply_metrics(doc: &Value, metrics: &Metrics) -> Value {
     if metrics.crap.is_empty() && metrics.mutate.is_empty() && metrics.dry.is_none() {
         return doc.clone();
@@ -411,9 +388,6 @@ pub fn apply_metrics(doc: &Value, metrics: &Metrics) -> Value {
     let mut doc = doc.clone();
     let classes = doc_classes(&doc);
     let prefix = g(&doc, "prefix").cloned();
-    // Duplicate structure is derived here, on every run: a class card
-    // re-applies the overlay, so the index stays a pure function and is never
-    // cached across calls.
     let duplicates = metrics
         .dry
         .as_ref()
@@ -433,7 +407,6 @@ pub fn apply_metrics(doc: &Value, metrics: &Metrics) -> Value {
             owned.entry(key.clone()).or_default().push(ns.clone());
         }
     }
-    // Paint through the owned namespace map so each class is found by :ns.
     let paint_class = |c: &mut Value| {
         let key = match g(c, "ns") {
             Some(Value::String(s)) => Some(s.clone()),
@@ -444,9 +417,6 @@ pub fn apply_metrics(doc: &Value, metrics: &Metrics) -> Value {
         {
             paint(c, nss, metrics);
         }
-        // The duplicate-structure marker is additive: it never paints the box,
-        // so a class with no CRAP or mutation data stays red for that reason
-        // alone.
         if let Some(index) = &duplicates {
             dry::apply(c, index);
         }

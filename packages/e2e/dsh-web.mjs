@@ -8,8 +8,6 @@ import { fileURLToPath } from 'node:url'
 export const ROOT = path.resolve(import.meta.dirname, '../..')
 export const SCRATCH = path.resolve(process.env.UML_VIEWER_E2E_SCRATCH ?? path.join(ROOT, '.scratch', 'e2e'))
 export const BROWSERS = path.resolve(process.env.PLAYWRIGHT_BROWSERS_PATH ?? path.join(SCRATCH, 'browsers'))
-// The installed Desktop app, discovered from the environment rather than a
-// hard-coded account path; CI and other hosts pass DSH_CLI instead.
 const DESKTOP = path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'),
   'Programs', 'DeepSeek Harness')
 
@@ -67,14 +65,12 @@ export function viewerBinary() {
   throw new Error('Build the real binary with `cargo build --locked -p uml-viewer`, or set UML_VIEWER_BIN to its absolute path.')
 }
 
-/** The version an assembler archive carries, from its `-<version>.tgz` name. */
 export function packageVersion(file) {
   const match = path.basename(file).match(/-(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\.tgz$/)
   if (!match) throw new Error(`${file} is not an assembler archive named with its version`)
   return match[1]
 }
 
-/** Both tarballs are explicit inputs; a partial pair never falls back to the checkout. */
 export function packageInputs(options = {}) {
   const main = options.packageMain ?? process.env.UML_VIEWER_PACKAGE_MAIN
   const platform = options.packagePlatform ?? process.env.UML_VIEWER_PACKAGE_PLATFORM
@@ -87,7 +83,6 @@ export function packageInputs(options = {}) {
   return { main, platform }
 }
 
-/** Install through CLI management in a new home, never through the live profile. */
 export async function startDshWeb({ home, projects, packages = null }) {
   fs.mkdirSync(home, { recursive: true })
   provisionHome(home)
@@ -105,37 +100,25 @@ export async function startDshWeb({ home, projects, packages = null }) {
     COREPACK_HOME: path.join(home, 'cache', 'corepack'),
     XDG_CACHE_HOME: path.join(home, 'cache', 'xdg'),
   }
-  // Opt-in: seed the lane's fresh Corepack home from a known-good cache, so a
-  // flaky registry cannot fail the `pnpm/latest` lookup every lane repeats.
   const seed = process.env.UML_VIEWER_E2E_COREPACK_SEED
   if (seed && fs.existsSync(seed)) fs.cpSync(seed, env.COREPACK_HOME, { recursive: true })
   delete env.DSH_PROFILE
   delete env.DSH_PROFILE_DIR
-  // Packaged acceptance must exercise the shipped optional-dependency locator.
   if (packages) delete env.UML_VIEWER_BIN
   const command = cli()
   const targets = packages ? [packages.main, packages.platform] : [ROOT]
   // The Desktop CLI scrubs npm_config_* on its internal pnpm process. Pass the
-  // store explicitly; environment-only configuration silently uses a global store.
   const store = ['--store-dir', path.join(home, 'cache', 'pnpm-store')]
   const add = () => run(command, ['plugin', '--profile', 'web', 'add', '--ignore-scripts', ...store, ...targets], env)
   try {
     add()
   } catch (error) {
-    // A lane installs into a fresh npm cache; on a busy host with a slow
-    // registry one download can fail. The command is idempotent, so retry once
-    // before failing the lane (the second failure still surfaces).
     console.warn(`[e2e] the plugin install failed (${error.message}); retrying once`)
     add()
   }
   // pnpm 11 remove does not accept --ignore-scripts; these archives have no scripts.
   const uninstall = () => run(command, ['plugin', '--profile', 'web', 'remove', ...store,
     'dsh-uml-viewer', ...(packages ? [`@dsh-uml-viewer/${process.platform}-${process.arch}`] : [])], env)
-  // Upgrade step 2 of 3, only after the running manager's removal applied.
-  // The platform package declares no dsh.bundle, so this is a plain dependency
-  // change: no selection change, no reconciliation, and no mapping moves,
-  // because no selected bundle depends on it once the main bundle is removed.
-  // Activation is the public plugin_manager install_bundle that follows; the
   // CLI alone never reconciles a running host (pinned dsh-hmr README).
   const installPlatform = file => {
     if (!file || !path.isAbsolute(file) || !file.endsWith('.tgz') || !fs.existsSync(file)) {

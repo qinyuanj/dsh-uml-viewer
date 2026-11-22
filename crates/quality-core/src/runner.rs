@@ -1,11 +1,3 @@
-//! Run each language's coverage tool and leave the reports for the loader.
-//!
-//! A custom coverage command must write a fresh, valid `coverage/lcov.info`
-//! or the run fails. A built-in runner that fails leaves its language N/A,
-//! unless the run is strict (a whole-tree refresh), where it fails too.
-//! Built-in runners for Python, TypeScript and Lua arrive with #4. The
-//! coverage stamp mutator reuses is shared here (#3).
-
 use std::collections::BTreeSet;
 use std::fmt;
 use std::fs;
@@ -16,7 +8,6 @@ use crate::language::{Language, language_of};
 use crate::paths::{home, posix, resolve};
 use crate::process::{Program, run, which};
 
-/// Coverage could not be produced; the snapshot must not be published.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CoverageError(pub String);
 
@@ -30,7 +21,6 @@ fn warn(message: &str) {
     eprintln!("{message}");
 }
 
-/// Run `program` in `cwd` after echoing it; 127 when it did not start.
 pub fn run_shell(program: &Program, cwd: &Path) -> i32 {
     warn(&format!("+ ({}) {}", cwd.display(), program.display()));
     let mut resolved_args = Vec::new();
@@ -64,7 +54,6 @@ pub fn run_shell(program: &Program, cwd: &Path) -> i32 {
     }
 }
 
-/// The nearest directory from `start` up to `stop` holding `marker`.
 pub fn nearest(start: &Path, marker: &str, stop: &Path) -> Option<PathBuf> {
     let mut current = if start.is_dir() {
         start.to_path_buf()
@@ -84,7 +73,6 @@ pub fn nearest(start: &Path, marker: &str, stop: &Path) -> Option<PathBuf> {
     }
 }
 
-/// The modules (directories holding `marker`) that hold `language` files.
 pub fn modules_with(
     files: &[PathBuf],
     language: Language,
@@ -101,7 +89,6 @@ pub fn modules_with(
     found.into_iter().map(PathBuf::from).collect()
 }
 
-/// `target/coverage/<language>[/<module slug>]/lcov.info`.
 pub fn coverage_report(root: &Path, module: &Path, language: &str) -> PathBuf {
     let root = resolve(root);
     let module = resolve(module);
@@ -269,10 +256,6 @@ fn run_custom(root: &Path, command: &str) -> Result<CoverageBundle, CoverageErro
     Ok(CoverageBundle::fresh(&records, root))
 }
 
-/// Produce coverage for `files`: `command` in the host shell, or each
-/// language's own runner. Some(bundle) for a validated custom report; None
-/// when the reports are on disk for `coverage::load_bundle`. A custom
-/// failure is an error; a built-in one is too when `strict`.
 pub fn run_coverage(
     root: &Path,
     files: &[PathBuf],
@@ -282,8 +265,6 @@ pub fn run_coverage(
     run_coverage_with_lua_shards(root, files, command, None, strict)
 }
 
-/// Coverage with the crapper CLI's optional Lua shard count. Other callers
-/// retain `run_coverage`'s original four-argument API.
 pub fn run_coverage_with_lua_shards(
     root: &Path,
     files: &[PathBuf],
@@ -363,10 +344,8 @@ pub fn run_coverage_with_lua_shards(
     Ok(bundle)
 }
 
-/// Python-compatible freshness lookup for mutator and dryer.
 pub fn stale_files(root: &Path, files: &[PathBuf], command: Option<&str>) -> Vec<PathBuf> {
     crate::stamp::stale_files(root, files, command)
 }
 
-/// crapper's Maven JaCoCo command, which mutator runs in its own views.
 pub const JACOCO_MAVEN: &[&str] = crate::runner_java::MAVEN;

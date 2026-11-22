@@ -1,21 +1,5 @@
-/**
- * Theme roles for the Canvas 2D panel.
- *
- * Canvas cannot read `var(--*)`, so each role resolves once per paint from the
- * host's CSS custom properties, read through `getComputedStyle` on the panel
- * element. Chrome (surfaces, text, lines, interaction) therefore follows the
- * host theme exactly, including light/dark.
- *
- * Two groups cannot come from the host theme: the 质量色 quality ramp and the
- * 违规关系色 violation color, together with 无数据 and the 依赖链高亮 blue, which
- * the egui window paints and a skin's accent token must not repaint (#26).
- * Their **hue is fixed** (docs/scene-frame.md) and
- * only their lightness adapts to light/dark, so they come from this module's
- * two literal palettes. Every returned color keeps the same hue in both modes.
- */
 import type { SceneFrame } from '@dsh-uml-viewer/contracts'
 
-/** The host theme tokens per role; `null` marks a hue-fixed role. */
 const TOKENS: Readonly<Record<string, string | null>> = {
   canvas: '--dsw-alias-bg-base',
   panel: '--dsw-alias-bg-layer-2',
@@ -60,22 +44,13 @@ const TOKENS: Readonly<Record<string, string | null>> = {
   'source-keyword': '--dsw-alias-state-business-primary',
 }
 
-/**
- * The hue-fixed palettes. The fill and stroke ramps run red → yellow-green →
- * green and the violation color is the 违规关系色 red. Light/dark changes only
- * **lightness**: each light value is its dark counterpart's hue and saturation
- * at a different L (HLS), so a grade or a violating relation reads as the same
- * color in both modes. `docs/scene-frame.md` names the dark values.
- */
 export interface HuePalette {
   fill: readonly [string, string, string]
   stroke: readonly [string, string, string]
   violation: string
   violationHot: string
   noData: string
-  /** 依赖链高亮: the selection's dependency chain (`frame::theme` RELATED). */
   chain: string
-  /** Unmeasured quality: neutral fill and neutral stroke (`#243430`/`#5a6e64`). */
   neutralFill: string
   neutralStroke: string
 }
@@ -92,7 +67,6 @@ export const DARK_HUES: HuePalette = {
 }
 
 export const LIGHT_HUES: HuePalette = {
-  // The dark hues at a lighter L; only lightness differs from DARK_HUES.
   fill: ['#e6c3b2', '#e2dfb6', '#b6e2d0'],
   stroke: ['#b7501f', '#aa952c', '#44926b'],
   violation: '#b52721',
@@ -115,7 +89,6 @@ function hexChannel(value: string): number {
   return -1
 }
 
-/** `#rrggbb` for a color the host theme may give as hex, rgb() or hsl(). */
 function normalize(value: string): string | null {
   const text = value.trim()
   if (text === '') return null
@@ -143,7 +116,6 @@ function mix(a: string, b: string, t: number): string {
   return `#${((lerp(16) << 16) | (lerp(8) << 8) | lerp(0)).toString(16).padStart(6, '0')}`
 }
 
-/** RGB hue angle in degrees, for tests and for the ADR's hue-fixed claim. */
 export function hueOf(color: string): number {
   const n = hexChannel(color)
   if (n < 0) throw new Error(`not a hex color: ${color}`)
@@ -170,15 +142,12 @@ export function isDarkTheme(el: HTMLElement): boolean {
 
 export interface Theme {
   mode: ThemeMode
-  /** Resolve a frame color role (grade/ratio only matter for ramp roles). */
   frame(role: string, grade?: number | null, ratio?: number | null): string
 }
 
-/** Package ramp alphas, 0-255, from `frame::theme` (docs/scene-frame.md). */
 const PACKAGE_FILL_ALPHA = 80
 const PACKAGE_STROKE_ALPHA = 170
 
-/** `rgba(r, g, b, a)` for a `#rrggbb` ramp color and a 0-255 alpha. */
 function withAlpha(color: string, alpha: number): string {
   const n = hexChannel(color)
   if (n < 0) return color
@@ -191,11 +160,6 @@ function quality(grade: number | null, ramp: readonly [string, string, string], 
   return g <= 5 ? mix(ramp[0], ramp[1], g / 5) : mix(ramp[1], ramp[2], (g - 5) / 5)
 }
 
-/**
- * Resolve every role once for one panel element and the current theme. The
- * token values are snapshotted at this call: the panel repaints on a theme
- * change, so one snapshot per paint is exactly the lifetime needed.
- */
 export function resolveTheme(el: HTMLElement): Theme {
   const mode: ThemeMode = isDarkTheme(el) ? 'dark' : 'light'
   const hues = mode === 'dark' ? DARK_HUES : LIGHT_HUES
@@ -205,14 +169,12 @@ export function resolveTheme(el: HTMLElement): Theme {
     if (!cache.has(token)) cache.set(token, normalize(style.getPropertyValue(token)))
     return cache.get(token) ?? null
   }
-  // Read every mapped token now, so the snapshot cannot drift mid-paint.
   for (const token of Object.values(TOKENS)) if (token) read(token)
   const frame = (role: string, grade: number | null = null, ratio: number | null = null): string => {
     switch (role) {
       case 'quality-fill':
         return quality(grade, hues.fill, hues.neutralFill)
       case 'package-fill':
-        // A component box is the quality ramp seen through (frame::theme: alpha 80).
         return withAlpha(quality(grade, hues.fill, hues.neutralFill), PACKAGE_FILL_ALPHA)
       case 'quality-stroke':
         return quality(grade, hues.stroke, hues.neutralStroke)
@@ -234,7 +196,6 @@ export function resolveTheme(el: HTMLElement): Theme {
       default: {
         const token = TOKENS[role]
         if (token === null || token === undefined) {
-          // An unknown role draws as ink (docs/scene-frame.md).
           return read(TOKENS.ink!) ?? ''
         }
         return read(token) ?? read(TOKENS.ink!) ?? ''

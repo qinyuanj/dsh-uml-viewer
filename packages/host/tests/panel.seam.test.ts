@@ -78,12 +78,10 @@ async function setup(options: {
   mode?: 'read-only' | 'workspace-write' | 'danger-full-access'
   resident?: Record<string, unknown>
   displayError?: string
-  /** Provide the optional services only after the plugin is loaded. */
   late?: boolean
 } = {}) {
   let mode = options.mode ?? 'danger-full-access'
   let spawns = 0
-  // Match the canonical paths used by the host and resident child.
   const home = await realpath(await mkdtemp(path.join(os.tmpdir(), 'uml panel home ')))
   roots.push(home)
   const projects: Record<string, string> = {}
@@ -142,37 +140,30 @@ async function setup(options: {
   const stream = (session: string, owned?: { holderId: string; language: string | null }) => {
     const controller = new AbortController()
     controllers.push(controller)
-    // The owned stream is called as the gateway calls it: its parameters in
-    // descriptor order, then the cancellation signal.
     const iterator = (owned
       ? viewer().watchOwned(agents[session]!, { pageId: 'page', holderId: owned.holderId }, owned.language, controller.signal)
       : viewer().watch(agents[session]!, controller.signal))[Symbol.asyncIterator]()
-    /** Every event, including the request-status lists (#51). */
     const any = async () => (await iterator.next()) as IteratorResult<PanelEvent>
     return {
       controller,
       any,
-      /** The next scene/display event: the request-status lists (#51) are skipped. */
       next: async () => {
         for (;;) {
           const result = await any()
           if (result.done || result.value.kind !== 'request-status') return result
         }
       },
-      /** A user close: the explicit Remote call, then the stream's own teardown. */
       close: async () => {
         await viewer().close(agents[session]!)
         controller.abort()
         await iterator.return?.(undefined)
       },
-      /** A carrier loss: abort the signal and return the iterator, as the gateway does. */
       withdraw: async () => {
         controller.abort()
         await iterator.return?.(undefined)
       },
     }
   }
-  /** Provide an optional service after the plugin loaded (Cordis starts a late fiber). */
   const provideLate = (key: 'typert' | 'webServer'): void => {
     ctx.provide(key, services[key] as never)
   }
@@ -185,7 +176,6 @@ async function actionLog(root: string): Promise<{ action: string }[]> {
   return text.trim().split('\n').map(line => JSON.parse(line) as { action: string })
 }
 
-/** The actions the panel asked for, without the save/quit pair the panel's close always sends. */
 async function contentActions(root: string): Promise<string[]> {
   return (await actionLog(root)).map(entry => entry.action).filter(action => action !== 'save' && action !== 'quit')
 }
@@ -202,11 +192,10 @@ async function seedState(home: string, session: string, patch: Record<string, un
   return file
 }
 
-/** Read a JSON file another process writes, once it exists and is complete. */
 async function readJson(file: string): Promise<Record<string, unknown>> {
   return timeout(new Promise((resolve) => {
     const timer = setInterval(async () => {
-      try { const value = JSON.parse(await readFile(file, 'utf8')); clearInterval(timer); resolve(value) } catch { /* not yet */ }
+      try { const value = JSON.parse(await readFile(file, 'utf8')); clearInterval(timer); resolve(value) } catch {}
     }, 25)
   }))
 }
@@ -227,7 +216,6 @@ it('refuses uml_display until the latest uml_ir in that session succeeded', asyn
   expect(shown).toMatchObject({ operation: 'display', status: 'ok', validResult: true, reason: null,
     projectRoot: projects['session-a'], path: null })
   expect(await contentActions(projects['session-a']!)).toEqual(['open', 'reload'])
-  // The transient resident is stopped again: the tool leaves no running panel.
   expect(existsSync(path.join(projects['session-a']!, 'resident-exit.json'))).toBe(true)
 })
 
@@ -237,7 +225,6 @@ it('refuses uml_display after the latest uml_ir failed, and per session', async 
   expect(await tool('uml_ir', {}, 'session-a')).toMatchObject({ validResult: false })
   expect(await tool('uml_display', {}, 'session-a')).toMatchObject({ status: 'refused',
     reason: expect.stringMatching(/uml_ir/) })
-  // A successful IR elsewhere does not gate this session.
   expect(await tool('uml_ir', {}, 'session-b')).toMatchObject({ validResult: true })
   expect(await tool('uml_display', {}, 'session-a')).toMatchObject({ status: 'refused' })
   expect(await tool('uml_display', {}, 'session-b')).toMatchObject({ status: 'ok' })
@@ -300,8 +287,6 @@ it('falls back to the source diagram when the persisted proposal no longer exist
   await reader.close()
 })
 
-// #51: the request-status list follows the opening events on every stream kind,
-// even when nothing was ever requested.
 it('sends the session’s request-status list right after the opening events', async () => {
   const { stream } = await setup()
   for (const owned of [undefined, { holderId: 'h1', language: 'en' }]) {
@@ -394,19 +379,16 @@ it('streams the resident scene frame to the panel bound to that session', async 
   const invocation = JSON.parse(await readFile(path.join(projects['session-a']!, 'resident-invocation.json'), 'utf8'))
   expect(invocation).toEqual({ cwd: projects['session-a'], argv: ['resident'] })
 
-  // The descriptor's result codec is the panel contract: every yielded item passes it.
   for (const event of [ready.value, first.value]) {
     expect(parsePanelEvent(event)).toEqual(event)
   }
 
-  // A display from the agent reaches the open panel stream for the same session.
   expect(await tool('uml_ir', {}, 'session-a')).toMatchObject({ validResult: true })
   expect(await tool('uml_display', {}, 'session-a')).toMatchObject({ status: 'ok' })
   const shown = await timeout(reader.next())
   expect(shown.value?.kind).toBe('frame')
   if (shown.value?.kind === 'frame') expect(shown.value.frame.waiting).toBe(false)
 
-  // The panel's own action call reaches the same resident.
   expect(await viewer().action(agents['session-a']!, { action: 'search', query: 'graph' }))
     .toEqual({ accepted: true, reason: null })
   const searched = await timeout(reader.next())
@@ -422,22 +404,17 @@ it('passes the panel language to the resident on open and on a switch (#44)', as
   const reader = stream('session-a', { holderId: 'first', language: 'zh-CN' })
   expect((await timeout(reader.next())).value?.kind).toBe('ready')
   expect((await timeout(reader.next())).value?.kind).toBe('frame')
-  // The open action carries the language; the resident is not restarted for it.
   const actions = await actionLog(projects['session-a']!)
   expect(actions[0]).toMatchObject({ action: 'open', language: 'zh-CN' })
 
-  // The same session's other panel passed no language (an older panel): the
-  // latest writer decides, so it does not push the resident back to English.
   const other = stream('session-a', { holderId: 'second', language: null })
   expect((await timeout(other.next())).value?.kind).toBe('ready')
   expect((await actionLog(projects['session-a']!)).filter(entry => entry.action === 'open')).toHaveLength(1)
 
-  // A DSH language switch reaches the resident, without any save of a language.
   expect(await viewer().action(agents['session-a']!, { action: 'language', language: 'en' }))
     .toEqual({ accepted: true, reason: null })
   expect((await actionLog(projects['session-a']!)).find(entry => entry.action === 'language'))
     .toMatchObject({ action: 'language', language: 'en' })
-  // A view change persists the view; it never records the language, which is the resident's.
   expect(await viewer().action(agents['session-a']!, { action: 'declutter' })).toMatchObject({ accepted: true })
   await reader.withdraw()
   await other.withdraw()
@@ -476,13 +453,9 @@ it('keeps the resident through a withdrawn stream and stops it only on an explic
   const reader = stream('session-a')
   await timeout(reader.next())
   await timeout(reader.next())
-  // A carrier loss (a gateway reconnect, an HMR client swap) returns the
-  // iterator: the panel is gone from the transport but was never closed.
   await reader.withdraw()
   expect(existsSync(path.join(projects['session-a']!, 'resident-exit.json'))).toBe(false)
   expect(prompts['session-a']!.sections).toEqual([])
-  // The same session remounts and joins the waiting resident: no second child,
-  // no second `open`, and the prompt section is back for the live stream.
   const remount = stream('session-a')
   await timeout(remount.next())
   expect(prompts['session-a']!.sections).toHaveLength(1)
@@ -500,9 +473,6 @@ it('hands a session from a closing sidebar stream to an opening main-page stream
   const { stream, projects } = await setup()
   const first = stream('session-a')
   expect((await timeout(first.next())).value).toMatchObject({ kind: 'ready' })
-  // The main page mounts as the sidebar unmounts. Its watcher must either
-  // join a still-live resident or wait for the close and start a fresh one,
-  // never attach to the stream that is being stopped.
   const closing = first.close()
   const second = stream('session-a')
   expect((await timeout(second.next())).value).toMatchObject({ kind: 'ready' })
@@ -540,7 +510,6 @@ it('registers the companion prompt section only while that session’s panel str
   expect(prompts['session-a']!.sections).toHaveLength(1)
   expect(prompts['session-a']!.sections[0]).toMatchObject({ name: 'dsh-uml-viewer:companion-rules', interpolate: false })
   const text = prompts['session-a']!.sections[0]!.text as string
-  // One source: the section is the standalone rules document, verbatim.
   const rules = await readFile(new URL('../../../docs/companion-rules.md', import.meta.url), 'utf8')
   expect(text).toBe(rules.trimEnd())
   expect(text).toMatch(/uml_ir/)
@@ -596,7 +565,6 @@ it('persists the panel view state per session and restores it when the panel reo
 it('forwards the state event’s breadcrumb path, status code and proposals to the panel (#45, #47)', async () => {
   const { stream, viewer, agents } = await setup()
   const reader = stream('session-a')
-  // ready, then the frame the resident opened with.
   await timeout(reader.next())
   await timeout(reader.next())
   expect(await viewer().action(agents['session-a']!, { action: 'save' })).toEqual({ accepted: true, reason: null })
@@ -607,7 +575,6 @@ it('forwards the state event’s breadcrumb path, status code and proposals to t
     state: expect.objectContaining({ schema: 'dsh-uml-viewer/session-state', version: 1 }),
     breadcrumbs: [{ id: null, name: 'Shop' }, { id: ':core', name: 'core' }],
     status: { code: 'waiting-display' },
-    // #47: the discussion-context switcher's list.
     proposals: [{ id: ':p-shop', name: 'Shop split' }],
   })
   await reader.close()
@@ -621,8 +588,6 @@ it('persists the view as soon as a panel action changes it, not only when the pa
   expect(await viewer().action(agents['session-a']!, { action: 'drill-in', id: ':core' }))
     .toEqual({ accepted: true, reason: null })
   const stored = path.join(home, 'dsh-uml-viewer', 'sessions', 'session-a.json')
-  // The file is already there while the panel is still open: a DSH shutdown
-  // cannot lose the last drill-in, pan or zoom.
   expect(await readJson(stored)).toMatchObject({
     schema: 'dsh-uml-viewer/session-state', camera: { x: 4, y: 5, zoom: 0.75 },
   })
@@ -645,9 +610,6 @@ it('saves the open panel view when the plugin unloads, as on a DSH shutdown', as
 })
 
 it('publishes the Remote and the font route when the optional services arrive after the plugin', async () => {
-  // A profile may activate typert and webServer rows after this plugin; the
-  // panel must still get its Remote and the Sarasa route instead of silently
-  // degrading (a snapshot of the services at apply time would miss them).
   const { contributions, routes, provideLate } = await setup({ late: true })
   expect(contributions).toEqual([])
   expect(routes).toEqual([])

@@ -29,7 +29,6 @@ fn name(value: &Option<String>) -> String {
     value.as_deref().map_or_else(|| "nil".to_string(), string)
 }
 fn span(span: &Span) -> String {
-    // `Row` fixes field order and separators; names are the nullable part.
     format!(
         "{{:file {}, :start-line {}, :end-line {}, :namespace {}, :name {}}}",
         string(&span.file),
@@ -50,9 +49,6 @@ pub(crate) fn edn(candidates: &[Candidate]) -> String {
     )
 }
 
-/// Write `.metrics/dry.edn` under `root` (`dryer.report.write_metrics`).
-/// Pinned dryer prints `root / ".metrics" / "dry.edn"`, so the path is built
-/// per component and every separator is the host's.
 pub(crate) fn write_metrics(candidates: &[Candidate], root: &Path) -> io::Result<PathBuf> {
     let path = root.join(".metrics").join("dry.edn");
     quality_core::atomic::write_bytes(&path, edn(candidates).as_bytes())?;

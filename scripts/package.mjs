@@ -6,8 +6,6 @@ import { pathToFileURL } from 'node:url'
 import { writeArchive } from './archive.mjs'
 import { checkVersions, root } from './version.mjs'
 
-// The one delivery host (#12): the main package's optionalDependencies is
-// exactly this set, so the assembled main archive names a single platform.
 const supported = ['win32-x64']
 const platform = `${process.platform}-${process.arch}`
 function option(args, name) {
@@ -16,7 +14,6 @@ function option(args, name) {
   return args[index + 1]
 }
 
-// The runner seam is for controlled Node tests; the CLI never accepts a runner override.
 export async function assemblePackage({ binary, output }, runVersion = spawnSync) {
   if (!path.isAbsolute(binary) || !path.isAbsolute(output)) throw new Error('--binary and --out must be absolute paths')
   if (!supported.includes(platform)) throw new Error(`Unsupported package platform ${platform}; dsh-uml-viewer ships only ${supported.join(', ')}`)
@@ -62,10 +59,6 @@ export async function assemblePackage({ binary, output }, runVersion = spawnSync
   }
   const binaryFiles = new Map([['package.json', json(platformManifest)], [`bin/${binaryName}`, await readFile(binary)]])
 
-  // npm-compatible ustar with fixed metadata, sorted names and gzip timestamp 0.
-  // The bytes are written by the same module the release verifier reads them
-  // with (scripts/archive.mjs); no npm lifecycle hooks, registry access, local
-  // dependency rewriting or host mtimes.
   await mkdir(output, { recursive: true })
   async function emit(name, files) {
     const bytes = writeArchive(files)

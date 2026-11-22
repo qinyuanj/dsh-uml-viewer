@@ -1,5 +1,3 @@
-// A real child process speaking the resident protocol's line framing. The test
-// controls it through resident.json in the session cwd; it never reads a project.
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 
 const config = JSON.parse(readFileSync('resident.json', 'utf8'))
@@ -12,8 +10,6 @@ const waitingFrame = {
   waiting: true,
   world: [],
   edges: [],
-  // Chrome left the frame with #46: the waiting canvas is empty, its status is
-  // the state event's code.
   chrome: [],
 }
 
@@ -66,10 +62,8 @@ function handle(action) {
     case 'save':
       return answer(action.seq, {
         event: 'state',
-        // #45: the tree path and the localizable canvas status.
         breadcrumbs: [{ id: null, name: 'Shop' }, { id: ':core', name: 'core' }],
         status: { code: 'waiting-display' },
-        // #47: the discussion-context switcher's list.
         proposals: config.proposals ?? [{ id: ':p-shop', name: 'Shop split' }],
         state: {
           schema: 'dsh-uml-viewer/session-state', version: 1, diagram: config.diagram ?? null,
@@ -80,7 +74,6 @@ function handle(action) {
       })
     case 'search':
       return answer(action.seq, { event: 'search', query: action.query, results: [{ id: ':core', name: 'core', ns: 'core', label: 'core' }] })
-    // #27 overlays: the test supplies each model through resident.json.
     case 'card':
       return config.cardError
         ? answer(action.seq, { event: 'error', message: config.cardError })
@@ -89,9 +82,6 @@ function handle(action) {
       return config.sourceError
         ? answer(action.seq, { event: 'error', message: config.sourceError })
         : answer(action.seq, { event: 'source', source: config.source })
-    // #28: the test supplies one entry per element id. A raw target is
-    // answered as it stands (so a malformed one reaches the host validator);
-    // `error` is a refusal, as the real resident's is.
     case 'quality-target': {
       const entry = (config.qualityTargets ?? {})[action.id]
       if (!entry) {

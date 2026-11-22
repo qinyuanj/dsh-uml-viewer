@@ -1,5 +1,3 @@
-//! Windows argv and extensionless launcher behavior through process::output.
-//! External-CLI descendant tests live in uml-viewer/tests/crap_process.rs.
 #![cfg(any(windows, unix))]
 #![allow(clippy::disallowed_methods)]
 
@@ -231,7 +229,6 @@ fn cmd_slash_c_switch_reaches_cmd_unquoted() {
             "{stdout}\n{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        // `set` without a name prints the child's environment.
         assert!(
             stdout
                 .to_ascii_lowercase()
@@ -260,8 +257,6 @@ fn windows_capture_drains_large_stdout_and_stderr_before_waiting() {
     );
 }
 
-/// Run capture in a disposable copy of this test process so a pipe deadlock
-/// fails this test within 15 seconds instead of hanging the entire CI job.
 #[cfg(windows)]
 fn capture_with_watchdog(name: &str, check: impl FnOnce(&std::path::Path)) {
     const CHILD: &str = "CRAPPER_CAPTURE_WATCHDOG_CHILD";

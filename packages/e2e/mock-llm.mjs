@@ -2,7 +2,6 @@ import http from 'node:http'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-/** A Messages-compatible scripted endpoint. No request leaves the test host. */
 export async function startMockLlm({ log, reply: scriptedReply }) {
   await fs.mkdir(log, { recursive: true })
   const requests = []
@@ -21,9 +20,6 @@ export async function startMockLlm({ log, reply: scriptedReply }) {
       }
       const request = JSON.parse(body)
       const serialized = JSON.stringify(request.messages ?? [])
-      // A scripted reply may be a promise: a spec that holds it keeps the
-      // model call open, so DSH's turn (and its panel request) stays unfinished
-      // while the test works. Everything else replies synchronously.
       const reply = (await scriptedReply?.(request)) ?? (!request.tools?.length
         ? { text: 'Isolated UML session' }
         : !serialized.includes('"name":"uml_ir"')
@@ -33,8 +29,6 @@ export async function startMockLlm({ log, reply: scriptedReply }) {
             : !serialized.includes('"name":"uml_display"')
               ? { tool: { name: 'uml_display', input: { path: 'diagram.edn' } } }
               : { text: 'The isolated mock model displayed the generated IR. No real model was called.' })
-      // Pair the exact emitted reply with its input: a missing UI response can
-      // then be distinguished from a request that never reached this endpoint.
       await fs.writeFile(path.join(log, `${String(number).padStart(3, '0')}-reply.json`), JSON.stringify(reply))
       res.writeHead(200, {
         'content-type': 'text/event-stream',

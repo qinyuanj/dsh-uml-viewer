@@ -1,8 +1,3 @@
-//! The discovery and argument parts of `dryer/tests/test_cli.py` at pinned
-//! b3f72ad. The process-level cases (report bytes, CRLF, `--changed`, usage
-//! exits) are ported at the binary seam in
-//! `crates/uml-viewer/tests/dry_languages.rs`.
-
 use crate::discover::{is_source_file, is_test_file, iter_source_files, language_of, select};
 use crate::{Options, Parsed, parse};
 use quality_core::language::Language;
@@ -15,7 +10,6 @@ fn scratch(name: &str) -> PathBuf {
 fn write(root: &Path, name: &str) {
     super::write_source(root, name, "x = 1\n");
 }
-/// `parse_args`: the scope and the positionals of one argument list.
 fn scope_and_positionals(root: &Path, args: &[&str]) -> (Scope, Vec<String>) {
     let mut scope = Scope {
         root: root.to_path_buf(),
@@ -40,8 +34,6 @@ fn scope_and_positionals(root: &Path, args: &[&str]) -> (Scope, Vec<String>) {
     (scope, positionals)
 }
 
-/// `select_files(parse_args(...))`, as project-relative posix paths, with
-/// the selection notes (Python's stderr) captured.
 fn chosen_with_notes(root: &Path, args: &[&str]) -> (Vec<String>, String) {
     let (scope, positionals) = scope_and_positionals(root, args);
     let mut notes = Vec::new();
@@ -169,8 +161,6 @@ fn selection_follows_crapper_and_adds_cljd() {
         write(&root, name);
     }
     let mine = iter_source_files(std::slice::from_ref(&root));
-    // `gen` is added to SKIP_DIRS in the original case; quality-core's table
-    // is fixed, so the same exclusion is expressed with --exclude instead.
     let theirs = quality_core::select::iter_source_files(std::slice::from_ref(&root));
     assert_eq!(
         mine.iter()
@@ -379,8 +369,6 @@ fn git_repo(root: &Path) {
     git(root, &["config", "user.name", "dryer"]);
 }
 
-/// `test_changed_finds_new_directories_under_a_subdirectory_root`: the exact
-/// selected list, `.cljd` included. The report half is at the binary seam.
 #[test]
 fn changed_finds_new_directories_under_a_subdirectory_root() {
     let root = scratch("cli-changed-subdir");

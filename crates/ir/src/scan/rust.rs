@@ -1,6 +1,3 @@
-//! Port of `love/uml/rust_language/graph_rust.lua`: canonical file snapshots
-//! are supplied by the IO adapter. Scanner limitations are preserved.
-
 use std::collections::{HashMap, HashSet};
 
 use edn::Value;
@@ -66,8 +63,6 @@ fn mask(source: &[u8]) -> (Vec<u8>, Vec<(usize, usize)>) {
     (out, holes)
 }
 
-/// The block comment at `i` blanked through the `*/` that closes it, nested
-/// comments included, newlines kept: one past it, or past the end.
 fn mask_nested_comment(source: &[u8], out: &mut Vec<u8>, i: usize) -> usize {
     let mut depth = 0usize;
     let mut j = i;
@@ -117,10 +112,7 @@ fn raw_string(source: &[u8], i: usize) -> Option<usize> {
     Some(text::find_plain(source, &close, j + 1).map_or(source.len() + 1, |p| p + close.len()))
 }
 
-/// `paths(path)`: strip `{...}` groups and a trailing `as` rename, then split
-/// on `::` into trimmed non-empty segments.
 fn paths(path: &[u8]) -> Vec<Vec<u8>> {
-    // gsub('{[^\n]*', ''): from each '{' to before the next newline.
     let mut stripped = Vec::with_capacity(path.len());
     let mut i = 0;
     while i < path.len() {
@@ -133,7 +125,6 @@ fn paths(path: &[u8]) -> Vec<Vec<u8>> {
             i += 1;
         }
     }
-    // gsub(' as [^\n]*$', '')
     let mut end = stripped.len();
     if let Some(pos) = find_last_as(&stripped) {
         end = pos;
@@ -162,13 +153,8 @@ fn paths(path: &[u8]) -> Vec<Vec<u8>> {
     xs
 }
 
-/// One path a `use` tree imports: its segments and the name it binds (an
-/// `as` alias, else its last segment).
 type Import = (Vec<Vec<u8>>, Vec<u8>);
 
-/// `imports(tree)`: the paths of a `use` tree with its groups expanded, so
-/// `a::{b, c::{self, d as e}, *}` imports `a::b`, `a::c`, `a::c::d` (bound
-/// as `e`) and `a::*`.
 fn imports(tree: &[u8]) -> Vec<Import> {
     let mut out = Vec::new();
     expand_use(tree, &[], &mut out);
@@ -201,7 +187,6 @@ fn expand_use(tree: &[u8], prefix: &[Vec<u8>], out: &mut Vec<Import>) {
     }
 }
 
-/// The items of a use group: `s` split at commas outside nested braces.
 fn split_top_level(s: &[u8]) -> Vec<&[u8]> {
     let mut items = Vec::new();
     let (mut depth, mut start) = (0usize, 0);
@@ -220,7 +205,6 @@ fn split_top_level(s: &[u8]) -> Vec<&[u8]> {
     items
 }
 
-/// The index of the `}` closing the `{` at `open`; the end when unbalanced.
 fn closing_brace(s: &[u8], open: usize) -> usize {
     let mut depth = 0usize;
     for (i, &c) in s.iter().enumerate().skip(open) {
@@ -238,7 +222,6 @@ fn closing_brace(s: &[u8], open: usize) -> usize {
     s.len()
 }
 
-/// A use leaf split at its `as` rename: `x::Y as Z` is `x::Y`, alias `Z`.
 fn split_alias(item: &[u8]) -> (&[u8], Option<&[u8]>) {
     let word_as = |p: usize| {
         item[p..].starts_with(b"as")
@@ -252,7 +235,6 @@ fn split_alias(item: &[u8]) -> (&[u8], Option<&[u8]>) {
     }
 }
 
-/// The ` as [^\n]*$` strip: last ` as ` whose remainder has no newline.
 fn find_last_as(s: &[u8]) -> Option<usize> {
     let mut found = None;
     let mut start = 0;
@@ -273,7 +255,6 @@ fn find_subslice(s: &[u8], needle: &[u8]) -> Option<usize> {
     s.windows(needle.len()).position(|w| w == needle)
 }
 
-/// `%b()` at the start of `s`: length of the balanced `(...)` span.
 fn balanced_parens(s: &[u8]) -> Option<usize> {
     if s.first() != Some(&b'(') {
         return None;
@@ -294,7 +275,6 @@ fn balanced_parens(s: &[u8]) -> Option<usize> {
     None
 }
 
-/// `^%s*pub%b()%s+` then `^%s*pub%s+` then (for `command`) `^%s*async%s+`.
 fn strip_pub(s: &[u8], also_async: bool) -> &[u8] {
     let spaces = s.iter().take_while(|&&c| is_space(c)).count();
     if let Some(rest) = s[spaces..].strip_prefix(b"pub")
@@ -338,7 +318,6 @@ fn strip_async(s: &[u8]) -> &[u8] {
     s
 }
 
-/// `^#%[%s*tauri%s*::%s*command%f[^%w_][^%]]*%](.*)$`: returns the capture.
 fn match_command_attribute(s: &[u8]) -> Option<&[u8]> {
     let s = s.strip_prefix(b"#[")?;
     let s = &s[s.iter().take_while(|&&c| is_space(c)).count()..];
@@ -354,14 +333,12 @@ fn match_command_attribute(s: &[u8]) -> Option<&[u8]> {
     Some(&s[close + 1..])
 }
 
-/// `command(text, at)`: a `#[tauri::command]` attribute directly precedes the
-/// `fn` at `at` (within the 240-byte lookback), modulo pub/async.
 fn command(text: &[u8], at: usize) -> bool {
     let start = at.saturating_sub(240).max(1);
     let prefix = text::sub(text, start as i64, at as i64 - 1);
     let mut search = 0;
     while let Some(off) = find_subslice(&prefix[search..], b"#[") {
-        let p = search + off; // 0-based position of '#['
+        let p = search + off;
         if let Some(rest) = match_command_attribute(&prefix[p..]) {
             let rest = strip_pub(rest, true);
             if rest.iter().all(|&c| is_space(c)) {
@@ -373,12 +350,11 @@ fn command(text: &[u8], at: usize) -> bool {
     false
 }
 
-/// Positions of `word` with `%f[%w_]` before and `%f[^%w_]` after (1-based).
 fn word_positions(text: &[u8], word: &[u8]) -> Vec<usize> {
     let mut out = Vec::new();
     let mut search = 0;
     while let Some(off) = find_subslice(&text[search.min(text.len())..], word) {
-        let p = search + off; // 0-based
+        let p = search + off;
         let before_ok = p == 0 || !crate::text::is_word(text[p - 1]);
         let after = p + word.len();
         let after_ok = after >= text.len() || !crate::text::is_word(text[after]);
@@ -390,7 +366,6 @@ fn word_positions(text: &[u8], word: &[u8]) -> Vec<usize> {
     out
 }
 
-/// `read_module(source)`.
 pub fn read_module(source: &[u8]) -> Value {
     let (text, holes) = mask(source);
     let blocks = inline_mods(&text, &holes);
@@ -469,7 +444,7 @@ pub fn read_module(source: &[u8]) -> Value {
                 let offset = find_subslice(rest, b"<").unwrap();
                 let mut search = 0;
                 while let Some(off) = find_subslice(&generic[search.min(generic.len())..], b">") {
-                    let close = search + off; // 0-based in generic
+                    let close = search + off;
                     if let Some(candidate) = match_trait_for(&rest[offset + close + 2..]) {
                         tr = Some(candidate);
                     }
@@ -484,7 +459,6 @@ pub fn read_module(source: &[u8]) -> Value {
             }
         }
     }
-    // A `use` binds and an `impl` names in the scope at its position.
     let located = |xs: &[(Vec<u8>, usize)]| {
         let at = |at: &usize| Value::Integer(i64::try_from(*at).unwrap_or(i64::MAX));
         xs.iter()
@@ -514,7 +488,6 @@ pub fn read_module(source: &[u8]) -> Value {
     ])
 }
 
-/// `^%s*use%s+([^;]+);` — the capture may span lines.
 fn match_use(body: &[u8]) -> Option<&[u8]> {
     let s = &body[body.iter().take_while(|&&c| is_space(c)).count()..];
     let s = s.strip_prefix(b"use")?;
@@ -530,7 +503,6 @@ fn match_use(body: &[u8]) -> Option<&[u8]> {
     Some(&s[..end])
 }
 
-/// `^%s*mod%s+([A-Za-z_][A-Za-z0-9_]*)%s*;`.
 fn match_mod(body: &[u8]) -> Option<&[u8]> {
     let s = &body[body.iter().take_while(|&&c| is_space(c)).count()..];
     let s = s.strip_prefix(b"mod")?;
@@ -550,7 +522,6 @@ fn match_mod(body: &[u8]) -> Option<&[u8]> {
     Some(name)
 }
 
-/// `mod name {` at the start of `s`: the name and the offset of its `{`.
 fn match_inline_mod(s: &[u8]) -> Option<(Vec<u8>, usize)> {
     let rest = s.strip_prefix(b"mod")?;
     let spaces = rest.iter().take_while(|&&c| is_space(c)).count();
@@ -564,8 +535,6 @@ fn match_inline_mod(s: &[u8]) -> Option<(Vec<u8>, usize)> {
     (after.get(gap) == Some(&b'{')).then(|| (name[..len].to_vec(), s.len() - after.len() + gap))
 }
 
-/// An inline `mod name { … }`: the 1-based positions of its `mod` keyword
-/// and of the braces around its body.
 struct Block {
     at: usize,
     name: Vec<u8>,
@@ -579,8 +548,6 @@ impl Block {
     }
 }
 
-/// Each inline `mod name { … }` outside literals, wherever it starts:
-/// `#[cfg(test)] mod tests { … }` on one line counts.
 fn inline_mods(text: &[u8], holes: &[(usize, usize)]) -> Vec<Block> {
     let mut blocks = Vec::new();
     for at in word_positions(text, b"mod") {
@@ -600,10 +567,7 @@ fn inline_mods(text: &[u8], holes: &[(usize, usize)]) -> Vec<Block> {
     blocks
 }
 
-/// The 1-based position of the `}` closing the `{` at `open`, braces in
-/// literals aside; one past the end when unbalanced.
 fn closing(text: &[u8], holes: &[(usize, usize)], open: usize) -> usize {
-    // Holes are in source order: step over each one as it comes.
     let mut hole = holes.partition_point(|&(_, b)| b <= open);
     let mut depth = 0usize;
     let mut j = open;
@@ -630,22 +594,14 @@ fn closing(text: &[u8], holes: &[(usize, usize)], open: usize) -> usize {
     text.len() + 1
 }
 
-/// The inline mod whose body most closely holds `i`, if any.
 fn scope(blocks: &[Block], i: usize) -> Option<&Block> {
     blocks.iter().filter(|b| b.holds(i)).max_by_key(|b| b.open)
 }
 
-/// Whether a name declared at `from` is in scope at `at`: declared at file
-/// level, or in an inline mod that holds `at`. A mod nested there sees it
-/// as its `use super::*` would show it; a sibling or the file outside does
-/// not.
 fn reaches(blocks: &[Block], from: usize, at: usize) -> bool {
     scope(blocks, from).is_none_or(|b| b.holds(at))
 }
 
-/// A `use` path written `depth` inline mods deep, restated from the file:
-/// each `super` climbs one inline mod, and a path that stays inside the
-/// file names nothing outside it.
 fn out_of_inline_mods(path: &[u8], depth: usize) -> Option<Vec<u8>> {
     if depth == 0 {
         return Some(path.to_vec());
@@ -669,8 +625,6 @@ fn out_of_inline_mods(path: &[u8], depth: usize) -> Option<Vec<u8>> {
     }
 }
 
-/// `rest:gsub('^(%s+)async%s+','%1')` then `^%s+fn%s+([A-Za-z_][A-Za-z0-9_]*)`
-/// for the `pub` scan.
 fn match_pub_fn(s: &[u8]) -> Option<Vec<u8>> {
     let lead = s.iter().take_while(|&&c| is_space(c)).count();
     if lead == 0 {
@@ -696,7 +650,6 @@ fn match_pub_fn(s: &[u8]) -> Option<Vec<u8>> {
     Some(rest[..len].to_vec())
 }
 
-/// `^fn%s+([A-Za-z_][A-Za-z0-9_]*)` — text starting at the `fn` keyword.
 fn match_fn_name(s: &[u8]) -> Option<Vec<u8>> {
     let s = s.strip_prefix(b"fn")?;
     let spaces = s.iter().take_while(|&&c| is_space(c)).count();
@@ -711,7 +664,6 @@ fn match_fn_name(s: &[u8]) -> Option<Vec<u8>> {
     Some(s[..len].to_vec())
 }
 
-/// `^%s+([A-Za-z_][A-Za-z0-9_:]*)%s+for%s+`.
 fn match_trait_for(s: &[u8]) -> Option<Vec<u8>> {
     let spaces = s.iter().take_while(|&&c| is_space(c)).count();
     if spaces == 0 {
@@ -745,7 +697,6 @@ fn starts_with_spaces_then(s: &[u8], lit: &[u8]) -> bool {
     s[spaces..].starts_with(lit)
 }
 
-/// `^%s*<([^;{]*)` — the generic parameter text after `<`.
 fn match_generic(s: &[u8]) -> Option<&[u8]> {
     let spaces = s.iter().take_while(|&&c| is_space(c)).count();
     let s = &s[spaces..];
@@ -758,7 +709,6 @@ fn match_generic(s: &[u8]) -> Option<&[u8]> {
 }
 
 fn parent(path: &str) -> Option<String> {
-    // `^(.*)/[^/]+$`: a slash with a non-empty final segment.
     match path.rsplit_once('/') {
         Some((p, last)) if !last.is_empty() => Some(p.to_owned()),
         _ => None,
@@ -769,7 +719,6 @@ pub struct RustScanner;
 
 pub static SCANNER: RustScanner = RustScanner;
 
-/// `metadata_paths(root)`: the explicitly named Cargo.toml files.
 fn metadata_paths(root: &str) -> Vec<String> {
     let mut out = vec![format!("{root}/Cargo.toml")];
     if let Some(p) = parent(root) {
@@ -778,22 +727,18 @@ fn metadata_paths(root: &str) -> Vec<String> {
     out
 }
 
-/// The first present metadata file of `root`.
 fn manifest<'a>(root: &str, by_path: &HashMap<String, &'a SourceFile>) -> Option<&'a [u8]> {
     metadata_paths(root)
         .iter()
         .find_map(|path| by_path.get(path).map(|f| f.source.as_slice()))
 }
 
-/// A Cargo name as Rust code spells it: `-` becomes `_`.
 fn crate_ident(name: &[u8]) -> Vec<u8> {
     name.iter()
         .map(|&c| if c == b'-' { b'_' } else { c })
         .collect()
 }
 
-/// `lib_name(root, by_path)`: the `[lib] name = "..."` of the first present
-/// metadata file, else its `[package] name` when `root` has a `lib.rs`.
 fn lib_name(root: &str, by_path: &HashMap<String, &SourceFile>) -> Option<Vec<u8>> {
     let cargo = manifest(root, by_path)?;
     table_name(cargo, b"[lib]")
@@ -806,14 +751,12 @@ fn lib_name(root: &str, by_path: &HashMap<String, &SourceFile>) -> Option<Vec<u8
         .map(|n| crate_ident(&n))
 }
 
-/// The `name = "..."` key of the manifest table headed `header`.
 fn table_name(cargo: &[u8], header: &[u8]) -> Option<Vec<u8>> {
     let b = find_subslice(cargo, header).map(|a| a + header.len())?;
     let finish = find_subslice(&cargo[b..], b"\n[")
         .map(|p| b + p)
         .unwrap_or(cargo.len());
     let body = &cargo[b..finish];
-    // `^name%s*=%s*"([^"]+)"` or `\nname%s*=%s*"([^"]+)"`
     let mut search = 0;
     while search <= body.len() {
         let at_line_start = search == 0 || body[search - 1] == b'\n';
@@ -837,9 +780,6 @@ fn table_name(cargo: &[u8], header: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
-/// `dependencies(root, by_path)`: the crates the first present metadata file
-/// declares under `[dependencies]` or `[target.<cfg>.dependencies]`, as code
-/// names them. Dev and build dependencies never reach the scanned sources.
 fn dependencies(root: &str, by_path: &HashMap<String, &SourceFile>) -> Vec<Vec<u8>> {
     let Some(cargo) = manifest(root, by_path) else {
         return Vec::new();
@@ -878,9 +818,6 @@ fn dependencies(root: &str, by_path: &HashMap<String, &SourceFile>) -> Vec<Vec<u
     out
 }
 
-/// The rest of a manifest table header after its `dependencies` key: empty
-/// for a dependency list, the crate name for one dependency's own table
-/// (`[dependencies.name]`), `None` for any other table.
 fn dependency_table(header: &[u8]) -> Option<&[u8]> {
     let h = header.strip_prefix(b"[")?.strip_suffix(b"]")?;
     let rest = match h.strip_prefix(b"dependencies") {
@@ -906,8 +843,6 @@ enum ManifestString {
     MultilineLiteral,
 }
 
-/// Enough TOML lexical state to tell a new dependency key from a
-/// continuation of the preceding inline table, array or multiline string.
 #[derive(Default)]
 struct ManifestValue {
     depth: usize,
@@ -1002,22 +937,16 @@ fn scan_manifest_value(line: &[u8], value: &mut ManifestValue) {
     }
 }
 
-/// Each path `text` heads with `word` (`word::…`, or the global `::word::…`)
-/// outside string and char literals: its 1-based position and its segments
-/// up to the first non-identifier (`word::a::B::<T>` is `word::a::B`).
-/// `word` as a later segment (`a::word::…`) or the tail of an identifier
-/// does not count.
 fn inline_paths(text: &[u8], holes: &[(usize, usize)], word: &[u8]) -> Vec<(usize, Vec<Vec<u8>>)> {
     let mut needle = word.to_vec();
     needle.extend_from_slice(b"::");
     let mut out = Vec::new();
     let mut pos = 0;
     while let Some(off) = find_subslice(&text[pos..], &needle) {
-        let a = pos + off; // 0-based match start
+        let a = pos + off;
         pos = a + needle.len();
         let lead = if text[..a].ends_with(b"::") { a - 2 } else { a };
         let before = lead.checked_sub(1).map(|b| text[b]);
-        // `v.dep::<T>()` is a method call; `0..dep::MAX` is a range.
         let method = text[..lead]
             .iter()
             .rposition(|&c| !is_space(c))
@@ -1044,17 +973,11 @@ fn inline_paths(text: &[u8], holes: &[(usize, usize)], word: &[u8]) -> Vec<(usiz
     out
 }
 
-/// What a path in a module names.
 enum Target {
-    /// A module of the scanned crate.
     Module(Value),
-    /// An item of another crate, as a qualified stub id (`egui.Context`).
     Foreign(Value),
 }
 
-/// The qualified stub id of a path into another crate: its leading
-/// identifier segments joined with `.` (`egui::Context` is `egui.Context`;
-/// a glob ends it).
 fn qualified(segs: &[Vec<u8>]) -> Option<Value> {
     let idents: Vec<String> = segs
         .iter()
@@ -1067,7 +990,6 @@ fn qualified(segs: &[Vec<u8>]) -> Option<Value> {
     (!idents.is_empty()).then(|| Value::keyword(&idents.join(".")))
 }
 
-/// The 1-based source position of a located `use` or `impl`.
 fn position(site: &Value) -> usize {
     match get(site, "at") {
         Some(Value::Integer(i)) => usize::try_from(*i).unwrap_or(usize::MAX),
@@ -1075,7 +997,6 @@ fn position(site: &Value) -> usize {
     }
 }
 
-/// The source text of a located `use` or `impl`.
 fn site_path(site: &Value) -> Option<&str> {
     match get(site, "path") {
         Some(Value::String(path)) => Some(path),
@@ -1083,8 +1004,6 @@ fn site_path(site: &Value) -> Option<&str> {
     }
 }
 
-/// The path a visible `use` binds `name` to at `at`. Imports in an inline
-/// module do not leak into its parent or siblings.
 fn binding(surface: &Value, blocks: &[Block], name: &[u8], at: usize) -> Option<Vec<Vec<u8>>> {
     seq(get(surface, "uses"))
         .iter()
@@ -1104,7 +1023,6 @@ fn push_new(xs: &mut Vec<Value>, x: Value) {
     }
 }
 
-/// `module_relative(path, root)`.
 fn module_relative(path: &str, root: &str) -> String {
     let rel = scan::relative_path(path, root);
     if rel == "lib.rs" || rel == "mod.rs" {
@@ -1115,7 +1033,6 @@ fn module_relative(path: &str, root: &str) -> String {
     rel.replace('/', ".")
 }
 
-/// `resolve_mod(path, name, by_path)`.
 fn resolve_mod(path: &str, name: &[u8], by_path: &HashMap<String, &SourceFile>) -> Option<String> {
     let base = scan::file_base(path)?;
     let mut dir = parent(path)?;
@@ -1211,7 +1128,6 @@ impl Scanner for RustScanner {
             }
             metas.push((path.clone(), rel, ns, id));
         }
-        // The deepest module on a crate-relative path: `a.b.C.f` names `a.b`.
         let suffix = |s: &str| -> Option<Value> {
             let mut s = s.trim_start_matches('.').trim_end_matches('.');
             while !s.is_empty() {
@@ -1236,7 +1152,6 @@ impl Scanner for RustScanner {
                 .get(&m.0)
                 .and_then(|path| root_ids.get(path))
                 .cloned();
-            // `main.rs` is a crate root like `lib.rs`: `self` names the root.
             let relative = if m.0 == main_rs { "" } else { m.1.as_str() };
             match head.as_slice() {
                 b"crate" => suffix(&tail).or(crate_root),
@@ -1283,8 +1198,6 @@ impl Scanner for RustScanner {
                 }
             }
         };
-        // A head naming a module declared in this file is a uniform path
-        // (`mod a; use a::B;`); any other head is a crate when `external`.
         let target = |segs: &[Vec<u8>],
                       m: &(String, String, String, Value),
                       local: &[Value],
@@ -1311,9 +1224,6 @@ impl Scanner for RustScanner {
             .iter()
             .map(|m| crate::value::encode_key(&m.3))
             .collect();
-        // A path headed by a listed dependency names that crate, never a
-        // module of this one; an id it shares with a module is dropped
-        // rather than joined to the module.
         let collides = |id: &Value| {
             project_ids.contains(&crate::value::encode_key(id))
                 && edn::record::local_name(id)
@@ -1372,15 +1282,12 @@ impl Scanner for RustScanner {
                     }
                 }
             }
-            // `crate::a::f()` names a module of this crate without a `use`;
-            // inside an inline mod, `self` and `super` read as a `use` would.
             let (text_masked, holes) = mask(&by_path[&m.0].source);
             let blocks = inline_mods(&text_masked, &holes);
             let heads = [b"crate".to_vec(), b"self".to_vec(), b"super".to_vec()];
             for head in heads.iter().chain(&name) {
                 for (at, segs) in inline_paths(&text_masked, &holes, head) {
                     let depth = blocks.iter().filter(|b| b.holds(at)).count();
-                    // The trailing `::` lets a bare `super` (`super::*`) climb.
                     let path = [segs.join(&b"::"[..]), b"::".to_vec()].concat();
                     if let Some(path) = out_of_inline_mods(&path, depth)
                         && let Some(id) = resolve(&paths(&path), m)
@@ -1389,9 +1296,6 @@ impl Scanner for RustScanner {
                     }
                 }
             }
-            // A dependency is in scope without a `use`: `dep::item` names it,
-            // unless a module declared here or a `use` binding the same name
-            // (`use crate::journal as log;`) shadows it.
             for dep in &deps {
                 if Some(dep) == name.as_ref() {
                     continue;
@@ -1419,8 +1323,6 @@ impl Scanner for RustScanner {
                     continue;
                 };
                 let at = position(site);
-                // `impl a::T` reads `a` through a `use` visible at the impl;
-                // an unbound head is another crate only when listed.
                 let segs = paths(tr.as_bytes());
                 let bound = segs
                     .first()
@@ -1469,8 +1371,6 @@ impl Scanner for RustScanner {
                 commands_map.push((m.3.clone(), Value::Vector(cmds.to_vec())));
             }
         }
-        // Stubs name a path into the crate (`egui.Context`); merging maps one
-        // onto the deepest scanned module on that path.
         for id in foreigns {
             if !project_ids.contains(&crate::value::encode_key(&id)) {
                 let mut c = scan::foreign_class(&id);
@@ -1522,8 +1422,6 @@ mod tests {
         }
     }
 
-    /// The edges of a scan of `files` rooted at `/p/src`: `from -> to` for a
-    /// dependency, `from -|> to` for an implementation.
     fn edges(files: &[SourceFile]) -> Vec<String> {
         let opts = record(vec![("prefix", Value::String("app".to_owned()))]);
         let g = SCANNER.scan("/p/src", &opts, files, "/p").unwrap();
@@ -1594,8 +1492,6 @@ mod tests {
             file("/p/src/a/b.rs", &test_mod("super::f();")),
             file("/p/src/a/c.rs", &test_mod("super::super::g();")),
         ];
-        // `super` inside `tests` is the file; only `c`'s file-level
-        // `super::g` (written `super::super::g` there) reaches the parent.
         assert_eq!(
             vec![":a -> :a.b", ":a -> :a.c", ":a.c -> :a", ":app -> :a"],
             edges(&files)
@@ -1662,8 +1558,6 @@ mod tests {
             file("/p/src/main.rs", main),
             file("/p/src/log.rs", "pub fn note() {}\n"),
         ];
-        // A stub names the path into the other crate; merging maps it to the
-        // deepest module scanned there.
         assert_eq!(vec![":main -> :log", ":main -> :viewer.run"], edges(&files));
     }
 
@@ -1858,7 +1752,6 @@ mod tests {
             ],
             edges(&crate_files(listed, x))
         );
-        // An unlisted head still reads as a crate-relative path.
         let unlisted = "[package]\nname = \"app\"\n";
         assert_eq!(
             vec![

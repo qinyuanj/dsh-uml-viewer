@@ -1,9 +1,3 @@
-//! Host-independent IR bytes (#201 seam 1): each fixture project's `ir`
-//! output must equal, byte for byte, the document committed in
-//! `fixtures/ir-bytes/`, which was generated on Linux. On Windows this holds
-//! for a CRLF working tree too, so it proves the path model and the four
-//! scanners are host-independent, not just structurally equal.
-
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
@@ -63,8 +57,6 @@ fn lua_fixture_bytes_match_the_linux_reference() {
 
 #[test]
 fn the_linux_reference_is_portable_text() {
-    // Guards the reference itself: a CRLF checkout (`core.autocrlf`) or a
-    // host path leaking into IR would make the byte check meaningless.
     for fixture in [
         "rust-fixture",
         "python-fixture",

@@ -35,7 +35,6 @@ configuration, launch or unported-language refusal (an error record with
 validResult false); 2 for a usage error (no record).
 ";
 
-/// A usage error: no record, exit 2.
 const USAGE_EXIT: u8 = 2;
 
 pub fn run(args: &[OsString]) -> ExitCode {
@@ -87,9 +86,6 @@ fn parse(args: &[String]) -> Result<(Operation, PathBuf, Vec<String>), String> {
         return Err("missing operation".to_string());
     };
     let operation = Operation::parse(first).ok_or_else(|| format!("unknown operation {first}"))?;
-    // Only the dispatcher's own leading --root selects the project. Anything
-    // after the first forwarded argument belongs to the tool verbatim (an
-    // operations command may itself take --root).
     let (root, forwarded_at) = if args.get(1).is_some_and(|arg| arg == "--root") {
         let value = args
             .get(2)
@@ -102,8 +98,6 @@ fn parse(args: &[String]) -> Result<(Operation, PathBuf, Vec<String>), String> {
     Ok((operation, root, args[forwarded_at..].to_vec()))
 }
 
-/// A refusal before any tool ran: an explicit error record, never an empty
-/// success.
 pub(crate) struct Refusal {
     pub message: String,
     pub exit_code: u8,
@@ -124,7 +118,6 @@ impl Refusal {
     }
 }
 
-/// What a completed run produced.
 pub(crate) struct Outcome {
     pub exit_code: u8,
     pub valid_result: bool,
@@ -148,7 +141,6 @@ impl Outcome {
     }
 }
 
-/// The version-1 result record (`ToolResultRecord` in packages/contracts).
 struct Record {
     operation: &'static str,
     project_root: String,
@@ -157,7 +149,6 @@ struct Record {
     crap_scope: Option<&'static str>,
     configured: bool,
     tool: String,
-    /// Why no tool ran; null after a completed run.
     reason: Option<String>,
 }
 
@@ -189,9 +180,6 @@ fn dispatch(
     }
 }
 
-/// A declared operation runs its own argv at the project root, no shell:
-/// fixed argv, then the caller's arguments verbatim when `forwardArgs` is
-/// `append`. Its stdout is folded into stderr so the record stays alone.
 fn override_command(
     root: &Path,
     declared: &config::Override,

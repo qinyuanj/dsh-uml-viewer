@@ -33,8 +33,6 @@ it('replaces an entry with the same id in place and tells only that session’s 
   expect(seen).toHaveLength(3)
 })
 
-// #53: the user dismisses a finished entry; an unfinished one stays, because
-// it is still in the session's queue.
 it('dismisses a finished entry for every listener of its session, and nothing else', () => {
   const statuses = new RequestStatuses()
   const seen: string[][] = []
@@ -48,7 +46,6 @@ it('dismisses a finished entry for every listener of its session, and nothing el
   expect(statuses.dismiss('s', 'c')).toBe(true)
   expect(seen.at(-1)).toEqual(['b:queued'])
   const told = seen.length
-  // Unfinished, unknown, already gone or another session's: nothing changes.
   expect(statuses.dismiss('s', 'b')).toBe(false)
   expect(statuses.dismiss('s', 'zz')).toBe(false)
   expect(statuses.dismiss('s', 'a')).toBe(false)

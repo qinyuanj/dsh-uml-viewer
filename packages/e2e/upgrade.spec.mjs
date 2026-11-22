@@ -13,8 +13,6 @@ import { installEvidence } from './upgrade-evidence.mjs'
 const initial = packageInputs()
 const next = process.env.UML_VIEWER_UPGRADE_MAIN || process.env.UML_VIEWER_UPGRADE_PLATFORM
   ? packageInputs({ packageMain: process.env.UML_VIEWER_UPGRADE_MAIN, packagePlatform: process.env.UML_VIEWER_UPGRADE_PLATFORM }) : null
-// Both versions come from the archives themselves, so a version bump never
-// leaves a stale literal in this case.
 const oldVersion = initial ? packageVersion(initial.main) : null
 const nextVersion = next ? packageVersion(next.main) : null
 
@@ -35,8 +33,6 @@ function binaryVersion(binary) {
   return result.stdout.trim()
 }
 
-// OS observation of only the executable owned by this run. A lease's PID is
-// the Host owner, so it is insufficient evidence of the resident's identity.
 function resident(binary) {
   const quoted = binary.replaceAll("'", "''")
   const script = `$ErrorActionPreference='Stop'; @(Get-CimInstance Win32_Process -Filter "Name='uml-viewer.exe'" | Where-Object { $_.ExecutablePath -eq '${quoted}' } | Select-Object ProcessId,ParentProcessId,ExecutablePath,CreationDate) | ConvertTo-Json -Compress`
@@ -48,10 +44,6 @@ function resident(binary) {
   return Array.isArray(parsed) ? parsed : [parsed]
 }
 
-// Every public management action asks for danger-full-access. This answers the
-// scratch page's real approval card each time it appears, without widening the
-// session policy or reaching into the Host. It returns as soon as the scripted
-// completion text is visible.
 async function answerApprovals(page, done, timeoutMs = 120_000) {
   const deadline = Date.now() + timeoutMs
   const allow = () => page.locator('[data-approval-key]')
@@ -68,8 +60,6 @@ async function answerApprovals(page, done, timeoutMs = 120_000) {
   throw new Error('The isolated management action never completed')
 }
 
-// This case adds a real package replacement and two explicit panel lifecycle
-// actions to the ordinary open, so it needs more than the lane's default 180 s.
 test.setTimeout(300_000)
 
 test('installed update keeps the busy vN resident until the UML tab is closed and reopened, then cleans the unused version', async ({ browser }) => {
@@ -105,49 +95,25 @@ test('installed update keeps the busy vN resident until the UML tab is closed an
     evidence.beforeCanvas = await canvasDigest(shop)
     const origin = new URL(lane.host.url).origin
     const hostPid = lane.host.pid
-    // The pinned manager documents an update as removal then installation.
-    // 1. Public plugin_manager list_bundles + remove_bundle. The list and the
-    // removal each ask for the escalation they need through the scratch
-    // application's own approval card; a policy that allows it shows none.
     await lane.sendPrompt(shop, UPGRADE_PROMPTS.remove)
-    // Either scripted outcome ends the wait; the tool's own result decides.
     await answerApprovals(shop.page, shop.page.getByText(/^Isolated removal (applied|did not apply)$/).last())
     evidence.removal = observed.removal
     evidence.afterRemoval = await installEvidence(lane.home)
     expect(observed.removal?.application).toBe('applied')
-    // 2. The next platform tarball as a plain dependency. With the bundle
-    // removed nothing maps it, so replacing it cannot be `package-moved`; it
-    // activates nothing by itself (CI11: an external CLI add never did).
     lane.installPlatform(next.platform)
     evidence.afterPlatform = await installEvidence(lane.home)
     expect(JSON.parse(await fs.readFile(path.join(home, 'current.json'), 'utf8')).version).toBe(oldVersion)
-    // 3. Public plugin_manager install_bundle with the absolute next main
-    // tarball. The profile's direct dependencies then differ only in
-    // `dsh-uml-viewer` (the manager refuses any other count as
-    // ambiguous-install); the plugin's activation still requires the exact
-    // next platform package it finds. The manager selects the bundle and
-    // reconciles the live profile itself, answering `applied` only after the
-    // bundle's rows started.
     await lane.sendPrompt(shop, UPGRADE_PROMPTS.install)
     await answerApprovals(shop.page, shop.page.getByText(/^Isolated install (applied|did not apply)$/).last())
-    // Record before asserting, so a refused install leaves its diagnostic.
     evidence.install = observed.install
     expect(observed.install?.application).toBe('applied')
     expect(observed.install).toMatchObject({ bundle: 'dsh-uml-viewer', version: nextVersion })
     evidence.afterInstall = await installEvidence(lane.home)
-    // CI13: what the Host itself said while applying, and which store the
-    // activation recorded for itself (an unpinned activation leaves no pin).
-    // Recorded before asserting so a refused or silent apply keeps its witness.
     evidence.hostOutput = lane.hostOutput()
-    // No host restart, page reload, private ctx or installed-file copying.
     try {
       await expect.poll(async () => JSON.parse(await fs.readFile(path.join(home, 'current.json'), 'utf8')).version,
         { timeout: 10_000 }).toBe(nextVersion)
     } catch (error) {
-      // CI12/CI13: which store the activation pinned, which store it recorded
-      // its own activation in, and which package copy the re-inserted row could
-      // import, decide between a lost `home`, a stale module and an activation
-      // that pins nothing (docs/e2e-harness.md); recorded before rethrowing.
       evidence.afterPoll = await installEvidence(lane.home)
       evidence.hostOutputAfterPoll = lane.hostOutput()
       throw error
@@ -169,11 +135,8 @@ test('installed update keeps the busy vN resident until the UML tab is closed an
     evidence.newBinaryVersion = binaryVersion(newBinary)
     expect(evidence.newBinaryVersion).toBe(`uml-viewer ${nextVersion}`)
     await lane.screenshot(shop, 'upgrade-retains-old')
-    // A new zoom gesture after replacement proves that the old child still
-    // serves actions through the real canvas, beyond a retained DOM summary.
     await lane.wheel(shop, -2)
     await expect.poll(() => shop.summary.innerText()).not.toBe(state)
-    // Closing the UML tab runs its close handler: the explicit close (D13).
     await closeTab(shop)
     await expect(shop.page.locator('.dsh-uml-viewer-panel')).toHaveCount(0)
     await expect.poll(() => alive(oldPid), { timeout: 10_000 }).toBe(false)

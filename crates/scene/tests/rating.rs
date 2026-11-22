@@ -1,8 +1,3 @@
-//! Quality rating (#159): the band and grade a class box, package box and
-//! class-card row are drawn with, from IR plus quality snapshots only.
-//! Expected values are worked by hand from the CRAP 8/12/20 and mutation
-//! 0.8/0.9/1.0 ramps.
-
 use edn::Value;
 use edn::record::{get, seq};
 use scene::Snapshot;
@@ -58,8 +53,6 @@ fn a_fully_measured_class_rates_green_at_the_best_grade() {
 
 #[test]
 fn a_mid_class_rates_yellow_on_the_averaged_ramps() {
-    // CRAP 10 is halfway down 8..12 (10 -> 5.5); kill ratio 0.85 is halfway
-    // up 0.8..0.9 (1 -> 5.5).
     let r = rating(&class(&scene(), "Fair"));
     assert_eq!(
         (r.crap, r.mutation, r.band()),
@@ -93,7 +86,6 @@ fn the_worst_band_of_the_two_metrics_wins() {
     let r = rating(&edn::parse("{:crap {:mu 30} :killed 17 :survived 3}").unwrap());
     assert_eq!(r.band(), Band::Red);
     assert!(!r.missing);
-    // Only one metric absent is still missing.
     assert!(rating(&edn::parse("{:crap {:mu 2}}").unwrap()).missing);
 }
 

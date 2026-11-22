@@ -1,7 +1,3 @@
-//! Port of `love/uml/lua_language/graph_lua.lua`: a pure Lua module scanner
-//! over caller-supplied canonical source snapshots. Scanner limitations are
-//! preserved (the goldens encode them); positions are 1-based like Lua.
-
 use edn::Value;
 
 use crate::scan::{self, Scanner, SourceFile};
@@ -25,14 +21,12 @@ fn ident(c: Option<u8>) -> bool {
     c.is_some_and(is_word)
 }
 
-/// `keyword(s, i, w)`: literal `w` at 1-based `i` with non-identifier flanks.
 fn keyword(s: &[u8], i: usize, w: &[u8]) -> bool {
     text::sub(s, i as i64, i as i64 + w.len() as i64 - 1) == w
         && !ident(at(s, i.wrapping_sub(1)))
         && !ident(at(s, i + w.len()))
 }
 
-/// `long_end(s, i)`: a long bracket `[=*[` at `i`; returns one past `]=*]`.
 fn long_end(s: &[u8], i: usize) -> Option<usize> {
     if at(s, i) != Some(b'[') {
         return None;
@@ -59,8 +53,6 @@ fn in_hole(holes: &[(usize, usize)], i: usize) -> bool {
     holes.iter().any(|&(a, b)| i >= a && i < b)
 }
 
-/// `mask(source)`: comments and long brackets blanked (newlines kept);
-/// quoted strings kept with their interior recorded as a hole.
 fn mask(source: &[u8]) -> (Vec<u8>, Vec<(usize, usize)>) {
     let mut out = Vec::new();
     let mut holes = Vec::new();
@@ -102,7 +94,6 @@ fn strip_spaces(s: &[u8]) -> usize {
     s.iter().take_while(|&&c| is_space(c)).count()
 }
 
-/// `[%a_][%w_%.:]*` capture starting at 0 (byte offset into the slice).
 fn capture_dotted(s: &[u8]) -> Option<usize> {
     if !s.first().is_some_and(|&c| is_alpha_(c)) {
         return None;
@@ -114,7 +105,6 @@ fn capture_dotted(s: &[u8]) -> Option<usize> {
     Some(len)
 }
 
-/// `^local%s+function%s+([%a_][%w_%.:]*)`.
 fn match_local_function(rest: &[u8]) -> Option<Vec<u8>> {
     let s = rest.strip_prefix(b"local")?;
     let n = strip_spaces(s);
@@ -130,7 +120,6 @@ fn match_local_function(rest: &[u8]) -> Option<Vec<u8>> {
     Some(s[n..n + len].to_vec())
 }
 
-/// `^local%s+([%a_][%w_%.:]*)%s*=%s*function%f[^%w_]`.
 fn match_local_assign_function(rest: &[u8]) -> Option<Vec<u8>> {
     let s = rest.strip_prefix(b"local")?;
     let n = strip_spaces(s);
@@ -151,7 +140,6 @@ fn match_local_assign_function(rest: &[u8]) -> Option<Vec<u8>> {
     Some(captured)
 }
 
-/// `^function%s+([%a_][%w_%.:]*)`.
 fn match_function(rest: &[u8]) -> Option<Vec<u8>> {
     let s = rest.strip_prefix(b"function")?;
     let n = strip_spaces(s);
@@ -162,7 +150,6 @@ fn match_function(rest: &[u8]) -> Option<Vec<u8>> {
     Some(s[n..n + len].to_vec())
 }
 
-/// `^([%a_][%w_%.:]*)%s*=%s*function%f[^%w_]`.
 fn match_assign_function(rest: &[u8]) -> Option<Vec<u8>> {
     let len = capture_dotted(rest)?;
     let s = &rest[len..];
@@ -176,7 +163,6 @@ fn match_assign_function(rest: &[u8]) -> Option<Vec<u8>> {
     Some(rest[..len].to_vec())
 }
 
-/// `declaration(rest, kw)`.
 fn declaration(rest: &[u8], kw: Option<&str>) -> (Option<Vec<u8>>, bool) {
     match kw {
         Some("local") => (
@@ -198,13 +184,11 @@ fn statement_before(text: &[u8], i: usize) -> Vec<u8> {
     before[start..].to_vec()
 }
 
-/// `statement:match('local%s*$')`.
 fn ends_with_local(s: &[u8]) -> bool {
     let end = s.iter().rposition(|&c| !is_space(c)).map_or(0, |p| p + 1);
     s[..end].ends_with(b"local")
 }
 
-/// The `local X = require "mod"` scan: returns (start, end, binding, module).
 fn find_binding(text: &[u8], pos: usize) -> Option<(usize, usize, Vec<u8>, Vec<u8>)> {
     for i in pos..=text.len() {
         if let Some((b, binding, module)) = match_binding_at(text, i) {
@@ -214,10 +198,6 @@ fn find_binding(text: &[u8], pos: usize) -> Option<(usize, usize, Vec<u8>, Vec<u
     None
 }
 
-/// `local%s+([%a_][%w_]*)%s*=%s*require` at `i`, then the literal module that
-/// `require_at` reads there (so a concatenated name binds nothing).
-/// Returns (end, binding, module) with `end` the 1-based inclusive end of
-/// `require`, like Lua's `b`.
 fn match_binding_at(t: &[u8], i: usize) -> Option<(usize, Vec<u8>, Vec<u8>)> {
     let mut p = i - 1;
     if !t.get(p..)?.starts_with(b"local") {
@@ -249,22 +229,15 @@ fn match_binding_at(t: &[u8], i: usize) -> Option<(usize, Vec<u8>, Vec<u8>)> {
     }
 }
 
-/// A `require` call at `i`: a literal module name, or a call whose argument
-/// is an expression (`require(name)`) and so cannot be resolved statically.
 enum Require {
     Module(Vec<u8>),
     Dynamic,
 }
 
-/// `[%w_%.%-/]`: a byte of a module name as the searchers read it.
 fn module_byte(c: u8) -> bool {
     is_word(c) || matches!(c, b'.' | b'-' | b'/')
 }
 
-/// `^([%a_][%w_%.%-/]*)`: the module name opening `s`, `/` read as `.`.
-/// The searchers turn `.` into the directory separator, so
-/// `require "lib/lume"` loads the file `require "lib.lume"` does; `-` is an
-/// ordinary name byte (`game-state.lua`).
 fn required_name(s: &[u8]) -> Option<Vec<u8>> {
     if !s.first().is_some_and(|&c| is_alpha_(c)) {
         return None;
@@ -278,13 +251,10 @@ fn required_name(s: &[u8]) -> Option<Vec<u8>> {
     )
 }
 
-/// `s:gsub('%s+$', '')`.
 fn trim_end(s: &[u8]) -> &[u8] {
     &s[..s.iter().rposition(|&c| !is_space(c)).map_or(0, |p| p + 1)]
 }
 
-/// `pcall%s*%(%s*$` before the `require` at 1-based `i`:
-/// `pcall(require, "m")` loads `m` like `require "m"`, failing softly.
 fn protected(text: &[u8], i: usize) -> bool {
     let Some(before) = trim_end(&text[..i - 1]).strip_suffix(b"(") else {
         return false;
@@ -297,8 +267,6 @@ fn require_at(text: &[u8], i: usize) -> Option<Require> {
     if !keyword(text, i, b"require") {
         return None;
     }
-    // `%s*`, newlines too: the argument may open the next line, and the
-    // comments between are already blank.
     let after = text::sub(text, (i + 7) as i64, text.len() as i64);
     let after = &after[strip_spaces(after)..];
     let (call, tail) = match after.first() {
@@ -308,8 +276,6 @@ fn require_at(text: &[u8], i: usize) -> Option<Require> {
     };
     let tail = &tail[strip_spaces(tail)..];
     match tail.first() {
-        // `require("states." .. name)`: the literal is only a prefix. Without
-        // parentheses `require "v" .. "-dev"` concatenates the call's result.
         Some(&q @ (b'"' | b'\'')) => {
             let name = required_name(&tail[1..])?;
             let after = &tail[(text::scan_quoted(tail, 1, q, None) - 1).min(tail.len())..];
@@ -319,7 +285,6 @@ fn require_at(text: &[u8], i: usize) -> Option<Require> {
                 Some(Require::Module(name))
             }
         }
-        // `require(name)`, and `require(... .. ".x")` relative to the vararg.
         Some(&c)
             if call
                 && (is_alpha_(c) || c == b'(' || tail.starts_with(b"..."))
@@ -338,7 +303,6 @@ fn skip_ws(t: &[u8], p: usize) -> usize {
         .count()
 }
 
-/// An identifier at 0-based `p`: its end, or `None`.
 fn ident_end(t: &[u8], p: usize) -> Option<usize> {
     if !t.get(p).is_some_and(|&c| is_alpha_(c)) {
         return None;
@@ -346,8 +310,6 @@ fn ident_end(t: &[u8], p: usize) -> Option<usize> {
     Some(p + t[p..].iter().take_while(|&&c| is_word(c)).count())
 }
 
-/// `{ "a.b", 'c' }` at 0-based `p`: the module names of a constructor that
-/// holds only string literals; anything else is not a literal list.
 fn literal_modules(t: &[u8], p: usize) -> Option<Vec<Vec<u8>>> {
     if t.get(p) != Some(&b'{') {
         return None;
@@ -374,7 +336,6 @@ fn literal_modules(t: &[u8], p: usize) -> Option<Vec<Vec<u8>>> {
     (!out.is_empty()).then_some(out)
 }
 
-/// The literal list bound by the last `local name = {` before 0-based `end`.
 fn local_literal_modules(t: &[u8], name: &[u8], end: usize) -> Option<Vec<Vec<u8>>> {
     (0..end).rev().find_map(|j| {
         if !keyword(t, j + 1, b"local") {
@@ -390,7 +351,6 @@ fn local_literal_modules(t: &[u8], name: &[u8], end: usize) -> Option<Vec<Vec<u8
     })
 }
 
-/// Whether the block opened just before 0-based `from` is still open at `to`.
 fn block_open(t: &[u8], holes: &[(usize, usize)], from: usize, to: usize) -> bool {
     let mut depth = 1usize;
     for j in from + 1..=to {
@@ -412,10 +372,6 @@ fn block_open(t: &[u8], holes: &[(usize, usize)], from: usize, to: usize) -> boo
     true
 }
 
-/// `require(name)` (or `pcall(require, name)`) at 1-based `i` where `name`
-/// is the value of the nearest open `for _, name in ipairs(list) do` over a
-/// literal list (inline, or a `local list = {...}`): the listed modules,
-/// which are static after all.
 fn loop_literal_modules(t: &[u8], holes: &[(usize, usize)], i: usize) -> Option<Vec<Vec<u8>>> {
     let p = skip_ws(t, i - 1 + 7);
     let p = skip_ws(t, p + matches!(t.get(p), Some(b'(' | b',')) as usize);
@@ -466,12 +422,10 @@ fn loop_literal_modules(t: &[u8], holes: &[(usize, usize)], i: usize) -> Option<
     (keyword(t, q + 1, b"do") && block_open(t, holes, q + 2, i - 1)).then_some(modules)
 }
 
-/// 1-based line of position `i`.
 fn line_of(text: &[u8], i: usize) -> i64 {
     text[..i - 1].iter().filter(|&&c| c == b'\n').count() as i64 + 1
 }
 
-/// Table-constructor depth after the byte `c`.
 fn track_brace(braces: usize, c: Option<u8>) -> usize {
     match c {
         Some(b'{') => braces + 1,
@@ -480,7 +434,6 @@ fn track_brace(braces: usize, c: Option<u8>) -> usize {
     }
 }
 
-/// Opens or closes a block for the keyword; `true` marks a function body.
 fn track_block(blocks: &mut Vec<bool>, kw: Option<&str>) {
     match kw {
         Some("function") => blocks.push(true),
@@ -492,7 +445,6 @@ fn track_block(blocks: &mut Vec<bool>, kw: Option<&str>) {
     }
 }
 
-/// The stderr line for a file's unresolved `require(name)` calls, if any.
 fn dynamic_require_warning(file: &str, lines: &[Value]) -> Option<String> {
     let at: Vec<String> = lines
         .iter()
@@ -504,12 +456,6 @@ fn dynamic_require_warning(file: &str, lines: &[Value]) -> Option<String> {
     (!at.is_empty()).then(|| format!("Unresolved dynamic require: {}", at.join(", ")))
 }
 
-/// `read_module(source)`: requires, definitions and the bases named by a
-/// top-level `setmetatable`, `Base:extend()` or middleclass `class(n, Base)`.
-/// A definition is nested inside a function body or a table constructor,
-/// as crapper counts entries; a top-level `if`/`do` block does not nest.
-/// `require(name)` cannot be resolved statically; its line is reported,
-/// unless `name` iterates a literal module list.
 pub fn read_module(source: &[u8]) -> Value {
     let (text, holes) = mask(source);
     let mut requires = Vec::new();
@@ -518,7 +464,6 @@ pub fn read_module(source: &[u8]) -> Value {
     let mut bindings: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
     let mut base_names: Vec<Vec<u8>> = Vec::new();
     let mut dynamic_requires = Vec::new();
-    // Open blocks, innermost last: `true` for a function body.
     let mut blocks: Vec<bool> = Vec::new();
     let mut braces: usize = 0;
     let mut pos = 1;
@@ -592,8 +537,6 @@ pub fn read_module(source: &[u8]) -> Value {
     ])
 }
 
-/// `text:sub(i):match('^setmetatable%s*%(%s*(.*)')`, past the line end: a
-/// metatable constructor may span several lines.
 fn match_setmetatable(rest: &[u8]) -> Option<&[u8]> {
     let s = rest.strip_prefix(b"setmetatable")?;
     let s = &s[strip_spaces(s)..];
@@ -601,9 +544,6 @@ fn match_setmetatable(rest: &[u8]) -> Option<&[u8]> {
     Some(&s[strip_spaces(s)..])
 }
 
-/// `^([%a_][%w_]*)%s*:%s*extend%s*[%(\"'{]`, or `subclass` for `extend`:
-/// classic's (and 30log's) `Base:extend()` derives a class from `Base`, as
-/// middleclass's `Base:subclass("Name")` does.
 fn match_extend(rest: &[u8]) -> Option<Vec<u8>> {
     let len = ident_end(rest, 0)?;
     let s = &rest[len..];
@@ -617,9 +557,6 @@ fn match_extend(rest: &[u8]) -> Option<Vec<u8>> {
     matches!(s.first(), Some(b'(' | b'"' | b'\'' | b'{')).then(|| rest[..len].to_vec())
 }
 
-/// `^([%a_][%w_]*)%s*%(%s*(["'])[^\n]-%2%s*,%s*([%a_][%w_]*)%s*%)` where the
-/// callee is bound to `require "middleclass"` (or `"lib.middleclass"`):
-/// middleclass's `class("Lemon", Fruit)` derives `Lemon` from `Fruit`.
 fn middleclass_base(rest: &[u8], bindings: &[(Vec<u8>, Vec<u8>)]) -> Option<Vec<u8>> {
     let len = ident_end(rest, 0)?;
     let (_, module) = bindings.iter().find(|(name, _)| *name == rest[..len])?;
@@ -644,8 +581,6 @@ fn middleclass_base(rest: &[u8], bindings: &[(Vec<u8>, Vec<u8>)]) -> Option<Vec<
     (after[strip_spaces(after)..].first() == Some(&b')')).then(|| s[..base].to_vec())
 }
 
-/// `%b{}` opening `s`: one past its closing brace. Quoted strings are
-/// skipped; comments and long strings are already blank.
 fn constructor_end(s: &[u8]) -> Option<usize> {
     if s.first() != Some(&b'{') {
         return None;
@@ -673,10 +608,6 @@ fn constructor_end(s: &[u8]) -> Option<usize> {
     None
 }
 
-/// `%b{}` opening `s` searched at its own depth for
-/// `[{,;]%s*__index%s*=%s*([%a_][%w_]*)%s*[,;}]`: the `__index` field among
-/// the metatable's other fields (`__call`, `__tostring`), on any line.
-/// Quoted strings are skipped; comments and long strings are already blank.
 fn index_field(s: &[u8]) -> Option<Vec<u8>> {
     let mut depth = 0usize;
     let mut k = 0;
@@ -718,10 +649,7 @@ fn index_field(s: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
-/// The base-name alternatives after the first `setmetatable` argument.
 fn match_base(tail: &[u8]) -> Option<Vec<u8>> {
-    // `^%b{}%s*,%s*(.*)` (the new class's own fields may be filled in) or
-    // `^[%a_][%w_%.]*%s*,%s*(.*)`
     let rest: Option<&[u8]> = if tail.first() == Some(&b'{') {
         let s = &tail[constructor_end(tail)?..];
         let s = &s[strip_spaces(s)..];
@@ -738,7 +666,6 @@ fn match_base(tail: &[u8]) -> Option<Vec<u8>> {
         None
     };
     let rest = rest?;
-    // `{ __index = Base, ... }` (see `index_field`) or `^([%a_][%w_]*)%s*%)`
     if rest.first() == Some(&b'{') {
         index_field(rest)
     } else if rest.first().is_some_and(|&c| is_alpha_(c)) {
@@ -755,7 +682,6 @@ fn match_base(tail: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
-/// `module_relative(path, root)`.
 fn module_relative(path: &str, root: &str) -> String {
     let mut rel = scan::relative_path(path, root);
     for prefix in ["src/lua/", "src/", "lua/"] {
@@ -766,7 +692,6 @@ fn module_relative(path: &str, root: &str) -> String {
     module_path(&rel)
 }
 
-/// The module a `?.lua;?/init.lua` searcher finds at the relative path `rel`.
 fn module_path(rel: &str) -> String {
     let rel = rel.strip_suffix(".lua").unwrap_or(rel);
     let rel = if rel == "init" {
@@ -835,8 +760,6 @@ impl Scanner for LuaScanner {
         let mut metas = Vec::new();
         let mut by_rel: Vec<(String, Value)> = Vec::new();
         let mut by_ns: Vec<(String, Value)> = Vec::new();
-        // The unstripped path from the scan or project root: a LÖVE game
-        // requires from its own root (`require "src.entities.player"`).
         let mut by_path: Vec<(String, Value)> = Vec::new();
         for f in &sorted {
             let rel = module_relative(&f.path, root);
@@ -860,7 +783,6 @@ impl Scanner for LuaScanner {
                 by_ns.push((ns, cid));
             }
         }
-        // A required name, then the package `a` that `a.init` spells out.
         let resolve = |name: &str| {
             let package = name.strip_suffix(".init").unwrap_or(name);
             [name, package].into_iter().find_map(|n| {
@@ -951,7 +873,6 @@ impl Scanner for LuaScanner {
 mod tests {
     use super::*;
 
-    /// The names `scan` turns into `:ops`: neither local nor nested.
     fn ops(source: &str) -> Vec<String> {
         let surface = read_module(source.as_bytes());
         seq(get(&surface, "defns"))
@@ -1084,7 +1005,6 @@ mod tests {
         assert_eq!(vec!["a.b", "c", "d"], requires(source));
     }
 
-    /// The `(from, to)` dependency edges of a scan over in-memory files.
     fn dependencies(root: &str, cwd: &str, files: &[(&str, &str)]) -> Vec<(String, String)> {
         let files: Vec<SourceFile> = files
             .iter()

@@ -6,8 +6,6 @@ use edn::Value;
 use edn::record::{get, local_name, name, seq};
 use std::collections::HashSet;
 
-/// The class a hit stands for: the class itself, or the parent of a child
-/// row or port. Packages, edges and dependency triangles focus no class.
 pub(crate) fn box_id(hit: Option<&Value>) -> Option<Value> {
     let hit = hit?;
     match get(hit, "kind").map(name).as_deref() {
@@ -43,9 +41,6 @@ fn key(v: Option<&Value>) -> Option<String> {
     v.and_then(|v| edn::encode(v).ok())
 }
 
-/// A visible aggregate stands for the leaf classes in its contents. Seed the
-/// traversal with those leaves as well as the visible id, so selecting the
-/// aggregate and selecting one of its members follow the same bundled edges.
 fn collect_descendants(class: &Value, ids: &mut HashSet<String>) {
     for child in seq(get(class, "contents")) {
         if let Some(id) = key(get(child, "id")) {
@@ -60,9 +55,6 @@ fn collect_descendants(class: &Value, ids: &mut HashSet<String>) {
     }
 }
 
-/// Leaf dependencies bundled into a visible edge. A plain edge is its own
-/// single leaf. Collapsed leaves retain their kind; older records without one
-/// inherit the visible edge's kind.
 fn dependencies(e: &Value) -> Vec<&Value> {
     match get(e, "deps") {
         Some(Value::Vector(deps)) if !deps.is_empty() => deps

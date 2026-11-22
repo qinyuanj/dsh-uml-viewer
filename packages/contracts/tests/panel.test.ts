@@ -14,7 +14,6 @@ describe('panel Remote descriptors', () => {
   it('declares one typed watch stream, one action call and the explicit close, all agent-bound', () => {
     const descriptors = UML_VIEWER_REMOTE.descriptors
     expect(UML_VIEWER_REMOTE.package).toBe('dsh-uml-viewer')
-    // #32/D13: the owned pair is additive; the three version-1 methods keep their wire shape.
     expect(descriptors.map(descriptor => descriptor.method).sort()).toEqual(['action', 'close', 'closeOwned', 'watch', 'watchOwned'])
     expect(new Set(descriptors.map(descriptor => descriptor.id)).size).toBe(descriptors.length)
     const watch = descriptors.find(descriptor => descriptor.method === 'watch')!
@@ -22,15 +21,12 @@ describe('panel Remote descriptors', () => {
     expect(watch.service).toBe(REMOTE_SERVICE)
     expect(watch.namespace).toBe(REMOTE_SERVICE)
     expect(watch.scope).toEqual({ context: 'agent', wire: 'agentId' })
-    // The legacy watch keeps its version-1 wire shape; the language rides on watchOwned (#44).
     expect(watch.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup']])
     expect(watch.parameters[0]!.codec.typeSymbol).toBe('@deepseek-ai/dsh-session/types#SessionId')
     expect(watch.cancellation).toEqual({ parameter: 'signal' })
     const action = descriptors.find(descriptor => descriptor.method === 'action')!
     expect(action.mode).toBeUndefined()
     expect(action.parameters.map(parameter => [parameter.wire, parameter.source])).toEqual([['agentId', 'lookup'], ['action', 'json']])
-    // #32/D13 additive close: a watch stream ending is a carrier loss, so the
-    // panel needs one definite call of its own.
     const close = descriptors.find(descriptor => descriptor.method === 'close')!
     expect(close.id).toBe('dsh-uml-viewer#umlViewer/close')
     expect(close.service).toBe(REMOTE_SERVICE)
@@ -67,7 +63,6 @@ describe('panel Remote descriptors', () => {
       expect(() => owner.parse({ pageId: 'x'.repeat(129), holderId: 'h' })).toThrow(/owner/)
       expect(() => owner.parse({ pageId: '../p', holderId: 'h' })).toThrow(/owner/)
       expect(() => owner.parse({ pageId: 'p' })).toThrow(/holderId/)
-      // Extra fields are dropped; nothing beyond the two ids crosses.
       expect(owner.parse({ pageId: 'p', holderId: 'h', sessionId: 'other' })).toEqual({ pageId: 'p', holderId: 'h' })
     }
     expect(close.result.create().parse({ closed: false })).toEqual({ closed: false })
@@ -80,7 +75,6 @@ describe('panel Remote descriptors', () => {
       expect(language.parse('zh')).toBe('zh')
       expect(language.parse('zh-CN')).toBe('zh-CN')
       expect(language.parse('en')).toBe('en')
-      // An older panel passes none; the resident keeps its language.
       expect(language.parse(undefined)).toBeNull()
       expect(language.parse(null)).toBeNull()
       expect(() => language.parse(7)).toThrow(/language/)
@@ -114,8 +108,6 @@ describe('panel Remote descriptors', () => {
     expect(() => parsePanelEvent({ kind: 'refused' })).toThrow(/reason/)
   })
 
-  // #51: the session's whole request-status list, pushed on subscribe and on
-  // every change. Each entry names its id, op, target, state, reason and exit code.
   it('parses the request-status list and rejects a malformed one', () => {
     const event = { kind: 'request-status', requests: [
       { id: 'g-1', op: 'refresh-crap', target: { id: ':core.order', kind: 'class' }, state: 'queued', reason: null, exitCode: null },
@@ -140,11 +132,8 @@ describe('panel Remote descriptors', () => {
     expect(() => parsePanelEvent(bad({ reason: 3 }))).toThrow(/reason/)
     expect(() => parsePanelEvent(bad({ exitCode: 1.5 }))).toThrow(/exitCode/)
     expect(() => parsePanelEvent(bad({ exitCode: '2' }))).toThrow(/exitCode/)
-    // A failure always says why; nothing else carries a reason.
     expect(() => parsePanelEvent(bad({ state: 'failed', reason: null }))).toThrow(/reason/)
-    // Two entries with one id would make the list ambiguous for #52/#53.
     expect(() => parsePanelEvent({ kind: 'request-status', requests: [entry, entry] })).toThrow(/duplicate/)
-    // The same contract guards the Remote's watch result codec.
     const watch = UML_VIEWER_REMOTE.descriptors.find(descriptor => descriptor.method === 'watchOwned')!
     expect(watch.result.create().parse(event)).toEqual(event)
     expect(() => watch.result.create().parse(bad({ state: 'nope' }))).toThrow(/state/)
@@ -169,25 +158,20 @@ describe('panel Remote descriptors', () => {
     expect(() => parsePanelAction({ action: 'display', path: '../escape.edn' })).toThrow(/relative/)
     expect(() => parsePanelAction({ action: 'viewport', viewport: { width: 'big', height: 1 } })).toThrow(/width/)
     expect(() => parsePanelAction({ action: 'search' })).toThrow(/query/)
-    // #45: a breadcrumb click names its level; anything else is not a target.
     expect(() => parsePanelAction({ action: 'back', target: 7 })).toThrow(/target/)
     expect(() => parsePanelAction({ action: 'back', target: {} })).toThrow(/target/)
     expect(() => parsePanelAction({ action: 'language' })).toThrow(/language/)
     expect(() => parsePanelAction({ action: 'language', language: 'en\n' })).toThrow(/language/)
-    // The More menu names a declutter mode (#46); a mode the resident does not
-    // know is a broken panel, not a request to send.
     expect(() => parsePanelAction({ action: 'declutter', mode: 'sideways' })).toThrow(/declutter mode/)
     expect(() => parsePanelAction({ action: 'declutter', mode: 3 })).toThrow(/mode/)
   })
 
-  // #53: dismissing a finished request names it by its request-status id.
   it('accepts a request dismissal by id and refuses one without a valid id', () => {
     expect(parsePanelAction({ action: 'dismiss-request', id: 'req-1_a' })).toEqual({ action: 'dismiss-request', id: 'req-1_a' })
     expect(() => parsePanelAction({ action: 'dismiss-request' })).toThrow(/id/)
     expect(() => parsePanelAction({ action: 'dismiss-request', id: '' })).toThrow(/id/)
     expect(() => parsePanelAction({ action: 'dismiss-request', id: 'a b' })).toThrow(/id/)
     expect(() => parsePanelAction({ action: 'dismiss-request', id: 'x'.repeat(129) })).toThrow(/id/)
-    // The descriptor's codec is the same validator, so the carrier refuses it too.
     const action = UML_VIEWER_REMOTE.descriptors.find(descriptor => descriptor.method === 'action')!
     const codec = action.parameters.find(parameter => parameter.name === 'action')!.codec.create()
     expect(codec.parse({ action: 'dismiss-request', id: 'r1' })).toEqual({ action: 'dismiss-request', id: 'r1' })
@@ -217,9 +201,6 @@ describe('uml_display contract', () => {
     expect(() => validateDisplayResult({ ...record, operation: 'ir' })).toThrow(/operation/)
   })
 
-  // #54: the panel request a display answers names one element; the result
-  // carries it so 「在面板中查看」 can locate the element. A display that answers
-  // no request says so with null.
   it('carries the element target a display answers, validated like a panel request', () => {
     const record = { version: 1, operation: 'display', projectRoot: 'D:/p', path: 'diagram.edn', exitCode: null,
       validResult: true, crapScope: null, configured: false, tool: 'uml-viewer', status: 'ok', reason: null,

@@ -1,16 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-/**
- * The quality lane shared by the element-request specs (#28, #48): a Node
- * quality fixture configured in each scratch project, and the scripted LLM
- * that answers a visible panel request with quality → IR → display.
- *
- * The fixture quality operation is Node, explicitly configured in the scratch
- * project; it never builds or runs Cargo. IR and display use the real binary.
- * The scripted LLM follows the returned validResult; it is not a real model.
- */
-
 export function qualityReply(request) {
   if (!request.tools?.length) return null
   const messages = request.messages ?? []
@@ -46,7 +36,6 @@ import fs from 'node:fs'
 const operation = process.argv[2]
 const args = process.argv.slice(3)
 fs.appendFileSync('quality-calls.jsonl', JSON.stringify({operation,args})+'\\n')
-// The CRAP failure case is chosen by the test; all other calls succeed.
 const exit = operation === 'crap' && fs.existsSync('refuse-crap') ? 1 : 0
 process.stderr.write(exit ? 'controlled quality refusal\\n' : 'fixture quality snapshot accepted\\n')
 process.exitCode = exit
@@ -61,7 +50,6 @@ process.exitCode = exit
   }
 }
 
-/** The quality fixture calls recorded in `root`, in order. */
 export async function calls(root) {
   try { return (await fs.readFile(path.join(root, 'quality-calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line)) }
   catch (error) { if (error.code === 'ENOENT') return []; throw error }

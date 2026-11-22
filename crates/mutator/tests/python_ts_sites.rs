@@ -1,10 +1,3 @@
-//! Python and TypeScript mutation sites and forms against the pinned original.
-//!
-//! `fixtures/mutate/sites/sites.json` is mutator f772a83's own `sites_in_file`,
-//! `form_spans` and `form_digests` output (scripts/mutate_goldens_python_ts.py)
-//! for a corpus built from its `test_sites.py` cases plus edge cases, and for
-//! the two mutation fixture projects. Every field is compared: byte offsets,
-//! original and mutant text, category, owner, form id and mutation id.
 use quality_core::serde_json::{self, Value};
 use std::path::{Path, PathBuf};
 
@@ -71,7 +64,6 @@ fn sorted_forms(forms: &Value) -> Value {
 #[test]
 fn python_and_typescript_sites_and_forms_match_the_pinned_original() {
     let inventory = inventory();
-    // Exact: the corpus is 30 files and 176 sites; a lost file must fail.
     assert_eq!(inventory.len(), 30);
     let mut sites = 0;
     let mut languages = std::collections::BTreeSet::new();
@@ -91,8 +83,6 @@ fn python_and_typescript_sites_and_forms_match_the_pinned_original() {
     assert_eq!(languages.len(), 3, "py, ts and tsx are all represented");
 }
 
-/// Ported from the original `test_sites.py` assertions that state an exact
-/// expectation independent of the implementation's tables.
 #[test]
 fn original_site_cases_hold_for_python_and_typescript() {
     let pairs = |relative: &str| -> Vec<(String, String, String)> {
@@ -115,13 +105,11 @@ fn original_site_cases_hold_for_python_and_typescript() {
             .iter()
             .any(|(o, m, _)| o == original && m == mutant)
     };
-    // test_python_typescript_and_rust_use_the_java_decisions
     assert!(has("src/demo/app.py", "and", "or"));
     assert!(has("src/demo/app.py", "not", ""));
     assert!(!has("src/demo/app.py", "True", "False"));
     assert!(has("src/ts/app.ts", "===", "!=="));
     assert!(has("src/ts/app.ts", "&&", "||"));
-    // test_bitwise_shift_and_remainder_sites
     let bitwise: Vec<_> = [
         ("^", "|", "bitwise"),
         ("&", "|", "bitwise"),
@@ -135,7 +123,6 @@ fn original_site_cases_hold_for_python_and_typescript() {
     .collect();
     assert_eq!(pairs("src/demo/bitwise.py"), bitwise);
     assert_eq!(pairs("src/ts/bitwise.ts"), bitwise);
-    // test_typescript_unsigned_shift_has_a_single_site, for .ts and .tsx
     for relative in ["src/ts/shift.ts", "src/ts/shift.tsx"] {
         let shift = vec![(">>>".into(), "<<".into(), "bitwise".into())];
         assert_eq!(pairs(relative), shift, "{relative}");
@@ -148,7 +135,6 @@ fn original_site_cases_hold_for_python_and_typescript() {
             "export function mix(a: number, b: number) { return a << b; }\n"
         );
     }
-    // Compound assignments, strings, comments and type unions are not sites.
     for relative in [
         "src/demo/assign.py",
         "src/ts/assign.ts",
@@ -160,12 +146,10 @@ fn original_site_cases_hold_for_python_and_typescript() {
     ] {
         assert_eq!(pairs(relative), Vec::new(), "{relative}");
     }
-    // test_python_union_annotation_does_not_hide_runtime_bitwise_site
     assert_eq!(
         pairs("src/demo/union_runtime.py"),
         vec![("|".into(), "&".into(), "bitwise".into())]
     );
-    // test_new_operator_offsets_are_utf8_bytes
     let root = base("sites");
     let source = std::fs::read_to_string(root.join("src/demo/utf8.py")).unwrap();
     let (sites, _) = mutator::sites::discover(
@@ -180,7 +164,6 @@ fn original_site_cases_hold_for_python_and_typescript() {
         mutator::sites::apply_site(&source, &sites[0]),
         "def mask(a, b):\n    label = \"雪\"\n    return a | b\n"
     );
-    // test_python_private_and_class_namespace
     let (board, _) = discovered("sites", "src/demo/board.py");
     let board = board.as_array().unwrap();
     assert!(
@@ -198,7 +181,6 @@ fn original_site_cases_hold_for_python_and_typescript() {
             .iter()
             .any(|site| site["name"] == "place" && site["form_id"] == "defn/place")
     );
-    // test_literal_returns_use_existing_sites_without_body_replacement
     let literal = |relative: &str| -> Vec<(String, String)> {
         pairs(relative)
             .into_iter()

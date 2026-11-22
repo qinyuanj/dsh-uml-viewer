@@ -1,7 +1,3 @@
-//! One integration test binary per crate: every binary here links the
-//! whole dependency stack, so separate files relink it once each. A crate
-//! that does this sets `autotests = false` and declares its files below.
-// Test code is the outside harness: it launches the binary under test itself.
 #![allow(clippy::disallowed_methods)]
 
 mod crap;
@@ -32,9 +28,6 @@ use std::path::Path;
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Run the binary the way every test here does: in a private scratch
-/// directory, so a role that writes project state into its working
-/// directory stays out of the tree under test, and without a display.
 pub fn binary<I, S>(args: I) -> Output
 where
     I: IntoIterator<Item = S>,
@@ -43,8 +36,6 @@ where
     binary_env(args, &[])
 }
 
-/// The same run with extra environment variables, such as the Lua shard pin
-/// that makes the coverage shard count observable in a test.
 pub fn binary_env<I, S>(args: I, environment: &[(&str, &str)]) -> Output
 where
     I: IntoIterator<Item = S>,
@@ -69,8 +60,6 @@ where
     output
 }
 
-/// With `autotests = false` Cargo no longer finds test files on its own;
-/// a file not declared as a module of its crate's `main.rs` would never run.
 #[test]
 fn every_test_file_is_a_module() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");

@@ -1,10 +1,3 @@
-/**
- * Duplicate clusters (#91): the additive relationship view of dry snapshots.
- * The resident owns every number and the bounded cluster list; this module
- * only lays that data out as DOM beside the legend, with an entry in 更多.
- * A missing snapshot is an explicit unmeasured state, never an empty list of
- * “no duplicates”.
- */
 import type { DrySummary, SceneFrame } from '@dsh-uml-viewer/contracts'
 import { ENGLISH_TEXT, type PanelText } from './locale.js'
 import type { MoreMenuEntry } from './more-menu.js'
@@ -29,9 +22,7 @@ export const DRY_CLUSTER_STYLE = `
 
 export interface DryClusterOptions {
   text?: PanelText
-  /** Navigate to an owning class's card, as a card relationship row does. */
   locate?(id: string): void
-  /** Called when the list opens, so another popover can step aside. */
   onOpen?(): void
   onDone?(): void
 }
@@ -93,7 +84,6 @@ export function mountDryClusters(host: HTMLElement, options: DryClusterOptions =
     state.textContent = stateLine(dry, text)
     body.appendChild(state)
     if (dry) {
-      // Candidates that join no class are counted, never dropped.
       const outside = doc.createElement('p')
       outside.className = 'dsh-uml-dry-state'
       outside.textContent = text.t('dry.unattributed', { count: String(dry.unattributed) })
@@ -125,8 +115,6 @@ export function mountDryClusters(host: HTMLElement, options: DryClusterOptions =
             options.onDone?.()
           })
         } else {
-          // A member that joins no class is named, never linked: there is
-          // nothing to locate.
           button.disabled = true
           button.title = text.t('dry.unattributed.member')
           button.setAttribute('aria-label', button.title)
@@ -193,7 +181,6 @@ export function mountDryClusters(host: HTMLElement, options: DryClusterOptions =
   }
 }
 
-/** The 更多 entry that opens the cluster list, beside the legend. */
 export function dryClusterEntries(list: DryClusters, text: PanelText): MoreMenuEntry[] {
   return [{ id: 'dry-clusters', label: () => text.t('dry.title'), run: () => list.show() }]
 }

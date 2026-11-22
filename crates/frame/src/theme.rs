@@ -1,14 +1,3 @@
-//! Single viewer theme (port of `love/uml/domain/theme.lua`): the semantic
-//! color [`Role`]s every drawn element names, the one dark [`palette`] that
-//! resolves them, screen-px line widths and the continuous quality ramps.
-//!
-//! Drawn output never carries RGB: a frame item names a role (a quality
-//! role also carries its 0-10 grade or coverage ratio) and the renderer
-//! resolves it. [`rgba`] is the reference dark palette; the panel
-//! resolves roles through host theme tokens, keeping the quality and
-//! violation hues and adapting only to light and dark mode (ADR 0011).
-//! Sizes are in points; the renderer applies the display scale.
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rgb(pub u8, pub u8, pub u8);
 
@@ -25,7 +14,6 @@ pub struct Rgba {
 /// draws is one of these roles.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Role {
-    // Surfaces and ink.
     /// The canvas behind the diagram; arrowhead interiors.
     Canvas,
     /// Panels: the card and source window background, card stripes.
@@ -57,7 +45,6 @@ pub enum Role {
     RowWash,
     /// The opaque rule at a marked row's left edge.
     RowBar,
-    // Quality (质量色): the hue follows the grade.
     /// A class box or quality dot fill at a 0-10 grade (`None`: unmeasured).
     QualityFill(Option<f64>),
     /// A class frame, title band, rule or quality dot ring at a grade.
@@ -70,7 +57,6 @@ pub enum Role {
     Coverage(Option<f64>),
     /// The 无数据 marker.
     NoData,
-    // Relations.
     /// 普通关系色: an edge neither violating nor highlighted.
     Relation,
     /// 关系悬停高亮: a hovered non-violating edge.
@@ -83,15 +69,12 @@ pub enum Role {
     ViolationHot,
     /// A collapsed dependency indicator without violations.
     Indicator,
-    // Dependency ports.
     PortFill,
     PortFillMarked,
     PortOutline,
     PortLink,
-    // Sidebar buttons; the inspector that used them was deleted (#47).
     ButtonHover,
     ButtonActive,
-    // Source window.
     SourceBg,
     SourceInk,
     SourceGutterBg,
@@ -330,8 +313,6 @@ pub const RELATED: Rgb = Rgb(62, 152, 236);
 pub const PORT_FILL: Rgb = Rgb(42, 56, 52);
 pub const PORT_FILL_ON: Rgb = Rgb(74, 96, 78);
 pub const POPUP_BG: Rgb = Rgb(18, 22, 24);
-// Sidebar buttons and the dark source window. Its target line is a GOLD
-// wash (ALPHA_ROW_WASH); tokens avoid the red/green quality hues.
 pub const BUTTON_HOVER: Rgb = Rgb(54, 76, 66);
 pub const BUTTON_ACTIVE: Rgb = Rgb(66, 90, 76);
 pub const SOURCE_BG: Rgb = PANEL;

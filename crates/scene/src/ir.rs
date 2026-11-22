@@ -14,8 +14,6 @@ type Result<T> = std::result::Result<T, String>;
 fn id(x: &Value) -> Result<Value> {
     match x {
         Value::Keyword(_) => Ok(x.clone()),
-        // Lua `x:lower():gsub('%s+','-')`: byte-wise ASCII lower, whitespace
-        // runs collapse to one dash.
         Value::String(s) => {
             let mut out = Vec::with_capacity(s.len());
             let mut in_ws = false;
@@ -176,7 +174,6 @@ fn member(x: &Value) -> Result<Value> {
 }
 
 fn class(c: &Value) -> Result<Value> {
-    // `name or G.name(id)`; a missing :name falls back to the id's last segment.
     let label = match g(c, "name") {
         Some(v) => v.clone(),
         None => match g(c, "id") {
@@ -225,7 +222,6 @@ fn class(c: &Value) -> Result<Value> {
     Ok(r)
 }
 
-/// Normalize one diagram: packages of classes, foreign stubs, validated edges.
 pub fn normalize(raw: &Value) -> Result<Value> {
     let (mut ps, mut fs, mut es) = (Vec::new(), Vec::new(), Vec::new());
     let mut ids: HashSet<String> = HashSet::new();

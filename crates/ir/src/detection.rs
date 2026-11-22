@@ -1,6 +1,3 @@
-//! Port of `love/uml/domain/language_detection.lua`: pure language selection
-//! from project-relative filename snapshots.
-
 use edn::Value;
 
 use crate::value::get_truthy as get;
@@ -19,9 +16,6 @@ fn supported(lang: Option<&Value>) -> Result<Option<Value>, String> {
     Ok(None)
 }
 
-/// `select(policy, filenames)`: explicit `:lang` wins; `:sources` entries
-/// must each carry an explicit language; otherwise exactly one marker file
-/// decides. Returns `None` for `:sources` policies (per-source languages).
 pub fn select(policy: &Value, filenames: &[String]) -> Result<Option<Value>, String> {
     let lang = supported(get(policy, "lang"))?;
     if get(policy, "sources").is_some() {

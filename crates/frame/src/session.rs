@@ -1,7 +1,3 @@
-//! View snapshots shared by frame consumers and resident session restore.
-//! The schema retains compatibility with historical LOVE snapshots; the
-//! resident returns these values to the host for session persistence.
-
 use edn::Value;
 use edn::record::{get, num};
 use scene::document::{self, ViewState};

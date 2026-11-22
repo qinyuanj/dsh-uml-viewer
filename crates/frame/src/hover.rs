@@ -1,21 +1,3 @@
-//! Optional bounded hover metadata for the viewer panel (#26).
-//!
-//! Selection, 依赖链高亮 and 关系淡化 are the resident's: a `select` answers a
-//! frame that already carries them. Hover is the client's (ADR 0013), but two
-//! things it needs are not visible in the frame's `edges`: which classes a
-//! bundled relation passes through (`scene::highlight::touches` reads the
-//! scene's `:via-ids`), and the dependency tooltip rows
-//! (`commands::dependency_rows`). This module derives both from the scene, so
-//! the panel renders them verbatim instead of inventing a dependency rule or a
-//! metric of its own. The field is optional and additive to frame version 1;
-//! `scene --frame` writes it only with `--hover-metadata`, so the checked-in
-//! goldens are unchanged.
-//!
-//! Every bound below fails closed: exceeding one yields
-//! `{"complete": false, "edges": [], "indicators": []}` rather than a silently
-//! truncated list, and the client then falls back to the relation's own
-//! endpoints and no tooltip.
-
 use std::collections::HashSet;
 
 use edn::Value;
@@ -53,7 +35,6 @@ pub fn metadata(scene: &Value) -> Json {
     }
 }
 
-/// No usable capability; the shape stays the same so a consumer can check it.
 fn incomplete() -> Json {
     json!({"complete": false, "edges": Vec::<Json>::new(), "indicators": Vec::<Json>::new()})
 }
@@ -62,7 +43,6 @@ fn compact_len(value: &Json) -> usize {
     serde_json::to_vec(value).map_or(usize::MAX, |bytes| bytes.len())
 }
 
-/// An element id as the frame writes it: its EDN text, which round-trips.
 fn edn_text(id: &Value) -> Option<String> {
     let text = edn::encode(id).ok()?;
     (text.len() <= MAX_TEXT_BYTES).then_some(text)
@@ -72,8 +52,6 @@ fn id_text(record: &Value, key: &str) -> Option<String> {
     get(record, key).and_then(edn_text)
 }
 
-/// `scene::highlight::touches`'s third clause: the classes a bundled relation
-/// passes through. The scene writes them as `:via-ids`.
 fn via_ids(edge: &Value) -> Option<Vec<String>> {
     match get(edge, "via-ids") {
         Some(Value::Vector(ids)) => ids.iter().map(edn_text).collect(),
@@ -81,12 +59,10 @@ fn via_ids(edge: &Value) -> Option<Vec<String>> {
     }
 }
 
-/// The tooltip rows of one relation or indicator: `commands::dependency_rows`.
 fn rows(deps: &[Value]) -> Option<Vec<PopupRow>> {
     if deps.len() > MAX_ROWS_PER_ITEM {
         return None;
     }
-    // Bound before dependency_rows allocates its formatted labels.
     for dep in deps {
         let from = get(dep, "from").and_then(local_name).unwrap_or_default();
         let to = get(dep, "to").and_then(local_name).unwrap_or_default();
@@ -109,7 +85,6 @@ fn rows_json(rows: &[PopupRow]) -> Json {
     Json::Array(rows.iter().map(row_json).collect())
 }
 
-/// Build the capability, or `None` when any bound is exceeded.
 fn build(scene: &Value) -> Option<(Vec<Json>, Vec<Json>)> {
     let edges = seq(get(scene, "edges"));
     let indicators = seq(get(scene, "dep-indicators"));
@@ -123,7 +98,6 @@ fn build(scene: &Value) -> Option<(Vec<Json>, Vec<Json>)> {
     for edge in edges {
         let from = id_text(edge, "from")?;
         let to = id_text(edge, "to")?;
-        // Every stroke of one relation carries the same metadata; keep one.
         if !seen.insert((from.clone(), to.clone())) {
             continue;
         }
@@ -198,7 +172,6 @@ fn build(scene: &Value) -> Option<(Vec<Json>, Vec<Json>)> {
     if total_rows > MAX_ROWS {
         return None;
     }
-    // Ids and row text share the per-string bound: every string the panel draws.
     let mut strings: Vec<&str> = Vec::new();
     for entry in edge_entries.iter().chain(indicator_entries.iter()) {
         collect_strings(entry, &mut strings);
@@ -209,7 +182,6 @@ fn build(scene: &Value) -> Option<(Vec<Json>, Vec<Json>)> {
     Some((edge_entries, indicator_entries))
 }
 
-/// Every string a JSON value carries, for the per-string byte bound.
 fn collect_strings<'a>(value: &'a Json, out: &mut Vec<&'a str>) {
     match value {
         Json::String(text) => out.push(text),
@@ -230,7 +202,6 @@ fn collect_strings<'a>(value: &'a Json, out: &mut Vec<&'a str>) {
 
 #[cfg(test)]
 mod tests {
-    //! Source-only tests (#26).
     use super::*;
 
     fn kw(name: &str) -> Value {
@@ -376,8 +347,6 @@ mod tests {
             metadata(&scene(vec![edge(&long_text, "b", vec![])], vec![]))["complete"],
             json!(false)
         );
-        // The whole-metadata byte bound: 16 relations of 128 maximal rows is
-        // exactly MAX_ROWS rows, each within MAX_TEXT_BYTES, and still 8 MiB.
         let text = "y".repeat(MAX_TEXT_BYTES / 2 - 2);
         let mut wide = Vec::new();
         for n in 0..(MAX_ROWS / MAX_ROWS_PER_ITEM) {

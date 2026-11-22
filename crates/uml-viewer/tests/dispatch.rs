@@ -1,7 +1,3 @@
-//! Seam A (#134): the binary's process boundary. Each role is a
-//! subcommand; a missing or unknown subcommand and unknown `--` options are
-//! refused with usage (exit 2).
-
 use std::process::Output;
 
 fn run(args: &[&str]) -> Output {
@@ -12,7 +8,6 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
-/// The subcommands `--help` lists, in table order.
 fn listed_subcommands() -> Vec<String> {
     let output = run(&["--help"]);
     assert_eq!(Some(0), output.status.code());
@@ -26,8 +21,6 @@ fn listed_subcommands() -> Vec<String> {
 
 #[test]
 fn the_subcommands_are_the_headless_roles_and_the_quality_tools() {
-    // #18 removed the Herdr companion roles with the companion itself;
-    // dsh-uml-viewer#30 removed the standalone `viewer` window.
     assert_eq!(
         vec![
             "ir", "scene", "resident", "crap", "mutate", "dry", "quality"
@@ -38,8 +31,6 @@ fn the_subcommands_are_the_headless_roles_and_the_quality_tools() {
 
 #[test]
 fn the_removed_viewer_window_is_an_unknown_subcommand() {
-    // dsh-uml-viewer#30: `viewer` and a bare diagram path no longer open a
-    // window; both are usage errors naming the argument.
     for argument in ["viewer", "diagram.edn"] {
         let output = run(&[argument]);
         assert_eq!(Some(2), output.status.code(), "{argument}");
@@ -60,8 +51,6 @@ fn no_arguments_is_a_usage_error() {
 
 #[test]
 fn ir_is_ported_and_reports_bad_arguments_on_stderr() {
-    // #136: the ir role runs headless; an unknown option is a usage failure
-    // (exit 1) naming the option, not EX_UNAVAILABLE.
     let output = run(&["ir", "--bogus"]);
     assert_eq!(Some(1), output.status.code());
     let err = stderr(&output);
@@ -71,8 +60,6 @@ fn ir_is_ported_and_reports_bad_arguments_on_stderr() {
 
 #[test]
 fn ir_refuses_an_ir_document_as_the_policy_with_a_usage_hint() {
-    // #166: a generated diagram passed as the sole positional argument is not
-    // a policy; ir fails fast instead of writing the default output.
     let dir = std::env::temp_dir().join(format!("uml-dispatch-166-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -107,14 +94,12 @@ fn an_unknown_leading_option_is_refused_with_usage() {
 
 #[test]
 fn scene_is_ported_and_reports_usage_errors() {
-    // #137: no `--ir` is a usage error (exit 2), not "unported" (69).
     let output = run(&["scene"]);
     assert_eq!(Some(2), output.status.code());
     assert!(stderr(&output).contains("usage"), "{}", stderr(&output));
     let output = run(&["scene", "--bogus"]);
     assert_eq!(Some(2), output.status.code());
     assert!(stderr(&output).contains("usage"), "{}", stderr(&output));
-    // A missing IR file is a runtime failure (exit 1), named on stderr.
     let output = run(&["scene", "--ir", "no-such-file.edn"]);
     assert_eq!(Some(1), output.status.code());
     assert!(

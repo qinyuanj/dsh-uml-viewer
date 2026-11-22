@@ -1,17 +1,3 @@
-/**
- * The plugin's browser half: one right-sidebar tab bound to the session the
- * sidebar belongs to. The tab's lifecycle is the host's (ADR 0015): the
- * full-width form is the right sidebar's fullscreen, closing the tab is the
- * explicit close (D13) through the tab-kind close handler, and the tab's
- * refresh command is `reload`. Collapsing, presentation changes and plugin
- * unload only unmount the body, which is a withdrawal.
- *
- * React comes from the host's platform module table (ADR 0013, D1): this
- * bundle requires it, never embeds it, and imports no
- * `dsh-client-ui-primitives`. The chrome is plain markup styled from host
- * theme tokens, which is why the panel reads tokens for its Canvas 2D colors
- * instead of relying on primitive components.
- */
 import { createElement, useCallback, useRef, useState } from 'react'
 import { OverlayController } from './overlays.js'
 import { Overlays, OVERLAY_STYLE } from './overlay-view.js'
@@ -38,17 +24,9 @@ export const GUIDE_ORDER = 30
 const REMOTE_NAMESPACE = 'umlViewer'
 
 const STYLE = `${TOPBAR_STYLE}${MORE_MENU_STYLE}${STATUSBAR_STYLE}${REQUEST_MENU_STYLE}${ACTION_BAR_STYLE}${LEGEND_STYLE}${DRY_CLUSTER_STYLE}
-/* The three sections (#46): the top bar, the canvas, the status bar. The
-   overlay root covers the canvas alone, so a drawer never hides either bar. */
 .dsh-uml-viewer-panel { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; width: 100%; --dsh-uml-dock-width: clamp(420px, 42%, 680px); }
 .dsh-uml-viewer-canvas-host { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
-/* The canvas row (#50): the drawing stage and, from 900px, the legend's
-   reserved strip below it. A resident legend takes room from this row, so it
-   never covers a class. */
 .dsh-uml-viewer-canvas-row { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; min-width: 0; }
-/* The stage is a flex row (#49 F28): a docked drawer reserves its width as the
-   rightmost stage item, so the canvas — and the resident's viewport — shrinks
-   beside the card instead of the card covering the drawing. */
 .dsh-uml-viewer-canvas-stage { position: relative; display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
 .dsh-uml-viewer-canvas-area { position: relative; display: flex; flex: 1 1 auto; flex-shrink: 1; min-height: 0; min-width: 0; }
 .dsh-uml-viewer-dock-space { flex: 0 0 0; min-width: 0; }
@@ -84,23 +62,19 @@ export interface SidebarTabsFace {
   register(tab: Record<string, unknown>): () => void
 }
 
-/** The page commands a tab body binds; the host's tab refresh calls `refresh`. */
 export interface TabCommands {
   refresh?: () => void
 }
 
-/** What a tab body reads from the host's `useTabInfo` hook. */
 interface TabInfo {
   tab?: { id?: string; actions?: { bindCommands?(commands: TabCommands): () => void } }
 }
 
-/** `ctx.sidebarRight`: the close hook, and the navigation 「在面板中查看」 uses (#54). */
 export interface SidebarRightFace {
   registerCloseHandler?(kind: string, handler: (sessionId: string, tab: { id: string }) => void): () => void
   openTab?(kind: string): void
 }
 
-/** The client services this bundle uses; unknown services stay `undefined`. */
 export interface ClientContext {
   readonly slots: SlotsFace
   readonly effect: (callback: () => (() => void) | void, label?: string) => void
@@ -113,7 +87,6 @@ export interface ClientPanelProps {
   [key: string]: unknown
 }
 
-/** The mountable Remote contribution and its resolved panel API. */
 const mountedRemotes = new WeakMap<ClientContext, Promise<PanelRemoteApi | null>>()
 
 async function mountRemote(ctx: ClientContext): Promise<PanelRemoteApi | null> {
@@ -127,7 +100,6 @@ async function mountRemote(ctx: ClientContext): Promise<PanelRemoteApi | null> {
     try {
       await remote.$mount(UML_VIEWER_REMOTE)
     } catch {
-      // A host without the Remote gateway simply has no panel; the tools still work.
       return null
     }
     const service = ctx.get(`remote.${REMOTE_NAMESPACE}`) as PanelRemoteApi | undefined
@@ -137,18 +109,11 @@ async function mountRemote(ctx: ClientContext): Promise<PanelRemoteApi | null> {
   return mountedRemote
 }
 
-/** Only a primitive survives a client bundle swap. A new document gets a new ID. */
 function pageId(doc: Document): string {
   const data = doc as Document & { __umlViewerPageId?: string }
   return data.__umlViewerPageId ??= crypto.randomUUID()
 }
 
-/**
- * Each UML tab's latest panel holder, by session and tab id, so the tab's
- * close handler closes exactly that holder. A live body closes through its
- * controller; a body that already unmounted (withdrawn, waiting out its grace)
- * is closed by its last owner, which stops the resident at once.
- */
 const tabHolders = new WeakMap<ClientContext, Map<string, () => Promise<unknown>>>()
 
 function holdersOf(ctx: ClientContext): Map<string, () => Promise<unknown>> {
@@ -159,13 +124,11 @@ function holdersOf(ctx: ClientContext): Map<string, () => Promise<unknown>> {
 
 const tabKey = (sessionId: string, tabId: string): string => `${sessionId}\u0000${tabId}`
 
-/** The host's tab close handler: user close and replacement alike (D13). */
 function closeTab(ctx: ClientContext, sessionId: string, tabId: string): void {
   const holders = holdersOf(ctx)
   const key = tabKey(sessionId, tabId)
   const close = holders.get(key)
   holders.delete(key)
-  // The handler is synchronous; the close itself is best effort.
   void close?.().catch(() => {})
 }
 
@@ -180,25 +143,13 @@ function summaryLine(): HTMLElement {
 export interface MountOptions {
   sessionId: string
   ctx: ClientContext
-  /** The conversation's 「在面板中查看」 target: this mount's overlays and its live frames. */
   views?: PanelViews
-  /** The host tab this body draws; its close handler closes this mount's holder. */
   tabId?: string
-  /** The host tab's `bindCommands`: the tab refresh command reloads the diagram. */
   bindCommands?: (commands: TabCommands) => () => void
-  /** Receives this mount's overlay controller (card, sources). */
   onOverlays?: (controller: OverlayController | null) => void
 }
 
-/**
- * Attach the controller to a host element and return the disposer. The host is
- * the panel's three sections (#46, ADR 0015) top to bottom: the top bar
- * (`topbar.ts`), the canvas, and the status bar (`statusbar.ts`). The panel is
- * bound to `sessionId` for its whole life.
- */
 export async function mountPanel(host: HTMLElement, options: MountOptions): Promise<() => void> {
-  // The React panel mounts the three sections into an inner host beside its
-  // overlays; the panel element itself names the session and surface.
   const panelElement = host.closest?.<HTMLElement>('.dsh-uml-viewer-panel') ?? host
   panelElement.dataset.sessionId = options.sessionId
   const text: PanelText = panelText(name => options.ctx.get(name))
@@ -210,7 +161,6 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   const canvasArea = document.createElement('div')
   canvasArea.className = 'dsh-uml-viewer-canvas-area'
   canvasArea.appendChild(canvas)
-  /** A top-bar control ran: the keyboard goes back to the canvas. */
   const focusCanvas = (): void => canvas.focus({ preventScroll: true })
   const labelStatic = (): void => {
     canvas.setAttribute('aria-label', text.t('canvas.label'))
@@ -236,8 +186,6 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   }
   const api = await mountRemote(options.ctx)
   if (!api) {
-    // A host without the Remote gateway has no panel; the third section says
-    // so instead of a canvas hint the frame would have carried.
     host.appendChild(canvasArea)
     statusBar = mountStatusBar(host, { text })
     statusBar.setMessage(() => text.t('gateway.missing'))
@@ -247,27 +195,17 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     }
   }
   let overlays: OverlayController | null = null
-  /** The overlay root's insets; assigned once the sections exist. */
   let placeOverlays: () => void = () => {}
-  /** Whether the legend's strip was part of those insets last time. */
   let legendVisible: boolean | null = null
-  /** The selection action bar (#48), over the bottom of the canvas area. */
   let actionBar: ActionBar | null = null
-  /** A refusal from the element menu, re-rendered on a language switch. */
   let reported: string | (() => string) | null = null
-  /** The frame the overlays last refreshed for; search/status updates reuse it. */
   let overlayFrame: SceneFrame | null = null
-  /** The holder this mount last opened; a withdrawn tab is closed by it. */
   let lastOwner: PanelOwner | null = null
   const renderStatus = (state: PanelStatus): void => {
     const frame = state.frame
-    // A new view frame refreshes the card; a search or status
-    // publish that keeps the same frame does not re-request them.
     if (state.kind === 'live' && frame && overlays && frame !== overlayFrame) {
       overlayFrame = frame
       void overlays.refresh()
-      // A locate from the conversation waited for this panel to be able to take
-      // actions; the first live frame is that moment (#54).
       options.views?.shown(options.sessionId)
     }
     summary.dataset.kind = frame ? 'frame' : state.kind
@@ -277,11 +215,7 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     summary.dataset.search = state.search.active ? 'active' : 'closed'
     summary.dataset.results = String(state.search.results.length)
     if (frame) {
-      // The view and the depth come from the state's discussion context and
-      // breadcrumbs (#46), not from chrome the frame no longer carries.
       const title = state.breadcrumbs[0]?.name ?? text.t('summary.untitled')
-      // The resident's `:proposal-id` says whether the canvas shows a proposal
-      // layer or the discussion's source tree (#46).
       const view = state.view
       summary.dataset.view = view
       summary.dataset.depth = state.breadcrumbs.length > 1 ? 'drilled' : 'root'
@@ -303,12 +237,8 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     statusBar?.setMessage(reported)
     statusBar?.setRequests(state.requests)
     topBar?.render(state)
-    // The legend's rows are the frame's, worded in the resident's language
-    // (#50); a docked legend shows them without being opened.
     legend?.render(state.frame)
     dryClusters?.render(state.frame)
-    // The first frame makes a resident legend visible: its strip leaves the
-    // drawable area, so the overlay root has to stop above it.
     const visible = legend !== null && !legend.element.hidden
     if (visible !== legendVisible) {
       legendVisible = visible
@@ -319,16 +249,11 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   const controller = new PanelController({
     canvas,
     api,
-    // The resident words its own text (#44); this is the language it reads.
     language: () => text.language,
     owner: () => (lastOwner = { pageId: pageId(host.ownerDocument), holderId: crypto.randomUUID() }),
     paint: (frame, target) => paintFrame(frame, target),
     onStatus: renderStatus,
   })
-  // The three sections, in reading order: the top bar, the canvas, the status
-  // bar. The canvas row holds the canvas and the legend's reserved strip (#50).
-  // The discussion-context switcher (#47) acts through the overlays, so a card
-  // reply in flight cannot repopulate the card after the view switches.
   const switcherActions: SwitcherActions = {
     choose: proposalId => { void overlays?.choose(proposalId) },
     namespaceTree: () => {
@@ -341,8 +266,6 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   canvasRow.className = 'dsh-uml-viewer-canvas-row'
   topBar = mountTopBar(host, {
     controller, text, onDone: focusCanvas, context: switcherActions,
-    // 「更多」 carries the legend's entry (#50) while it is a popover; a
-    // resident legend has nothing to open (F45).
     moreEntries: () => [
       ...(legend ? legendEntries(legend, text) : []),
       ...(dryClusters ? dryClusterEntries(dryClusters, text) : []),
@@ -350,8 +273,6 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   })
   const canvasStage = document.createElement('div')
   canvasStage.className = 'dsh-uml-viewer-canvas-stage'
-  // The docked card's reserved column (#49 F28): zero width until a drawer is
-  // open at >=900px, when CSS gives it the card's width and the canvas shrinks.
   const dockSpace = document.createElement('div')
   dockSpace.className = 'dsh-uml-viewer-dock-space'
   dockSpace.setAttribute('aria-hidden', 'true')
@@ -360,8 +281,6 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   dryClusters = mountDryClusters(canvasStage, {
     text,
     locate: id => { void overlays?.locate(id) },
-    // The list and the legend are both popovers over the canvas: only one of
-    // them is open at a time.
     onOpen: () => legend?.close(),
     onDone: focusCanvas,
   })
@@ -369,9 +288,6 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   host.appendChild(canvasRow)
   statusBar = mountStatusBar(host, {
     text,
-    // #53/F36: dismissing a finished request is the host's list; every panel
-    // of this session sees the new one when it is pushed back. A refusal is
-    // surfaced on the bar instead of being silently discarded.
     onDismiss: id => {
       void controller.send({ action: 'dismiss-request', id }).then(ack => {
         if (ack === null || ack.accepted) {
@@ -408,8 +324,6 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   })
   options.views?.attach(options.sessionId, overlays)
   options.onOverlays?.(overlays)
-  // Esc closes the class card / source drawer before it goes back (#49), and
-  // the legend's popover before that (#50).
   controller.setDrawer({
     open: () => overlays?.drawerOpen === true,
     close: () => { void overlays?.closeDrawer() },
@@ -418,56 +332,36 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     isOpen: () => legend?.isOpen() === true || dryClusters?.isOpen() === true,
     close: () => { legend?.close(); dryClusters?.close() },
   })
-  // The overlays cover the drawable canvas alone: below the top bar, above the
-  // status bar, and above a resident legend's strip (#50), so neither a drawer
-  // nor the card covers a bar or the legend.
   placeOverlays = (): void => {
     panelElement.style.setProperty?.('--dsh-uml-toolbar-height', `${topBar?.element.offsetHeight ?? 0}px`)
-    // A hidden legend (narrow and closed, or before the first frame) is 0 high.
     const legendHeight = legend?.element.offsetHeight ?? 0
     panelElement.style.setProperty?.('--dsh-uml-statusbar-height', `${(statusBar?.element.offsetHeight ?? 0) + legendHeight}px`)
   }
-  // The container's width picks the drawer or the docked card (#49), and
-  // whether the legend is a popover or resident (#50).
   const stopLayout = observeLayout(panelElement, layout => {
     legend?.setLayout(layout)
     placeOverlays()
   })
-  /** **P** (#47): the same as choosing the source diagram in the switcher —
-   * back to the namespace tree's root, leaving a proposal under discussion,
-   * through the overlays so a card reply in flight cannot repopulate the card. */
   const namespaceTree = (): void => returnToSourceTree(controller.current.context, switcherActions)
-  // Closing the host tab is the explicit close; while this body is mounted the
-  // controller closes its live holder (the stream ends without a withdrawal).
   const tabId = options.tabId
   const holders = holdersOf(options.ctx)
   const closeLive = (): Promise<void> => controller.close()
   if (tabId !== undefined) holders.set(tabKey(options.sessionId, tabId), closeLive)
-  // The host tab's refresh command is the same reload as **R**.
   const unbindCommands = options.bindCommands?.({ refresh: () => { void controller.send({ action: 'reload' }) } })
   placeOverlays()
-  const unsubscribe = controller.subscribe(() => { /* state is published to React through overlays */ })
-  // A DSH language switch relabels this mount in place; the tab stays open.
+  const unsubscribe = controller.subscribe(() => {})
   const unsubscribeText = text.subscribe(() => {
     void controller.setLanguage(text.language)
-    // Keep an element-menu refusal; the status publish would otherwise clear it.
     const kept = reported
     renderStatus(controller.current)
     reported = kept
     statusBar?.setMessage(kept)
   })
-  // Keyboard input belongs to this panel; never capture the chat composer.
-  // **P** and **Esc** from the overlays (the drawer, outside the canvas host)
-  // work as on the canvas; keys inside the host are handled once by
-  // `onKeyDown` below.
   const onPanelKey = (event: KeyboardEvent): void => {
     if (event.isComposing || event.keyCode === 229 || host.contains?.(event.target as Node)) return
     if (event.ctrlKey || event.metaKey || event.altKey) return
     const target = event.target as HTMLElement
     if (target.matches?.('input,textarea,select,[contenteditable=""],[contenteditable=true]')) return
     if (event.key === 'Escape') {
-      // The same chain as on the canvas; the keyboard returns to the canvas,
-      // since the drawer it was in may be gone.
       event.preventDefault()
       controller.escape()
       focusCanvas()
@@ -485,9 +379,6 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   }
   const resize = host.ownerDocument.defaultView?.ResizeObserver
   const observer = resize ? new resize(() => onResize()) : null
-  // Observe the canvas area itself: opening the docked card changes its width
-  // without changing the panel's, and the resident must be told the new
-  // viewport so it refits the diagram beside the card (F28).
   observer?.observe(host)
   observer?.observe(canvasArea)
   const onPointerDown = (event: PointerEvent): void => {
@@ -501,10 +392,6 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   }
   const onPointerUp = (event: PointerEvent): void => controller.pointerUp(event.offsetX, event.offsetY)
   const onPointerLeave = (): void => controller.hoverEnd()
-  // One double-click dispatch: one `open-card`, where Rust decides class detail
-  // vs. layer drill-in. The canvas has no back hotspot (#46): going back is the
-  // top bar's crumbs or Escape. CSS stretches the bitmap per axis, so each axis
-  // is mapped separately.
   const onDoubleClick = (event: MouseEvent): void => {
     const frame = controller.current.frame
     if (!frame || controller.current.search.active) return
@@ -522,7 +409,6 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   }
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.isComposing || event.keyCode === 229 || topBar?.owns(event.target) === true) return
-    // `controller.key` would also map P; route it once, through the overlays.
     if (!controller.current.search.active && event.key.toLowerCase() === 'p'
       && !event.ctrlKey && !event.metaKey) {
       event.preventDefault()
@@ -534,7 +420,6 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     if (!handled) return
     event.preventDefault()
     event.stopPropagation()
-    // **Ctrl+F** opens the search box; the caret goes into it.
     if (controller.current.search.active) topBar?.focusSearch()
   }
   canvas.addEventListener('pointerdown', onPointerDown)
@@ -550,9 +435,6 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
     unbindCommands?.()
     if (tabId !== undefined) {
       const key = tabKey(options.sessionId, tabId)
-      // Unmounting is a withdrawal. A later close of this tab still means
-      // "stop now", so it is left with this mount's last owner, unless a newer
-      // body of the same tab registered meanwhile.
       if (holders.get(key) === closeLive) {
         const owner = lastOwner
         if (owner && api.closeOwned) holders.set(key, () => api.closeOwned!(options.sessionId, owner))
@@ -586,16 +468,10 @@ export async function mountPanel(host: HTMLElement, options: MountOptions): Prom
   }
 }
 
-/** The sidebar tab's body component. */
 export function makePanelComponent(ctx: ClientContext, views?: PanelViews): (props: ClientPanelProps) => unknown {
   return function UmlViewerPanel(props: ClientPanelProps): unknown {
-    // One live mount per attach. A detach or rebind while `mountPanel` is
-    // still awaiting invalidates that mount: its late disposer runs at once
-    // and its overlay controller is never published.
     const mountRef = useRef<{ dispose: (() => void) | null } | null>(null)
     const [overlays, setOverlays] = useState<OverlayController | null>(null)
-    // The host's tab information hook (`sidebar.right.pane.tab`): the tab id
-    // the close handler is keyed by, and the tab's command binding.
     const info = typeof props.useTabInfo === 'function' ? (props.useTabInfo as () => TabInfo)() : undefined
     const tabRef = useRef<TabInfo['tab']>(undefined)
     tabRef.current = info?.tab
@@ -631,7 +507,6 @@ export function makePanelComponent(ctx: ClientContext, views?: PanelViews): (pro
   }
 }
 
-/** Inject the panel stylesheet once per page. */
 function installStyles(): () => void {
   const id = 'dsh-uml-viewer-style'
   if (document.querySelector(`style[data-plugin-css="${id}"]`) === null) {
@@ -645,12 +520,6 @@ function installStyles(): () => void {
   }
 }
 
-/**
- * 「在面板中查看」 (#54): open this session's UML tab through the host's
- * navigation, which reveals the column and records the navigation like the
- * sidebar's own controls. The tab kind is this plugin's page; a host without
- * the service simply has no column to open.
- */
 function openPanelTab(ctx: ClientContext): void {
   const sidebar = ctx.get('sidebarRight') as SidebarRightFace | undefined
   sidebar?.openTab?.(TAB_KIND)
@@ -660,11 +529,8 @@ function registerPanels(ctx: ClientContext): void {
   const views = new PanelViews(() => openPanelTab(ctx))
   const Panel = makePanelComponent(ctx, views)
   ctx.effect(() => installStyles(), 'dsh-uml-viewer: panel style')
-  // The five `uml_*` tool result views (#54); they locate into this panel.
   ctx.effect(() => registerToolViews(ctx, views), 'dsh-uml-viewer: tool views')
 
-  // The tab is bound to the session the right sidebar belongs to; the pane
-  // receives that session id from the shell.
   ctx.inject(['sidebarRightTabs'], (injected) => {
     const tabs = (injected as unknown as { sidebarRightTabs?: SidebarTabsFace }).sidebarRightTabs
     if (!tabs) return
@@ -692,9 +558,6 @@ function registerPanels(ctx: ClientContext): void {
     return () => { for (const dispose of disposers) dispose() }
   })
 
-  // Closing the UML tab, or a replacement that removes it, is the explicit
-  // close (D13). Collapse, fullscreen or presentation changes and plugin
-  // unload never call this; they only unmount the body (a withdrawal).
   ctx.inject(['sidebarRight'], (injected) => {
     const sidebar = (injected as unknown as { sidebarRight?: SidebarRightFace }).sidebarRight
     if (typeof sidebar?.registerCloseHandler !== 'function') return
@@ -707,8 +570,6 @@ export const name = 'dsh-uml-viewer'
 export const inject = ['slots']
 
 export function apply(ctx: ClientContext): void {
-  // The Remote mount is lazy: it happens the first time a panel is shown, so a
-  // page that never opens the panel makes no Remote calls.
   registerPanels(ctx)
 }
 

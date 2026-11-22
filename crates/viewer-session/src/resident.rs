@@ -1,15 +1,3 @@
-//! `uml-viewer resident` (#17): the viewer session as a long-running child
-//! of the plugin host. One JSON action per stdin line; one JSON event per
-//! stdout line: scene frames (`docs/scene-frame.md`) and the events the
-//! host acts on. The protocol is `docs/resident-protocol.md`.
-//!
-//! ```text
-//! uml-viewer resident [--project <dir>]
-//! ```
-//!
-//! The project is the working directory unless `--project` names one.
-//! End of input ends the session with exit 0.
-
 use std::ffi::OsString;
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
@@ -51,16 +39,12 @@ pub const ACTIONS: &[&str] = &[
     "declutter",
     "save",
     "quit",
-    // #27 overlays (additive; see docs/resident-protocol.md). #47 deleted
-    // `inspector`; the `state` event lists the proposals instead.
     "card",
     "open-card",
     "close-card",
     "scroll-card",
     "open-source",
-    // #28: the panel request targets the host queues (additive).
     "quality-target",
-    // #44: the language the resident lays text out in (additive).
     "language",
 ];
 
@@ -81,8 +65,6 @@ pub fn run(args: &[OsString]) -> ExitCode {
         let stdin = std::io::stdin();
         let mut stdin = stdin.lock();
         loop {
-            // Read one line under the inbound cap: `take` stops the read at the
-            // limit, so an endless line never becomes an endless buffer.
             let mut bytes = Vec::new();
             let read = (&mut stdin)
                 .take(ACTION_LINE_MAX_BYTES as u64 + 1)
@@ -90,15 +72,12 @@ pub fn run(args: &[OsString]) -> ExitCode {
             match read {
                 Ok(0) => break,
                 Ok(n) if n == ACTION_LINE_MAX_BYTES + 1 && bytes.last() != Some(&b'\n') => {
-                    // Nothing terminated the line inside the cap: it is over it.
                     let _ = tx.send(Err(format!(
                         "action line over {ACTION_LINE_MAX_BYTES} bytes; the session was stopped"
                     )));
                     break;
                 }
                 Ok(_) => {
-                    // An action is UTF-8 JSON; a line that is not ends the
-                    // session as `lines()` did.
                     let Ok(text) = String::from_utf8(bytes) else {
                         break;
                     };
@@ -129,8 +108,6 @@ pub fn run(args: &[OsString]) -> ExitCode {
         let lines = match rx.recv_timeout(POLL_INTERVAL) {
             Ok(Ok(line)) => resident.line(&line),
             Ok(Err(reason)) => {
-                // Say why on stdout before exiting: the panel shows this event
-                // instead of only "the resident exited".
                 let _ = emit(vec![error(&Json::Null, reason)]);
                 return ExitCode::FAILURE;
             }
@@ -138,7 +115,6 @@ pub fn run(args: &[OsString]) -> ExitCode {
             Err(RecvTimeoutError::Disconnected) => return ExitCode::SUCCESS,
         };
         if !emit(lines) {
-            // The host closed our stdout: nobody is listening any more.
             return ExitCode::SUCCESS;
         }
         if resident.quit {
@@ -193,8 +169,6 @@ fn error(seq: &Json, message: impl Into<String>) -> Json {
     event("error", seq, json!({"message": message.into()}))
 }
 
-/// The breadcrumb path the panel draws: each level's component id (null for
-/// the source diagram's root) and name (#45).
 fn crumbs_json(state: &scene::ViewState) -> Json {
     Json::Array(
         scene::events::breadcrumbs(state)
@@ -209,8 +183,6 @@ fn crumbs_json(state: &scene::ViewState) -> Json {
     )
 }
 
-/// The shown diagram's proposals for the discussion-context switcher (#47):
-/// EDN id and display name, in the document's order.
 fn proposals_json(state: &scene::ViewState) -> Json {
     Json::Array(
         frame::discussion::proposals(state)
@@ -220,9 +192,6 @@ fn proposals_json(state: &scene::ViewState) -> Json {
     )
 }
 
-/// A saved view whose diagram was not there when the session opened
-/// waiting: the first display of that diagram restores it, and until then
-/// `save` answers it unchanged, so closing the panel early loses nothing.
 struct Pending {
     diagram: PathBuf,
     snapshot: Value,
@@ -264,7 +233,6 @@ impl Resident {
         }
     }
 
-    /// The frame of the current view, after its pending fit.
     fn frame(&mut self, seq: &Json) -> Json {
         let dims = self.dims();
         let Some(session) = self.session.as_mut() else {
@@ -272,9 +240,6 @@ impl Resident {
         };
         session.canvas(Canvas::Fit, dims);
         let built = frame::frame::build(session.state(), self.width, self.height, self.language);
-        // The panel needs the optional bounded hover metadata (#26) to reproduce
-        // the window's dependency tooltip and bundled-edge (`via-ids`) warming;
-        // both are derived from the scene here, never inferred by the client.
         let frame = built.to_json_with_hover(&session.state().scene);
         event("frame", seq, json!({"frame": frame}))
     }
@@ -322,9 +287,6 @@ impl Resident {
         let dims = self.dims();
         match name {
             "open" => {
-                // Validate both candidates before committing either: an
-                // invalid state/diagram must retain the current viewport,
-                // and an invalid viewport must retain the current session.
                 if action.get("language").is_some_and(|l| !l.is_null()) {
                     self.language = Lang::from_tag(text(action, "language")?);
                 }
@@ -351,7 +313,6 @@ impl Resident {
                 if zoom <= 0.0 {
                     return Err("camera zoom must be positive".into());
                 }
-                // The frame's camera is the top-left world point.
                 let (cx, cy) = (
                     x + dims.window_w / (2.0 * zoom),
                     y + dims.window_h / (2.0 * zoom),
@@ -405,7 +366,6 @@ impl Resident {
                     None => {
                         session.act(Action::Back, &dims);
                     }
-                    // The source diagram's root has no component id.
                     Some(Json::Null) => session.back_to(None)?,
                     Some(Json::String(_)) => {
                         session.back_to(Some(edn_field(action, "target")?))?;
@@ -481,8 +441,6 @@ impl Resident {
                 ]);
             }
             "declutter" => {
-                // The panel's Remove arrows toggle names the mode it wants
-                // (#46); without one the resident cycles as it always did.
                 let mode = match action.get("mode") {
                     None => None,
                     Some(Json::String(name)) => Some(Value::keyword(name)),
@@ -490,9 +448,6 @@ impl Resident {
                         return Err(format!("mode must be a declutter mode, not {other}"));
                     }
                 };
-                // #84: a mode this version does not know is an error, not a
-                // silently dropped argument: the caller has to learn that the
-                // mode it named took no effect.
                 if let Some(mode) = &mode {
                     let known = scene::events::declutter_modes();
                     if !known.iter().any(|name| name == mode) {
@@ -510,9 +465,6 @@ impl Resident {
                 self.session()?.act(Action::Declutter(mode), &dims);
             }
             "save" => {
-                // The pending snapshot stands in for the view until its
-                // diagram is displayed; the breadcrumbs and status are the
-                // live session's either way.
                 let pending = self.pending.as_ref().map(|pending| pending.state.clone());
                 let session = self.session()?;
                 let saved = pending.unwrap_or_else(|| session.saved_state());
@@ -531,7 +483,6 @@ impl Resident {
                 self.quit = true;
                 return Ok(vec![event("ack", seq, json!({}))]);
             }
-            // #27: the panel's class card and source window.
             "card" => {
                 let width = optional_number(action, "width")?;
                 let view_height = optional_number(action, "viewHeight")?;
@@ -541,8 +492,6 @@ impl Resident {
             }
             "open-card" => {
                 let session = self.session()?;
-                // A double-click: a namespace or proposal layer is entered,
-                // a class opens its card (scene::events::on_double_press).
                 let hit = match action.get("at") {
                     Some(at) if !at.is_null() => hit_at(session, at)?,
                     _ => {
@@ -586,9 +535,6 @@ impl Resident {
                 let source = overlays::source_json(self.session()?, &id, member, language)?;
                 return Ok(vec![event("source", seq, json!({"source": source}))]);
             }
-            // #28: what this resident's loaded diagram shows for one panel
-            // target. Read from the session's own model, never from a later
-            // read of the IR file, and answered to the caller alone.
             "quality-target" => {
                 let id = edn_field(action, "id")?;
                 let target = targets::quality_target_json(self.session()?, &id)?;
@@ -598,9 +544,6 @@ impl Resident {
                     json!({"target": target}),
                 )]);
             }
-            // #44: the panel passes the DSH language; the latest one wins.
-            // The frame answers it, so every panel redraws its 无数据 markers
-            // and asks again for an open class card.
             "language" => {
                 self.language = Lang::from_tag(text(action, "language")?);
                 if self.session.is_none() {
@@ -626,12 +569,6 @@ impl Resident {
         Ok((side("width")?, side("height")?))
     }
 
-    /// Open the session: the named diagram, else the saved state's, else
-    /// the project default; a saved state restores the view, `waiting`
-    /// shows the empty canvas until `display`. A saved state that names a
-    /// displayed diagram wins over `waiting`: it is the view the user had
-    /// (the window's restart), not a fresh launch. When that diagram is not
-    /// there yet the canvas waits and its first display restores the view.
     fn open(&mut self, action: &Json) -> Result<(), String> {
         let saved = action.get("state").filter(|s| !s.is_null());
         let snapshot = saved.map(state::snapshot).transpose()?;
@@ -662,8 +599,6 @@ impl Resident {
             _ => Start::Fresh,
         };
         let mut session = Session::open(self.project.clone(), diagram.clone(), start)?;
-        // Verify against the bytes this Session actually parsed, closing the
-        // host-read → resident-open race as well as refusing legacy metadata.
         if displayed
             && pending.is_none()
             && !saved.is_some_and(|s| same_loaded_diagram(s, &session))
@@ -694,7 +629,6 @@ fn resolve(project: &Path, path: &str) -> PathBuf {
     }
 }
 
-/// An optional finite numeric field (`None` when absent or null).
 fn optional_number(action: &Json, key: &str) -> Result<Option<f64>, String> {
     match action.get(key) {
         None | Some(Json::Null) => Ok(None),
@@ -721,12 +655,10 @@ fn edn_text(value: &Value) -> String {
     edn::encode(value).unwrap_or_default()
 }
 
-/// An id or hit field: EDN text, as in the scene frame.
 fn edn_field(action: &Json, key: &str) -> Result<Value, String> {
     edn::parse(text(action, key)?).map_err(|e| format!("{key}: {e}"))
 }
 
-/// What the scene has at a world point `[x, y]`.
 fn hit_at(session: &Session, at: &Json) -> Result<Option<Value>, String> {
     let point = at
         .as_array()
@@ -769,8 +701,6 @@ mod fingerprint_tests {
             json!({"action": "display", "path": "diagram.edn"}),
         );
         std::fs::write(&diagram, b).unwrap();
-        // Direct protocol calls deliberately do not tick: no timing assumption
-        // about the 250 ms idle poll can conceal this load/save race.
         ask(
             &mut resident,
             json!({"action": "camera", "x": 12, "y": 34, "zoom": 0.6}),

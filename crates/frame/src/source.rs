@@ -1,11 +1,3 @@
-//! Jump to source (#141): the LanguageSource contract of `love/uml/source.lua`
-//! with the four scanner languages' declaration patterns, and the source
-//! window presentation of `application/source_view.lua` (tab display map,
-//! token colors, byte-exact selections). Window-free; filesystem access is
-//! supplied by the caller through [`Files`].
-//!
-//! Positions are 0-based byte offsets (the Lua ones were 1-based).
-
 use crate::theme::{self, RowMarker};
 
 /// What a class card asks to open: a module (no name) or one member.
@@ -33,10 +25,6 @@ pub struct Opened {
     pub lang: Option<String>,
     pub title: String,
 }
-
-// ---------------------------------------------------------------------------
-// The Lua pattern subset the declaration patterns use: literals, `%s %w %a`,
-// `%x` escapes, sets with ranges/negation, and the `+ * ?` quantifiers.
 
 #[derive(Debug, Clone)]
 enum Class {
@@ -125,7 +113,7 @@ fn compile(pattern: &[u8]) -> Vec<(Class, Quant)> {
                         i += 1;
                     }
                 }
-                i += 1; // the closing ]
+                i += 1;
                 Class::Set { negate, items }
             }
             c => {
@@ -147,7 +135,6 @@ fn compile(pattern: &[u8]) -> Vec<(Class, Quant)> {
     out
 }
 
-/// End of a match of `items` anchored at `pos` (greedy, backtracking).
 fn match_here(items: &[(Class, Quant)], text: &[u8], pos: usize) -> Option<usize> {
     let Some(((class, quant), rest)) = items.split_first() else {
         return Some(pos);
@@ -182,8 +169,6 @@ fn match_here(items: &[(Class, Quant)], text: &[u8], pos: usize) -> Option<usize
     }
 }
 
-/// `string.find(text, pattern, from)`: first match at or after `from`, as
-/// (start, exclusive end).
 fn find(text: &[u8], items: &[(Class, Quant)], from: usize) -> Option<(usize, usize)> {
     (from..=text.len()).find_map(|start| match_here(items, text, start).map(|end| (start, end)))
 }
@@ -192,7 +177,6 @@ fn is_word(b: Option<u8>) -> bool {
     b.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
-/// Escape every non-alphanumeric byte (`gsub('([^%w])','%%%1')`).
 fn quote(name: &str) -> String {
     let mut out = String::new();
     for c in name.chars() {
@@ -202,7 +186,6 @@ fn quote(name: &str) -> String {
             let mut buf = [0u8; 4];
             for b in c.encode_utf8(&mut buf).bytes() {
                 out.push('%');
-                // Non-ASCII bytes stay bytes: rebuild them below.
                 out.push(b as char);
             }
         }
@@ -213,10 +196,7 @@ fn quote(name: &str) -> String {
 /// Earliest declaration start of `name` by pattern-group priority.
 pub fn pattern_start(text: &str, name: &str, groups: &[Vec<String>]) -> Option<usize> {
     let bytes = text.as_bytes();
-    let quoted: Vec<u8> = {
-        // `quote` stores each escaped byte as a char < 256; map back to bytes.
-        quote(name).chars().map(|c| c as u32 as u8).collect()
-    };
+    let quoted: Vec<u8> = { quote(name).chars().map(|c| c as u32 as u8).collect() };
     for group in groups {
         let mut best: Option<usize> = None;
         for fmt in group {
@@ -424,7 +404,6 @@ pub fn member_source(ident: &Ident, files: &Files) -> Option<Opened> {
     } else {
         None
     };
-    // The title names the file as the project does: relative to its root.
     let shown = files
         .root
         .as_deref()
@@ -443,9 +422,6 @@ pub fn member_source(ident: &Ident, files: &Files) -> Option<Opened> {
         title,
     })
 }
-
-// ---------------------------------------------------------------------------
-// Presentation.
 
 /// One numbered source row.
 #[derive(Debug, Clone, PartialEq)]

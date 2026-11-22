@@ -39,14 +39,11 @@ describe('Sarasa measurement against the layout estimate', () => {
   it('advances CJK at two half-width units, the width the layout estimate sized the box for', () => {
     for (const character of '无数据提案未在源码中实例化') {
       const codePoint = character.codePointAt(0)!
-      // CJK counts as two half-width units: 16 px at the 16 px body size.
       expect(sarasa.advancePx(codePoint, 16)).toBeCloseTo(estimateW(character, 16), 6)
     }
-    // ASCII is monospaced at 0.5 em, the same eight-pixel advance the estimate uses.
     for (const character of 'abcdefghijklmnopqrstuvwxyz0123456789') {
       expect(sarasa.advancePx(character.codePointAt(0)!, 16)).toBeCloseTo(8, 6)
     }
-    // A pure-CJK label the producer puts in a box is never wider than its estimate.
     for (const label of ['无数据', '提案']) {
       expect(sarasa.widthPx(label, 16)).toBeLessThanOrEqual(estimateW(label, 16) + 1e-6)
     }
@@ -59,8 +56,6 @@ describe('Sarasa measurement against the layout estimate', () => {
     for (const item of frame.world) {
       if (item.kind !== 'text' || !item.text) continue
       const advance = (size: number, value: string): number => sarasa.widthPx(value, size)
-      // A continuous real-face fit; the painter's whole-pixel `fittedSize`
-      // never exceeds it, so this bounds the drawn label too.
       let size = item.size
       if (advance(size, item.text) > item.maxW) {
         let lo = 0

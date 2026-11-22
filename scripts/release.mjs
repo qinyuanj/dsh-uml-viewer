@@ -1,16 +1,3 @@
-// Release packaging guards (#33): one native runner per delivered platform, a
-// single version authority, exactly one platform-independent main archive, and
-// a publish order that puts the platform package before the main package.
-//
-// The assembler (scripts/package.mjs) runs the supplied binary as `--version`,
-// so a platform package must be built on the OS and CPU it ships to; no foreign
-// target binary is ever executed on this host.
-//
-// `verify` does not trust the assembler report: it opens every archive that
-// would be published with the bounded gzip/tar reader (scripts/archive.mjs),
-// checks the real file list against the report, and checks the archive's own
-// package.json against the workspace, the platform table and the platform
-// report. The archives are data here; no packaged binary is executed.
 import { readFile, writeFile, mkdir, copyFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
@@ -18,10 +5,6 @@ import { pathToFileURL } from 'node:url'
 import { entryPrefix, readArchive } from './archive.mjs'
 import { releaseVersion, root } from './version.mjs'
 
-// One delivered platform (ADR 0002, #5, #12): native Windows x64. Runner labels
-// come from GitHub's hosted-runner reference (GitHub Docs, "Supported runners and
-// hardware resources"). The `main` entry is the single runner whose assembled
-// main archive is published.
 export const platforms = [
   { platform: 'win32-x64', os: 'win32', cpu: 'x64', runner: 'windows-latest', binary: 'target/release/uml-viewer.exe', main: true },
 ]
@@ -29,7 +12,6 @@ export const mainPlatform = platforms.find(entry => entry.main).platform
 
 const reportName = 'assemble-report.json'
 
-// A release tag is the only publishing trigger: it must be v<workspace version>.
 export function tagVersion(tag) {
   const match = /^v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)$/.exec(tag ?? '')
   if (!match) throw new Error(`Release tag ${JSON.stringify(tag)} is not v<workspace version>`)
@@ -54,24 +36,18 @@ function canonical(value) {
   return Object.fromEntries(Object.entries(value ?? {}).sort(([left], [right]) => left.localeCompare(right, 'en')))
 }
 
-// What the installable main package must really contain: the plugin runtime plus
-// the packaged Sarasa face and its license. The assembler already refuses to run
-// without them; this checks the archive a user would download.
 const mainPayload = [
   'README.md', 'package.json', 'icon.svg', 'cordis.patch.yml', 'dsh-plugin.json',
   'docs/plugin-development.md', 'lib/host.js', 'lib/client.js',
   'fonts/SarasaMonoSC-Regular.ttf', 'fonts/LICENSE-Sarasa.txt',
 ]
 
-// A main archive member is publishable only if the source package.json `files`
-// list covers it; npm always adds package.json and README.md, nothing else.
+// npm publish packs package.json and README.md even when `files` omits them.
 function publishedMainFile(name, declared) {
   if (name === 'package.json' || name === 'README.md') return true
   return declared.some(item => name === item || name.startsWith(`${item}/`))
 }
 
-// The assembler report lists archive file names; an entry may also pin a
-// per-file SHA-256, which is then checked against the real bytes.
 function reportedInventory(list, { file, label }) {
   if (!Array.isArray(list) || list.length === 0) throw new Error(`${file}: assembler report has no ${label} archive inventory`)
   const listed = new Map()
@@ -84,10 +60,6 @@ function reportedInventory(list, { file, label }) {
   return listed
 }
 
-// Opens one archive and returns its real members below package/. The reader
-// refuses a non-gzip file, a corrupt stream, a bad header checksum, a duplicate,
-// an unsafe or absolute path, a link or other non-regular entry, and anything
-// over the archive limits.
 async function openArchive(file, { label, limits }) {
   const entries = await readArchive(file, limits)
   const files = new Map()
@@ -123,9 +95,6 @@ function verifyReportedInventory(archive, reported) {
   }
 }
 
-// A platform package is the native binary and its manifest, at the table's OS
-// and CPU. The binary entry must exist as a regular, non-empty file; it is never
-// executed, because a foreign target binary cannot run on this host.
 async function verifyPlatformArchive(item, { entry, version, limits }) {
   const archive = await openArchive(item.platformFile, { label: 'platform', limits })
   const { file, files, manifest } = archive
@@ -149,9 +118,6 @@ async function verifyPlatformArchive(item, { entry, version, limits }) {
   return archive.names
 }
 
-// The main package is the plugin bundle: its own manifest must be the
-// installable one, its payload must be exactly what the source package.json
-// publishes, and its real file list must equal the assembler's report.
 async function verifyMainArchive(file, { version, optionalDependencies, source, reported, limits }) {
   const archive = await openArchive(file, { label: 'main', limits })
   const { files, manifest, names } = archive
@@ -210,9 +176,6 @@ async function walk(directory) {
   return found.sort()
 }
 
-// Stage one runner's upload: always the current-platform archive, and the main
-// archive only on the single main runner. The assembler report hash is verified
-// against the copied bytes so a stale scratch directory cannot be uploaded.
 export async function stageArchives({ packageDir, platform, uploadDir, main = false }) {
   const entry = platforms.find(item => item.platform === platform)
   if (!entry) throw new Error(`Unknown platform ${platform}; expected one of ${platforms.map(item => item.platform).join(', ')}`)
@@ -250,12 +213,6 @@ export async function stageArchives({ packageDir, platform, uploadDir, main = fa
   return record
 }
 
-// Verify everything that must be true before a publish: the delivered platform
-// archive at the workspace version, one main archive built on the main runner,
-// the main archive inventory that runner reported, no stray or stale archive,
-// and the real contents of every staged archive. Byte identity of the main
-// archive is recorded per runner rather than required, because checkout line
-// endings are not pinned for packaged text.
 export async function verifyInventory({ artifactsDir, version, limits }) {
   const expected = version ?? await releaseVersion()
   const source = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
@@ -297,8 +254,6 @@ export async function verifyInventory({ artifactsDir, version, limits }) {
   for (const entry of platforms) {
     if (!byPlatform.has(entry.platform)) throw new Error(`Missing platform package ${entry.platform}`)
   }
-  // Every platform archive that would be published is opened here; the report's
-  // file list alone is not proof that the archive holds those files.
   for (const item of byPlatform.values()) {
     item.verified = await verifyPlatformArchive(item, { entry: item.entry, version: expected, limits })
   }
@@ -331,9 +286,6 @@ export async function verifyInventory({ artifactsDir, version, limits }) {
   if (await digest(mainFile) !== mainHash) {
     throw new Error(`${mainFile}: recorded sha256 does not match the staged bytes`)
   }
-  // The one main archive that ships is opened as well: it must hold the plugin
-  // payload the source package publishes, at the workspace version, and exactly
-  // the files every runner reported.
   const verifiedMain = await verifyMainArchive(mainFile, {
     version: expected, optionalDependencies: expectedDependencies, source, reported: mainInventory, limits,
   })
@@ -352,7 +304,6 @@ export async function verifyInventory({ artifactsDir, version, limits }) {
     return {
       name: `@dsh-uml-viewer/${entry.platform}`, platform: entry.platform, runner: entry.runner,
       file: item.record.artifacts.platform.file, path: item.platformFile, sha256: item.record.artifacts.platform.sha256,
-      // The file list read out of the opened archive, not the report's claim.
       files: item.verified,
     }
   })
@@ -361,8 +312,6 @@ export async function verifyInventory({ artifactsDir, version, limits }) {
     file: path.basename(mainFile), path: mainFile, sha256: mainHash,
     files: verifiedMain,
   })
-  // Platform packages first: the main package's optional dependencies must
-  // already exist when it becomes installable.
   return {
     version: expected,
     reproducibleMain: { file: path.basename(mainFile), sha256: mainHash, files: mainInventory, runners: platforms.length },

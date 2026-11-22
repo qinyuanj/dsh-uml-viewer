@@ -1,4 +1,3 @@
-//! Git's changed set, shared by all quality commands.
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -33,9 +32,6 @@ fn git(root: &Path, args: &[&str], notes: &mut dyn Write) -> Option<Vec<u8>> {
     }
 }
 
-/// Existing added, modified, renamed and untracked files below `root`.
-/// Renames are requested as delete/add pairs; skipped directories are ignored.
-/// A git failure reports its diagnostic and yields an empty selection.
 pub fn changed_files(root: &Path, notes: &mut dyn Write) -> Vec<PathBuf> {
     let root = resolve(root);
     let Some(top) = git(&root, &["rev-parse", "--show-toplevel"], notes) else {

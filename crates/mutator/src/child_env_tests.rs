@@ -1,5 +1,3 @@
-//! Child-observed environment at the production View seam. Authored, not run
-//! under the current no-Cargo resource policy.
 #![cfg_attr(test, allow(clippy::disallowed_methods))]
 use crate::{isolation::View, scratch::Root};
 use std::{collections::BTreeMap, fs, process::Command, time::Duration};
@@ -25,7 +23,6 @@ fn isolated_commands_scrub_outer_coverage_environment() {
     // stale (#88). An absolute path in scratch storage is still the outer
     // setting the driver must not pass on; only where the bytes land changes.
     let profiles = Root::new(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
-    // Pollute a separate driver, never the parallel test runner's environment.
     let mut command = Command::new(std::env::current_exe().unwrap());
     command.args(["--exact", "child_env_tests::polluted_driver", "--nocapture"]);
     command.env("MUTATOR_ENV_TEST_DRIVER", "1");
@@ -41,9 +38,6 @@ fn isolated_commands_scrub_outer_coverage_environment() {
     #[cfg(windows)]
     command.env("cargo_llvm_cov_mixed_case", "outer-contamination");
     let output = command.output().unwrap();
-    // The guard is about the tree, not only about the child's environment:
-    // under coverage the driver is instrumented, and a relative profile file
-    // would leave this exact name beside the crate (#88).
     assert!(
         !std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("outer-contamination")
@@ -56,7 +50,6 @@ fn isolated_commands_scrub_outer_coverage_environment() {
         "polluted driver failed:\n{stdout}\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    // A filter that selects nothing would make this test pass hollow.
     assert!(
         stdout.contains("1 passed"),
         "the polluted driver did not run:\n{stdout}"
@@ -75,8 +68,6 @@ fn polluted_driver() {
     let project = fs::canonicalize(project).unwrap();
     let source = project.join("source.txt");
     fs::write(&source, "baseline").unwrap();
-    // Worker slots sit below their owner's root; the adapter must not reset
-    // the root's locked owner file while preparing a fresh command.
     let slot = fixture.path().join("slot");
     fs::create_dir(&slot).unwrap();
     let view = View::reused(&slot);
@@ -84,7 +75,6 @@ fn polluted_driver() {
     let argv = vec!["cmd.exe".into(), "/d".into(), "/c".into(), "set".into()];
     #[cfg(target_os = "linux")]
     let argv = vec!["/usr/bin/env".into()];
-    // The same adapter runs baseline and mutant commands.
     for mutation in [None, Some((source.as_path(), "mutant"))] {
         let result = view
             .run_argv(
@@ -98,8 +88,6 @@ fn polluted_driver() {
         assert_eq!(result.code, 0, "{}", result.output);
         assert_environment(&view, &project, &result.output, false);
     }
-    // An inner coverage command can install its own flags/profile after the
-    // inherited outer coverage settings have been removed.
     #[cfg(windows)]
     let coverage = "(echo own-report)>coverage.txt&&set RUSTFLAGS=own-flags&&set LLVM_PROFILE_FILE=own-%p.profraw&&set";
     #[cfg(target_os = "linux")]
@@ -118,7 +106,6 @@ fn polluted_driver() {
     let report = crate::isolation::report_path(&view, std::path::Path::new("coverage.txt"));
     assert_eq!(fs::read_to_string(report).unwrap().trim(), "own-report");
     assert!(!project.join("coverage.txt").exists());
-    // No child setting or mutation leaks back to the caller.
     assert_eq!(fs::read_to_string(source).unwrap(), "baseline");
     assert_eq!(
         std::env::var("RUSTC_WRAPPER").unwrap(),

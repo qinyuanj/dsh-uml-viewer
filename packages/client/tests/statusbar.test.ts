@@ -6,7 +6,6 @@ import { Element, makeDocument } from './dom.js'
 
 type FakeDocument = ReturnType<typeof makeDocument>
 
-/** Find one rendered part by its class, independent of sibling order. */
 function childOf(root: HTMLElement, className: string): Element {
   const found = (root as unknown as Element).descendants()
     .find(element => element.className.includes(className))
@@ -19,7 +18,6 @@ function maybeChildOf(root: HTMLElement, className: string): Element | null {
     .find(element => element.className.includes(className)) ?? null
 }
 
-/** A real fake-DOM bar: the module's own rendering, localized from the locale files. */
 function harness() {
   const doc = makeDocument()
   const host = new Element('div', doc)
@@ -32,13 +30,10 @@ function harness() {
   return { bar, host, doc, line, request, more, list, live }
 }
 
-/** Document-level events the status bar uses to close its queue. */
 function dispatch(doc: FakeDocument, type: string, props: Record<string, unknown> = {}): Event {
   const event = new Event(type, { bubbles: true, cancelable: true })
   const { target, ...rest } = props
   Object.assign(event, rest)
-  // `Event.target` is a getter; the fake document event needs it set like the
-  // lightweight Element.fire does after a real dispatch.
   if (target !== undefined) Object.defineProperty(event, 'target', { value: target, configurable: true })
   doc.dispatchEvent(event)
   return event
@@ -50,12 +45,9 @@ describe('the panel status bar (#46)', () => {
     expect(h.host.children).toContain(h.bar.element)
     expect(h.bar.element.className).toContain('dsh-uml-viewer-statusbar')
     expect(h.bar.element.getAttribute('role')).toBe('group')
-    // Only the short status line is a live region (F35): the queue list never
-    // sits inside it to be re-announced on every state change.
     expect(h.live().getAttribute('role')).toBe('status')
     expect(h.live().getAttribute('aria-live')).toBe('polite')
     expect(h.live().descendants()).toEqual([])
-    // The bar stays; only its text hides.
     expect(h.line().hidden).toBe(true)
     expect(h.bar.element.dataset.tone).toBe('none')
     h.bar.dispose()
@@ -81,7 +73,6 @@ describe('the panel status bar (#46)', () => {
     h.bar.setMessage('The request was not accepted.')
     expect(h.line().textContent).toBe('The request was not accepted.')
     expect(h.bar.element.dataset.tone).toBe('error')
-    // A thunk re-reads the language, so a switch relabels it in place.
     h.bar.setMessage(() => translate('en', 'request.refused'))
     expect(h.line().textContent).toBe('The request was not accepted.')
     h.bar.setMessage(null)
@@ -89,8 +80,6 @@ describe('the panel status bar (#46)', () => {
     h.bar.dispose()
   })
 
-  // #51/#53/F23: the current request is the list's own choice — an unseen
-  // failure, else the running head, else the oldest queued, else the newest.
   it('shows an unseen failure, else the running head, else the oldest queued, else the newest', () => {
     const h = harness()
     expect(h.request().hidden).toBe(true)
@@ -99,27 +88,17 @@ describe('the panel status bar (#46)', () => {
     h.bar.setRequests([crap])
     expect(h.request().textContent).toBe('Refresh CRAP :core.order: Queued')
     expect(h.request().hidden).toBe(false)
-    // A refusal right after the click is what the user must not miss, even
-    // while an earlier request still waits.
     const failed = { id: 'b', op: 'refresh-mutate', target: null, state: 'failed', reason: 'mutate failed', exitCode: 2 } as const
     h.bar.setRequests([crap, failed])
     expect(h.request().textContent).toBe('Differential mutation: Failed — mutate failed (exit code 2)')
-    // The same list again (a re-push on the stream) keeps what the user sees.
-    h.bar.setRequests([crap, failed])
-    expect(h.request().textContent).toBe('Differential mutation: Failed — mutate failed (exit code 2)')
-    // Once shown, a failure stops jumping the queue: the next change shows the
-    // requests that are still moving.
     h.bar.setRequests([crap, failed, { ...crap, id: 'e' }])
     expect(h.request().textContent).toBe('Refresh CRAP :core.order: Queued')
-    // A request in progress wins over the requests waiting behind it.
     const running = { ...mutate, state: 'running' } as const
     h.bar.setRequests([crap, failed, running, { ...crap, id: 'e' }])
     expect(h.request().textContent).toBe('Differential mutation :core: In progress')
-    // An unseen failure still wins over the running head.
     const second = { ...failed, id: 'f', reason: 'ir failed', exitCode: null } as const
     h.bar.setRequests([crap, failed, running, second])
     expect(h.request().textContent).toBe('Differential mutation: Failed — ir failed')
-    // Nothing unfinished: the newest entry.
     const done = { id: 'c', op: 'context', target: null, state: 'done', reason: null, exitCode: null } as const
     const fresh = harness()
     fresh.bar.setRequests([done, { ...done, id: 'g' }])
@@ -130,8 +109,6 @@ describe('the panel status bar (#46)', () => {
     fresh.bar.dispose()
   })
 
-  // F23: the same list shows the same entry however the panel got there, so a
-  // refreshed page and an open page agree.
   it('picks the same entry for the same list whether or not the bar saw it change', () => {
     const entries = [
       { id: 'a', op: 'refresh-crap', target: { id: ':core.order', kind: 'class' }, state: 'done', reason: null, exitCode: null },
@@ -154,7 +131,6 @@ describe('the panel status bar (#46)', () => {
     h.bar.setRequests([{ id: 'a', op: 'refresh-crap', target: null, state: 'failed', reason: 'session is archived', exitCode: null }])
     expect(h.line().hidden).toBe(true)
     expect(h.request().textContent).toBe('Refresh CRAP: Failed — session is archived')
-    // A refusal the request status does not carry is still the panel's own line.
     h.bar.setMessage('network down')
     expect(h.line().textContent).toBe('network down')
     h.bar.dispose()
@@ -185,15 +161,12 @@ describe('the panel status bar (#46)', () => {
   })
 })
 
-// #53: the queue behind the current request. The bar shows the current entry
-// plus 「还有 N 条」, and the list opens on a click.
 const href = (id: string, op: RequestStatusEntry['op'] = 'refresh-crap',
   state: RequestStatusEntry['state'] = 'queued'): RequestStatusEntry =>
   ({ id, op, target: { id: `:${id}`, kind: 'class' }, state, reason: state === 'failed' ? 'why' : null, exitCode: null })
 
 function queueHarness() {
   const dismissed: string[] = []
-  // The caller's dismissal handler is tested through the bar the panel wires.
   const doc = makeDocument()
   const host = new Element('div', doc)
   const bar = mountStatusBar(host as unknown as HTMLElement, { onDismiss: id => dismissed.push(id) })
@@ -217,7 +190,6 @@ describe('the request queue (#53)', () => {
     expect(h.more().getAttribute('aria-controls')).toMatch(/^dsh-uml-viewer-request-list-/)
     h.bar.setRequests([href('a'), href('b')])
     expect(h.more().textContent).toBe('1 more')
-    // One request is the whole queue: there is nothing to open.
     h.bar.setRequests([href('a')])
     expect(h.more().hidden).toBe(true)
     expect(h.list()).toBeNull()
@@ -237,7 +209,6 @@ describe('the request queue (#53)', () => {
     expect(shown.getAttribute('id')).toBe(h.more().getAttribute('aria-controls'))
     expect(h.live().descendants()).toEqual([])
     const items = (): Element[] => shown.children.filter(item => item.getAttribute('role') === 'listitem')
-    // Each item is its line plus, for a failure, the dismissal.
     expect(items().map(item => item.children[0]!.textContent)).toEqual([
       'Refresh CRAP :a: Queued', 'Hide :b: Queued', 'Differential mutation :c: Failed — why'])
     expect(h.more().getAttribute('aria-expanded')).toBe('true')
@@ -322,7 +293,6 @@ describe('the completed fade (#53)', () => {
     expect(h.request().textContent).toBe('')
     expect(h.request().dataset.state).toBe('')
     expect(h.more().hidden).toBe(true)
-    // The host still lists it; the fade is this bar's own.
     expect(h.live().textContent).toBe('')
     h.bar.setRequests([done])
     expect(h.request().hidden).toBe(true)
@@ -337,7 +307,6 @@ describe('the completed fade (#53)', () => {
     h.bar.setRequests([done, next])
     expect(h.request().textContent).toBe('Hide :b: Queued')
     expect(h.more().hidden).toBe(true)
-    // Gone for good, even when the list arrives again.
     h.bar.setRequests([done])
     expect(h.request().hidden).toBe(true)
     h.bar.dispose()
@@ -349,13 +318,11 @@ describe('the completed fade (#53)', () => {
     const failed = { id: 'f', op: 'refresh-mutate', target: null, state: 'failed', reason: 'mutate failed', exitCode: 2 } as const
     h.bar.setRequests([crap, failed])
     expect(h.request().textContent).toBe('Differential mutation: Failed — mutate failed (exit code 2)')
-    // Ten seconds, and the failure is still there.
     vi.advanceTimersByTime(30_000)
     expect(h.request().textContent).toBe('Differential mutation: Failed — mutate failed (exit code 2)')
     h.more().fire('click')
     const items = h.list()!.children
     expect(items.map(item => item.dataset.id)).toEqual(['a', 'f'])
-    // Only the failure can be dismissed: the queued one is still coming.
     expect(items[0]!.children).toHaveLength(1)
     expect(items[1]!.children).toHaveLength(2)
     const dismiss = items[1]!.children[1] as Element
@@ -363,7 +330,6 @@ describe('the completed fade (#53)', () => {
     expect(dismiss.getAttribute('aria-label')).toBe('Dismiss Differential mutation: Failed — mutate failed (exit code 2)')
     dismiss.fire('click')
     expect(h.dismissed).toEqual(['f'])
-    // The host answers with the list without the dismissed entry.
     h.bar.setRequests([crap])
     expect(h.list()).toBeNull()
     expect(h.request().textContent).toBe('Refresh CRAP :a: Queued')

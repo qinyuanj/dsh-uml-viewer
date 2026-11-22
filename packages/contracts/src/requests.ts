@@ -63,12 +63,6 @@ export function parseQualityRequestOp(value: unknown, label: string): QualityReq
   return value as QualityRequestOp
 }
 
-/**
- * Compare two paths by their UTF-8 bytes: Rust's `String` order, which is how
- * the resident sorts its answer.
- * @param a the first path's bytes.
- * @param b the second path's bytes.
- */
 function byteOrder(a: Uint8Array, b: Uint8Array): number {
   const shared = Math.min(a.length, b.length)
   for (let index = 0; index < shared; index += 1) {
@@ -109,8 +103,6 @@ export function validateQualityTarget(value: unknown, label = 'quality target', 
   const files = source.files.map((file, index) => normalizeRelativePath(`${label} files[${index}]`, file))
   let previous: Uint8Array | null = null
   files.forEach((file, index) => {
-    // Everything but the separator spelling is `normalizeRelativePath`'s rule
-    // (#review M1a): no second, weaker validator lives here.
     if (file.includes('\\')) throw new Error(`${label} files[${index}] must use forward slashes`)
     if (file.startsWith('-')) throw new Error(`${label} files[${index}] must not be a command option`)
     const bytes = encoder.encode(file)

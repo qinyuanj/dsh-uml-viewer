@@ -1,8 +1,3 @@
-//! The discussion context (#47, ADR 0015): the proposals the panel's
-//! discussion-context switcher lists, and what choosing one of them, or the
-//! source diagram, does to the view and to the `:context` mail. The inspector
-//! that used to own these rows was deleted with #47.
-
 use edn::Value;
 use edn::record::{get, local_name};
 use scene::document::ViewState;

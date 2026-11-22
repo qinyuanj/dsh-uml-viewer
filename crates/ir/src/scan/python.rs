@@ -1,6 +1,3 @@
-//! Port of `love/uml/python_language/graph_python.lua`: the JVM Python
-//! scanner semantics over caller-owned canonical source snapshots.
-
 use edn::Value;
 
 use crate::scan::{self, Scanner, SourceFile};
@@ -20,9 +17,6 @@ fn trim(s: &[u8]) -> &[u8] {
     text::trim(s)
 }
 
-/// `flags(s, i)`: string-prefix flags for a quote at 1-based `i`;
-/// `(raw, f)` or `None` when `i` is no quote. A `t` (template, PEP 750)
-/// string interpolates like an `f` one.
 fn flags(s: &[u8], i: usize) -> Option<(bool, bool)> {
     let q = at(s, i)?;
     if q != b'"' && q != b'\'' {
@@ -48,7 +42,6 @@ fn flags(s: &[u8], i: usize) -> Option<(bool, bool)> {
     Some((false, false))
 }
 
-/// `skip_string(s, i)`: one past the closing quote(s), or `#s + 1`.
 fn skip_string(s: &[u8], i: usize) -> Option<usize> {
     let (raw, f) = flags(s, i)?;
     let q = at(s, i).unwrap();
@@ -88,7 +81,6 @@ fn skip_string(s: &[u8], i: usize) -> Option<usize> {
     Some(s.len() + 1)
 }
 
-/// `mask(s)`: `#` comments blanked; strings kept with holes.
 fn mask(s: &[u8]) -> (Vec<u8>, Vec<(usize, usize)>) {
     let mut out = Vec::new();
     let mut holes = Vec::new();
@@ -110,8 +102,6 @@ fn mask(s: &[u8]) -> (Vec<u8>, Vec<(usize, usize)>) {
     (out, holes)
 }
 
-/// Length of the backslash line continuation at 1-based `i`: `\` then `\n`
-/// (2) or `\r\n` (3); 0 when there is none.
 fn continuation(s: &[u8], i: usize) -> usize {
     match (at(s, i), at(s, i + 1), at(s, i + 2)) {
         (Some(b'\\'), Some(b'\n'), _) => 2,
@@ -120,10 +110,6 @@ fn continuation(s: &[u8], i: usize) -> usize {
     }
 }
 
-/// `statement_end(s, i, import)`: position of the statement-ending newline
-/// (`#s + 1` at end of input). An import holds no `;`, so its first `;`
-/// ends it too (`import a; import b`, `from a import f; f("(")`), before
-/// any bracket after it can carry the scan past the line.
 fn statement_end(s: &[u8], mut i: usize, import: bool) -> usize {
     let (mut p, mut b, mut c) = (0i64, 0i64, 0i64);
     while i <= s.len() {
@@ -148,7 +134,6 @@ fn statement_end(s: &[u8], mut i: usize, import: bool) -> usize {
     s.len() + 1
 }
 
-/// `^([%a_][%w_%.]*)%s+as%s+([%a_][%w_]*)$` or `^([%a_][%w_%.]*)$`.
 fn parse_part(part: &[u8]) -> Option<(Vec<u8>, Option<Vec<u8>>)> {
     let dotted = |s: &[u8]| -> Option<usize> {
         if !s.first().is_some_and(|&c| is_alpha_(c)) {
@@ -185,7 +170,6 @@ fn parse_part(part: &[u8]) -> Option<(Vec<u8>, Option<Vec<u8>>)> {
     None
 }
 
-/// `parts(s)`: comma-split import names with `as` bindings.
 fn parts(s: &[u8]) -> Vec<Value> {
     let mut out = Vec::new();
     let cleaned: Vec<u8> = s
@@ -198,7 +182,6 @@ fn parts(s: &[u8]) -> Vec<Value> {
             continue;
         }
         if let Some((name, bind)) = parse_part(part) {
-            // `alias`: the bind is an explicit `as`, not the first segment.
             let alias = bind.is_some();
             let bind = bind.unwrap_or_else(|| {
                 let first = name.iter().take_while(|&&c| c != b'.').count();
@@ -218,8 +201,6 @@ fn strip_spaces(s: &[u8]) -> &[u8] {
     &s[s.iter().take_while(|&&c| is_space(c)).count()..]
 }
 
-/// `s:gsub('\\\r?\n',' '):gsub('%s+',' ')`: each run of whitespace and
-/// backslash continuations becomes one space.
 fn collapse(s: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(s.len());
     let mut i = 1;
@@ -237,12 +218,10 @@ fn collapse(s: &[u8]) -> Vec<u8> {
     out
 }
 
-/// `parse_import(s)`: the statement text without its trailing newline.
 fn parse_import(s: &[u8]) -> Option<Value> {
     let collapsed = collapse(s);
     let s = trim(&collapsed);
     if s.starts_with(b"from ") {
-        // `^from%s+([^ ]*)%s+import%s+(.+)$` — whitespace already collapsed.
         let rest = &s[5..];
         let path_end = rest.iter().position(|&c| c == b' ')?;
         let path = &rest[..path_end];
@@ -283,7 +262,6 @@ fn parse_import(s: &[u8]) -> Option<Value> {
     None
 }
 
-/// `read_module(source)`: imports and top-level defs.
 pub fn read_module(source: &[u8]) -> Value {
     // A UTF-8 BOM is not text: line 1 starts after it.
     let source = source.strip_prefix(b"\xef\xbb\xbf").unwrap_or(source);
@@ -292,7 +270,6 @@ pub fn read_module(source: &[u8]) -> Value {
     let mut defs = Vec::new();
     let mut i = 1;
     while i <= text.len() {
-        // `text:sub(i):match('^(%a+)')`
         let word_len = text[i - 1..]
             .iter()
             .take_while(|&&c| c.is_ascii_alphabetic())
@@ -327,8 +304,6 @@ pub fn read_module(source: &[u8]) -> Value {
             && name.first() != Some(&b'_')
             && !in_hole(&holes, i)
         {
-            // A `\` continuation is whitespace: `class X(A, \` then `B):`
-            // keeps `B`.
             let end = statement_end(&text, i, false);
             let header = collapse(&text[i - 1..end - 1]);
             if line.starts_with(b"class") {
@@ -370,9 +345,6 @@ pub fn read_module(source: &[u8]) -> Value {
     ])
 }
 
-/// The statement-before check: `([^\n;:]*)$` then `^%s*$`. A `:` ends a
-/// compound header, so `try: import x` and `if TYPE_CHECKING: from a import
-/// B` count; no expression may hold `import`/`from` after a `:`.
 fn statement_is_clean(text: &[u8], i: usize) -> bool {
     let before = &text[..i - 1];
     let start = before
@@ -382,7 +354,6 @@ fn statement_is_clean(text: &[u8], i: usize) -> bool {
     before[start..].iter().all(|&c| is_space(c))
 }
 
-/// `^async[ \t]+def[ \t]+(name)` (async_def) or `^def`/`^class` + name.
 fn match_def_name(line: &[u8], word: &[u8], async_def: bool) -> Option<Vec<u8>> {
     let rest = line.strip_prefix(word)?;
     let spaces = rest
@@ -413,8 +384,6 @@ fn match_def_name(line: &[u8], word: &[u8], async_def: bool) -> Option<Vec<u8>> 
     Some(rest[..len].to_vec())
 }
 
-/// `%((.-)%)%s*:` on the collapsed header, the `)` matched by depth:
-/// `class A(B, metaclass=make())` keeps `B`.
 fn match_class_bases(header: &[u8]) -> Option<Vec<u8>> {
     let open = header.iter().position(|&c| c == b'(')?;
     let mut depth = 0i64;
@@ -437,8 +406,6 @@ fn match_class_bases(header: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
-/// The bases body split at depth-0 commas: `Mapping[str, int], Base` is
-/// two parts.
 fn top_level_parts(body: &[u8]) -> Vec<&[u8]> {
     let mut parts = Vec::new();
     let (mut depth, mut start) = (0i64, 0);
@@ -457,10 +424,6 @@ fn top_level_parts(body: &[u8]) -> Vec<&[u8]> {
     parts
 }
 
-/// A base part's `^[%a_][%w_%.]*$` name. A subscript is dropped
-/// (`Repository[User]` is `Repository`, `Protocol[T]` is `Protocol`), but
-/// `Generic[T]` only declares type parameters: no base. Of the keywords only
-/// `metaclass=ABCMeta` names one, the marker of an abstract class.
 fn base_name(part: &[u8]) -> Option<&[u8]> {
     let len = dotted_len(part)?;
     let (name, rest) = part.split_at(len);
@@ -468,7 +431,6 @@ fn base_name(part: &[u8]) -> Option<&[u8]> {
     // Only a leading `name =` is a keyword; an `=` in a subscript is not
     // (`User[Literal["a=b"]]`, `User[Annotated[int, Field(gt=0)]]`).
     if let Some(value) = rest.strip_prefix(b"=") {
-        // `^metaclass%s*=%s*([%a_][%w_%.]*)$` naming `ABCMeta`.
         let value = trim(value);
         let abc = dotted_len(value) == Some(value.len()) && name_tail(value) == b"ABCMeta";
         return (name == b"metaclass" && abc).then_some(value);
@@ -480,19 +442,16 @@ fn base_name(part: &[u8]) -> Option<&[u8]> {
     (subscript && name_tail(name) != b"Generic").then_some(name)
 }
 
-/// `^[%a_][%w_%.]*` length.
 fn dotted_len(s: &[u8]) -> Option<usize> {
     s.first()
         .is_some_and(|&c| is_alpha_(c))
         .then(|| s.iter().take_while(|&&c| is_word(c) || c == b'.').count())
 }
 
-/// The last dotted segment: `typing.Generic` is `Generic`.
 fn name_tail(name: &[u8]) -> &[u8] {
     name.rsplit(|&c| c == b'.').next().unwrap_or(name)
 }
 
-/// `%)%s*%->%s*([%a_][%w_]*)%s*:` on the collapsed header.
 fn match_return(header: &[u8]) -> Option<String> {
     let mut search = 0;
     while let Some(off) = header[search.min(header.len())..]
@@ -527,7 +486,6 @@ const SKIP_DIRS: &[&str] = &[
     "__pypackages__",
 ];
 
-/// `accepts_directory(relative)`.
 fn accepts_directory(relative: &str) -> bool {
     for dir in relative.split('/') {
         if dir.is_empty() {
@@ -540,7 +498,6 @@ fn accepts_directory(relative: &str) -> bool {
     true
 }
 
-/// `accepts(relative)`.
 fn accepts(relative: &str) -> bool {
     let name = relative.rsplit('/').next().unwrap_or("");
     if !name.ends_with(".py")
@@ -555,7 +512,6 @@ fn accepts(relative: &str) -> bool {
     accepts_directory(dir)
 }
 
-/// `^test_.+%.py$` / `^.+_test%.py$` / `^.+_tests%.py$` shape checks.
 fn is_test_file(name: &str, prefix: &str, suffix: &str) -> bool {
     name.len() > prefix.len() + suffix.len() && name.starts_with(prefix) && name.ends_with(suffix)
 }
@@ -574,7 +530,6 @@ fn join(a: &str, b: &str) -> String {
     format!("{a}.{b}")
 }
 
-/// `marker(s)`: Protocol/ABC/ABCMeta as the last dotted segment.
 fn marker(s: &str) -> bool {
     let n = s.rsplit('.').next().unwrap_or(s);
     n == "Protocol" || n == "ABC" || n == "ABCMeta"
@@ -584,15 +539,12 @@ pub struct PythonScanner;
 
 pub static SCANNER: PythonScanner = PythonScanner;
 
-/// A resolved import hit.
 enum Hit {
     Id {
         id: Value,
         bind: Option<String>,
         path: Option<String>,
     },
-    /// A name bound with no dependency: a package on the path of `import
-    /// a.b.c` (`a`, `a.b`).
     Bind {
         bind: String,
         id: Value,
@@ -957,8 +909,6 @@ mod tests {
     use super::*;
     use crate::value::id_name;
 
-    /// Scans `files` (paths under `src/`, prefix `app`): each interface as
-    /// `id <<interface>>`, then each edge as `from -> to kind`.
     fn graph(files: &[(&str, &str)]) -> Vec<String> {
         let files: Vec<SourceFile> = files
             .iter()
@@ -1171,8 +1121,6 @@ mod tests {
 
     #[test]
     fn an_import_scan_stops_at_its_semicolon() {
-        // Each `(` after a `;` stays open to the end of input: an import scan
-        // that passes the `;` rescans the rest of the file once per line.
         let source = "import app.util; s = \"(\"\n".repeat(8000);
         let started = std::time::Instant::now();
         let surface = read_module(source.as_bytes());

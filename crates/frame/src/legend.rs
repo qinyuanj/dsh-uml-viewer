@@ -1,17 +1,3 @@
-//! The diagram's legend (#50, ADR 0015): what the diagram's shapes, quality
-//! colors and relation colors mean, as the rows the panel's legend draws.
-//!
-//! The rows are typeset here, in the resident's language (`strings::Text`'s
-//! `legend`), for the same reason the class card's rows are (#44): the words
-//! are the resident's text, so the panel never words them itself. A row's
-//! swatch names a semantic [`Role`], the same vocabulary the diagram is drawn
-//! with, so the panel resolves a legend color and a diagram color through one
-//! theme and they cannot drift apart (`packages/client/src/theme.ts`).
-//!
-//! The legend describes the drawing; it never changes it. It is not chrome:
-//! nothing here is painted on the canvas, and the panel decides where the rows
-//! go (a popover from 「更多」, or resident from 900px of panel width).
-
 use serde_json::{Value as Json, json};
 
 use scene::GRADE_WORST;
@@ -127,9 +113,6 @@ pub fn legend(lang: Lang) -> Legend {
                         "foreign-package",
                         text.foreign_package,
                         Sample::Box {
-                            // A foreign package has no measured quality, so
-                            // commands.rs draws its oval at the worst grade —
-                            // the same red as a class with no data.
                             fill: Role::QualityFill(Some(GRADE_WORST)),
                             stroke: Role::QualityStroke(Some(GRADE_WORST)),
                             shape: Shape::Oval,
