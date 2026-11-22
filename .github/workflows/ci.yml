@@ -157,6 +157,12 @@ jobs:
       MUTATOR_REQUIRE_TOOLCHAINS: '1'
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Rust toolchain pinned by rust-toolchain.toml
         run: rustup toolchain install
       # cargo llvm-cov needs llvm-profdata; the default-coverage golden uses it.
@@ -204,6 +210,11 @@ jobs:
       # Reuse the integration tests' debug artifacts; release would compile twice.
       - name: Build the Windows refresh binary
         run: cargo build --locked -p uml-viewer
+      # #125: TypeScript coverage runs host seam tests that import lib/host.js.
+      # The mutation lane owns the CRAP refresh, so it must build the package
+      # before quality collection reads those seams.
+      - name: Build the host package for quality collection
+        run: pnpm build
       # One binary call per step, including validation of valid exits 2/3.
       # Never upload .metrics or the temporary records/IR from this runner.
       - name: Maintainer refresh - CRAP (Windows)
