@@ -132,6 +132,9 @@ test('the queue shows how many wait behind the current request, and a dismissed 
     // The resident can no longer resolve :api's source file, so the request is
     // refused before it reaches the conversation: a failed entry, shown first.
     const messages = () => a.page.getByText('UML viewer panel request:', { exact: false })
+    // The conversation shows the current admission only; wait for it before
+    // taking a baseline, so a slow render cannot arrive after count() (#120).
+    await expect(messages()).toHaveCount(1)
     const admitted = await messages().count()
     await fs.rm(path.join(lane.projects.deep, 'src', 'api.ts'))
     await clickRefresh(a, frame, ':api')
@@ -158,7 +161,7 @@ test('the queue shows how many wait behind the current request, and a dismissed 
     await expect(more(a)).toHaveText('2 more')
     await expect(statusBar(a)).not.toContainText('Failed')
     await expect(statusBar(a)).toContainText('Refresh CRAP :core: Queued')
-    expect(await messages().count()).toBe(admitted)
+    await expect(messages()).toHaveCount(admitted)
     await lane.screenshot(a, 't53-queue-dismissed')
 
     // A page refresh: the host no longer holds the dismissed entry, so it does
