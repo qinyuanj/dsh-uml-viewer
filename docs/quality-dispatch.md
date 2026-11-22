@@ -189,13 +189,17 @@ than one merge base, or malformed diff output fails closed rather than starting
 an unfiltered lane.
 
 `scripts/ci-refresh.py` parses zero-context unified hunks into new-side lines
-for the two targets and passes their union as one positive `--lines` filter in
-one mutation command. Off-line sites are explicitly excluded by the mutator's
-line filter. With no changed target lines it uses a beyond-EOF sentinel,
-removes the two snapshots so `publish()` writes an explicit zero-site result,
-and accepts only empty or `uncovered` outcomes in the fresh snapshots. This
-reduces mutation sites, not tests: `--test-command` is never set, and the
-maintainer refresh below remains full over the changed source files.
+for each target and passes one file-qualified `--lines` value such as
+`crates/ir/src/lib.rs:10,crates/scene/src/dry.rs:4` in one mutation command.
+The mutator applies each set only to its own source path, so an unchanged
+target cannot inherit a same-numbered line from the changed target; off-line
+sites are explicitly excluded with the `line-filter` reason. A target with no
+changed lines gets a sentinel beyond that file's own EOF; its snapshot is
+removed so `publish()` writes an explicit zero-site result, and validation
+accepts only empty or `uncovered` outcomes there while changed targets still
+require verdicts. This reduces mutation sites, not tests: `--test-command` is
+never set, and the maintainer refresh below remains full over the changed
+source files.
 
 The script still runs one native command per step, checks the single version-1
 stdout record against the actual exit (including valid CRAP 2 and mutation 3),

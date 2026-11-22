@@ -155,10 +155,9 @@ jobs:
       CARGO_TERM_COLOR: always
       # A missing toolchain must fail here, never skip.
       MUTATOR_REQUIRE_TOOLCHAINS: '1'
-      # #124: the refresh computes new-side changed lines against this base.
-      # PRs use the PR base; pushes use the previous commit. Missing values
-      # fail closed in scripts/ci-refresh.py.
-      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      # #124: the refresh computes per-target new-side lines against this
+      # base. PRs use the PR base; pushes use the previous commit. A missing
+      # value fails closed in scripts/ci-refresh.py.
       UML_REFRESH_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
     steps:
       - uses: actions/checkout@v4

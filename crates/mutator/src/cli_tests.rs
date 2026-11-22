@@ -38,6 +38,39 @@ fn a_run_without_copy_declares_no_outside_path() {
 }
 
 #[test]
+fn lines_are_global_or_qualified_by_source_path() {
+    let legacy = parse(&["--lines", "10"]).unwrap();
+    let filter = legacy.lines.unwrap();
+    assert!(filter.contains("crates/ir/src/lib.rs", 10));
+    assert!(filter.contains("crates/scene/src/dry.rs", 10));
+    assert!(!filter.contains("crates/ir/src/lib.rs", 11));
+
+    let qualified = parse(&[
+        "--lines",
+        "crates/ir/src/lib.rs:10,crates\\scene\\src\\dry.rs:4",
+    ])
+    .unwrap();
+    let filter = qualified.lines.unwrap();
+    assert!(filter.contains("crates/ir/src/lib.rs", 10));
+    assert!(filter.contains("crates/scene/src/dry.rs", 4));
+    assert!(!filter.contains("crates/ir/src/lib.rs", 4));
+    assert!(!filter.contains("crates/scene/src/dry.rs", 10));
+    assert!(!filter.contains("crates/other/src/lib.rs", 10));
+}
+
+#[test]
+fn malformed_or_mixed_line_filters_fail() {
+    for value in [
+        "0",
+        "crates/ir/src/lib.rs:0",
+        ":4",
+        "10,crates/scene/src/dry.rs:4",
+    ] {
+        assert!(parse(&["--lines", value]).is_err(), "{value} parsed");
+    }
+}
+
+#[test]
 fn copy_requires_a_value() {
     for args in [
         vec!["--copy"],

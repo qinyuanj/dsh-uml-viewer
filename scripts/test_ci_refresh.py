@@ -17,25 +17,44 @@ SPEC.loader.exec_module(ci_refresh)
 
 BASE = 'a' * 40
 MERGE = 'b' * 40
+IR = 'crates/ir/src/lib.rs'
+DRY = 'crates/scene/src/dry.rs'
 
-DIFF = '''diff --git a/crates/ir/src/lib.rs b/crates/ir/src/lib.rs
+DIFF = f'''diff --git a/{IR} b/{IR}
 index 111..222 100644
---- a/crates/ir/src/lib.rs
-+++ b/crates/ir/src/lib.rs
+--- a/{IR}
++++ b/{IR}
 @@ -10,2 +10,2 @@
 -old
 +new
 -old2
 +new2
-diff --git a/crates/scene/src/dry.rs b/crates/scene/src/dry.rs
+diff --git a/{DRY} b/{DRY}
 index 333..444 100644
---- a/crates/scene/src/dry.rs
-+++ b/crates/scene/src/dry.rs
+--- a/{DRY}
++++ b/{DRY}
 @@ -4,0 +5 @@ fn changed
 +new line
 @@ -20 +20,0 @@
 -deleted line
 '''
+
+DIFF_ASYMMETRIC = f'''diff --git a/{IR} b/{IR}
+index 111..222 100644
+--- a/{IR}
++++ b/{IR}
+@@ -2 +2 @@
+-old
++new
+'''
+
+
+def write_targets(root, counts):
+    for target, count in counts.items():
+        path = root / target
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(''.join(f'fn f{n}() {{}}\n' for n in range(count)),
+                        encoding='utf-8')
 
 
 class RefreshPaths(unittest.TestCase):
@@ -43,10 +62,7 @@ class RefreshPaths(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.addCleanup(self.temporary.cleanup)
-        for target, _ in ci_refresh.MUTATE_TARGETS:
-            path = self.root / target
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text('fn a() {}\nfn b() {}\nfn c() {}\n', encoding='utf-8')
+        write_targets(self.root, {IR: 3, DRY: 3})
 
     def test_changed_lines_use_new_side_of_each_target(self):
         def fake_git(root, *arguments):
@@ -54,58 +70,69 @@ class RefreshPaths(unittest.TestCase):
             if arguments[0] == 'merge-base':
                 return f'{MERGE}\n'
             self.assertEqual(arguments[0], 'diff')
-            self.assertEqual(list(arguments[-2:]),
-                             [target for target, _ in ci_refresh.MUTATE_TARGETS])
+            self.assertEqual(list(arguments[-2:]), [IR, DRY])
             return DIFF
 
-        with mock.patch.object(ci_refresh, 'git_output', side_effect=fake_git),                 mock.patch.dict(os.environ, {'UML_REFRESH_BASE_SHA': BASE}, clear=True):
+        with (
+            mock.patch.object(ci_refresh, 'git_output', side_effect=fake_git),
+            mock.patch.dict(os.environ, {'UML_REFRESH_BASE_SHA': BASE}, clear=True),
+        ):
             changed = ci_refresh.changed_lines(self.root, BASE)
-        self.assertEqual(changed['crates/ir/src/lib.rs'], {10, 11})
-        self.assertEqual(changed['crates/scene/src/dry.rs'], {5})
+        self.assertEqual(changed[IR], {10, 11})
+        self.assertEqual(changed[DRY], {5})
 
-    def test_zero_site_filter_uses_beyond_eof_sentinels(self):
-        empty = {target: set() for target, _ in ci_refresh.MUTATE_TARGETS}
-        line_filter, zero_site = ci_refresh.mutation_line_filter(self.root, empty)
-        self.assertTrue(zero_site)
-        self.assertEqual(line_filter, '4')
+    def test_asymmetric_changes_zero_only_the_unchanged_target(self):
+        write_targets(self.root, {IR: 2, DRY: 10})
+        line_filter, zero_targets = ci_refresh.per_target_line_filter(
+            self.root, {IR: {2}, DRY: set()})
+        self.assertEqual(line_filter, f'{IR}:2,{DRY}:11')
+        self.assertEqual(zero_targets, {DRY})
 
-    def test_zero_site_snapshots_require_empty_or_uncovered_outcomes(self):
+    def test_unequal_length_zero_targets_get_their_own_sentinels(self):
+        write_targets(self.root, {IR: 2, DRY: 10})
+        line_filter, zero_targets = ci_refresh.per_target_line_filter(
+            self.root, {IR: set(), DRY: set()})
+        self.assertEqual(line_filter, f'{IR}:3,{DRY}:11')
+        self.assertEqual(zero_targets, {IR, DRY})
+
+    def test_snapshot_validation_is_per_target(self):
         started = time.time() - 1
         for target, relative in ci_refresh.MUTATE_TARGETS:
             snapshot = self.root / relative
             snapshot.parent.mkdir(parents=True, exist_ok=True)
-            snapshot.write_text(
-                f'{{:source "{target}" :outcomes {{}}}}', encoding='utf-8')
-        ci_refresh.validate_mutation_snapshots(self.root, started, zero_site=True)
+            verdict = ':killed 1' if target == IR else ''
+            snapshot.write_text(f'{{:source "{target}" :outcomes {{{verdict}}}}}',
+                                encoding='utf-8')
+        ci_refresh.validate_mutation_snapshots(self.root, started, {DRY})
         with self.assertRaises(RuntimeError):
-            ci_refresh.validate_mutation_snapshots(self.root, started, zero_site=False)
+            ci_refresh.validate_mutation_snapshots(self.root, started, {IR, DRY})
+        with self.assertRaises(RuntimeError):
+            ci_refresh.validate_mutation_snapshots(self.root, started, set())
 
     def test_mutation_command_keeps_both_targets_and_no_test_override(self):
         coverage = self.root / 'coverage'
         coverage.mkdir()
-        (coverage / 'lcov.info').write_text('SF:crates/ir/src/lib.rs\n', encoding='utf-8')
-        lines_by_target = {
-            'crates/ir/src/lib.rs': {5312},
-            'crates/scene/src/dry.rs': set(),
-        }
+        (coverage / 'lcov.info').write_text(f'SF:{IR}\n', encoding='utf-8')
+        write_targets(self.root, {IR: 8, DRY: 5})
+        lines_by_target = {IR: {5312}, DRY: set()}
         with mock.patch.object(ci_refresh, 'changed_lines', return_value=lines_by_target):
-            command, zero_site = ci_refresh.build_mutation_command(
+            command, zero_targets = ci_refresh.build_mutation_command(
                 self.root, self.root / 'uml-viewer.exe', BASE)
-        self.assertFalse(zero_site)
+        self.assertEqual(zero_targets, {DRY})
         self.assertEqual(command[1:4], ['quality', 'mutate', '--reuse-coverage'])
-        self.assertEqual(command[4:6], ['--lines', '5312'])
-        self.assertEqual(command[6:], [target for target, _ in ci_refresh.MUTATE_TARGETS])
+        self.assertEqual(command[4], '--lines')
+        self.assertEqual(command[5], f'{IR}:5312,{DRY}:6')
+        self.assertEqual(command[6:], [IR, DRY])
         self.assertNotIn('--test-command', command)
 
 
 class FailClosed(unittest.TestCase):
-    def test_missing_or_conflicting_base_sha_fails(self):
+    def test_missing_or_malformed_base_sha_fails(self):
         with mock.patch.dict(os.environ, {}, clear=True):
-            with self.assertRaisesRegex(RuntimeError, 'missing base SHA'):
+            with self.assertRaisesRegex(RuntimeError, 'missing UML_REFRESH_BASE_SHA'):
                 ci_refresh.base_commit()
-        with mock.patch.dict(os.environ, {'BASE_SHA': BASE, 'PR_BASE_SHA': 'c' * 40},
-                             clear=True):
-            with self.assertRaisesRegex(RuntimeError, 'conflicting base SHAs'):
+        with mock.patch.dict(os.environ, {'UML_REFRESH_BASE_SHA': 'short'}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, 'malformed base SHA'):
                 ci_refresh.base_commit()
 
     def test_ambiguous_merge_base_fails(self):
@@ -121,26 +148,22 @@ class FailClosed(unittest.TestCase):
                 '--- a/other.rs\n+++ b/other.rs\n@@ -1 +1 @@\n-a\n+b\n')
         with self.assertRaisesRegex(RuntimeError, 'malformed hunk'):
             ci_refresh.parse_diff(
-                'diff --git a/crates/ir/src/lib.rs b/crates/ir/src/lib.rs\n'
-                '--- a/crates/ir/src/lib.rs\n+++ b/crates/ir/src/lib.rs\n'
-                '@@ nonsense @@\n')
+                f'diff --git a/{IR} b/{IR}\n'
+                f'--- a/{IR}\n+++ b/{IR}\n@@ nonsense @@\n')
 
 
 class MainFlow(unittest.TestCase):
-    def test_zero_site_main_republishes_fresh_snapshots(self):
+    def test_asymmetric_main_publishes_changed_and_zero_site_targets(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             state = root / 'runner-temp' / 'uml-maintainer-refresh'
             state.mkdir(parents=True)
             binary = root / 'uml-viewer.exe'
             binary.write_text('', encoding='utf-8')
-            for target, _ in ci_refresh.MUTATE_TARGETS:
-                path = root / target
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text('fn a() {}\n', encoding='utf-8')
+            write_targets(root, {IR: 2, DRY: 10})
             coverage = root / 'coverage'
             coverage.mkdir()
-            (coverage / 'lcov.info').write_text('SF:crates/ir/src/lib.rs\n', encoding='utf-8')
+            (coverage / 'lcov.info').write_text(f'SF:{IR}\n', encoding='utf-8')
 
             def record(operation, tool, scope):
                 return json.dumps({
@@ -151,32 +174,46 @@ class MainFlow(unittest.TestCase):
 
             (state / 'crap.json').write_text(
                 record('crap', 'crapper', 'whole-tree'), encoding='utf-8')
+            expected_lines = f'{IR}:2,{DRY}:11'
 
             def fake_run(command, **_):
                 if command[0] == 'git':
-                    stdout = f'{MERGE}\n' if command[1] == 'merge-base' else ''
+                    stdout = f'{MERGE}\n' if command[1] == 'merge-base' else DIFF_ASYMMETRIC
                     return types.SimpleNamespace(returncode=0, stdout=stdout, stderr='')
-                self.assertEqual(command[4:6], ['--lines', '2'])
+                self.assertEqual(command[4], '--lines')
+                self.assertEqual(command[5], expected_lines)
+                self.assertEqual(command[6:], [IR, DRY])
                 self.assertNotIn('--test-command', command)
-                self.assertEqual(command[6:],
-                                 [target for target, _ in ci_refresh.MUTATE_TARGETS])
                 for target, relative in ci_refresh.MUTATE_TARGETS:
                     snapshot = root / relative
                     snapshot.parent.mkdir(parents=True, exist_ok=True)
+                    verdict = ':killed 1' if target == IR else ''
                     snapshot.write_text(
-                        f'{{:source "{target}" :outcomes {{}}}}', encoding='utf-8')
+                        f'{{:source "{target}" :outcomes {{{verdict}}}}}',
+                        encoding='utf-8')
                 return types.SimpleNamespace(
                     returncode=0, stdout=record('mutate', 'mutator', None), stderr='')
 
             previous = Path.cwd()
             os.chdir(root)
             try:
-                with mock.patch.dict(os.environ, {'RUNNER_TEMP': str(root / 'runner-temp'), 'UML_REFRESH_BASE_SHA': BASE}, clear=True), mock.patch.object(ci_refresh.subprocess, 'run', side_effect=fake_run), mock.patch.object(sys, 'argv', ['ci-refresh.py', str(binary), 'mutate']):
+                with (
+                    mock.patch.dict(os.environ, {
+                        'RUNNER_TEMP': str(root / 'runner-temp'),
+                        'UML_REFRESH_BASE_SHA': BASE,
+                    }, clear=True),
+                    mock.patch.object(ci_refresh.subprocess, 'run', side_effect=fake_run),
+                    mock.patch.object(sys, 'argv',
+                                      ['ci-refresh.py', str(binary), 'mutate']),
+                ):
                     ci_refresh.main()
             finally:
                 os.chdir(previous)
-            for _, relative in ci_refresh.MUTATE_TARGETS:
-                self.assertIn(':outcomes {}', (root / relative).read_text(encoding='utf-8'))
+            self.assertIn(':killed 1', (root / '.metrics/mutate/ir.edn').read_text(
+                encoding='utf-8'))
+            self.assertIn(':outcomes {}',
+                          (root / '.metrics/mutate/scene/dry.edn').read_text(
+                              encoding='utf-8'))
             self.assertTrue((state / 'mutate.json').is_file())
 
 

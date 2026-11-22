@@ -36,8 +36,9 @@
   refresh. Optionally
   `./target/release/uml-viewer quality dry`, then
   `./target/release/uml-viewer ir examples/uml-viewer.policy.edn`.
-  CI's per-PR refresh is diff-limited by #124; do not carry that `--lines`
-  filter into a maintainer refresh, which stays full over the changed files.
+  CI's per-PR refresh uses a file-qualified `--lines` filter (#124); do not
+  carry that filter into a maintainer refresh, which stays full over the
+  changed files.
   On native Windows use `.\target\release\uml-viewer.exe` for each call.
   Respect the current user resource policy before building or refreshing.
   `quality` applies the declared scope in `uml-quality.json` and prints the
