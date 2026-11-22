@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 import time
@@ -227,6 +228,14 @@ class WorkflowContract(unittest.TestCase):
         self.assertLess(checkout, fetch)
         self.assertIn('^[0-9a-f]{40}$', job)
         self.assertIn('git fetch --no-tags origin "$UML_REFRESH_BASE_SHA"', job)
+
+    def test_windows_mutate_keeps_at_least_a_forty_five_minute_budget(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    '.github/workflows/ci.yml').read_text(encoding='utf-8')
+        job = workflow.split('  windows-mutate:', 1)[1].split('\n  windows-quality:', 1)[0]
+        budget = re.search(r'^    timeout-minutes:\s*(\d+)$', job, re.MULTILINE)
+        self.assertIsNotNone(budget)
+        self.assertGreaterEqual(int(budget.group(1)), 45)
 
 
 if __name__ == '__main__':

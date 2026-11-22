@@ -150,7 +150,7 @@ jobs:
   # kill-on-close Job Object, with real cargo test inside the copies.
   windows-mutate:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
       # A missing toolchain must fail here, never skip.

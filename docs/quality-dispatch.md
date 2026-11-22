@@ -206,7 +206,7 @@ stdout record against the actual exit (including valid CRAP 2 and mutation 3),
 and requires both valid records before IR. Reports stay on stderr. The
 disposable checkout may acquire `.metrics/`; records and nonempty IR go under
 `RUNNER_TEMP`, and neither lane uploads them. Steps are bounded to 21/6/1
-minutes within `windows-mutate`'s 30-minute job limit (`windows-quality`'s is
+minutes within `windows-mutate`'s 45-minute job limit (`windows-quality`'s is
 90). Adding this gate is not evidence that the refresh passed: criterion 6 needs
 a successful CI execution on the one host.
 
