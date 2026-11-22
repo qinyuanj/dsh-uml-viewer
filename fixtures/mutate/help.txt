@@ -59,11 +59,11 @@ Options:
   --confirm-changed-inputs      Opt into the narrowed test-input digest built
                                 from --changed-input and --deleted-input. A
                                 confirmed input set also includes every --copy
-                                path. Without this flag, or without at least
-                                one changed/deleted input, the whole-tree
-                                digest stays the default. An unconfirmed list
-                                or an empty confirmation disables survived
-                                reuse instead of reusing a verdict.
+                                path. With no flag and no explicit inputs,
+                                the whole-tree digest stays the default.
+                                Explicit inputs without confirmation, or a
+                                confirmation without explicit inputs, disable
+                                survived reuse instead of reusing a verdict.
   --scan                        List mutation sites. Do not run tests or
                                 write metrics.
   --mutate-all                  Run every covered site, including ones the
