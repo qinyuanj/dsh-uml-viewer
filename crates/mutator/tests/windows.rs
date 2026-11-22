@@ -25,7 +25,8 @@ fn serial() -> std::sync::MutexGuard<'static, ()> {
 
 /// The `:test-input` field is provenance: its value depends on the machine's
 /// path spelling and is pinned by its own unit tests, not by these snapshots.
-/// Strip it from both sides before comparing published bytes to goldens.
+/// Strip it from both sides before comparing published bytes to goldens. The
+/// `:test-input-scope` tag is a deliberate port field and is pinned in goldens.
 fn without_test_input(bytes: &[u8]) -> Vec<u8> {
     let text = String::from_utf8_lossy(bytes);
     let marker = ":test-input \"";

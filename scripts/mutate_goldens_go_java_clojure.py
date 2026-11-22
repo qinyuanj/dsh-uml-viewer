@@ -11,7 +11,9 @@ CLI resolve the cached dependencies from ~/.m2.
 
 `--clojure-corpus DIR --raw-output FILE` additionally writes the original's
 `discover_raw` for every Clojure source under DIR (a reader differential that
-is not committed).
+is not committed). The committed goldens add this port's deliberate
+`:test-input-scope "global-v1"` tag to the original's bytes; regeneration
+restores it before writing them.
 """
 from __future__ import annotations
 
@@ -65,6 +67,13 @@ def snapshots(root: Path) -> dict[str, bytes]:
     return {p.relative_to(base).as_posix(): p.read_bytes() for p in sorted(base.rglob("*.edn"))}
 
 
+def with_scope(data: bytes) -> bytes:
+    """Add the port's scope tag to a pinned original snapshot."""
+    marker = b" :outcomes {"
+    assert data.count(marker) == 1, data[:200]
+    return data.replace(marker, b' :test-input-scope "global-v1" :outcomes {')
+
+
 def run_cli(run, args: list[str]) -> tuple[int, str]:
     stdout, stderr = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
@@ -82,9 +91,9 @@ def oracle_project(name: str, fixture: Path, scratch: Path, run) -> dict:
     shutil.copytree(source, root)
     args = ["--root", str(root), "--max-workers", "1", "--timeout-factor", "20", *targets]
     first, first_log = run_cli(run, ["--mutate-all", *args])
-    published = snapshots(root)
+    published = {key: with_scope(data) for key, data in snapshots(root).items()}
     second, second_log = run_cli(run, args)
-    rerun = snapshots(root)
+    rerun = {key: with_scope(data) for key, data in snapshots(root).items()}
     assert published, f"{name}: no snapshot published"
     assert rerun == published, f"{name}: unchanged rerun changed snapshot bytes"
     for relative, data in before.items():
