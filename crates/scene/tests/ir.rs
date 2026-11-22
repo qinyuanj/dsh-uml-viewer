@@ -1,6 +1,3 @@
-//! IR normalization — validation cases from viewer_spec plus the member and
-//! package canonicalization rules.
-
 use edn::record::get;
 use edn::{Value, parse};
 use scene::ir::{normalize, read_document};
@@ -18,8 +15,6 @@ fn rejects_duplicate_class_ids_unknown_endpoints_and_bad_ranges() {
 
 #[test]
 fn golden_ir_files_load_without_loss_or_duplication() {
-    // Every JVM golden IR is hierarchical and passes through unchanged: any
-    // normalization here would silently rewrite the parity oracle.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/jvm-goldens");
     for lang in ["lua", "typescript", "rust", "python"] {
         let path = dir.join(format!("{lang}.ir.edn"));
@@ -29,7 +24,6 @@ fn golden_ir_files_load_without_loss_or_duplication() {
         let classes = edn::record::seq(get(&raw, "classes"));
         let edges = edn::record::seq(get(&raw, "edges"));
         assert!(!classes.is_empty() && !edges.is_empty(), "{lang}");
-        // Re-encoding and reparsing must be structurally identical.
         let round = parse(&edn::encode(&raw).unwrap()).unwrap();
         assert_eq!(raw, round, "{lang} round trip");
     }

@@ -23,7 +23,6 @@ it('restores only the last displayed IR bytes; changed or missing IR reopens wai
     }
     const states = new SessionStates(home)
     await states.write('session-a', state)
-    // A new store instance models a DSH process restart.
     expect(await new SessionStates(home).read('session-a')).toEqual(state)
     await writeFile(diagram, '{:title "Not yet displayed"}')
     expect(await new SessionStates(home).read('session-a')).toEqual({ ...state, diagram: null })
@@ -35,9 +34,6 @@ it('restores only the last displayed IR bytes; changed or missing IR reopens wai
 })
 
 it('saves the resident-loaded fingerprint, so a file replaced after the load is not trusted', async () => {
-  // The resident parsed A; the host saves while B is already on disk (the
-  // panel can close inside the 250 ms reload cadence). The stored state must
-  // still describe A, so reopening over B fails closed.
   const home = await mkdtemp(path.join(os.tmpdir(), 'uml save fingerprint '))
   try {
     const diagram = path.join(home, 'diagram.edn')
@@ -49,8 +45,6 @@ it('saves the resident-loaded fingerprint, so a file replaced after the load is 
       camera: { x: 0, y: 0, zoom: 1 }, selected: null, detail: null,
     }
     await writeFile(diagram, '{:title "B"}')
-    // A fake resident emits the protocol response to save; validate and persist
-    // exactly what crosses that boundary, including its loaded fingerprint.
     const event = parseResidentLine(JSON.stringify({ version: 1, seq: 9, event: 'state', state: residentState }))
     if (event?.event !== 'state') throw new Error('expected state response')
     await new SessionStates(home).write('session-b', event.state)

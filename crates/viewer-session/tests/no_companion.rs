@@ -1,15 +1,5 @@
-//! The viewer session does not depend on the companion (#17): the resolved
-//! dependency closure of `viewer-session` in the workspace `Cargo.lock`
-//! holds no `companion` package and no window stack, so the resident mode
-//! the plugin host drives links neither Herdr nor a GUI toolkit.
-//!
-//! A lock entry lists a package's `[dev-dependencies]` beside the ones it
-//! ships, and a test's dependencies never reach the binary, so the walk
-//! leaves the dev-only names of every workspace crate out (#89).
-
 use std::collections::{BTreeMap, BTreeSet};
 
-/// `name -> dependency names` for every `[[package]]` of the lock file.
 fn lock_graph() -> BTreeMap<String, Vec<String>> {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Cargo.lock");
     let text = std::fs::read_to_string(path).unwrap();
@@ -27,7 +17,6 @@ fn lock_graph() -> BTreeMap<String, Vec<String>> {
             } else if in_deps && line == "]" {
                 in_deps = false;
             } else if in_deps {
-                // `"name"` or `"name version"` (several versions locked).
                 let dep = line.trim_end_matches(',').trim_matches('"');
                 deps.push(dep.split(' ').next().unwrap().to_owned());
             }
@@ -36,7 +25,6 @@ fn lock_graph() -> BTreeMap<String, Vec<String>> {
             graph.entry(name).or_insert_with(Vec::new).extend(deps);
         }
     }
-    // Only the names a test alone needs leave the walk (#89).
     let names: Vec<String> = graph.keys().cloned().collect();
     for name in names {
         let (shipped, dev) = manifest_deps(&name);
@@ -47,8 +35,6 @@ fn lock_graph() -> BTreeMap<String, Vec<String>> {
     graph
 }
 
-/// The dependency names a workspace crate's manifest declares: the ones it
-/// ships, and the ones only its tests need.
 fn manifest_deps(name: &str) -> (BTreeSet<String>, BTreeSet<String>) {
     let path = format!(
         "{}/../../crates/{name}/Cargo.toml",
@@ -109,13 +95,11 @@ fn the_viewer_session_links_no_companion_and_no_window_stack() {
         .collect();
     assert!(banned.is_empty(), "viewer-session depends on {banned:?}");
     assert!(seen.contains("scene") && seen.contains("frame"));
-    // #30 deleted the standalone window: its crate is not locked at all.
     assert!(!graph.contains_key("viewer"), "the window crate is locked");
 }
 
 #[test]
 fn no_workspace_package_is_the_companion_any_more() {
-    // #18 deleted the Herdr companion crate with its roles.
     let graph = lock_graph();
     assert!(!graph.contains_key("companion"), "the companion is locked");
     let users: Vec<&String> = graph

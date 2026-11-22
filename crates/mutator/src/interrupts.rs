@@ -1,16 +1,7 @@
-//! SIGINT and SIGTERM stop a run instead of killing it mid-cleanup.
-//!
-//! The handler only records the signal number. The command poll loop and the
-//! worker loop notice it, kill their children and unwind, so the caller removes
-//! its scratch from ordinary code and exits `128 + signal`, as the original
-//! does. Nothing but the store happens in the handler, so no allocation or
-//! filesystem call runs in an async-signal context.
-
 use std::sync::atomic::{AtomicI32, Ordering};
 
 static STOP: AtomicI32 = AtomicI32::new(0);
 
-/// The signal that stopped this run, once one arrived.
 pub fn pending() -> Option<i32> {
     match STOP.load(Ordering::Relaxed) {
         0 => None,
@@ -18,7 +9,6 @@ pub fn pending() -> Option<i32> {
     }
 }
 
-/// The signal's name for the interrupt report.
 pub fn name(signum: i32) -> &'static str {
     match signum {
         2 => "SIGINT",
@@ -42,8 +32,6 @@ mod armed {
         unsafe {
             let mut action: libc::sigaction = std::mem::zeroed();
             action.sa_sigaction = stop as *const () as usize;
-            // Restarted calls keep the poll loops simple; each loop checks
-            // `pending` between its short waits anyway.
             action.sa_flags = libc::SA_RESTART;
             libc::sigemptyset(&mut action.sa_mask);
             let mut previous: libc::sigaction = std::mem::zeroed();
@@ -51,14 +39,12 @@ mod armed {
         }
     }
 
-    /// The handlers for one run; dropping this restores what was there before.
     pub struct Armed {
         previous: Vec<(libc::c_int, libc::sigaction)>,
     }
 
     impl Armed {
         pub fn new() -> Self {
-            // A new run starts unstopped, even in a process that ran one before.
             STOP.store(0, Ordering::Relaxed);
             let previous = [libc::SIGINT, libc::SIGTERM]
                 .into_iter()
@@ -82,10 +68,6 @@ mod armed {
 #[cfg(target_os = "linux")]
 pub use armed::Armed;
 
-/// Windows delivers Ctrl+C and Ctrl+Break as console control events on their
-/// own thread (the original's SIGINT/SIGBREAK). The handler only records the
-/// signal; the command poll loop terminates the Job Object and the run cleans
-/// up its copies before exiting 128 + signal.
 #[cfg(windows)]
 mod armed {
     use super::STOP;
@@ -110,7 +92,6 @@ mod armed {
         1
     }
 
-    /// The console handler for one run; dropping it removes it again.
     pub struct Armed;
     impl Armed {
         pub fn new() -> Self {
@@ -133,7 +114,6 @@ mod armed {
 #[cfg(windows)]
 pub use armed::Armed;
 
-/// Other platforms refuse mutation before a command runs; no handler is needed.
 #[cfg(not(any(target_os = "linux", windows)))]
 pub struct Armed;
 

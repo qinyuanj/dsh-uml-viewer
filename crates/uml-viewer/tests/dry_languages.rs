@@ -1,6 +1,3 @@
-//! The process-level cases of `dryer/tests/test_cli.py` (pinned b3f72ad),
-//! ported to the real binary, plus the original Lua fixture's own golden.
-
 use crate::crap::Project;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,8 +7,6 @@ fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// Copy `fixtures/dry/<name>` with every line ending rewritten, like the
-/// original `copy_fixture`.
 fn copy_fixture(name: &str, target: &Path, newline: &str) {
     fn walk(source: &Path, target: &Path, newline: &str) {
         for entry in fs::read_dir(source).unwrap() {
@@ -97,7 +92,6 @@ fn an_external_source_does_not_create_a_missing_project_root() {
     project.write("src/one.py", "def alpha(xs):\n    return xs\n");
     let root = project.root.join("fresh").join("project");
     let source = project.root.join("src/one.py");
-    // The root must not exist yet, so the process starts from its parent.
     let output = Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
         .args(["dry", "--root"])
         .arg(&root)
@@ -184,7 +178,6 @@ fn malformed_lua_source_fails_and_keeps_the_previous_snapshot() {
     );
 }
 
-/// The original Lua fixture's own report lines and names.
 #[test]
 fn lua_fixture_reports_the_copied_function() {
     let project = Project::new();
@@ -207,9 +200,6 @@ fn lua_fixture_reports_the_copied_function() {
     );
 }
 
-/// `test_lua_fixture_snapshot_is_the_golden_bytes`: LF and CRLF sources
-/// publish the same bytes, and those bytes are the original repository's
-/// committed golden.
 #[test]
 fn lua_fixture_snapshot_is_the_golden_bytes() {
     let golden = fs::read(repo().join("fixtures/dry/lua_project-original.edn")).unwrap();
@@ -226,8 +216,6 @@ fn lua_fixture_snapshot_is_the_golden_bytes() {
     }
 }
 
-/// `test_edn_on_stdout_is_the_golden_bytes`: the EDN report on stdout is the
-/// same bytes, from a CRLF project.
 #[test]
 fn edn_on_stdout_is_the_golden_bytes() {
     let project = Project::new();
@@ -273,9 +261,6 @@ fn crlf_sources_report_the_same_lines_and_names_as_lf() {
     assert!(!lf.contains(&b'\r'));
 }
 
-/// `test_changed_finds_new_directories_under_a_subdirectory_root`: the CLI
-/// half; the exact selected file list (including the `.cljd`) is asserted in
-/// `crates/dryer/src/original/cli.rs`.
 #[test]
 fn changed_finds_new_directories_under_a_subdirectory_root() {
     let project = Project::new();
@@ -295,8 +280,6 @@ fn changed_finds_new_directories_under_a_subdirectory_root() {
     let sub = project.root.join("sub");
     let output = run(&sub, &["--changed", "--min-lines", "3", "--min-nodes", "1"]);
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    // Exact, so a file that should not be selected (other/d.py, the test
-    // file, the deleted one) cannot slip into the report unnoticed.
     assert_eq!(
         text(&output.stdout),
         "DUPLICATE score=1.00\n  fresh/a b.py:1-4\n  fresh/c.py:1-4\n",
@@ -313,7 +296,6 @@ fn changed_reports_git_failure() {
         .arg("--changed")
         .current_dir(&project.root)
         .env("LC_ALL", "C")
-        // The scratch directory may sit inside a checkout; stop git there.
         .env("GIT_CEILING_DIRECTORIES", project.root.parent().unwrap())
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")

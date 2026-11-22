@@ -83,9 +83,6 @@ $LuaRocks = Join-Path $LuaRocksRoot 'luarocks.exe'
 $GCC = Join-Path $MinGWRoot 'bin\x86_64-w64-mingw32-gcc.exe'
 $Strip = Join-Path $MinGWRoot 'bin\strip.exe'
 
-# Pinned so this machine and the next run the same toolchain. The GitHub hashes
-# are the releases' own .sha256 assets; the lua.org one is of the published
-# tarball.
 $Downloads = @(
     [pscustomobject]@{
         Name = "MinGW-w64 GCC 16.2.0 (winlibs)"
@@ -139,8 +136,6 @@ function Assert-Exit {
 }
 
 function Test-Install {
-    # Whether Exe is there and reports Pattern: a stunted or wrong-version copy is
-    # not an install.
     param([string]$Exe, [string[]]$Arguments, [string]$Pattern)
 
     if (-not (Test-Path $Exe)) {
@@ -154,7 +149,6 @@ function Test-Install {
     return ($LASTEXITCODE -eq 0) -and ($reported -match [regex]::Escape($Pattern))
 }
 
-# 1. The toolchain comes first: the interpreter below is compiled with it.
 if (-not (Test-Install $GCC @('--version') '16.2.0')) {
     Write-Host 'installing MinGW-w64 GCC 16.2.0'
     $staging = New-Staging
@@ -168,9 +162,6 @@ if (-not (Test-Install $GCC @('--version') '16.2.0')) {
     Remove-Item $staging -Recurse -Force
 }
 
-# 2. Lua itself: the DLL build Lua's own makefile mingw target makes, without
-#    needing make or sh. lua.exe links the import library, so lua54.dll must sit
-#    beside it.
 $luaReady = (Test-Path (Join-Path $LuaRoot 'bin\lua54.dll')) -and
     (Test-Path (Join-Path $LuaRoot 'lib\lua54.lib')) -and
     (Test-Path (Join-Path $LuaRoot 'include\lua.h')) -and
@@ -220,7 +211,6 @@ if (-not $luaReady) {
     Remove-Item $staging -Recurse -Force
 }
 
-# 3. LuaRocks. The standalone Windows build bundles its own Lua 5.4.
 if (-not (Test-Install $LuaRocks @('--version') $LuaRocksVersion)) {
     Write-Host "installing LuaRocks $LuaRocksVersion"
     $staging = New-Staging
@@ -232,7 +222,6 @@ if (-not (Test-Install $LuaRocks @('--version') $LuaRocksVersion)) {
     Remove-Item $staging -Recurse -Force
 }
 
-# 4. LuaRocks reads its config from the deploy tree, so it lives there.
 $LuaDir = $LuaRoot -replace '\\', '/'
 $config = @"
 lua_interpreter = "lua"
@@ -248,9 +237,6 @@ variables = {
 New-Item -ItemType Directory -Force -Path $DeployTree | Out-Null
 Set-Content -Path (Join-Path $DeployTree 'config-5.4.lua') -Value $config -Encoding ASCII
 
-# 5. The rocks a Lua suite reports through, in the order setup-ubuntu installs
-#    them. luafilesystem is named explicitly because LuaCov loads lfs directly,
-#    before Busted resolves anything.
 $env:PATH = "$(Join-Path $MinGWRoot 'bin');$(Join-Path $LuaRoot 'bin');$LuaRocksRoot;$env:PATH"
 & $LuaRocks --lua-version=5.4 install luafilesystem
 Assert-Exit 'luarocks install luafilesystem' $LASTEXITCODE
@@ -261,11 +247,7 @@ Assert-Exit 'luarocks install luacov' $LASTEXITCODE
 & $LuaRocks --lua-version=5.4 install cluacov 1.0.0-1
 Assert-Exit 'luarocks install cluacov 1.0.0-1' $LASTEXITCODE
 
-# 6. The lcov reporter goes to the user tree and nowhere else, as on Ubuntu, so
-#    both platforms have one shape; a deploy-tree copy is deleted first. Not
-#    being installed is the normal case on a fresh machine, and Windows
-#    PowerShell 5.1 turns a redirected stderr line into a terminating error, so
-#    this one may fail.
+# Windows PowerShell 5.1 turns a redirected stderr line into a terminating error.
 try {
     & $LuaRocks --lua-version=5.4 remove --force --deps-mode none luacov-reporter-lcov 2>&1 | Out-Null
 } catch {
@@ -278,10 +260,7 @@ if (Test-Path $shadow) {
 & $LuaRocks --lua-version=5.4 --tree $UserTree install --deps-mode none luacov-reporter-lcov
 Assert-Exit 'luarocks install luacov-reporter-lcov' $LASTEXITCODE
 
-# 7. Persist the search paths. LuaRocks' tree is not on Lua's default path, so
-#    require('busted.runner') fails without LUA_PATH even where busted is
-#    installed. The trailing ";;" keeps Lua's built-in default path as the
-#    fallback.
+# A trailing ";;" keeps Lua's built-in default package path.
 $LuaPath = './?.lua;./?/init.lua;' +
     "$DeployTree\share\lua\5.4\?.lua;$DeployTree\share\lua\5.4\?/init.lua;" +
     "$UserTree\share\lua\5.4\?.lua;$UserTree\share\lua\5.4\?/init.lua;;"
@@ -301,19 +280,12 @@ $env:PATH = (@($PathEntries | Where-Object { ($env:PATH -split ';') -notcontains
 $env:LUA_PATH = $LuaPath
 $env:LUA_CPATH = $LuaCPath
 
-# GitHub Actions: a later step starts from the job's environment, not this
-# process's, so the same three values go through the step environment file.
 if ($env:GITHUB_ENV) {
     Add-Content -Path $env:GITHUB_ENV -Value "PATH=$env:PATH"
     Add-Content -Path $env:GITHUB_ENV -Value "LUA_PATH=$LuaPath"
     Add-Content -Path $env:GITHUB_ENV -Value "LUA_CPATH=$LuaCPath"
 }
 
-# 8. Prove it rather than report it: the interpreter loads the modules the tests
-#    need, and PATH reaches that interpreter. A machine-wide PATH is searched
-#    after the user one, so an older lua.exe there cannot outrank this one — but
-#    one already on the machine PATH is searched before it, and the Lua cases
-#    would fail rather than skip.
 $resolvedLua = (Get-Command lua -CommandType Application -ErrorAction SilentlyContinue |
     Select-Object -First 1).Source
 if ($resolvedLua -and $resolvedLua -ne $Lua) {

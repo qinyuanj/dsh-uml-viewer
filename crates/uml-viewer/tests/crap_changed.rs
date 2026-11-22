@@ -1,4 +1,3 @@
-//! Ports of crapper 4068857 changed selection cases through the real CLI.
 use super::crap::{Project, stderr, stdout};
 use std::process::Command;
 
@@ -56,12 +55,9 @@ fn changed_selects_existing_git_changes_inside_scope_with_filters_and_exclusions
     ]);
     assert_eq!(result.status.code(), Some(0), "{}", stderr(&result));
     assert_eq!(p.names(), ["edited", "rename", "untracked"]);
-    // Existing positional paths do not replace the changed set; missing ones filter it.
     let result = p.crap(&["--changed", "--no-coverage", "src/keep.rs", "space name"]);
     assert_eq!(result.status.code(), Some(0), "{}", stderr(&result));
     assert_eq!(p.names(), ["untracked"]);
-    // Python ignores an existing path positional with --changed; only a
-    // missing native-separator spelling becomes a (nonmatching) text filter.
     let native = if cfg!(windows) {
         "src\\edit.rs"
     } else {

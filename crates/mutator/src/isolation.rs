@@ -1,10 +1,3 @@
-//! Every command, including coverage and baseline, gets a disposable overlay.
-//! Mounting over the canonical root in the child namespace preserves absolute
-//! paths and sibling Cargo dependencies without exposing writes to the parent.
-//!
-//! Copy isolation is the Windows mechanism (`crate::copies`); the paths a call
-//! named with `--copy` are validated here for every platform, because a Linux
-//! view already reaches them and must still refuse the same bad arguments.
 #[cfg(target_os = "linux")]
 use crate::interrupts;
 #[cfg(target_os = "linux")]
@@ -24,16 +17,11 @@ use std::{
     time::Duration,
 };
 
-/// A command that did not produce a result.
 pub enum Failure {
-    /// A stop signal arrived; the caller's interrupt path cleans up.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Interrupted,
-    /// This host cannot give the command its isolation: never run weaker.
-    /// The original reports this with exit 1, before any test result counts.
     #[cfg_attr(not(windows), allow(dead_code))]
     Unavailable(String),
-    /// The view could not be entered, or the command could not be launched.
     Message(String),
 }
 
@@ -50,20 +38,10 @@ impl std::fmt::Display for Failure {
 
 pub struct View {
     pub directory: PathBuf,
-    // The scratch one Lua collection publishes into. It is the view's own
-    // layout, decided when the view is opened: the collector, the shard stats
-    // and configs, the merged stats and its conversion config all live here,
-    // and a collection only uses the path it is given.
     lua_scratch: PathBuf,
-    // A slot borrows its pool's root, so only the pool removes the tree.
     _root: Option<Root>,
     #[cfg(windows)]
     command_slot: Option<PathBuf>,
-    // This worker's Cargo target directory, when it has one. It is a position
-    // beside the slot, above the region every command wipes, so it is kept the
-    // way `lua_scratch` is kept: by where it sits, never by a name
-    // `Slot::copy` skips. `None` is "no target directory of its own": the
-    // command builds inside its copy, as it always did.
     #[cfg(windows)]
     build: Option<crate::build_cache::BuildCache>,
 }
@@ -73,32 +51,14 @@ pub struct Completed {
     pub output: String,
 }
 
-/// A path outside the project root that a call declared with `--copy`.
-///
-/// On Windows the copy sits at `<slot>/beside/project`, so `..` from it reaches
-/// the paths placed beside the copy and `../..` is still inside the slot the next
-/// command wipes. `relative` is where the path must appear: the same position it
-/// has beside the real project root. Linux records the same validated paths and
-/// copies nothing, because its view is mounted over the real project root and
-/// `..` already reaches the real parent directory.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Outside {
-    /// The real path on this host, symlinks resolved.
     #[cfg_attr(not(windows), allow(dead_code))]
     pub source: PathBuf,
-    /// Where a copy shows it, relative to the copy's parent: no `..`, no root.
     #[cfg_attr(not(windows), allow(dead_code))]
     pub relative: PathBuf,
 }
 
-/// `--copy`: the outside paths a call named, validated before any command runs.
-///
-/// Only a path **outside** `root` is accepted: one inside it is already in the
-/// copy, so accepting it would promise something the copy does not do. `..` is
-/// allowed only as a single leading component that leaves `root`, so the target
-/// `<slot>/<relative>` can never leave this call's scratch slot. The argument
-/// must exist. Every failure is a usage error naming the value, as the other
-/// option errors do.
 pub fn resolve_outside(root: &Path, requested: &[String]) -> Result<Vec<Outside>, String> {
     let root = quality_core::paths::resolve(root);
     let mut resolved: Vec<Outside> = Vec::new();
@@ -134,14 +94,6 @@ pub fn resolve_outside(root: &Path, requested: &[String]) -> Result<Vec<Outside>
                 "--copy path names the project's parent directory itself, not a path in it: {value}"
             ));
         }
-        // The slot's own entries are not free positions, and the list is the
-        // slot's declaration (`crate::slot`): copy isolation places the project
-        // at `project`, redirects HOME/TEMP/APPDATA to `home`, `temp` and
-        // `appdata`, recreates `output` and `mutation` for every command, and
-        // wipes the `lua-coverage` position a collection's scratch is named
-        // after. A `--copy` target there is deleted or merged over before the
-        // command that needs it reads it, so it is a usage error. Refusing keeps
-        // the option's promise: a placed path is visible to every command.
         if let Some(first) = relative.components().next()
             && let Component::Normal(name) = first
             && slot::is_reserved(name)
@@ -150,8 +102,6 @@ pub fn resolve_outside(root: &Path, requested: &[String]) -> Result<Vec<Outside>
                 "--copy path is in a name copy isolation reserves for its slot: {value}"
             ));
         }
-        // Every remaining component is normal, so the slot target is inside the
-        // scratch root by construction; the tests pin the normalisation.
         debug_assert!(
             relative
                 .components()
@@ -175,8 +125,6 @@ pub fn resolve_outside(root: &Path, requested: &[String]) -> Result<Vec<Outside>
                 return Err(format!("--copy path is not a file or directory: {value}"));
             }
         }
-        // Two spellings of one position (`../contracts`, `.././contracts`) are
-        // one outside copy, not two copies onto the same path.
         if resolved
             .iter()
             .any(|existing| existing.relative == relative)
@@ -188,11 +136,9 @@ pub fn resolve_outside(root: &Path, requested: &[String]) -> Result<Vec<Outside>
     Ok(resolved)
 }
 
-/// Commands that need the JVM's private home and a seeded dependency cache.
 #[cfg(target_os = "linux")]
 const JVM_COMMANDS: [&str; 3] = ["mvn", "clj", "clojure"];
 
-/// A command's own overlay layers: a fresh view of the project every time.
 #[cfg(target_os = "linux")]
 fn reset_layers(directory: &Path) -> io::Result<()> {
     for name in ["upper", "work", "mutation", "output", "m2"] {
@@ -220,19 +166,10 @@ impl View {
         })
     }
 
-    /// The dedicated view for one Lua collection. Its published collector,
-    /// shard output and conversion input outlive each command's project reset.
     pub fn lua_collection(root: &Path) -> io::Result<Self> {
         let view = Self::new(root)?;
         #[cfg(windows)]
         let view = {
-            // The slot is wiped on every command. It is a child of this view
-            // so `Entry::LuaScratch` — the one entry the declaration keeps —
-            // sits above the wiped region, and the copy is nested inside the
-            // slot so `../..` from the project cannot reach that scratch or
-            // anything the next command keeps. Keeping it by position, never by
-            // name, is why a mutant's own `lua-coverage` directory is still
-            // wiped.
             let command_slot = view.directory.join("slot");
             crate::scratch::private_directory(&command_slot)?;
             Self {
@@ -249,29 +186,21 @@ impl View {
             .with_build(self.build.clone())
     }
 
-    /// The Cargo target directory this view's commands share: a position above
-    /// the slot, owned by whoever opened the view (`crate::workers`), never
-    /// created or removed here.
     #[cfg(windows)]
     pub fn with_build(mut self, build: crate::build_cache::BuildCache) -> Self {
         self.build = Some(build);
         self
     }
 
-    /// The Cargo target directory this view's commands share, if it has one.
     #[cfg(windows)]
     pub fn build(&self) -> Option<&crate::build_cache::BuildCache> {
         self.build.as_ref()
     }
 
-    /// The scratch one Lua collection publishes into: the view names it, so
-    /// the collection never composes the view's layout itself. The directory
-    /// is not created here; the collection creates what it writes.
     pub fn lua_coverage_scratch(&self) -> &Path {
         &self.lua_scratch
     }
 
-    /// A view of a worker slot whose scratch root another owner removes.
     pub fn reused(directory: &Path) -> Self {
         Self {
             directory: directory.to_path_buf(),
@@ -285,10 +214,6 @@ impl View {
     }
 
     #[cfg(target_os = "linux")]
-    // The Linux namespace view launcher is the quality tools' own adapter for
-    // this one command kind: it owns PR_SET_PDEATHSIG, the per-command process
-    // group and the file-redirected streams that the generic capture API in
-    // quality_core::process cannot express.
     #[allow(clippy::disallowed_methods)]
     pub fn run(
         &self,
@@ -307,14 +232,7 @@ impl View {
         )
     }
 
-    /// Run an argument vector as-is, without a shell: a spec file name with a
-    /// space or a quote reaches the command as one argument, like the
-    /// original's argv-list commands.
     #[cfg(target_os = "linux")]
-    // The Linux namespace view launcher is the quality tools' own adapter for
-    // this one command kind: it owns PR_SET_PDEATHSIG, the per-command process
-    // group and the file-redirected streams that the generic capture API in
-    // quality_core::process cannot express.
     #[allow(clippy::disallowed_methods)]
     pub fn run_argv(
         &self,
@@ -335,13 +253,7 @@ impl View {
                 "overlayfs cannot represent this project path (comma, colon or backslash)".into(),
             ));
         }
-        // A worker slot is reused, so its previous command's view is discarded
-        // before this one: layer bytes never reach the next mutant.
         reset_layers(&self.directory).map_err(message)?;
-        // `--copy` needs no work here: the view is mounted over the real project
-        // root, so `..` resolves to the real parent directory and an outside
-        // path beside the project is already readable. It is still validated
-        // (`resolve_outside`) so both platforms refuse the same arguments.
         let mutation_path = self.directory.join("mutation");
         let destination = if let Some((path, source)) = mutation {
             scratch::private_file(&mutation_path)
@@ -370,7 +282,6 @@ impl View {
         } else {
             false
         };
-        // All substitutions are positional arguments, never shell source.
         const SCRIPT: &str = r#"set -eu
 root=$1
 layers=$2
@@ -440,8 +351,6 @@ exec "$@"
         for name in crate::child_env::inherited_removals() {
             view.env_remove(name);
         }
-        // A killed uml-viewer takes its unshare parent, the namespace's first
-        // process and every remaining descendant with it.
         unsafe {
             view.pre_exec(|| {
                 quality_core::libc::prctl(
@@ -460,21 +369,17 @@ exec "$@"
                     .unwrap_or_else(|| 128 + status.signal().unwrap_or(0));
             }
             if interrupts::pending().is_some() {
-                // The command owns its process group; stop it now, so the
-                // interrupt path can remove the scratch it can no longer use.
                 kill_group(&child);
                 let _ = child.wait();
                 return Err(Failure::Interrupted);
             }
             if timeout.is_some_and(|limit| start.elapsed() >= limit) {
-                // Each command owns a process group; reap descendants on timeout.
                 kill_group(&child);
                 child.wait().map_err(message)?;
                 break 124;
             }
             std::thread::sleep(Duration::from_millis(10));
         };
-        // A successful shell may leave daemon descendants; the view owns them.
         kill_group(&child);
         Ok(Completed {
             code,
@@ -534,7 +439,6 @@ exec "$@"
     }
 }
 
-/// The isolation level a snapshot records, as the original's `level`.
 pub fn level() -> &'static str {
     if cfg!(windows) {
         "copy"
@@ -543,7 +447,6 @@ pub fn level() -> &'static str {
     }
 }
 
-/// The original's `Isolation: ...` line, naming the real mechanism.
 #[cfg(windows)]
 pub fn describe() -> &'static str {
     crate::copies::describe()
@@ -554,7 +457,6 @@ pub fn describe() -> &'static str {
     "namespace views (a private overlayfs view per command)"
 }
 
-/// A report a command wrote inside its own view, never in the project.
 pub fn report_path(view: &View, relative: &Path) -> PathBuf {
     #[cfg(windows)]
     let base = view.slot().project_root();
@@ -563,12 +465,6 @@ pub fn report_path(view: &View, relative: &Path) -> PathBuf {
     base.join(relative)
 }
 
-/// Every report a finished command's view showed, not only those it wrote:
-/// the original reads them all from the project after an in-place command.
-/// A Windows copy (`base`, from `report_path(view, "")`) holds the whole
-/// project. A Linux view's upper layer (`base`) is read through to the project
-/// it was mounted over (`lower`, the canonical root); a whiteout or an opaque
-/// directory there stays deleted.
 pub fn report_tree<'a>(base: &'a Path, lower: &'a Path) -> quality_core::ReportTree<'a> {
     #[cfg(windows)]
     {
@@ -581,10 +477,6 @@ pub fn report_tree<'a>(base: &'a Path, lower: &'a Path) -> quality_core::ReportT
     }
 }
 
-/// JAVA_TOOL_OPTIONS uses the JVM's quote parser, not shell escaping. Adjacent
-/// quoted fragments form one option; a literal double quote is put in a
-/// single-quoted fragment, while every other character (including ') is inside
-/// double quotes. Backslashes are literal here (and excluded by the root policy).
 #[cfg(target_os = "linux")]
 fn java_tool_option(value: &std::ffi::OsStr) -> std::ffi::OsString {
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
@@ -600,9 +492,6 @@ fn java_tool_option(value: &std::ffi::OsStr) -> std::ffi::OsString {
     std::ffi::OsString::from_vec(encoded)
 }
 
-/// Preflight the entire cache before copying any bytes. Missing caches are fine;
-/// links (including a .m2 root link), special files and unreadable entries fail
-/// closed before the command is launched.
 #[cfg(target_os = "linux")]
 fn seed_cache(source: &Path, destination: &Path) -> io::Result<bool> {
     match fs::symlink_metadata(source) {
@@ -617,15 +506,12 @@ fn seed_cache(source: &Path, destination: &Path) -> io::Result<bool> {
     walk_cache(&directory, None)?;
     scratch::private_directory(destination)?;
     if let Err(error) = walk_cache(&directory, Some(destination)) {
-        // A partially seeded cache must never be mistaken for the caller's.
         let _ = scratch::force_remove(destination);
         return Err(error);
     }
     Ok(true)
 }
 
-/// O_NOFOLLOW rejects a link swapped in after symlink_metadata. O_NONBLOCK
-/// prevents a raced-in FIFO from blocking open; metadata below rejects it.
 #[cfg(target_os = "linux")]
 fn open_cache_entry(path: &Path) -> io::Result<fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
@@ -646,11 +532,6 @@ fn open_cache_entry(path: &Path) -> io::Result<fs::File> {
     Ok(file)
 }
 
-/// Read each directory through its held descriptor, so replacing an ancestor
-/// with a symlink cannot redirect traversal. Every child is opened no-follow,
-/// in both passes. Only bytes are copied into newly created private files: no
-/// symlinks, hard links or caller-owned inode permissions reach the writable
-/// seed. Concurrent ordinary-file writes can still yield an inconsistent cache.
 #[cfg(target_os = "linux")]
 fn walk_cache(directory: &fs::File, destination: Option<&Path>) -> io::Result<()> {
     use std::os::fd::AsRawFd;
@@ -883,13 +764,6 @@ mod scratch_tests;
 #[path = "isolation_outside_tests.rs"]
 mod outside_tests;
 
-/// The slot layout behind the Windows Lua scratch guarantee, checked without a
-/// Lua toolchain. `lua::windows_collect_tests` pins the same guarantee end to
-/// end (the collector is `dofile`d, every shard's stats stay readable, the
-/// conversion still reads the merged stats), but it skips when busted or
-/// cluacov is missing, so on such a host nothing would fail if the collection's
-/// scratch started being wiped again. These tests need only a command that
-/// exits 0.
 #[cfg(all(test, windows))]
 mod scratch_survival_tests {
     use super::*;
@@ -903,16 +777,12 @@ mod scratch_survival_tests {
         (root, project)
     }
 
-    /// Runs one command in `view`, failing the test if it cannot start.
     fn run(view: &View, project: &Path) {
         if view.run(project, project, "exit 0", None, None).is_err() {
             panic!("the command did not run");
         }
     }
 
-    /// The collection publishes its scratch beside the command slot, so
-    /// preparing the next command's copy leaves the collector every command
-    /// `dofile`s, the shard configs and stats, and the conversion input.
     #[test]
     fn a_collections_published_scratch_survives_slot_preparation() {
         let (_root, project) = project();
@@ -927,9 +797,6 @@ mod scratch_survival_tests {
         );
     }
 
-    /// Every other command still keeps its whole slot fresh: the entry the
-    /// previous command left — even one named `lua-coverage` — is gone before
-    /// this one, so the collection's exemption never becomes a channel.
     #[test]
     fn a_plain_views_slot_preparation_wipes_the_previous_commands_entries() {
         let (_root, project) = project();

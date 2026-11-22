@@ -1,9 +1,3 @@
-//! Scene frame goldens (#16): `uml-viewer scene --frame` on the shop
-//! fixture, byte for byte. The goldens under `fixtures/frames/` are the
-//! frame contract the viewer panel consumes (`docs/scene-frame.md`); a
-//! deliberate change regenerates them with `UPDATE_FRAME_GOLDENS=1` and the
-//! diff is reviewed like the schema change it is.
-
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -13,12 +7,9 @@ fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
-/// Run the `scene` role in process and return the frame it wrote.
 fn frame(args: &[&str]) -> String {
     static SERIAL: AtomicUsize = AtomicUsize::new(0);
     let shop = fixtures().join("shop");
-    // One file per call: tests run in parallel threads, and two calls with the
-    // same arguments would otherwise write and remove each other's output.
     let out = std::env::temp_dir().join(format!(
         "uml-frame-{}-{}-{}.json",
         std::process::id(),
@@ -44,8 +35,6 @@ fn frame(args: &[&str]) -> String {
     text
 }
 
-/// The golden of one view in each language the resident lays text out in
-/// (#44): Chinese is `{name}.frame.json`, English `{name}.en.frame.json`.
 fn golden(name: &str, args: &[&str]) {
     for (lang, file) in [
         ("zh", format!("{name}.frame.json")),
@@ -79,7 +68,6 @@ fn golden_text(file: &str) -> String {
         .replace("\r\n", "\n")
 }
 
-/// An unmeasured class box says 无数据 in Chinese and "No data" in English.
 #[test]
 fn the_no_data_marker_follows_the_language() {
     let marker = |file: &str| {
@@ -98,7 +86,6 @@ fn the_no_data_marker_follows_the_language() {
     assert!(marker("root.en.frame.json").iter().all(|t| t == "No data"));
 }
 
-/// Only Chinese and English are shipped: any other language, and none, is English.
 #[test]
 fn an_unsupported_or_missing_language_falls_back_to_english() {
     let english = golden_text("root.en.frame.json");
@@ -160,9 +147,6 @@ fn decluttered_triangles_at_block_zoom() {
     );
 }
 
-/// 移除箭头 at reading zoom (dsh-uml-viewer#25): compact dependency
-/// indicators instead of edges, violating ones in 违规关系色; selecting
-/// `:api` dims the unrelated violating and plain indicators alike.
 #[test]
 fn removed_arrows_show_violating_and_dimmed_dependency_indicators() {
     golden(
@@ -176,9 +160,6 @@ fn removed_arrows_show_violating_and_dimmed_dependency_indicators() {
     );
 }
 
-/// The panel primitives at a reading zoom under 1 (dsh-uml-viewer#24): a
-/// selected (marked) dependency port, its sibling ports and arrows, α/I,
-/// level numbers and stereotypes, all scaled and rounded like the window.
 #[test]
 fn a_selected_port_marks_itself_at_reading_zoom() {
     golden(
@@ -204,9 +185,6 @@ fn a_proposal_view_draws_the_same_way_without_a_banner() {
     );
 }
 
-/// The legend is typeset in Rust (#50, ADR 0015): the rows the panel draws are
-/// in the frame, in the language the resident was told, so each language has
-/// its own set. The goldens are the fixture for both.
 #[test]
 fn the_legend_rows_are_typeset_in_the_residents_language() {
     let legend = |file: &str| -> serde_json::Value {
@@ -237,7 +215,6 @@ fn the_legend_rows_are_typeset_in_the_residents_language() {
     let zh = legend("root.frame.json");
     let en = legend("root.en.frame.json");
     let (zh_rows, en_rows) = (rows(&zh), rows(&en));
-    // The same legend, the same row identities, word for word in each language.
     assert_eq!(
         zh_rows.iter().map(|r| r.0.clone()).collect::<Vec<_>>(),
         en_rows.iter().map(|r| r.0.clone()).collect::<Vec<_>>(),
@@ -257,8 +234,6 @@ fn the_legend_rows_are_typeset_in_the_residents_language() {
         en_rows.iter().all(|r| !cjk(&r.1)),
         "every English row is English: {en_rows:?}"
     );
-    // The semantic vocabulary of the legend: boxes, relations, the quality
-    // ramp, the chain highlight and no-data.
     let ids: Vec<&str> = zh_rows.iter().map(|r| r.0.as_str()).collect();
     for expected in [
         "class-box",
@@ -280,9 +255,6 @@ fn the_legend_rows_are_typeset_in_the_residents_language() {
     }
 }
 
-/// The legend's swatches name the roles the diagram itself is drawn with, so
-/// the panel resolves both through one theme and the colors cannot drift
-/// (#50). A role the legend names but no item uses would be its own color.
 #[test]
 fn the_legend_samples_use_the_roles_the_diagram_draws() {
     fn roles(value: &serde_json::Value, out: &mut Vec<String>) {
@@ -328,8 +300,6 @@ fn the_legend_samples_use_the_roles_the_diagram_draws() {
             "the legend names {role}, which the diagram also draws: {drawn_roles:?}"
         );
     }
-    // The quality ramp and the chain highlight are the roles the diagram uses
-    // for its quality colors and its dependency chain.
     for expected in [
         "quality-fill",
         "quality-stroke",
@@ -344,10 +314,6 @@ fn the_legend_samples_use_the_roles_the_diagram_draws() {
     }
 }
 
-/// Chrome left the frame (#46, ADR 0015): the title, the proposal banner, the
-/// return line, the status line and the centred hint are the panel's DOM now
-/// (breadcrumbs, status bar). A view has no chrome at all, and the pointer's
-/// hover popup is the only chrome kind left.
 #[test]
 fn the_frame_carries_no_canvas_chrome() {
     let chrome = |text: &str| -> Vec<serde_json::Value> {

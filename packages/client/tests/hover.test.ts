@@ -7,19 +7,10 @@ import { hoverAt, withHover } from '../src/hover.js'
 import { paintFrame } from '../src/paint.js'
 import { fakeCanvas, DARK_TOKENS } from './fakes.js'
 
-/**
- * 关系悬停高亮 is client-side (ADR 0013): the panel restyles the resident's
- * frame for what is under the pointer. The oracle is the producer itself:
- * `root` and `root-hover-frames` are the same Shop scene (identical edge
- * geometry), the second one rendered by Rust with `--hover {:kind :class :id
- * :core} --pointer 300,240`. Hovering `:core` on top of `root` must give
- * exactly the producer's hovered edges.
- */
 const framesDir = path.resolve(fileURLToPath(new URL('../../../crates/frame/tests/fixtures/frames', import.meta.url)))
 const golden = (name: string): SceneFrame =>
   JSON.parse(readFileSync(path.join(framesDir, `${name}.frame.json`), 'utf8')) as SceneFrame
 
-/** The hover-dependent fields of an edge, as the producer writes them. */
 function hoverFields(frame: SceneFrame): unknown[] {
   return frame.edges.map(edge => edge.kind === 'indicator'
     ? { kind: edge.kind, id: edge.id, fill: edge.fill, dimmed: edge.dimmed }
@@ -33,15 +24,12 @@ describe('client hover (关系悬停高亮)', () => {
     const expected = golden('root-hover-frames')
     const hovered = withHover(base, { kind: 'class', id: ':core' }, null)
     expect(hoverFields(hovered)).toEqual(hoverFields(expected))
-    // Three edges touch :core; one of them (:core -> :util) violates and turns
-    // the brighter red at the producer's hot violating width.
     const warm = hovered.edges.filter(e => e.kind === 'stroke' && e.warm)
     expect(warm.map(e => e.kind === 'stroke' && [e.from, e.to, e.stroke.role, e.width])).toEqual([
       [':api', ':core', 'relation-hover', 1.6],
       [':store', ':core', 'relation-hover', 1.6],
       [':core', ':util', 'violation-hot', 3.2],
     ])
-    // The hovered box is flagged like the producer's, and nothing else is.
     expect(hovered.world.filter(i => i.kind === 'class' && i.hovered).map(i => i.kind === 'class' && i.id)).toEqual([':core'])
     expect(hovered.world.filter(i => i.kind === 'class' && i.hovered).length)
       .toBe(expected.world.filter(i => i.kind === 'class' && i.hovered).length)
@@ -57,7 +45,6 @@ describe('client hover (关系悬停高亮)', () => {
 
   it('names a hovered class in a popup at the overview tiers, placed like the producer', () => {
     const expected = golden('root-hover-frames')
-    // Same view as the golden, without the producer's hover: camera -200,-100 at 0.3.
     const base: SceneFrame = {
       ...expected,
       chrome: expected.chrome.filter(c => c.kind !== 'popup'),
@@ -73,8 +60,6 @@ describe('client hover (关系悬停高亮)', () => {
     const frame = golden('root-hover-frames')
     const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true })
     paintFrame({ ...frame, world: [], edges: [], chrome: frame.chrome.filter(c => c.kind === 'popup') }, canvas)
-    // Producer popup rect (300,256,56,36); native paint.rs uses +8,+8,
-    // CHROME_PX=18, draw_text top anchoring, and an inside 1px outline.
     expect(canvas.recording.ops.find(o => o.op === 'fillText')).toMatchObject({
       text: 'Core', x: 308, y: 264, textBaseline: 'top', fillStyle: '#ecece4',
     })
@@ -99,7 +84,6 @@ describe('client hover (关系悬停高亮)', () => {
   })
 
   it('lights only the edge under the pointer, undimmed, over a selection that dims it', () => {
-    // core-selected: :core.order is selected; four relations are dimmed.
     const base = golden('core-selected')
     const dimmed = base.edges.find(e => e.kind === 'stroke' && e.dimmed)
     if (!dimmed || dimmed.kind !== 'stroke') throw new Error('core-selected has a dimmed relation')
@@ -108,15 +92,12 @@ describe('client hover (关系悬停高亮)', () => {
     for (const edge of hovered.edges) {
       if (edge.kind === 'indicator') continue
       if (same(edge)) {
-        // GLOSSARY 关系悬停高亮: an ordinary relation turns white (relation-hover)
-        // and is no longer dimmed while hovered; its width stays 1.6.
         expect([edge.stroke, edge.width, edge.hot, edge.warm, edge.dimmed]).toEqual([{ role: 'relation-hover' }, 1.6, true, false, false])
       } else {
         const original = base.edges[hovered.edges.indexOf(edge)]
         expect(edge).toEqual(original)
       }
     }
-    // A hovered closed head keeps its opaque canvas fill (only the outline is restyled).
     const head = hovered.edges.find(e => e.kind === 'head' && same(e))
     const baseHead = base.edges.find(e => e.kind === 'head' && same(e))
     if (head?.kind === 'head' && baseHead?.kind === 'head') expect(head.fill).toEqual(baseHead.fill)
@@ -138,7 +119,6 @@ describe('hover hit test (scene::hit::at order)', () => {
   it('hits an edge within 8 world units of its stroke, and not further away', () => {
     const stroke = frame.edges.find(e => e.kind === 'stroke' && e.from === ':store' && e.to === ':serde')
     if (!stroke || stroke.kind !== 'stroke') throw new Error('store -> serde')
-    // The midpoint of the stroke's longest segment, offset perpendicular to it.
     let best = 0
     for (let i = 1; i < stroke.points.length; i += 1) {
       const [a, b] = [stroke.points[i - 1]!, stroke.points[i]!]
@@ -156,7 +136,6 @@ describe('hover hit test (scene::hit::at order)', () => {
   })
 
   it('a package or empty canvas highlights nothing', () => {
-    // Inside the :view package, away from boxes and edges (its title strip).
     expect(hoverAt(frame, [70, 60])).toBeNull()
     expect(hoverAt(frame, [-500, -500])).toBeNull()
   })

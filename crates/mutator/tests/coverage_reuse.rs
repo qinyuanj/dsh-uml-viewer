@@ -1,10 +1,3 @@
-//! Coverage in the standard path: crapper's stamp decides what is regenerated,
-//! and the generated TypeScript/Python scripts run where the command runs — in
-//! a copy of the project on native Windows (ADR 0017).
-//!
-//! Test code is the outside harness; the fixtures launch `npm`/`node` (and, when
-//! `coverage.py` is importable, `python`) themselves. A missing toolchain is a
-//! loud SKIP and a failure under `MUTATOR_REQUIRE_TOOLCHAINS=1`.
 #![cfg(any(target_os = "linux", windows))]
 #![allow(clippy::disallowed_methods)]
 mod support;
@@ -19,8 +12,6 @@ use support::child;
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 const CLOCK: &str = "2026-11-07T12:00:00+00:00";
 
-/// Print a skip reason on the process's real stderr, where libtest's capture
-/// cannot hide it.
 fn skip(reason: &str) {
     if std::env::var_os("MUTATOR_REQUIRE_TOOLCHAINS").is_some_and(|value| value == "1") {
         panic!("required mutation toolchain unavailable: {reason}");
@@ -36,7 +27,6 @@ fn python() -> &'static str {
     if cfg!(windows) { "python" } else { "python3" }
 }
 
-/// `python -c 'import <module>'` succeeds: the interpreter and that module exist.
 fn python_can(module: &str) -> bool {
     std::process::Command::new(python())
         .args(["-c", &format!("import {module}")])
@@ -46,8 +36,6 @@ fn python_can(module: &str) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-/// `npm` is a batch file on Windows, which CreateProcess refuses; the mutator's
-/// own plan reaches it through its batch shim, so the check spells `npm.cmd`.
 fn node_available() -> bool {
     let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
     ["node", npm].iter().all(|tool| {
@@ -92,7 +80,6 @@ impl Fixture {
         let args: Vec<std::ffi::OsString> = args.iter().map(std::ffi::OsString::from).collect();
         mutator::run_with_clock(&args, || CLOCK.to_string())
     }
-    /// The one published snapshot, as text.
     fn snapshot(&self) -> String {
         fn walk(directory: &Path) -> Option<PathBuf> {
             for entry in fs::read_dir(directory).ok()?.flatten() {
@@ -111,14 +98,7 @@ impl Fixture {
         fs::read_to_string(found).unwrap()
     }
 
-    /// crapper's two products for this project: its LCOV report and the
-    /// version-1 stamp that says the language is fresh for this tree.
     fn record_crapper_coverage(&self) {
-        // Record as crapper itself does: its runner resolves the root first, so
-        // the stamp's covered files are root-relative. An unresolved root — a
-        // Windows 8.3 name in TEMP, as on some runners — would store the files
-        // absolute, and the mutator's resolved-root freshness check would then
-        // call this fresh stamp stale and never read the report.
         let root = quality_core::paths::resolve(&self.directory);
         let source = root.join("src/book.ts");
         self.write(
@@ -141,8 +121,6 @@ impl Fixture {
         );
     }
 
-    /// crapper's report with a stamp the tree has since outgrown: the report is
-    /// still on disk and the stamp names the language, but it is stale.
     fn stale_crapper_coverage(&self) {
         self.record_crapper_coverage();
         self.write(
@@ -151,9 +129,6 @@ impl Fixture {
         );
     }
 
-    /// Remove every published snapshot: the next run decides from coverage
-    /// alone. A differential run with history would otherwise reuse the
-    /// previous verdict and never consult the reports at all.
     fn clear_snapshots(&self) {
         let base = self.directory.join(".metrics/mutate");
         if base.exists() {
@@ -188,8 +163,6 @@ impl Drop for Fixture {
 
 const BOOK: &str = "export function twice(x: number): number {\n  return x + x;\n}\n";
 
-/// The test command fails on any mutant: it compares the source to its own
-/// bytes, so "killed" also proves the mutant ran.
 const TEST_JS: &str = r#"
 const fs = require('fs');
 const pristine = 'export function twice(x: number): number {\n  return x + x;\n}\n';
@@ -197,8 +170,6 @@ const source = fs.readFileSync('src/book.ts', 'utf8');
 process.exit(source === pristine ? 0 : 1);
 "#;
 
-/// The stamp is what the standard path consults: with it, the reports crapper
-/// already wrote are read and no coverage tool runs (the project has none).
 #[test]
 fn crapper_stamp_reuses_typescript_coverage_in_the_standard_path() {
     if !node_available() {
@@ -213,9 +184,6 @@ fn crapper_stamp_reuses_typescript_coverage_in_the_standard_path() {
     fixture.write("src/book.ts", BOOK);
     fixture.write("test.js", TEST_JS);
     fixture.record_crapper_coverage();
-    // The reuse line is the run's own report that crapper's reports were read
-    // instead of regenerated, so it is asserted where a caller sees it: on the
-    // stderr of a process, not on an internal function.
     let (code, stderr) = child::run(&fixture.root(), &["--mutate-all", "src/book.ts"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(
@@ -228,10 +196,6 @@ fn crapper_stamp_reuses_typescript_coverage_in_the_standard_path() {
     assert!(snapshot.contains(":survived 0"), "{snapshot}");
 }
 
-/// crapper's report is still on disk, but the stamp no longer covers this
-/// tree: the report is not this run's result. The project's own coverage script
-/// writes nothing, so the site has no coverage at all — the old report must not
-/// mark it covered and let a mutant be "killed" by data from an earlier run.
 #[test]
 fn a_stale_stamp_leaves_the_old_typescript_report_unread() {
     if !node_available() {
@@ -259,8 +223,6 @@ fn a_stale_stamp_leaves_the_old_typescript_report_unread() {
     assert!(snapshot.contains(":killed 0"), "{snapshot}");
 }
 
-/// The same guard on the `--test-command`-only path, which reads the stamp
-/// too: a stale language's report on disk is not this run's coverage.
 #[test]
 fn a_stale_stamp_leaves_the_old_typescript_report_unread_with_a_test_command() {
     if !node_available() {
@@ -293,9 +255,6 @@ fn a_stale_stamp_leaves_the_old_typescript_report_unread_with_a_test_command() {
     assert!(snapshot.contains(":killed 0"), "{snapshot}");
 }
 
-/// Without a stamp every language is stale, so the same project collects its
-/// own TypeScript coverage — through the generated script, in the copy on
-/// Windows. The `coverage` script is the project's own and needs no network.
 #[test]
 fn typescript_coverage_is_collected_when_the_stamp_is_missing() {
     if !node_available() {
@@ -329,8 +288,6 @@ fs.writeFileSync('coverage/lcov.info', 'SF:src/book.ts\nDA:2,1\nDA:3,1\nend_of_r
 const MODEL_PY: &str = "def add(a, b):\n    return a + b\n";
 const TEST_PY: &str = "import unittest\n\nfrom src import model\n\n\nclass TestAdd(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(model.add(1, 2), 3)\n";
 
-/// The same for Python: no stamp, so the generated script runs coverage.py and
-/// writes its report where the command runs. `coverage.py` is the tool anyway.
 #[test]
 fn python_coverage_is_collected_when_the_stamp_is_missing() {
     if !python_can("coverage") {
@@ -351,19 +308,9 @@ fn python_coverage_is_collected_when_the_stamp_is_missing() {
     assert!(snapshot.contains(":uncovered 0"), "{snapshot}");
 }
 
-/// A package directory whose name carries cmd metacharacters. An unquoted
-/// `echo` ends at `&` and runs the tail as a command; `(`/`)` make cmd reject
-/// the whole `/c` line before anything on it runs, so the coverage script never
-/// reaches its own command and the report is silently missing.
 #[cfg(windows)]
 const META_PACKAGE: &str = "client & (old)";
 
-/// The package's name and its report path reach the TypeScript script only in
-/// its diagnostics, and cmd parses those before the coverage command runs: an
-/// unquoted `(` rejects the whole `/c` line and an unquoted `&` ends the `echo`,
-/// so LCOV is never written and every site is uncovered. The Vitest branch is
-/// the one that emits both diagnostics; its stub also proves the reports
-/// directory stayed package-relative inside a path full of metacharacters.
 #[cfg(windows)]
 #[test]
 fn typescript_coverage_survives_metacharacters_in_the_package_path() {
@@ -416,13 +363,11 @@ process.exit(fs.readFileSync('src/book.ts', 'utf8') === pristine ? 0 : 1);
     assert!(snapshot.contains(":uncovered 0"), "{snapshot}");
 }
 
-/// The stub interpreter's source; `@PYTHON@` becomes the real interpreter.
 #[cfg(windows)]
 const STUB: &str = r#"
 use std::process::{Command, exit};
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // The generated script asks exactly this before choosing a branch.
     if args == ["-c", "import pytest"] {
         exit(1);
     }
@@ -430,17 +375,6 @@ fn main() {
     exit(status.code().unwrap_or(1));
 }
 "#;
-/// The interpreter the mutator uses for a package, replaced by a stub that
-/// answers the script's `import pytest` probe with a failure and forwards
-/// every other command to the real interpreter.
-///
-/// `pytest.ini` selects the pytest branch, which is the one carrying the
-/// package name in two more `echo` texts; the stub is what makes its unittest
-/// fallback the branch that really runs, on a host where pytest is installed.
-///
-/// The real interpreter is embedded by absolute path: a stub that launched
-/// `python` by name would find itself first, because Windows searches the
-/// launching executable's own directory before `PATH`.
 #[cfg(windows)]
 fn stub_interpreter(fixture: &Fixture, package: &str) {
     let real = std::process::Command::new(python())
@@ -468,11 +402,6 @@ fn stub_interpreter(fixture: &Fixture, package: &str) {
     assert!(status.success(), "compile the stub interpreter");
 }
 
-/// The same for Python, whose pytest branch carries the package name in two
-/// more `echo` texts. The stub interpreter makes the *fallback* the branch
-/// under test, so `pytest is missing in …` and `unittest discover` really run;
-/// the assertion is that the script survived its own diagnostics and still
-/// wrote LCOV, not that a host happens to have pytest.
 #[cfg(windows)]
 #[test]
 fn python_coverage_survives_metacharacters_in_the_package_path() {
@@ -480,10 +409,6 @@ fn python_coverage_survives_metacharacters_in_the_package_path() {
         skip("python with coverage.py is not on PATH");
         return;
     }
-    // The stub only fakes the coverage script's probe. The baseline still runs
-    // this package's real command, which pytest.ini selects: -m pytest on the
-    // real interpreter. Without pytest on the host that baseline exits 1, so
-    // the run reports a placement/baseline failure instead of the coverage.
     if !python_can("pytest") {
         skip("python with pytest is not on PATH: the baseline runs -m pytest");
         return;
@@ -510,12 +435,6 @@ fn python_coverage_survives_metacharacters_in_the_package_path() {
     assert!(snapshot.contains(":uncovered 0"), "{snapshot}");
 }
 
-/// The Vitest branch — no `coverage` script of the project's own, which is the
-/// branch a package like kacha's client takes. A stub `vitest.cmd` stands in for
-/// the tool: no install, no network, but the real command shape, an absolute
-/// shim path plus a package-relative reports directory. The stub refuses an
-/// absolute reports directory, so this fails if a Windows script ever spells
-/// the real project's path again.
 #[cfg(windows)]
 #[test]
 fn typescript_vitest_branch_runs_its_shim_in_the_copy() {
@@ -529,7 +448,6 @@ fn typescript_vitest_branch_runs_its_shim_in_the_copy() {
         "{\"name\":\"fixture\",\"private\":true,\"scripts\":{\"test\":\"vitest run\"}}\n",
     );
     fixture.write("src/book.ts", BOOK);
-    // An installed provider keeps the script away from `npm install`.
     fixture.write("node_modules/@vitest/coverage-v8/.keep", "");
     fixture.write(
         "node_modules/vitest-stub.js",
@@ -557,8 +475,6 @@ const pristine = 'export function twice(x: number): number {\n  return x + x;\n}
 process.exit(fs.readFileSync('src/book.ts', 'utf8') === pristine ? 0 : 1);
 "#,
     );
-    // cmd.exe cannot execute npm's POSIX shim, so the Windows branch has to pick
-    // this one. The POSIX shim exists too, exactly as npm writes both.
     fixture.write("node_modules/.bin/vitest", "#!/bin/sh\nexit 0\n");
     fixture.write(
         "node_modules/.bin/vitest.cmd",
@@ -573,12 +489,6 @@ process.exit(fs.readFileSync('src/book.ts', 'utf8') === pristine ? 0 : 1);
     assert!(snapshot.contains(":uncovered 0"), "{snapshot}");
 }
 
-/// PITFALLS: the whole point of the flag is that the verdict does not change.
-/// Two runs over the same project — one reading crapper's report because the
-/// stamp calls the language fresh, one reading it because --reuse-coverage asks
-/// for it — must publish the same snapshot. The fixture pins the clock, so "the
-/// same verdict" is byte equality, and executed= proves the reused run decided
-/// from coverage instead of reusing a previous snapshot's outcome.
 #[test]
 fn reuse_coverage_publishes_the_same_snapshot_as_the_stamped_path() {
     if !node_available() {
@@ -594,12 +504,10 @@ fn reuse_coverage_publishes_the_same_snapshot_as_the_stamped_path() {
     fixture.write("test.js", TEST_JS);
     fixture.record_crapper_coverage();
 
-    // A: crapper's report, read because its stamp covers this tree.
     fixture.clear_snapshots();
     let (stamped, stamped_stderr) = child::run(&fixture.root(), &["--mutate-all", "src/book.ts"]);
     let stamped_snapshot = fixture.snapshot();
 
-    // B: the same report, read because the flag asks for it.
     fixture.clear_snapshots();
     let (reused, reused_stderr) = child::run(
         &fixture.root(),
@@ -612,16 +520,11 @@ fn reuse_coverage_publishes_the_same_snapshot_as_the_stamped_path() {
         stamped_snapshot, reused_snapshot,
         "the reuse run published a different verdict"
     );
-    // The site really was decided by the report: covered, executed, killed.
     assert!(stamped_snapshot.contains(":killed 1"), "{stamped_snapshot}");
     assert!(
         stamped_snapshot.contains(":uncovered 0"),
         "{stamped_snapshot}"
     );
-    // Both runs found the report: the site was decided from coverage, not left
-    // uncovered for want of data. (The executed= count is the CLI's stdout line,
-    // which this harness discards; the pinned clock makes the snapshot the
-    // verdict's whole evidence.)
     for (label, stderr) in [("stamped", &stamped_stderr), ("reused", &reused_stderr)] {
         assert!(
             !stderr.contains("No coverage data"),
@@ -630,12 +533,6 @@ fn reuse_coverage_publishes_the_same_snapshot_as_the_stamped_path() {
     }
 }
 
-/// The gap the flag knowingly carries: --use-existing-coverage is documented as
-/// "read coverage already on disk without checking it", and it consults no
-/// stamp. A report the standard path refuses as stale — pinned by
-/// a_stale_stamp_leaves_the_old_typescript_report_unread — still decides this
-/// run. The maintainer refresh is safe only because quality crap ran first in
-/// the same job; a standalone reuse run has no such guarantee.
 #[test]
 fn reuse_coverage_reads_a_report_the_stamp_rejects() {
     if !node_available() {
@@ -662,9 +559,6 @@ fn reuse_coverage_reads_a_report_the_stamp_rejects() {
     );
 }
 
-/// Hole three: a survived verdict is evidence only when the inputs that could
-/// have killed it are unchanged. The first run executes and records it; the
-/// unchanged rerun must execute nothing; editing a test file invalidates it.
 #[test]
 fn survived_verdicts_are_reused_until_a_test_input_changes() {
     let fixture = Fixture::new("survived-reuse");
@@ -715,9 +609,6 @@ fn survived_verdicts_are_reused_until_a_test_input_changes() {
     assert!(stdout.contains("executed=1 reused=0"), "{stdout}{stderr}");
 }
 
-/// #110: a standalone reuse run with no reports on disk must not publish a
-/// snapshot that says every site is uncovered. The standard path already
-/// treats the missing input as an error; the reuse path now does too.
 #[test]
 fn reuse_coverage_without_reports_is_an_error() {
     let fixture = Fixture::new("reuse-missing");

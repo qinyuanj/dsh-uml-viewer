@@ -1,7 +1,3 @@
-//! crapper's command line: the same options, messages and help as the
-//! Python crapper (`-h` anywhere prints help; a usage error prints the
-//! message, a blank line and the help on stderr, exit 1).
-
 use std::path::PathBuf;
 
 pub const HELP: &str = "\
@@ -105,7 +101,6 @@ pub struct Options {
     pub lua_shards: Option<u32>,
 }
 
-/// What the command line asks for.
 pub enum Parsed {
     Help,
     Usage(String),

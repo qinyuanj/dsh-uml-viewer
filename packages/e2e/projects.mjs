@@ -2,10 +2,6 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { makeInspector } from './inspector-project.mjs'
 
-/**
- * Small, distinct TypeScript projects. The scripted agent runs the real
- * binary's `ir` subcommand in each one; no synthetic SceneFrame is injected.
- */
 export async function makeProjects(home) {
   const projects = {}
   for (const name of ['shop', 'ledger']) {
@@ -34,7 +30,6 @@ export async function makeProjects(home) {
   return projects
 }
 
-/** Six scanned imports reclassified by policy; no hand-authored IR or frame (#25). */
 async function makeNexus(home) {
   const root = path.join(home, 'projects', 'nexus')
   await fs.mkdir(path.join(root, 'src'), { recursive: true })
@@ -56,11 +51,6 @@ async function makeNexus(home) {
   return root
 }
 
-/**
- * The navigation/search sample (#23): nested namespaces to drill into, a
- * cross-namespace dependency that becomes a port after drill-in, and two
- * same-named CJK classes whose namespaces disambiguate the search results.
- */
 async function makeDeep(home) {
   const root = path.join(home, 'projects', 'deep')
   await fs.mkdir(root, { recursive: true })
@@ -86,11 +76,6 @@ async function makeDeep(home) {
   return root
 }
 
-/**
- * The breadcrumb sample (#45): two namespace levels to drill into and a
- * proposal whose layer holds a nested group, so the top bar's path has the
- * same depth in the source tree and in a proposal.
- */
 async function makeLevels(home) {
   const root = path.join(home, 'projects', 'levels')
   await fs.mkdir(path.join(root, 'src'), { recursive: true })
@@ -117,12 +102,6 @@ async function makeLevels(home) {
   return root
 }
 
-/**
- * The panel-primitives sample (#24): a flat namespace so the root view shows
- * the classes themselves: an interface (I marker, «interface»), a CJK-named
- * module, two architecture levels, and `react` as a foreign package
- * (外来包椭圆). No metrics, so every box is unmeasured (dashed, 无数据).
- */
 async function makeAtlas(home) {
   const root = path.join(home, 'projects', 'atlas')
   await fs.mkdir(path.join(root, 'src'), { recursive: true })

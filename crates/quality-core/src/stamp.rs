@@ -1,4 +1,3 @@
-//! Coverage freshness compatible with crapper's version-1 stamp.
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -79,29 +78,21 @@ fn tree(root: &Path, directory: &Path, rows: &mut Vec<(String, u64, i128)>) {
     }
 }
 
-/// One file's row in the tree fingerprint: relative posix path, size, and
-/// mtime in nanoseconds since the epoch.
 type Row = (String, u64, i128);
 
-/// How many paths each difference names before it counts the rest.
 const NAMED: usize = 8;
 
-/// A fingerprint and the rows it hashes. Keeping the rows lets a later
-/// comparison name the files that differ without walking the tree again.
 pub struct Snapshot {
     rows: Vec<Row>,
     digest: String,
 }
 
 impl Snapshot {
-    /// The version-1 stamp's fingerprint value.
     pub fn digest(&self) -> &str {
         &self.digest
     }
 }
 
-/// Every file under `root` as [relative posix path, size, mtime_ns], sorted.
-/// Includes tests and configuration; excludes tool output and cache artifacts.
 fn sorted_rows(root: &Path) -> Vec<Row> {
     let mut rows = Vec::new();
     tree(root, root, &mut rows);
@@ -118,21 +109,16 @@ fn sha256(rows: &[Row]) -> String {
     format!("{:x}", digest.finalize())
 }
 
-/// The tree's fingerprint rows and their SHA-256, taken together.
 pub fn snapshot(root: &Path) -> Snapshot {
     let rows = sorted_rows(root);
     let digest = sha256(&rows);
     Snapshot { rows, digest }
 }
 
-/// SHA-256 of the sorted Python JSON rows. A caller that compares two
-/// fingerprints afterwards takes `snapshot` instead, so the difference can be
-/// named from rows it already has.
 pub fn fingerprint(root: &Path) -> String {
     snapshot(root).digest
 }
 
-/// The files one fingerprint has and the other does not, or has differently.
 #[derive(Default)]
 struct Differences {
     added: Vec<String>,
@@ -140,8 +126,6 @@ struct Differences {
     changed: Vec<String>,
 }
 
-/// Compare two sorted row tables in one pass: a path on one side only was
-/// added or removed, and the same path with another size or mtime changed.
 fn differences(before: &[Row], after: &[Row]) -> Differences {
     let mut found = Differences::default();
     let (mut left, mut right) = (0, 0);
@@ -175,9 +159,6 @@ fn differences(before: &[Row], after: &[Row]) -> Differences {
     found
 }
 
-/// One category of the report: its name, then up to `NAMED` paths, then how
-/// many follow. An empty category says `(none)` rather than going unmentioned,
-/// which would read as "not checked".
 fn category(lines: &mut Vec<String>, name: &str, paths: &[String]) {
     lines.push(format!("  {name}:"));
     if paths.is_empty() {
@@ -192,8 +173,6 @@ fn category(lines: &mut Vec<String>, name: &str, paths: &[String]) {
     }
 }
 
-/// The lines appended after the freshness warning: what differs between two
-/// snapshots, grouped as added, removed and changed.
 fn changes(before: &[Row], after: &[Row]) -> String {
     let found = differences(before, after);
     let mut lines = Vec::new();
@@ -233,10 +212,6 @@ fn covered(root: &Path, files: &[PathBuf]) -> BTreeMap<&'static str, BTreeSet<St
     found
 }
 
-/// Record successful languages, dropping failed/replaced languages. A tree
-/// edit during coverage drops every language participating in that run and
-/// names the files that differ. Stamp publication is best effort and never
-/// changes the command's status.
 pub fn record(
     root: &Path,
     files: &[PathBuf],
@@ -274,8 +249,6 @@ pub fn record(
     }
 }
 
-/// Files whose language fingerprint, command or covered-file membership is stale.
-/// Preserve input order, including files whose extension is not recognized.
 pub fn stale_files(root: &Path, files: &[PathBuf], command: Option<&str>) -> Vec<PathBuf> {
     let root = resolve(root);
     let Some(data) =
@@ -306,7 +279,6 @@ mod tests {
 
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-    /// A scratch tree under the system temp directory, removed on drop.
     struct Scratch {
         root: PathBuf,
     }
@@ -335,8 +307,6 @@ mod tests {
         }
     }
 
-    /// What `record` reports for one scratch tree: fingerprinted, changed while
-    /// "coverage ran", fingerprinted again.
     fn report(change: impl FnOnce(&Scratch)) -> String {
         let scratch = Scratch::new();
         scratch.write("a.rs", "pub fn a() {}\n");

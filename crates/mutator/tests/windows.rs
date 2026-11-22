@@ -1,7 +1,3 @@
-//! Native Windows mutation: one fresh project copy per command, every process
-//! contained by #3's kill-on-close Job Object (ADR 0010).
-//!
-//! Test code is the outside harness; it launches the fixture tools itself.
 #![cfg(windows)]
 #![allow(clippy::disallowed_methods)]
 mod support;
@@ -16,17 +12,11 @@ use support::child;
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-/// Serialize calls so a scratch root newly created by this process belongs to
-/// the active fixture. Console handlers are also process-global.
 fn serial() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// The `:test-input` field is provenance: its value depends on the machine's
-/// path spelling and is pinned by its own unit tests, not by these snapshots.
-/// Strip it from both sides before comparing published bytes to goldens. The
-/// `:test-input-scope` tag is a deliberate port field and is pinned in goldens.
 fn without_test_input(bytes: &[u8]) -> Vec<u8> {
     let text = String::from_utf8_lossy(bytes);
     let marker = ":test-input \"";
@@ -47,8 +37,6 @@ fn without_test_input(bytes: &[u8]) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// The original writes `:isolation :copy` on Windows and `:namespace-view` on
-/// Linux. Everything else in the snapshot is the committed golden's bytes.
 fn golden_copy(file: &str) -> Vec<u8> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/mutate/goldens")
@@ -63,7 +51,6 @@ fn golden_copy(file: &str) -> Vec<u8> {
         .into_bytes()
 }
 
-/// Every published snapshot under `.metrics/mutate`, by project-relative path.
 fn snapshot_bytes(root: &Path) -> BTreeMap<String, Vec<u8>> {
     fn walk(base: &Path, directory: &Path, found: &mut BTreeMap<String, Vec<u8>>) {
         let Ok(entries) = fs::read_dir(directory) else {
@@ -143,8 +130,6 @@ impl Fixture {
             "[workspace]\nmembers = [\"app\", \"util\"]\nresolver = \"2\"\n",
         )
         .unwrap();
-        // A copy at the worker's fixed path has no `../../extdep`. The original
-        // helper substitutes an absolute dependency for the same reason.
         let extdep =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/mutate/rust/extdep");
         let manifest = fs::read_to_string(project.join("app/Cargo.toml"))
@@ -193,8 +178,6 @@ impl Fixture {
         ];
         args.extend(extra.iter().map(std::ffi::OsString::from));
         let code = mutator::run_with_clock(&args, || "2026-11-07T12:00:00+00:00".to_string());
-        // Every command must remove the copies it created, not only the last
-        // one of a scenario. Another process's roots are not this fixture's.
         self.assert_no_scratch();
         code
     }
@@ -224,9 +207,6 @@ impl Drop for Fixture {
     }
 }
 
-/// A scenario that runs no command must not pass silently.
-/// False means the scenario did not run, loudly; with
-/// `MUTATOR_REQUIRE_TOOLCHAINS=1` (CI) a missing toolchain is a failure.
 fn require(condition: bool, reason: &str) -> bool {
     if condition {
         return true;
@@ -239,9 +219,6 @@ fn require(condition: bool, reason: &str) -> bool {
     false
 }
 
-/// A native helper the fixture commands run: it writes the LCOV the pinned
-/// oracle's coverage produced, with `SF:` paths relative to its own working
-/// directory, i.e. inside the copy, never in the real project.
 const HELPER: &str = r#"
 use std::{env, fs, io::Write, path::Path, process::Command, time::{Duration, Instant}};
 fn append(path: &str, line: String) {
@@ -301,8 +278,6 @@ fn main() {
     }
     if mode == "write" {
         if !mutated() { return; }  // the pristine baseline passes
-        // Writes to the working directory, the parent, and every redirected
-        // home, then fails: a mutant's writes must reach nobody else.
         let mut folders = vec![Path::new(".").to_path_buf(), Path::new("..").to_path_buf()];
         for name in ["HOME", "USERPROFILE", "TEMP", "TMP", "APPDATA", "LOCALAPPDATA"] {
             folders.push(Path::new(&env::var(name).unwrap()).to_path_buf());
@@ -320,10 +295,6 @@ fn main() {
     }
     if mode == "write-scratch" {
         if !mutated() { return; }
-        // The copy is <slot>/beside/project. One `..` is the `beside`
-        // directory and two `..` is the slot itself, and the next command wipes
-        // both. A write that lands in either place and is still there for the
-        // next mutant is a channel.
         let beside = Path::new("..");
         let slot = Path::new("../..");
         let sibling = beside.join("slot-leak");
@@ -338,8 +309,6 @@ fn main() {
         std::process::exit(1);
     }
     if mode == "slot-entries" {
-        // The slot beside the copy, listed for the declaration test. Only the
-        // baseline lists and succeeds; a mutant exits 1, so every mutant dies.
         if mutated() { std::process::exit(1); }
         let view = env::var("MUTATOR_VIEW").unwrap();
         let mut names: Vec<String> = fs::read_dir(&view).unwrap()
@@ -356,7 +325,6 @@ fn main() {
     }
     if mode == "sleep" {
         use std::os::windows::fs::OpenOptionsExt;
-        // Keep a real deny-delete handle in the copy until process termination.
         let held = fs::OpenOptions::new().write(true).create_new(true).share_mode(0)
             .open(format!("held-{}", std::process::id())).unwrap();
         fs::write(arg(2), "ready").unwrap();
@@ -365,8 +333,6 @@ fn main() {
         return;
     }
     if mode == "daemon" || mode == "hang" {
-        // The leader cannot exit before its descendant owns the file handle.
-        // This covers handle release, not just eventual process disappearance.
         let ready = format!("{}.ready-{}", arg(2), std::process::id());
         let child = Command::new(env::current_exe().unwrap()).arg("sleep").arg(&ready)
             .stdin(std::process::Stdio::null()).spawn().unwrap();
@@ -385,8 +351,6 @@ fn main() {
 }
 "#;
 
-/// Compile the helper once per fixture; commands are `cmd` strings, so the
-/// executable path is quoted.
 fn helper(directory: &Path) -> PathBuf {
     let source = directory.join("helper.rs");
     fs::write(&source, HELPER).unwrap();
@@ -406,9 +370,6 @@ fn quoted(path: &Path) -> String {
     format!("\"{}\"", path.display())
 }
 
-/// Exercise ownership selection under a private synthetic temp directory: the
-/// live unrelated owner and earlier roots must survive, while a new own root
-/// must be reported. No real mutator root of another task is touched.
 #[test]
 fn scratch_assertion_ignores_other_owners_but_detects_new_fixture_roots() {
     let _serial = serial();
@@ -422,8 +383,6 @@ fn scratch_assertion_ignores_other_owners_but_detects_new_fixture_roots() {
     fs::create_dir(&earlier).unwrap();
     fixture.scratch_before = process_scratch(&fixture.scratch_directory);
 
-    // A live process actually holds a deny-delete file under the unrelated
-    // root. This cannot accidentally name or remove another task's temp data.
     let unrelated = fixture.scratch_directory.join("mutator-other-owner");
     fs::create_dir(&unrelated).unwrap();
     let ready = fixture.directory.join("unrelated-ready");
@@ -464,9 +423,6 @@ fn scratch_assertion_ignores_other_owners_but_detects_new_fixture_roots() {
     );
 }
 
-/// Real `cargo test` in per-command copies, with the coverage report a
-/// deterministic command writes. Unlike the default-coverage scenario this
-/// needs no LLVM component, so it runs on every Windows host.
 #[test]
 fn real_cargo_in_copies_publishes_the_original_bytes() {
     let _serial = serial();
@@ -493,7 +449,6 @@ fn real_cargo_in_copies_publishes_the_original_bytes() {
             "{file}"
         );
     }
-    // The unchanged differential rerun keeps those exact bytes.
     let rerun = [
         "--coverage-command",
         &coverage,
@@ -522,8 +477,6 @@ fn real_cargo_in_copies_publishes_the_original_bytes() {
 #[test]
 fn windows_copies_publish_the_original_bytes_with_copy_isolation() {
     let _serial = serial();
-    // cargo llvm-cov needs llvm-profdata from the toolchain's llvm-tools.
-    // llvm-profdata ships with the active toolchain's llvm-tools component.
     let sysroot = std::process::Command::new("rustc")
         .args(["--print", "sysroot"])
         .output()
@@ -583,15 +536,11 @@ fn windows_copies_publish_the_original_bytes_with_copy_isolation() {
     );
 }
 
-/// Ported from `test_copy_isolation`: each mutant writes into its working
-/// directory, the project parent and every redirected home, then fails. No
-/// write may reach the real project, the real home, or a later mutant.
 #[test]
 fn mutant_writes_reach_neither_the_project_nor_the_user_nor_a_later_mutant() {
     let _serial = serial();
     let fixture = Fixture::new();
     helper(&fixture.directory);
-    // One worker, so every mutant runs at the same path after the previous.
     let code = std::thread::scope(|scope| {
         scope
             .spawn(|| {
@@ -622,8 +571,6 @@ fn mutant_writes_reach_neither_the_project_nor_the_user_nor_a_later_mutant() {
         found
     }
     assert_eq!(leaks(&fixture.root()), Vec::<PathBuf>::new());
-    // The user's real home, profile, temp and app-data hold no `leak` either:
-    // a mutant that escaped the redirection would have written exactly there.
     for name in [
         "HOME",
         "USERPROFILE",
@@ -632,9 +579,6 @@ fn mutant_writes_reach_neither_the_project_nor_the_user_nor_a_later_mutant() {
         "APPDATA",
         "LOCALAPPDATA",
     ] {
-        // Windows does not require HOME (unlike USERPROFILE). The child gets
-        // every redirected variable regardless; only an existing host value
-        // names a real directory that could receive a leaked write.
         let Some(real) = std::env::var_os(name) else {
             continue;
         };
@@ -643,15 +587,9 @@ fn mutant_writes_reach_neither_the_project_nor_the_user_nor_a_later_mutant() {
             "{name} ({real:?}) received a mutant's write"
         );
     }
-    // New roots of this serialized fixture must disappear. Other processes'
-    // roots and leaks already reported by earlier fixtures are not ours.
     fixture.assert_no_scratch();
 }
 
-/// A mutant's writes beside the copy, and one directory further out, are
-/// gone before the next mutant. A directory named `lua-coverage` is not
-/// special: escaping the wiped region through `..` must not greet the next
-/// mutant either.
 #[test]
 fn non_collect_commands_wipe_sibling_entries_and_lua_coverage_directories() {
     let _serial = serial();
@@ -671,15 +609,6 @@ fn non_collect_commands_wipe_sibling_entries_and_lua_coverage_directories() {
     assert!(!fixture.root().join("lua-coverage").exists());
 }
 
-/// The entries a command's slot holds are the ones `mutator::slot` declares, and
-/// that declaration is also the list `--copy` refuses: a position the copy
-/// creates beside the command and a position the option rejects cannot be two
-/// separate lists, so adding a reserved location is one edit, not two.
-///
-/// The two entries that are not beside the copy are the other half of the rule:
-/// `mutation` belongs to a mutant only, and the collection's scratch sits above
-/// the wiped region — which is why the wipe itself keeps no name exemption and a
-/// mutant's own `lua-coverage` directory is removed like any other write.
 #[test]
 fn slot_entries_beside_the_copy_are_the_declared_ones() {
     let _serial = serial();
@@ -726,16 +655,6 @@ fn slot_entries_beside_the_copy_are_the_declared_ones() {
     }
 }
 
-/// `--copy` (ADR 0016): copy isolation shows paths **outside** the project root
-/// beside every command's copy, at the position the copy's `..` reaches.
-///
-/// The three declared paths are the shape a package's quality gate needs: two
-/// directories (`../contracts`, `../docs/release`) and one file
-/// (`../server/Cargo.toml`), all beside the real project root and all missing
-/// from a copy without the option — that is the failing baseline the option
-/// exists to fix. One path is declared twice, which must stay one copy. As a
-/// mutant the command also writes under `../contracts`, and the real file must
-/// keep its bytes, because the write lands in that command's own copy.
 #[test]
 fn copy_brings_every_outside_path_beside_every_command_copy() {
     let _serial = serial();
@@ -749,16 +668,12 @@ fn copy_brings_every_outside_path_beside_every_command_copy() {
         "web-changelog\n",
     )
     .unwrap();
-    // A single file, whose parent directory does not exist beside the project
-    // yet: the copy has to create `server/` for it.
     fs::create_dir_all(fixture.directory.join("server")).unwrap();
     fs::write(
         fixture.directory.join("server/Cargo.toml"),
         "[package]\nversion = \"1.0.0\"\n",
     )
     .unwrap();
-    // A batch file, not one `&` line: `cmd` reads the rest of such a line as an
-    // `if`'s command, which would silently skip every check after the first.
     let check = [
         "@echo off",
         r#"findstr /c:"copy-value" "..\contracts\value.txt" >nul"#,
@@ -781,12 +696,8 @@ fn copy_brings_every_outside_path_beside_every_command_copy() {
         "check.cmd",
         "app/src/lib.rs",
     ];
-    // Without the option a copy has no `contracts` beside it, so the baseline
-    // fails before any mutant runs. This is the failure the option fixes.
     assert_eq!(fixture.run(&target), ExitCode::from(2));
     assert!(!fixture.root().join(".metrics/mutate").exists());
-    // With them the baseline passes and every mutant is killed; the repeated
-    // value is one outside copy, not a usage error.
     let with_copy = [
         "--copy",
         "../contracts",
@@ -807,7 +718,6 @@ fn copy_brings_every_outside_path_beside_every_command_copy() {
     assert!(snapshot.contains(":isolation :copy"), "{snapshot}");
     assert!(snapshot.contains(":killed 1"), "{snapshot}");
     assert!(snapshot.contains(":survived 0"), "{snapshot}");
-    // Nothing reached the real tree: not the project, not an outside path.
     assert_eq!(
         fs::read_to_string(contracts.join("value.txt")).unwrap(),
         "copy-value\n"
@@ -822,13 +732,9 @@ fn copy_brings_every_outside_path_beside_every_command_copy() {
             "the copy's {name} must stay beside it, not inside the project"
         );
     }
-    // No residue: the scratch root, and with it every placed copy, is gone
-    // after the call, as in the neighbouring scenarios.
     fixture.assert_no_scratch();
 }
 
-/// The outside path cannot come back: a `--copy` path inside the project root
-/// is a usage error, and nothing runs before it is refused.
 #[test]
 fn a_copy_path_inside_the_project_is_refused_before_any_command() {
     let _serial = serial();
@@ -848,12 +754,6 @@ fn a_copy_path_inside_the_project_is_refused_before_any_command() {
     assert!(!marker.exists(), "no command may run");
 }
 
-/// The slot's own names are not free positions. In a real repository that has an
-/// `output` directory beside the project root, `--copy ../output` used to be
-/// accepted: the copy placed the tree at `<slot>/output`, then the command's
-/// capture file deleted it, so the suite lost a dependency before it ran and the
-/// exit 2 blamed only the test command. It is now a usage error before any
-/// command, naming the value.
 #[test]
 fn a_copy_path_named_after_the_slots_output_is_refused_before_any_command() {
     let _serial = serial();
@@ -877,8 +777,6 @@ fn a_copy_path_named_after_the_slots_output_is_refused_before_any_command() {
     assert!(!fixture.root().join(".metrics/mutate").exists());
 }
 
-/// A directory junction is Windows' unprivileged directory link (symlinks need
-/// Developer Mode), so it is the link a copied dependency tree really contains.
 fn junction(link: &Path, target: &Path) {
     let status = std::process::Command::new("cmd")
         .args(["/d", "/c", "mklink", "/J"])
@@ -890,11 +788,6 @@ fn junction(link: &Path, target: &Path) {
     assert!(status.success(), "mklink /J failed");
 }
 
-/// A `--copy` path that cannot be placed is an isolation failure, not a test
-/// result: exit 1 (isolation unavailable), nothing published, and never the exit
-/// 2 a failing suite earns. The outside tree here holds a junction, which copy
-/// isolation refuses to freeze, so the placement itself fails before the
-/// (passing) command could run.
 #[test]
 fn an_outside_path_that_cannot_be_placed_exits_one_not_two() {
     let _serial = serial();
@@ -922,16 +815,9 @@ fn an_outside_path_that_cannot_be_placed_exits_one_not_two() {
     ];
     assert_eq!(fixture.run(&refused), ExitCode::from(1));
     assert!(!fixture.root().join(".metrics/mutate").exists());
-    // Remove the link before the fixture's own cleanup walks the tree.
     fs::remove_dir(contracts.join("nested")).unwrap();
 }
 
-/// The deletion a `--copy` placement test needs, run in its own process.
-///
-/// The mutator's own stderr and the fixture's commands share this process's
-/// streams, and a test binary's harness keeps a copy of them, so a command
-/// that removes the real outside tree is spawned here instead: a fresh process
-/// of this test binary that deletes the directory it is given.
 #[test]
 fn remove_directory_driver() {
     let Some(directory) = std::env::var_os("MUTATOR_REMOVE_DIRECTORY") else {
@@ -940,12 +826,6 @@ fn remove_directory_driver() {
     fs::remove_dir_all(&directory).unwrap();
 }
 
-/// An outside path that exists when the call is validated and is gone by the
-/// time a later command places it: the baseline removes the real tree, so the
-/// first mutant's placement finds nothing to copy. That is an isolation
-/// failure, not a test result, so it exits 1 and names the path — never the
-/// exit 2 a failing suite earns, and never a copy that silently lacks the
-/// dependency.
 #[test]
 fn an_outside_path_deleted_between_commands_exits_one_and_names_it() {
     let _serial = serial();
@@ -953,9 +833,6 @@ fn an_outside_path_deleted_between_commands_exits_one_and_names_it() {
     let contracts = fixture.directory.join("contracts");
     fs::create_dir_all(&contracts).unwrap();
     fs::write(contracts.join("value.txt"), "copy-value\n").unwrap();
-    // The path exists when the call is validated and when the baseline places
-    // it; the baseline then removes the real outside tree, so the next command
-    // to be placed — the first mutant — finds nothing to copy.
     let exe = std::env::current_exe().unwrap();
     let remove = format!(
         "set MUTATOR_REMOVE_DIRECTORY={} && {} --exact remove_directory_driver --nocapture",
@@ -980,8 +857,6 @@ fn an_outside_path_deleted_between_commands_exits_one_and_names_it() {
     assert!(!fixture.root().join(".metrics/mutate").exists());
 }
 
-/// One coverage run and one baseline per (command, cwd), shared by every
-/// target file; each file still publishes its own snapshot.
 #[test]
 fn one_coverage_and_one_baseline_are_shared_across_target_files() {
     let _serial = serial();
@@ -1017,8 +892,6 @@ fn one_coverage_and_one_baseline_are_shared_across_target_files() {
     assert_eq!(published, ["app.edn", "app/more.edn", "util.edn"]);
 }
 
-/// The pool belongs to the call: two files of two sites each use two slots,
-/// and the slots are removed with it.
 #[test]
 fn worker_slots_are_reused_across_target_files_and_removed_afterwards() {
     let _serial = serial();
@@ -1068,8 +941,6 @@ fn worker_slots_are_reused_across_target_files_and_removed_afterwards() {
     }
 }
 
-/// With two workers two mutants are alive at once: two rendezvous rounds,
-/// whose second-round marks a sequential run can never produce.
 #[test]
 fn concurrent_mutants_run_in_parallel_copies() {
     let _serial = serial();
@@ -1104,7 +975,6 @@ fn concurrent_mutants_run_in_parallel_copies() {
     assert_eq!(ready, ["inner", "outer"], "both mutants ran at once");
 }
 
-/// `--mutate-all` is a decision, never a wider selection.
 #[test]
 fn mutate_all_publishes_only_the_named_files() {
     let _serial = serial();
@@ -1128,7 +998,6 @@ fn mutate_all_publishes_only_the_named_files() {
             .collect::<Vec<_>>(),
         ["app.edn"]
     );
-    // `-s` still narrows the selection, so the same flag selects nothing.
     assert_eq!(
         fixture.run(&[
             "--coverage-command",
@@ -1148,8 +1017,6 @@ fn mutate_all_publishes_only_the_named_files() {
     );
 }
 
-// --- Process containment -------------------------------------------------
-
 use std::ffi::c_void;
 #[link(name = "kernel32")]
 unsafe extern "system" {
@@ -1159,7 +1026,6 @@ unsafe extern "system" {
     fn CloseHandle(handle: *mut c_void) -> i32;
 }
 
-/// An open handle pins the process identity, so a reused PID cannot pass.
 struct Watched(*mut c_void);
 impl Watched {
     fn open(pid: u32) -> Self {
@@ -1183,8 +1049,6 @@ impl Drop for Watched {
     }
 }
 
-/// Run `args` while the main thread opens a handle on every process the
-/// command starts, so "no leftover process" is checked by identity.
 fn watching(fixture: &Fixture, pids: &Path, args: &[&str]) -> (ExitCode, Vec<u32>) {
     let pids = pids.to_path_buf();
     let (code, pids) = std::thread::scope(|scope| {
@@ -1212,8 +1076,6 @@ fn watching(fixture: &Fixture, pids: &Path, args: &[&str]) -> (ExitCode, Vec<u32
     (code, pids.into_iter().collect())
 }
 
-/// Every recorded pid must be gone; an open handle pins the identity while
-/// the process still lives, so a reused pid cannot make this pass.
 fn assert_all_ended(pids: &[u32]) {
     for pid in pids {
         let watched = Watched::open(*pid);
@@ -1223,8 +1085,6 @@ fn assert_all_ended(pids: &[u32]) {
 
 use std::time::Duration;
 
-/// A command whose leader exits normally still loses its descendants: the
-/// kill-on-close Job Object, not the leader's lifetime, owns them.
 #[test]
 fn a_normal_exit_leaves_no_descendant_and_no_copy() {
     let _serial = serial();
@@ -1248,8 +1108,6 @@ fn a_normal_exit_leaves_no_descendant_and_no_copy() {
     fixture.assert_no_scratch();
 }
 
-/// A mutant that hangs is killed at its timeout together with the descendant
-/// it spawned, and the copies are removed.
 #[test]
 fn a_timed_out_mutant_leaves_no_process_and_no_copy() {
     let _serial = serial();
@@ -1276,8 +1134,6 @@ fn a_timed_out_mutant_leaves_no_process_and_no_copy() {
     fixture.assert_no_scratch();
 }
 
-/// Ported from `test_copy_refuses_directory_junctions...`: a linked directory
-/// is a route back into the checkout, so the run refuses before any mutant.
 #[test]
 fn a_linked_directory_is_refused_before_any_command_runs() {
     let _serial = serial();
@@ -1285,7 +1141,6 @@ fn a_linked_directory_is_refused_before_any_command_runs() {
     let keep = fixture.root().join("keep.txt");
     fs::write(&keep, b"original").unwrap();
     let helper = helper(&fixture.directory);
-    // A junction needs no privilege on Windows.
     let status = std::process::Command::new("cmd")
         .args(["/d", "/c", "mklink", "/j"])
         .arg(fixture.root().join("bridge"))
@@ -1314,8 +1169,6 @@ fn a_linked_directory_is_refused_before_any_command_runs() {
     fs::remove_dir(fixture.root().join("bridge")).unwrap();
 }
 
-/// A file symlink becomes an independent file in the copy: writing through it
-/// cannot reach the link's target.
 #[test]
 fn a_file_symlink_is_materialised_as_an_independent_file() {
     let _serial = serial();
@@ -1323,15 +1176,13 @@ fn a_file_symlink_is_materialised_as_an_independent_file() {
     let keep = fixture.directory.join("keep.txt");
     fs::write(&keep, b"original").unwrap();
     let alias = fixture.root().join("alias.txt");
-    if let Err(error) = std::os::windows::fs::symlink_file(&keep, &alias) {
-        // A loud skip, and a failure with MUTATOR_REQUIRE_TOOLCHAINS=1 (CI):
-        // a panic labelled SKIPPED read like a pass.
-        if !require(
+    if let Err(error) = std::os::windows::fs::symlink_file(&keep, &alias)
+        && !require(
             false,
             &format!("this host cannot create file symlinks: {error}"),
-        ) {
-            return;
-        }
+        )
+    {
+        return;
     }
     let helper = helper(&fixture.directory);
     let pids = fixture.directory.join("pids.txt");

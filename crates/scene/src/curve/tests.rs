@@ -1,5 +1,3 @@
-//! Curve behaviour — the edges_spec.lua curve oracle.
-
 use crate::curve::{
     basis_path, constrain_ends, end_tangent, flatten_path, path_bounds, round_corners,
 };
@@ -130,7 +128,6 @@ fn constrain_ends_rotates_shallow_handles_onto_the_face_cone() {
         let (dx, dy) = (handle[0] - p[0], handle[1] - p[1]);
         assert!((dx.abs() - dy.abs()).abs() < 1e-6, "{p:?} {q:?}");
         assert!((dx * dx + dy * dy - 3600.0).abs() < 1e-6, "{p:?} {q:?}");
-        // The input path is not mutated.
         let raw_ops = edn::record::get(&raw, "ops").unwrap().as_vector().unwrap();
         assert_eq!(
             geom::vec2(edn::record::get(&raw_ops[0], "c1").unwrap()),
@@ -158,8 +155,6 @@ fn constrain_ends_pins_the_final_tangent() {
     close(&parse("[40 400]").unwrap(), &t[1], "tip");
 }
 
-/// Farthest point of the cubic `start c1 c2 p` (sampled densely) from the
-/// polyline.
 fn deviation(cubic: [[f64; 2]; 4], polyline: &[[f64; 2]]) -> f64 {
     let [a, b, c, d] = cubic;
     (0..=4096)
@@ -181,8 +176,6 @@ fn deviation(cubic: [[f64; 2]; 4], polyline: &[[f64; 2]]) -> f64 {
 
 #[test]
 fn flattening_stays_within_its_tolerance_and_spends_points_on_bends() {
-    // A long sweeping cubic (the old fixed 16 steps strayed 11 px on such
-    // spans) and a short one (16 steps oversampled it) (#187).
     for (cubic, tolerance) in [
         (
             [[0.0, 0.0], [0.0, 9000.0], [400.0, 9000.0], [400.0, 18000.0]],
@@ -193,7 +186,6 @@ fn flattening_stays_within_its_tolerance_and_spends_points_on_bends() {
             [[0.0, 0.0], [300.0, -200.0], [-100.0, 500.0], [200.0, 300.0]],
             0.1,
         ),
-        // One control point on the chord, the other far off it.
         ([[0.0, 0.0], [0.0, 0.0], [100.0, 300.0], [200.0, 0.0]], 0.25),
     ] {
         let [a, b, c, d] = cubic;

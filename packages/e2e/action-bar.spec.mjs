@@ -5,17 +5,8 @@ import { exposeTarget } from './gestures.mjs'
 import { toggleFullscreen } from './lifecycle.mjs'
 import { calls, qualityFixture, qualityReply } from './quality-lane.mjs'
 
-/**
- * The selection action bar (#48, ADR 0015): selecting a class or a component
- * shows a bar fixed above the status bar with the element's name and what can
- * be done to it; a foreign package shows its name alone. Its requests are the
- * element menu's, which stays an equivalent entry. Real DSH Web, real resident;
- * the quality fixture and scripted LLM are `quality-lane.mjs`.
- */
-
 const center = (frame, item) => toScreen(frame, item.rect.x + item.rect.w / 2, item.rect.y + item.rect.h / 2)
 
-/** A canvas point inside the view frame but on no element, away from the bar. */
 function blankPoint(frame) {
   const { width, height } = frame.viewport
   const boxes = frame.world.filter(item => item.kind === 'class').map(item => {
@@ -49,7 +40,6 @@ test('a component’s bar sends a visible panel request, keeps full mutation sec
     for (const name of ['Drill in', 'Refresh CRAP', 'Differential mutation', 'Hide', 'More requests']) {
       await expect(bar.getByRole('button', { name, exact: true })).toBeVisible()
     }
-    // Full mutation lives only in the secondary menu, which is a menu only while open.
     await expect(bar.getByText('Full mutation (--mutate-all)', { exact: true })).toBeHidden()
     await expect(deep.page.locator('[role="menu"]')).toHaveCount(0)
     await bar.getByRole('button', { name: 'More requests', exact: true }).click()
@@ -60,7 +50,6 @@ test('a component’s bar sends a visible panel request, keeps full mutation sec
     await expect(bar).toBeVisible()
     await lane.screenshot(deep, 't48-action-bar-component')
 
-    // Pan and zoom move the diagram, never the bar; the selection stays.
     const fixed = await bar.boundingBox()
     const canvas = await deep.canvas.boundingBox()
     const [bx, by] = blankPoint(frame)
@@ -77,7 +66,6 @@ test('a component’s bar sends a visible panel request, keeps full mutation sec
     await expect(deep.summary).toHaveAttribute('data-selected', ':core')
     expect(await bar.boundingBox()).toEqual(fixed)
 
-    // The right-click menu keeps the same four requests.
     const moved = await producerFrame(deep, { root: lane.projects.deep, home: lane.home })
     const coreNow = moved.world.find(item => item.kind === 'class' && item.id === ':core')
     const [cx, cy] = toScreen(moved, coreNow.rect.x + coreNow.rect.w / 2, coreNow.rect.y + 10)
@@ -87,7 +75,6 @@ test('a component’s bar sends a visible panel request, keeps full mutation sec
     await deep.page.keyboard.press('Escape')
     await expect(deep.page.locator('[role="menu"]')).toHaveCount(0)
 
-    // Refresh CRAP from the bar: the request shows up in the conversation.
     await bar.getByRole('button', { name: 'Refresh CRAP', exact: true }).click()
     await expect(deep.page.getByText('UML viewer panel request:\n{:op :refresh-crap :target {:id :core :kind :component} :files ["src/core/order.ts" "src/core/price.ts"]}', { exact: true }).last()).toBeVisible()
     await expect(deep.page.getByText('Finished refresh-crap for :core: quality, IR, display.', { exact: true }).last()).toBeVisible()
@@ -101,8 +88,6 @@ test('a class’s bar opens its card; a foreign package shows its name alone', a
   try {
     const atlas = await lane.openPanel('atlas')
     const bar = atlas.panel.getByRole('toolbar', { name: 'Selection actions', exact: true })
-    // Nothing floats over the canvas since the inspector was deleted (#47):
-    // measure the target and check it is exposed.
     const target = find => exposeTarget(atlas, async () => {
       const frame = await producerFrame(atlas, { root: lane.projects.atlas, home: lane.home })
       const item = frame.world.find(find)
@@ -119,13 +104,11 @@ test('a class’s bar opens its card; a foreign package shows its name alone', a
     await bar.getByRole('button', { name: 'Open class card', exact: true }).click()
     const card = atlas.panel.getByRole('dialog', { name: 'Class card Gateway', exact: true })
     await expect(card).toBeVisible()
-    // Opening the card from the bar does not move the view.
     await expect(atlas.summary).toHaveText(view)
     await lane.screenshot(atlas, 't48-action-bar-class-card')
     await card.getByRole('button', { name: 'Close class card', exact: true }).click()
     await expect(card).toBeHidden()
 
-    // Escape clears the selection at the root, and the bar goes with it.
     await atlas.canvas.focus()
     await atlas.page.keyboard.press('Escape')
     await expect(atlas.summary).toHaveAttribute('data-selected', '')
@@ -143,7 +126,6 @@ test('a class’s bar opens its card; a foreign package shows its name alone', a
   } finally { await lane.close() }
 })
 
-/** Whether two boxes share any area: the bar must never sit on another surface. */
 function overlap(a, b) {
   return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 }
@@ -155,7 +137,6 @@ test('keeps clear of the card drawer and the status line at narrow and docked wi
     const bar = atlas.panel.getByRole('toolbar', { name: 'Selection actions', exact: true })
     const drawer = atlas.panel.locator('.dsh-uml-drawer')
     const status = atlas.panel.locator('.dsh-uml-viewer-statusbar')
-    // The canvas is fully exposed since the inspector was deleted (#47).
     const { point } = await exposeTarget(atlas, async () => {
       const frame = await producerFrame(atlas, { root: lane.projects.atlas, home: lane.home })
       const item = frame.world.find(item => item.kind === 'class' && item.id === ':gateway')
@@ -173,15 +154,12 @@ test('keeps clear of the card drawer and the status line at narrow and docked wi
       expect(other, `${where} has a box`).not.toBeNull()
       expect(overlap(barBox, other), `the bar keeps its own space beside ${where}`).toBe(false)
     }
-    // Narrow: the card is the bottom drawer, so the bar moves above it.
     await expect(atlas.panel).toHaveAttribute('data-layout', 'drawer')
     await expect(bar).toBeVisible()
     await clear('the bottom drawer', drawer)
     await clear('the status bar', status)
     await lane.screenshot(atlas, 't48-action-bar-drawer-narrow')
 
-    // Docked: from 900px the card is a right column; even in a just-docked
-    // panel, where the column takes most of the width, the bar keeps left of it.
     await toggleFullscreen(atlas, true)
     await expect.poll(() => atlas.panel.evaluate(element => element.clientWidth)).toBeGreaterThanOrEqual(900)
     await expect(atlas.panel).toHaveAttribute('data-layout', 'docked')
@@ -195,7 +173,6 @@ test('keeps clear of the card drawer and the status line at narrow and docked wi
   } finally { await lane.close() }
 })
 
-/** A companion that only acknowledges: every admitted request stays queued (#53). */
 function acknowledging(request) {
   if (!request.tools?.length) return null
   const last = request.messages?.at(-1)
@@ -217,18 +194,13 @@ test('the status bar’s request queue opens above the bar, not behind it', asyn
     expect(core, 'the deep root draws the core component').toBeTruthy()
     await lane.point(deep, center(frame, core))
     await expect(bar).toBeVisible()
-    // Two requests from the bar: the second waits behind the first. The
-    // visible "N more" button is the user-facing queue count (hard standard #4).
     await bar.getByRole('button', { name: 'Refresh CRAP', exact: true }).click()
-    // The visible request line may already be "Failed" once the acknowledging
-    // companion ends its turn; either way the first click produced its line.
     await expect(status.locator('.dsh-uml-viewer-request')).toContainText('Refresh CRAP :core:')
     await expect(more).toBeHidden()
     await bar.getByRole('button', { name: 'Refresh CRAP', exact: true }).click()
     await expect(more).toHaveText('1 more')
     await more.click()
     await expect(list).toBeVisible()
-    // The queue opens over the bar's own corner; it must paint above it.
     const [barBox, listBox] = await Promise.all([bar.boundingBox(), list.boundingBox()])
     expect(overlap(barBox, listBox), 'the queue opens where the bar is').toBe(true)
     const z = locator => locator.evaluate(element => Number(getComputedStyle(element).zIndex))

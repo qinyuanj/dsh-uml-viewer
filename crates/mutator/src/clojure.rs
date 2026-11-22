@@ -1,19 +1,3 @@
-//! Clojure mutation sites: the original's clj-mutate rules over a custom reader.
-//!
-//! The pinned `sites.py` walks the tree-sitter `clojure` grammar (sogaiu, as
-//! bundled by tree-sitter-language-pack 1.21.0). This port does not link that
-//! grammar: a hand-written reader rebuilds the parts of its tree the rules
-//! observe. Those are the node kinds and spans of `sym_lit` (metadata
-//! included), `bool_lit` and `num_lit`, which collection a node sits in
-//! directly, and every enclosing node kind. It follows the grammar's token
-//! rules (a number prefix wins at its own longest match, `true`/`false`/`nil`
-//! only at exact length, `#_` is a gap whose form is still walked) and its
-//! error recovery. Collections still open at end of file flatten into one
-//! `ERROR` node, a stray closer is an `ERROR` of its own, and a closer that
-//! belongs to an enclosing collection closes the inner ones as if their
-//! closer were present.
-
-/// One syntax node: its grammar kind and UTF-8 byte span.
 #[derive(Debug)]
 struct Node {
     kind: &'static str,
@@ -33,7 +17,6 @@ impl Node {
     }
 }
 
-/// `WHITESPACE_CHAR`: Java whitespace and the comma.
 fn whitespace(ch: char) -> bool {
     matches!(
         ch,
@@ -55,27 +38,22 @@ fn whitespace(ch: char) -> bool {
     )
 }
 
-/// Whitespace without the comma, which the token classes list separately.
 fn blank(ch: char) -> bool {
     ch != ',' && whitespace(ch)
 }
 
-/// `SYMBOL_HEAD`.
 fn symbol_head(ch: char) -> bool {
     !blank(ch) && !"/()[]{}\"@~^;`\\,:#'0123456789".contains(ch)
 }
 
-/// `SYMBOL_BODY`.
 fn symbol_body(ch: char) -> bool {
     symbol_head(ch) || ":#'0123456789".contains(ch)
 }
 
-/// `SYMBOL_NAMESPACED_NAME`'s characters.
 fn symbol_name(ch: char) -> bool {
     symbol_head(ch) || "/:#'0123456789".contains(ch)
 }
 
-/// `KEYWORD_HEAD`.
 fn keyword_head(ch: char) -> bool {
     !blank(ch) && !"()[]{}\"@~^;`\\,:/".contains(ch)
 }
@@ -87,7 +65,6 @@ fn digits(bytes: &[u8], at: usize) -> usize {
         .count()
 }
 
-/// `NUMBER`'s longest match at the start of `text`, sign included.
 fn number(text: &str) -> Option<usize> {
     let bytes = text.as_bytes();
     let sign = usize::from(matches!(bytes.first(), Some(b'+' | b'-')));
@@ -97,11 +74,9 @@ fn number(text: &str) -> Option<usize> {
     }
     let at = |index: usize| bytes.get(index).copied();
     let mut best = sign + lead;
-    // INTEGER: digits, then M or N.
     if matches!(at(sign + lead), Some(b'M' | b'N')) {
         best = best.max(sign + lead + 1);
     }
-    // DOUBLE: digits, an optional fraction, an optional exponent, then M.
     let mut end = sign + lead;
     if at(end) == Some(b'.') {
         end += 1 + digits(bytes, end + 1);
@@ -117,14 +92,12 @@ fn number(text: &str) -> Option<usize> {
         end += 1;
     }
     best = best.max(end);
-    // RATIO: digits / digits.
     if at(sign + lead) == Some(b'/') {
         let denominator = digits(bytes, sign + lead + 1);
         if denominator > 0 {
             best = best.max(sign + lead + 1 + denominator);
         }
     }
-    // RADIX: digits r alphanumerics.
     if matches!(at(sign + lead), Some(b'r' | b'R')) {
         let body = bytes[sign + lead + 1..]
             .iter()
@@ -135,7 +108,6 @@ fn number(text: &str) -> Option<usize> {
         }
     }
     if at(sign) == Some(b'0') {
-        // HEX: 0x digits, then N.
         if matches!(at(sign + 1), Some(b'x' | b'X')) {
             let hex = bytes[sign + 2..]
                 .iter()
@@ -146,7 +118,6 @@ fn number(text: &str) -> Option<usize> {
                 best = best.max(end + usize::from(at(end) == Some(b'N')));
             }
         }
-        // OCTAL: 0 octal digits, then N.
         let octal = bytes[sign + 1..]
             .iter()
             .take_while(|b| (b'0'..=b'7').contains(b))
@@ -159,8 +130,6 @@ fn number(text: &str) -> Option<usize> {
     Some(best)
 }
 
-/// `CHARACTER` after its backslash: the longest of an octal, named, unicode
-/// or single character.
 fn character(text: &str) -> Option<usize> {
     let first = text.chars().next()?;
     let mut best = first.len_utf8();
@@ -180,8 +149,6 @@ fn character(text: &str) -> Option<usize> {
     Some(best)
 }
 
-/// What a form produced: complete nodes, or the flattened contents of a
-/// collection still open at end of file.
 enum Parsed {
     Done(Vec<Node>),
     Open(Vec<Node>),
@@ -232,8 +199,6 @@ impl<'a> Reader<'a> {
         self.at - start
     }
 
-    /// `_gap`: whitespace, a comment or a discarded form. None when the next
-    /// character starts a form or a closer.
     fn gap(&mut self, closers: &[char]) -> Option<Parsed> {
         self.skip_whitespace();
         let rest = self.rest();
@@ -261,8 +226,6 @@ impl<'a> Reader<'a> {
         None
     }
 
-    /// Gaps, then one form: the body of every prefix reader macro. The flag
-    /// is true when a collection inside was still open at end of file.
     fn prefixed(&mut self, closers: &[char]) -> (Vec<Node>, bool) {
         let mut children = Vec::new();
         loop {
@@ -276,7 +239,6 @@ impl<'a> Reader<'a> {
             }
         }
         match self.peek() {
-            // The form is missing: the grammar inserts an empty one.
             None => (children, false),
             Some(ch) if ")]}".contains(ch) => (children, false),
             Some(_) => match self.form(closers) {
@@ -292,8 +254,6 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// The items of a collection up to `close`. `closers` are the closers of
-    /// the enclosing collections.
     fn items(&mut self, close: char, closers: &[char]) -> Parsed {
         let mut inner = closers.to_vec();
         inner.push(close);
@@ -319,8 +279,6 @@ impl<'a> Reader<'a> {
             }
             if ")]}".contains(ch) {
                 if closers.contains(&ch) {
-                    // An enclosing collection's closer: this one is closed as if
-                    // its own closer were present.
                     return Parsed::Done(children);
                 }
                 children.push(Node::leaf("ERROR", self.at, self.at + 1));
@@ -337,7 +295,6 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// A collection whose opening marker of `marker` bytes starts at `start`.
     fn collection(
         &mut self,
         kind: &'static str,
@@ -358,7 +315,6 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// A prefix reader macro: its marker, gaps and one form.
     fn prefix(&mut self, kind: &'static str, marker: usize, closers: &[char]) -> Parsed {
         let start = self.at;
         self.at += marker;
@@ -376,7 +332,6 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// `ns_map_lit`: `#`, a keyword or `::` prefix, gaps, then a map.
     fn namespaced_map(&mut self, closers: &[char]) -> Parsed {
         let start = self.at;
         self.at += 1;
@@ -402,7 +357,6 @@ impl<'a> Reader<'a> {
         let open = self.at;
         match self.collection("map_lit", open, 1, '}', closers) {
             Parsed::Done(map) => {
-                // The map's items are the namespaced map's own children.
                 for node in map {
                     children.extend(node.children);
                 }
@@ -420,7 +374,6 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// `kwd_lit` at a `:`; `::` and a bare `::` mark are kept whole.
     fn keyword(&mut self) -> Node {
         let start = self.at;
         if self.rest().starts_with("::") {
@@ -447,8 +400,6 @@ impl<'a> Reader<'a> {
         Node::leaf("kwd_lit", start, self.at)
     }
 
-    /// `str_lit` (or the regex body after `#`); unterminated is an error to
-    /// end of file.
     fn string(&mut self, kind: &'static str, start: usize) -> Node {
         let mut chars = self.rest().char_indices();
         chars.next();
@@ -468,7 +419,6 @@ impl<'a> Reader<'a> {
         Node::leaf("ERROR", start, self.at)
     }
 
-    /// Symbols, booleans and nil, which share one token at a form's start.
     fn symbol(&mut self) -> Vec<Node> {
         let start = self.at;
         if self.peek() == Some('/') {
@@ -487,7 +437,6 @@ impl<'a> Reader<'a> {
             let delimiter = self.at;
             self.at += 1;
             if self.take_while(symbol_name) == 0 {
-                // A namespace without a name: the delimiter is an error.
                 return vec![
                     Node::leaf("sym_lit", start, delimiter),
                     Node::leaf("ERROR", delimiter, self.at),
@@ -497,7 +446,6 @@ impl<'a> Reader<'a> {
         vec![Node::leaf("sym_lit", start, self.at)]
     }
 
-    /// One form, metadata included.
     fn form(&mut self, closers: &[char]) -> Parsed {
         let rest = self.rest();
         if rest.starts_with('^') || rest.starts_with("#^") {
@@ -537,7 +485,6 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// The `#` dispatch reader macros.
     fn dispatch(&mut self, closers: &[char]) -> Parsed {
         let start = self.at;
         let rest = self.rest();
@@ -556,7 +503,6 @@ impl<'a> Reader<'a> {
                     ("read_cond_lit", 2)
                 };
                 self.at += marker;
-                // Whitespace only, never a comment or a discarded form.
                 self.skip_whitespace();
                 if self.peek() != Some('(') {
                     return Parsed::Done(vec![Node::leaf("ERROR", start, self.at)]);
@@ -580,8 +526,6 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// `^` / `#^` metadata, each with its trailing gaps, attached to the
-    /// form it precedes when that form takes metadata.
     fn with_metadata(&mut self, closers: &[char]) -> Parsed {
         let start = self.at;
         let mut metadata = Vec::new();
@@ -626,8 +570,6 @@ impl<'a> Reader<'a> {
                     node.start = start;
                     return Parsed::Done(vec![node]);
                 }
-                // Metadata on a form that takes none: a symbol holding only
-                // the metadata, then the form on its own.
                 let mut found = vec![Node {
                     kind: "sym_lit",
                     start,
@@ -645,13 +587,10 @@ impl<'a> Reader<'a> {
     }
 }
 
-/// A node's contents inline, as the grammar's error recovery keeps them.
 fn flatten(node: Node) -> Vec<Node> {
     node.children
 }
 
-/// The whole file: top-level forms and gaps. Contents still open at end of
-/// file become one `ERROR` node.
 fn read(text: &str) -> Node {
     let mut reader = Reader { text, at: 0 };
     let mut children = Vec::new();
@@ -703,7 +642,6 @@ fn error(children: Vec<Node>, end: usize) -> Node {
     }
 }
 
-/// `_CLOJURE_HEAD`: clj-mutate's head symbol swaps and their categories.
 fn head_swap(symbol: &str) -> Option<(&'static str, &'static str)> {
     Some(match symbol {
         "+" => ("-", "arithmetic"),
@@ -747,10 +685,8 @@ fn head_swap(symbol: &str) -> Option<(&'static str, &'static str)> {
     })
 }
 
-/// A raw site: line, byte span, original, mutant and category.
 pub type Raw = (usize, usize, usize, String, String, &'static str);
 
-/// `_clojure_head`: the first symbol directly in a list.
 fn head<'n>(list: &'n Node, text: &'n str) -> Option<&'n str> {
     list.children
         .iter()
@@ -758,8 +694,6 @@ fn head<'n>(list: &'n Node, text: &'n str) -> Option<&'n str> {
         .map(|child| &text[child.start..child.end])
 }
 
-/// `_clojure_skipped` along the path from the root: comments, quotes,
-/// strings and characters, and the bodies of `(comment …)` and `(quote …)`.
 fn skipped(node: &Node, text: &str) -> bool {
     ["comment", "quot", "string", "str_lit", "char_lit"]
         .iter()
@@ -817,7 +751,6 @@ fn visit(
     }
 }
 
-/// The original's Clojure `discover_raw`, sorted by line and span.
 pub fn raw_sites(text: &str) -> Vec<Raw> {
     let tree = read(text);
     let lines: Vec<usize> = text
@@ -832,7 +765,6 @@ pub fn raw_sites(text: &str) -> Vec<Raw> {
     found
 }
 
-/// `is_private` for Clojure: the declaration's header starts `(defn-`.
 pub fn private(header: &str) -> bool {
     header.starts_with("(defn-")
 }
@@ -843,8 +775,6 @@ fn read_project(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_default()
 }
 
-/// `_clojure_command`: Babel's babashka runner, Speclj's tagged runner or the
-/// plain `:test` alias, chosen by the text of the project's own files.
 pub fn command(directory: &Path) -> Vec<String> {
     let deps = directory.join("deps.edn");
     let bb = directory.join("bb.edn");
@@ -868,8 +798,6 @@ pub fn command(directory: &Path) -> Vec<String> {
     ["clj", "-M:test"].map(String::from).to_vec()
 }
 
-/// `test_plan(root, source, "clojure", None)`: the nearest `deps.edn`, then
-/// the nearest `bb.edn`, then the root.
 pub fn test_plan(root: &Path, source: &Path) -> (Vec<String>, PathBuf) {
     use quality_core::{paths::resolve, runner::nearest};
     let root = resolve(root);
@@ -881,7 +809,6 @@ pub fn test_plan(root: &Path, source: &Path) -> (Vec<String>, PathBuf) {
 
 #[cfg(test)]
 mod tests {
-    //! Ported from the original `tests/test_runner.py` Clojure cases.
     use super::*;
     use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -948,7 +875,6 @@ mod tests {
             test_plan(&root, &source),
             (vec!["clj".into(), "-M:test".into()], root.clone())
         );
-        // Neither marker: the root with the plain test alias.
         fs::remove_dir_all(&root).unwrap();
     }
 }

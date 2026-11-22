@@ -1,6 +1,5 @@
 import { fakeCanvas } from './fakes.js'
 
-/** Minimal DOM for real mountPanel handlers; no browser or renderer substitutes. */
 export class Element extends EventTarget {
   children: Element[] = []
   parent: Element | null = null
@@ -58,7 +57,6 @@ export function makeDocument() {
     removeEventListener(type: string, listener: (event: Event) => void): void {
       listeners.get(type)?.delete(listener)
     },
-    /** Enough of a document-level bubble for outside-click and Esc tests. */
     dispatchEvent(event: Event): boolean {
       for (const listener of [...(listeners.get(event.type) ?? [])]) listener(event)
       return true

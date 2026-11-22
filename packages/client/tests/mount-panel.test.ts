@@ -71,8 +71,6 @@ describe('mounted resident lifetime (#32 D13)', () => {
         aborts.push(abort)
         const stream = viewer.watchOwned(agent, owner, language, abort.signal)[Symbol.asyncIterator]()
         return { [Symbol.asyncIterator]: () => stream,
-          // Pinned gateway: end() only half-closes the uplink; dispose() aborts
-          // the generation and returns the iterator. close-first defers that.
           end() {}, dispose() { if (order !== 'close-first') abort.abort() } }
       },
       async action() { return { accepted: true, reason: null } },
@@ -89,9 +87,7 @@ describe('mounted resident lifetime (#32 D13)', () => {
     if (order === 'overlap') { second = await mountAgain(); await settled(); expect(connection.refs).toBe(2) }
     first()
     await settled()
-    expect(closes).toEqual([]) // Detach never claims user close intent.
-    // An older additive Remote may still deliver its unscoped close in either
-    // order. It cannot target or poison the new owned stream.
+    expect(closes).toEqual([])
     expect(await viewer.close(agent)).toEqual({ closed: false })
     aborts[0]!.abort()
     await settled()
@@ -213,7 +209,6 @@ describe('mounted panel quality menu (#28)', () => {
 
   it('offers no menu on a foreign package ellipse or a dependency port', async () => {
     const { host, canvas } = await mount()
-    // A flat frame whose only hit targets are a foreign 椭圆 and a port.
     const frame: SceneFrame = { ...golden, waiting: false, viewport: { width: 800, height: 600 }, camera: { x: 0, y: 0, zoom: 1 },
       world: [
         { kind: 'class', lod: 'blocks', id: ':react', owner: null, rect: { x: 10, y: 10, w: 100, h: 40 }, shape: 'oval',
@@ -270,7 +265,6 @@ describe('mounted panel action bar (#48)', () => {
     await emit({ kind: 'frame', seq: 2, frame: golden })
     const bar = host.descendants().find(el => el.className.includes('dsh-uml-viewer-action-bar'))!
     expect(bar.hidden).toBe(true)
-    // The bar overlays the canvas area: it never takes height from the canvas.
     expect(bar.parent?.className).toBe('dsh-uml-viewer-canvas-area')
     await emit(state('{:kind :class :id :core :drill? true}'))
     expect(bar.hidden).toBe(false)
@@ -278,7 +272,6 @@ describe('mounted panel action bar (#48)', () => {
     bar.descendants().find(el => el.textContent === 'Drill in')!.fire('click')
     await settled()
     expect(actions.filter(a => a.action === 'drill-in')).toEqual([{ action: 'drill-in', id: ':core' }])
-    // A click on blank canvas selects the level's frame: no bar.
     await emit(state('{:kind :package :id :view}'))
     expect(bar.hidden).toBe(true)
   })
@@ -321,7 +314,6 @@ describe('request dismissal refusals (#53)', () => {
 })
 
 describe('mounted panel language (#42)', () => {
-  /** DSH's `ctx.locale` face: the active id and a change subscription. */
   function dshLocale(active: string) {
     const listeners = new Set<() => void>()
     return {

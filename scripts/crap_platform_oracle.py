@@ -61,8 +61,6 @@ def main() -> int:
     from crapper import platform as module
     from crapper.cli import platform_warning
 
-    # The gate is gone for good (crapper#18); one coming back would need fixture
-    # rows this oracle no longer knows how to write.
     for gone in ("refusal", "windows_build", "MINIMUM_WINDOWS_BUILD"):
         if hasattr(module, gone):
             raise SystemExit(f"crapper.platform has {gone} again; add its cases here")

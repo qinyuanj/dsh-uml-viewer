@@ -1,12 +1,3 @@
-//! The scene frame (#16): one view, fully drawable, as a versioned JSON
-//! document: the typed parts ([`layers`], [`chrome`]) and the
-//! [`Frame::to_json`] the viewer panel receives. The schema is
-//! `docs/scene-frame.md`; `version` changes only on an incompatible change.
-//!
-//! Colors are semantic [`Role`]s, never RGB. World items are in scene
-//! coordinates (`screen = (world - camera) * zoom`, plus the viewport
-//! origin); chrome items are in viewport points.
-
 use edn::Value;
 use scene::Rect;
 use scene::document::ViewState;
@@ -178,8 +169,6 @@ impl Frame {
             "chrome": self.chrome.iter().map(chrome_json).collect::<Vec<_>>(),
             "legend": legend::json(&self.legend),
         });
-        // The duplicate-structure payload is additive and absent without a dry
-        // snapshot: the goldens stay byte for byte what they were.
         if let Some(dry) = &self.dry
             && let Some(object) = json.as_object_mut()
         {
@@ -226,7 +215,6 @@ pub fn tier_name(tier: Tier) -> &'static str {
     }
 }
 
-/// An f32 style constant at its decimal value (1.6, not 1.600000023841858).
 fn f32n(x: f32) -> Json {
     let value: f64 = x.to_string().parse().unwrap_or(x as f64);
     json!(value)
@@ -284,7 +272,6 @@ pub fn role_json(role: Role) -> Json {
     Json::Object(map)
 }
 
-/// An element id: its EDN text (`:ir.graph`), which round-trips.
 fn id_json(id: &Option<Value>) -> Json {
     match id {
         Some(v) => json!(edn::encode(v).unwrap_or_default()),
@@ -308,8 +295,6 @@ fn object(pairs: Vec<(&str, Json)>) -> Json {
     Json::Object(pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
 }
 
-/// A scene-space item: its kind, owner class, dim flag, coarsest LOD tier
-/// and culling bounds, then its own fields.
 fn world_json(c: &Command) -> Json {
     let mut fields = command_fields(c);
     if let Json::Object(map) = &mut fields {

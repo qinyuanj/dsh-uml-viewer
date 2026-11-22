@@ -5,16 +5,6 @@ import { launchViewerLane } from './lane.mjs'
 import { producerFrame, toScreen } from './canvas.mjs'
 import { calls, qualityFixture, qualityReply } from './quality-lane.mjs'
 
-/**
- * #28: both cases passed against a real binary in CI5 (42591228938, f4c12e3).
- * Run only with an EXISTING binary:
- * UML_VIEWER_BIN=<absolute existing exe>
- * UML_VIEWER_E2E_SCRATCH=<scratch>/e2e-uml-viewer
- * PLAYWRIGHT_BROWSERS_PATH=<scratch>/e2e-uml-viewer/browsers
- * (set the last two for BOTH browser install and test invocations).
- *
- * The quality fixture and the scripted LLM are `quality-lane.mjs`.
- */
 async function clickRefresh(panel, frame, id, label) {
   const item = frame.world.find(item => item.id === id && (item.kind === 'class' || item.kind === 'package'))
   expect(item, `frame contains ${id}`).toBeTruthy()
@@ -42,7 +32,6 @@ test('three visible bound-session requests leave the draft intact and run qualit
       await expect(a.page.getByText(`Finished ${op} for :core: quality, IR, display.`, { exact: true }).last()).toBeVisible()
       const message = a.page.getByText(`UML viewer panel request:\n{:op :${op} :target {:id :core :kind :component} :files ["src/core/order.ts" "src/core/price.ts"]}`, { exact: true })
       await expect(message.last()).toBeVisible()
-      // The display refreshed this panel's own stream, not another surface.
       await expect(a.summary).toHaveAttribute('data-kind', 'frame')
       await expect(a.panel).toHaveAttribute('data-session-id', a.sessionId)
     }
@@ -68,25 +57,17 @@ test('validResult false stops the request before IR/display and reports why', as
     await fs.writeFile(path.join(lane.projects.deep, 'refuse-crap'), '')
     const before = lane.mock.requests.length
     await clickRefresh(a, frame, ':api', 'Refresh CRAP')
-    // #52: the companion's quality call failed the request, with a reason and
-    // the exit code the version-1 record reported. The fixture tool itself ran
-    // and failed, so (#39) that reason is the host's tool-failure line plus the
-    // tool's own stderr tail, not a dispatcher refusal.
     const bar = a.panel.locator('.dsh-uml-viewer-statusbar')
     // The tail is the tool's last non-blank stderr lines, so assert the host's
-    // line and the fixture's own line rather than the whole text: a host whose
-    // Node prints a warning adds a line that is not this tool's diagnosis.
     await expect(bar).toContainText('Refresh CRAP :api: Failed — uml-viewer quality crap failed (exit 1)')
     await expect(bar).toContainText('controlled quality refusal')
     await expect(bar).toContainText('(exit code 1)')
     await expect(a.page.getByText('Stopped refresh-crap: quality returned validResult false; no IR or display.', { exact: true }).last()).toBeVisible()
     const requests = lane.mock.requests.slice(before).map(r => JSON.parse(r.body))
-    // Only the failed quality call follows the visible request: no IR, no display.
     const last = requests.at(-1).messages
     const at = last.findIndex(m => m.content?.some(p => p.text?.startsWith('UML viewer panel request:')))
     expect(at).toBeGreaterThanOrEqual(0)
     expect(last.slice(at).flatMap(m => m.content ?? []).filter(p => p.type === 'tool_use').map(p => p.name)).toEqual(['uml_crap'])
-    // One binary invocation, and it refused before any snapshot was published.
     expect(await calls(lane.projects.deep)).toEqual([{ operation: 'crap', args: [] }])
   } finally { await lane.close() }
 })

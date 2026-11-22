@@ -1,6 +1,3 @@
-//! Namespace and proposal views (port of `love/uml/domain/hierarchy.lua`).
-//! Functions consume and return tagged EDN; inputs are never mutated.
-
 use crate::config;
 use crate::policy;
 use edn::Value;
@@ -28,15 +25,11 @@ fn path_name(path: &[Value]) -> String {
     path.iter().map(name).collect::<Vec<_>>().join(".")
 }
 
-/// Is `x` `parent` itself or a dotted descendant of it? The one subtree rule
-/// the namespace views and quality targets share.
 pub(crate) fn under(x: &Value, parent: &Value) -> bool {
     let (x, parent) = (name(x), name(parent));
     x == parent || x.starts_with(&format!("{parent}."))
 }
 
-/// The node `x` presents as at `path`: itself when it is exactly the focus,
-/// its next segment when deeper, None when outside the focus subtree.
 fn child(x: &Value, path: &[Value]) -> Option<Value> {
     let ss = path_parts(x);
     if ss.len() < path.len() {
@@ -53,8 +46,6 @@ fn child(x: &Value, path: &[Value]) -> Option<Value> {
     Some(Value::keyword(&ss[..path.len() + 1].join(".")))
 }
 
-/// Display label: CamelCase of the last dot segment, preserving existing
-/// capitals (byte-level ASCII case ops, as in Lua).
 fn label(x: &Value) -> String {
     let last = name(x);
     let last = last.rsplit('.').next().unwrap_or("");
@@ -84,7 +75,6 @@ fn module_name(c: &Value) -> String {
     label(get(c, "id").unwrap())
 }
 
-/// `G.file_base`: trailing path segment after `/`.
 fn file_base(path: &Value) -> Option<String> {
     match path {
         Value::String(s) => {
@@ -127,7 +117,6 @@ fn descendants(cid: &Value, classes: &[Value]) -> bool {
     })
 }
 
-/// Distinct child nodes of `path` across the classes (foreign excluded).
 pub fn nodes_at(classes: &[Value], path: &[Value]) -> Vec<Value> {
     let mut out = Vec::new();
     for c in classes {
@@ -331,7 +320,6 @@ fn remap_edge(e: &Value, from: Value, to: Value) -> Value {
     out
 }
 
-/// The source-tree view at a namespace focus.
 pub fn view_at(doc: &Value, path: &[Value]) -> Value {
     let classes: Vec<Value> = seq(get(doc, "classes"))
         .iter()
@@ -484,8 +472,6 @@ pub fn view_at(doc: &Value, path: &[Value]) -> Value {
             Value::keyword("packages"),
             Value::Vector(vec![Value::Map(vec![
                 (Value::keyword("id"), Value::keyword("view")),
-                // The chrome title carries the whole path; the frame names
-                // only the focused segment.
                 (
                     Value::keyword("label"),
                     path.last().map_or(title, |last| Value::String(name(last))),
@@ -609,8 +595,6 @@ fn group_box(group: &Value, kids: &[Value]) -> Value {
     out
 }
 
-/// The proposal view: declared layers become packages, leftovers land in
-/// `proposal.unassigned`, edges remap onto visible boxes or their owners.
 pub fn proposal_view(doc: &Value, which: Option<&Value>) -> Value {
     let mut root = view_at(doc, &[]);
     let (proposal, named) = chosen(doc, which);
@@ -748,7 +732,6 @@ pub fn proposal_view(doc: &Value, which: Option<&Value>) -> Value {
     root
 }
 
-/// Find a nested proposal group box declaration by id.
 pub fn find_nested_group(doc: &Value, which: Option<&Value>, cid: &Value) -> Option<Value> {
     let cid = id(cid);
     let (proposal, _) = chosen(doc, which);
@@ -774,7 +757,6 @@ pub fn find_nested_group(doc: &Value, which: Option<&Value>, cid: &Value) -> Opt
     None
 }
 
-/// Drill into a proposal package or a nested group.
 pub fn layer_view(doc: &Value, which: Option<&Value>, pkg_id: &Value) -> Value {
     let mut root = proposal_view(doc, which);
     let root_packages = seq(get(&root, "packages")).to_vec();
@@ -821,7 +803,6 @@ pub fn layer_view(doc: &Value, which: Option<&Value>, pkg_id: &Value) -> Value {
     root
 }
 
-/// Is this id a collapsed proposal package (`proposal.*`)?
 pub fn proposal_package_id(cid: Option<&Value>) -> bool {
     cid.map(|c| local_name(c).unwrap_or_default().starts_with("proposal."))
         .unwrap_or(false)
@@ -877,8 +858,6 @@ fn packages(view: &Value, transform: &dyn Fn(Value) -> Value) -> Value {
     r
 }
 
-/// Collapse directional arrows between packages into one edge each with leaf
-/// provenance (`:via-ids`, `:deps`); each package gains a dummy roll-up box.
 pub fn collapse_arrows(view: &Value) -> Value {
     let multi = seq(get(view, "packages")).len() > 1;
     let view = packages(view, &|mut p: Value| {
@@ -1001,7 +980,6 @@ pub fn collapse_arrows(view: &Value) -> Value {
     view
 }
 
-/// Hide all member content (declutter "elements").
 pub fn hide_elements(view: &Value) -> Value {
     packages(view, &|mut p: Value| {
         let cs: Vec<Value> = seq(get(&p, "classes"))
@@ -1017,8 +995,6 @@ pub fn hide_elements(view: &Value) -> Value {
     })
 }
 
-/// Collapse each package to a single metrics roll-up box (declutter
-/// "classes"), or hide members on a single-package view.
 pub fn hide_classes(view: &Value) -> Value {
     let multi = seq(get(view, "packages")).len() > 1;
     packages(view, &|mut p: Value| {
@@ -1060,7 +1036,6 @@ pub fn hide_classes(view: &Value) -> Value {
     })
 }
 
-/// Apply a declutter mode to a view; unknown modes are "full".
 pub fn apply_declutter(view: &Value, mode: Option<&Value>) -> Value {
     let mut mode = mode.map(name).unwrap_or_else(|| "full".into());
     if mode == "methods" {

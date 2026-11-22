@@ -2,17 +2,6 @@ import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
 import { differs, inkCount, panelCamera, producerFrame, sample, same, screenRect, toScreen } from './canvas.mjs'
 
-/**
- * Panel graph primitives (dsh-uml-viewer#24), the browser form of the deleted
- * egui class-box window drivers (class_boxes.edn, font_parity.edn,
- * font_parity_baseline.edn, fonts.edn, lod_shots.edn; removed in #30): the real panel canvas is read pixel by
- * pixel and compared with the real producer frame (`uml-viewer scene --frame`)
- * for the same IR, viewport and camera. The atlas sample has no metrics, so
- * every class and component frame is unmeasured (dashed); the foreign-package
- * ellipse keeps a solid outline.
- */
-
-/** Screen rects of everything drawn over a box (text, dots, markers, lines, chrome). */
 function occupied(frame) {
   const z = frame.camera.zoom
   const out = []
@@ -52,7 +41,6 @@ function occupied(frame) {
 
 const inside = (r, x, y, margin = 0) => x >= r.x - margin && x <= r.x + r.w + margin && y >= r.y - margin && y <= r.y + r.h + margin
 
-/** A point of `rect` (shrunk by `inset`) at least 4 px from anything drawn over it and outside `exclude`. */
 function freePoint(frame, rect, inset = 5, exclude = []) {
   const busy = [...occupied(frame), ...exclude]
   for (let y = rect.y + inset; y <= rect.y + rect.h - inset; y += 2) {
@@ -69,7 +57,6 @@ function find(frame, predicate, what) {
   return item
 }
 
-/** Color runs along a horizontal line just outside a box edge: a dashed edge alternates. */
 async function edgeRuns(panel, x0, x1, y, outside) {
   const points = []
   for (let x = Math.ceil(x0); x <= Math.floor(x1); x += 1) points.push([x + 0.5, y])
@@ -81,16 +68,11 @@ async function edgeRuns(panel, x0, x1, y, outside) {
   return runs
 }
 
-/** The label's text slot on screen. */
 function slot(frame, item) {
   const [x, y] = toScreen(frame, item.x, item.top)
   return { x, y, w: item.maxW * frame.camera.zoom, h: item.slot * frame.camera.zoom }
 }
 
-/**
- * No label spills past a box: the columns 4 px outside its left and right
- * edges stay `outside`, except where a relation line leaves the box.
- */
 async function expectNoOverflow(panel, frame, r, outside, label) {
   const busy = occupied(frame)
   const column = []
@@ -104,7 +86,6 @@ test('paints class boxes, component boxes, α/I, levels, CJK names and the forei
   const lane = await launchViewerLane(browser)
   try {
     const atlas = await lane.openPanel('atlas')
-    // The panel repaints once its packaged Sarasa face has loaded.
     await expect.poll(() => atlas.page.evaluate(() => [...document.fonts]
       .some(face => face.family.replaceAll('"', '') === 'UML Viewer Sarasa' && face.status === 'loaded')), { timeout: 30_000 }).toBe(true)
     await atlas.page.waitForTimeout(500)
@@ -117,26 +98,21 @@ test('paints class boxes, component boxes, α/I, levels, CJK names and the forei
     expect(classes.map(item => item.id).sort()).toEqual([':gateway', ':priced', ':订单'])
     const classRects = classes.map(item => screenRect(frame, item.rect))
 
-    // 组件框: a translucent component fill over the canvas, unlike the opaque class fill.
     const pkgRect = screenRect(frame, find(frame, item => item.kind === 'package', 'package').rect)
     const [pkgInterior, classFill] = await sample(atlas, [freePoint(frame, pkgRect, 8, classRects), freePoint(frame, classRects[0])])
     expect(differs(pkgInterior, background, 4), `package ${pkgInterior} vs canvas ${background}`).toBe(true)
     expect(differs(classFill, pkgInterior, 10), `class ${classFill} vs package ${pkgInterior}`).toBe(true)
-    // Unmeasured: the component frame is dashed (6 on, 4 off) along its top edge.
     expect(await edgeRuns(atlas, pkgRect.x + 10, pkgRect.x + pkgRect.w - 10, pkgRect.y - 1, background)).toBeGreaterThanOrEqual(8)
 
     for (const [index, item] of classes.entries()) {
       const r = classRects[index]
       expect(await edgeRuns(atlas, r.x + 6, r.x + r.w - 6, r.y - 1, pkgInterior), `${item.id} dashed`).toBeGreaterThanOrEqual(6)
-      // Every box has the same producer fill (unmeasured red), the sampled one.
       expect(item.fill, `${item.id} fill role`).toEqual(classes[0].fill)
       await expectNoOverflow(atlas, frame, r, pkgInterior, item.id)
-      // Every class name is inked in its slot.
       const name = find(frame, t => t.kind === 'text' && t.line === 'name' && t.owner === item.id, `${item.id} name`)
       expect(await inkCount(atlas, slot(frame, name), classFill), `${item.id} name ${name.text}`).toBeGreaterThan(20)
     }
 
-    // 架构级别编号: gateway on level 1, priced on level 0.
     const levels = frame.world.filter(item => item.kind === 'level')
     expect(levels.map(item => [item.owner, item.text]).sort()).toEqual([[':gateway', '1'], [':priced', '0']])
     for (const level of levels) {
@@ -145,7 +121,6 @@ test('paints class boxes, component boxes, α/I, levels, CJK names and the forei
       expect(await inkCount(atlas, { x, y, w: px, h: px * 1.3 }, classFill), `level ${level.text}`).toBeGreaterThan(3)
     }
 
-    // α/I and the stereotype of the interface.
     const marker = find(frame, item => item.kind === 'marker', 'marker')
     expect([marker.owner, marker.text]).toEqual([':priced', 'I'])
     const [mx, my] = toScreen(frame, marker.at[0], marker.at[1])
@@ -155,7 +130,6 @@ test('paints class boxes, component boxes, α/I, levels, CJK names and the forei
     expect([stereo.owner, stereo.text]).toEqual([':priced', '«interface»'])
     expect(await inkCount(atlas, slot(frame, stereo), classFill)).toBeGreaterThan(20)
 
-    // 外来包椭圆: filled inside, canvas in the bounding-box corner, a solid ring.
     const oval = find(frame, item => item.kind === 'class' && item.shape === 'oval', 'oval')
     expect([oval.id, oval.missing]).toEqual([':react', true])
     const o = screenRect(frame, oval.rect)
@@ -167,7 +141,6 @@ test('paints class boxes, component boxes, α/I, levels, CJK names and the forei
     for (let k = 0; k < 24; k += 1) ring.push([cx + rx * Math.cos((2 * Math.PI * k) / 24), cy + ry * Math.sin((2 * Math.PI * k) / 24)])
     for (const [k, pixel] of (await sample(atlas, ring)).entries()) expect(differs(pixel, background), `oval ring ${k} ${pixel}`).toBe(true)
 
-    // CJK is measured with the packaged Sarasa face: 1 em per CJK glyph, 0.5 em per Latin one.
     const widths = await atlas.page.evaluate(() => {
       const ctx = document.createElement('canvas').getContext('2d')
       ctx.font = '16px "UML Viewer Sarasa", monospace'
@@ -175,7 +148,6 @@ test('paints class boxes, component boxes, α/I, levels, CJK names and the forei
     })
     expect(widths).toEqual({ cjk: 32, latin: 56 })
 
-    // The gateway's title band and member line, inked at the full tier.
     const bandRegion = view => {
       const band = find(view, item => item.kind === 'band' && item.owner === ':gateway', 'gateway band')
       const op = find(view, item => item.kind === 'text' && item.line === 'op' && item.owner === ':gateway', 'gateway op')
@@ -185,8 +157,6 @@ test('paints class boxes, component boxes, α/I, levels, CJK names and the forei
     }
     expect(await inkCount(atlas, bandRegion(frame), classFill), 'full-tier band and member line').toBeGreaterThan(60)
 
-    // lod_shots: wheel out to the frames tier. Names stay; the band, member
-    // lines and level numbers of the full tier are gone.
     let camera = await panelCamera(atlas)
     for (let notch = 0; notch < 30 && camera.zoom >= frame.style.lodZoom.full; notch += 1) {
       await lane.wheel(atlas, 1)
@@ -200,7 +170,6 @@ test('paints class boxes, component boxes, α/I, levels, CJK names and the forei
     await lane.screenshot(atlas, 'atlas-frames')
     const gatewayName = find(far, t => t.kind === 'text' && t.line === 'name' && t.owner === ':gateway', 'gateway name')
     expect(await inkCount(atlas, slot(far, gatewayName), classFill)).toBeGreaterThan(5)
-    // A 2-point band alone would ink ~70 pixels here; a crossing relation line a few.
     expect(await inkCount(atlas, bandRegion(far), classFill), 'no full-tier band or member line').toBeLessThanOrEqual(4)
   } finally {
     await lane.close()

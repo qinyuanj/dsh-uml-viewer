@@ -12,8 +12,6 @@ fn help_wins_over_unknown_options_and_usage_errors_fail() {
     assert_eq!(run(&["--root"]), ExitCode::from(1));
     assert_eq!(run(&["--max-workers", "0"]), ExitCode::from(1));
     assert_eq!(run(&["--max-workers", "many"]), ExitCode::from(1));
-    // Several workers are a valid request. Parsing it is enough here; an empty
-    // project proves that without running a command.
     #[cfg(target_os = "linux")]
     {
         let empty = std::env::temp_dir().join(format!("mutator-cli-{}", std::process::id()));
@@ -42,8 +40,6 @@ fn help_wins_over_unknown_options_and_usage_errors_fail() {
         ExitCode::from(1)
     );
     assert_eq!(run(&["--exclude", "../outside"]), ExitCode::from(1));
-    // `--copy` names a path outside the project root; the usage errors below are
-    // the same exit as every other usage error, on every platform.
     assert_eq!(run(&["--copy"]), ExitCode::from(1));
     assert_eq!(run(&["--copy", "../.."]), ExitCode::from(1));
     assert_eq!(run(&["--copy", "contracts"]), ExitCode::from(1));
@@ -54,13 +50,6 @@ fn help_wins_over_unknown_options_and_usage_errors_fail() {
     );
     let missing = format!("../mutator-cli-missing-{}", std::process::id());
     assert_eq!(run(&["--copy", &missing]), ExitCode::from(1));
-    // Copy isolation recreates `output` and `mutation`, owns `project`, `home`,
-    // `temp` and `appdata`, and wipes the `lua-coverage` position a collection's
-    // scratch is named after, so a `--copy` target there would be deleted or
-    // merged over before the command ran. Lexically reserved: the refusal does not
-    // depend on the path existing, and it comes before any command. The names are
-    // `mutator::slot`'s declaration, the same one the slot's layout comes from, so
-    // a new reserved location is one edit there and needs no second list here.
     for entry in mutator::slot::Entry::ALL {
         for name in [entry.name().to_string(), entry.name().to_ascii_uppercase()] {
             for value in [format!("../{name}"), format!("../{name}/nested")] {

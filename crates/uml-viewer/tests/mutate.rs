@@ -3,8 +3,6 @@ use crate::binary;
 use crate::binary_env;
 use std::fs;
 
-/// A copy of the Lua fixture project: a root module, a nested module, a spec
-/// file with a space in its name and an untested source.
 #[cfg(target_os = "linux")]
 fn lua_project(name: &str) -> std::path::PathBuf {
     fn copy(from: &std::path::Path, to: &std::path::Path) {
@@ -36,8 +34,6 @@ fn remove_lua_project(root: &std::path::Path) {
     fs::remove_dir_all(directory).unwrap();
 }
 
-/// PITFALLS: a sharded path must really run its shards. One line is emitted
-/// per launched shard, so the root module's two specs produce two lines.
 #[cfg(target_os = "linux")]
 #[test]
 fn lua_coverage_runs_busted_in_multiple_shards() {
@@ -66,13 +62,11 @@ fn lua_coverage_runs_busted_in_multiple_shards() {
         "two Busted coverage shards really ran:\n{stderr}"
     );
     assert!(root.join(".metrics/mutate/calc.edn").is_file());
-    // The collector, the stats and the report live in the view scratch.
     assert!(!root.join("target/coverage").exists(), "coverage leak");
     assert!(!root.join("coverage").exists(), "coverage leak");
     remove_lua_project(&root);
 }
 
-/// Scanning inventories the Lua sites: no suite, no coverage, no snapshots.
 #[cfg(target_os = "linux")]
 #[test]
 fn lua_scan_inventories_sites_without_running_anything() {
@@ -92,8 +86,6 @@ fn lua_scan_inventories_sites_without_running_anything() {
         stdout.contains("Scan: 1 mutation sites in src/odd name.lua"),
         "{stdout}"
     );
-    // The Lua spellings: `~=` becomes `==`, `//` becomes `/`, and the private
-    // `local function hidden` keeps its defn-/ identity.
     assert!(stdout.contains("~= -> =="), "{stdout}");
     assert!(stdout.contains("// -> /"), "{stdout}");
     assert!(stdout.contains("[defn-/hidden]"), "{stdout}");
@@ -103,11 +95,6 @@ fn lua_scan_inventories_sites_without_running_anything() {
     remove_lua_project(&root);
 }
 
-/// `--select-specs` must really filter the suite. Each spec file appends its
-/// name and Busted's argv to an external marker when it loads. Only the `*`
-/// mutant of `M.double` (line 8) is selected, and its covering spec is
-/// `spec/double unit_spec.lua`: the full suite's command lists both specs,
-/// covering first, while a selected run's commands name only that one.
 #[cfg(target_os = "linux")]
 #[test]
 fn select_specs_runs_only_the_covering_specs() {
@@ -153,13 +140,10 @@ fn select_specs_runs_only_the_covering_specs() {
         lines
     }
     let root = lua_project("filter");
-    // The full suite lists every spec, covering one first.
     let full = mutant_lines(&root, false);
     assert_eq!(full.len(), 1, "one mutant run: {full:?}");
     assert!(full[0].contains("spec/add_spec.lua"), "{full:?}");
     assert!(full[0].contains("spec/double unit_spec.lua"), "{full:?}");
-    // Selected specs: the pristine subset check and the mutant run, both with
-    // only the covering spec — the non-covering spec is never an argument.
     let selected = mutant_lines(&root, true);
     assert_eq!(
         selected.len(),
@@ -173,8 +157,6 @@ fn select_specs_runs_only_the_covering_specs() {
     remove_lua_project(&root);
 }
 
-/// Without the Lua toolchain the run refuses before any test: no snapshot is
-/// published and the sources stay as they were.
 #[cfg(target_os = "linux")]
 #[test]
 fn lua_mutation_requires_the_pinned_cluacov_toolchain() {
@@ -209,8 +191,6 @@ fn lua_mutation_requires_the_pinned_cluacov_toolchain() {
     remove_lua_project(&root);
 }
 
-/// The shared selection: `uml-viewer crap` and `uml-viewer mutate` must pick
-/// the same Lua sources for the same `-s` and `--exclude`.
 #[cfg(target_os = "linux")]
 #[test]
 fn lua_selection_agrees_with_crap_on_the_same_roots_and_excludes() {
@@ -219,8 +199,6 @@ fn lua_selection_agrees_with_crap_on_the_same_roots_and_excludes() {
             .lines()
             .filter(|line| line.contains(":namespace "))
             .map(|line| {
-                // Both snapshots quote the namespace; what follows it differs
-                // (crap's entry fields versus mutate's outcomes map).
                 line.split(":namespace ")
                     .nth(1)
                     .unwrap()
@@ -320,11 +298,6 @@ fn mutate_binary_exposes_original_help_and_usage_exit() {
             .starts_with(b"Unknown option: --nope\n\nUsage:")
     );
 }
-/// The help fixture is this port's help text, not the pinned original's bytes:
-/// it documents `--copy` (ADR 0016) and the bare `..` refusal. Comparing the
-/// binary with the fixture cannot catch a regeneration that republished the
-/// original `HELP` string, because both read that one fixture; this asserts the
-/// option rules themselves, so such a regeneration fails here.
 #[test]
 fn mutate_help_documents_the_copy_option_and_the_bare_parent_refusal() {
     let output = binary(["mutate", "--help"]);
@@ -334,9 +307,6 @@ fn mutate_help_documents_the_copy_option_and_the_bare_parent_refusal() {
         help.contains("--copy <path>"),
         "help lost the --copy option this port added (ADR 0016)"
     );
-    // The refusal belongs to --copy's own entry: from the option line to the
-    // next option or section. The text wraps, so compare on collapsed
-    // whitespace rather than on one line's exact break.
     let entry = help
         .split("  --copy <path>")
         .nth(1)
@@ -347,10 +317,6 @@ fn mutate_help_documents_the_copy_option_and_the_bare_parent_refusal() {
         entry.contains("parent directory itself"),
         "the bare `..` refusal must be stated in --copy's entry: {entry:?}"
     );
-    // The slot's own names are refused (mutator::slot, #65 and #75), and a
-    // caller reads the rule in the option's own entry or not at all. Every name
-    // is spelled out, read from the declaration itself: a help that named five
-    // of six would pass a spot check.
     for reserved in mutator::slot::Entry::ALL {
         let name = reserved.name();
         assert!(
@@ -363,9 +329,6 @@ fn mutate_help_documents_the_copy_option_and_the_bare_parent_refusal() {
         "the reserved-name refusal must be stated in --copy's entry: {entry:?}"
     );
 }
-/// macOS: mutation refuses before selection and before any command, with the
-/// agreed isolation-refusal exit 1 and a reason. `crap` and `dry` are not
-/// gated by this; the macOS CI job runs their suites alongside this one.
 #[cfg(target_os = "macos")]
 #[test]
 fn macos_mutation_refuses_before_any_command_and_crap_and_dry_still_run() {
@@ -395,7 +358,6 @@ fn macos_mutation_refuses_before_any_command_and_crap_and_dry_still_run() {
     assert!(!marker.exists(), "a command ran despite the refusal");
     assert!(!root.join(".metrics").exists(), "a snapshot was published");
     for tool in ["crap", "dry"] {
-        // dry has no coverage flag; only crap takes --no-coverage.
         let mut args = vec![
             tool.to_string(),
             "--root".into(),
@@ -438,9 +400,6 @@ fn fixture_project() -> std::path::PathBuf {
     }
     let source =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/mutate/rust");
-    // Rust CLI fixtures have their own prefix: the Python/TypeScript test
-    // below mints its own serial from zero in the same process, and parallel
-    // tests otherwise remove each other's whole directory (F54).
     let directory = std::env::temp_dir().join(format!(
         "mutate-cli-rust-{}-{}",
         std::process::id(),
@@ -455,8 +414,6 @@ fn remove_fixture(root: &std::path::Path) {
     let directory = root.parent().unwrap();
     let name = directory.file_name().unwrap().to_str().unwrap();
     assert_eq!(directory.parent(), Some(std::env::temp_dir().as_path()));
-    // Only a directory this test suite minted may be swept; prefix families
-    // keep parallel fixture owners from deleting one another (F54).
     assert!(name.starts_with("mutate-cli-"), "{name}");
     fs::remove_dir_all(directory).unwrap();
 }
@@ -623,13 +580,11 @@ fn lines(path: &std::path::Path) -> Vec<String> {
         .collect()
 }
 
-/// A host process is gone, allowing for the kernel's reaping.
 #[cfg(target_os = "linux")]
 fn gone(pid: u32) -> bool {
     wait_until(|| !std::path::Path::new(&format!("/proc/{pid}")).exists())
 }
 
-/// Any live namespace still holds the overlay mounted on the scratch root.
 #[cfg(target_os = "linux")]
 fn mounted(path: &str) -> bool {
     let Ok(entries) = fs::read_dir("/proc") else {
@@ -653,9 +608,6 @@ fn mounted(path: &str) -> bool {
     false
 }
 
-/// The hostile command of the interrupt cases: every mutant records the worker
-/// slot's scratch root and its own host pid, then sleeps far past its timeout.
-/// The baseline stays quick so the mutant timeout stays short.
 #[cfg(target_os = "linux")]
 fn hanging_command(scratch: &std::path::Path) -> (String, std::path::PathBuf, std::path::PathBuf) {
     let roots = scratch.join("roots.txt");
@@ -672,7 +624,6 @@ fn hanging_command(scratch: &std::path::Path) -> (String, std::path::PathBuf, st
     (command, roots, pids)
 }
 
-/// A project with two mutation sites in one file, so two workers hang at once.
 #[cfg(target_os = "linux")]
 fn hanging_project() -> std::path::PathBuf {
     let root = fixture_project();
@@ -684,10 +635,6 @@ fn hanging_project() -> std::path::PathBuf {
     root
 }
 
-/// A temporary directory of the fixture's own, outside its project. Every
-/// mutate call sweeps abandoned scratch from its temporary directory, so a
-/// case that inspects abandoned scratch must not share `/tmp` with the other
-/// mutate calls this test binary runs in parallel.
 #[cfg(target_os = "linux")]
 fn private_temporary(scratch: &std::path::Path) -> std::path::PathBuf {
     let temporary = scratch.join("tmp");
@@ -732,8 +679,6 @@ fn signal(child: &std::process::Child, name: &str) {
     assert!(status.success(), "kill -s {name}");
 }
 
-/// Ported from the original `test_interrupt.py`: an interrupted run kills its
-/// tests, removes its scratch and publishes nothing for unfinished files.
 #[cfg(target_os = "linux")]
 #[test]
 fn an_interrupted_run_kills_its_tests_and_removes_its_scratch() {
@@ -782,8 +727,6 @@ fn an_interrupted_run_kills_its_tests_and_removes_its_scratch() {
     }
 }
 
-/// Ported from the original killed-run case: SIGKILL leaves nothing running or
-/// mounted, and the next run reclaims the scratch the killed one abandoned.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_killed_run_leaves_nothing_running_and_the_next_run_sweeps_its_scratch() {
@@ -812,9 +755,6 @@ fn a_killed_run_leaves_nothing_running_and_the_next_run_sweeps_its_scratch() {
     }
     let abandoned = lines(&roots);
     assert!(!abandoned.is_empty());
-    // A mutate call on the shared temporary directory, as any test running in
-    // parallel makes, sweeps only its own directory: CI round 14 lost this
-    // root to such a call before the check below.
     let other = fixture_project();
     let bystander = binary([
         "mutate",
@@ -842,7 +782,6 @@ fn a_killed_run_leaves_nothing_running_and_the_next_run_sweeps_its_scratch() {
     }
     assert_eq!(fs::read(root.join("app/src/extra.rs")).unwrap(), source);
     assert!(!root.join(".metrics").exists());
-    // The next call reclaims the abandoned root, then mutates normally.
     let output = binary_env(
         [
             "mutate",
@@ -873,10 +812,6 @@ fn a_killed_run_leaves_nothing_running_and_the_next_run_sweeps_its_scratch() {
     remove_fixture(&root);
 }
 
-/// The real binary runs Python and TypeScript projects end to end: coverage is
-/// measured, an untested file is reported uncovered, and the snapshots are the
-/// pinned original's bytes apart from the real clock. Byte-exact equality with
-/// an injected clock lives in mutator's `python_ts` tests.
 #[cfg(target_os = "linux")]
 #[test]
 fn python_and_typescript_projects_mutate_through_the_real_binary() {
@@ -948,15 +883,11 @@ fn python_and_typescript_projects_mutate_through_the_real_binary() {
                     != Some(std::ffi::OsStr::new("1")),
                 "required mutation toolchain unavailable for {language}"
             );
-            // Write to the real stderr so the skip is visible even when
-            // libtest captures the test's own output.
             let message = format!("SKIP: {language} toolchain unavailable (venv/node)\n");
             use std::io::Write;
             let _ = std::io::stderr().write_all(message.as_bytes());
             continue;
         }
-        // Distinct from `mutate-cli-rust-*` above: both tests can run in
-        // parallel and remove a whole fixture directory (F54).
         let directory = std::env::temp_dir().join(format!(
             "mutate-cli-cross-{}-{}",
             std::process::id(),
@@ -1011,7 +942,6 @@ fn python_and_typescript_projects_mutate_through_the_real_binary() {
         assert_eq!(published.len(), golden.len(), "{language}");
         for (name, bytes) in &published {
             let expected = &golden[name];
-            // Only the real clock differs; every other byte is the original's.
             let clock = |bytes: &[u8]| {
                 let text = String::from_utf8(bytes.to_vec()).unwrap();
                 text.split(":tested-at \"")

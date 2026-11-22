@@ -75,8 +75,6 @@ fn member(class: &Value) -> Member {
     }
 }
 
-/// The leaf classes of a group's children, in display order; a nested group
-/// box contributes its own members, which is what the scene paints.
 fn leaves(children: &[Value], out: &mut Vec<Member>) {
     for child in children {
         if flag(child, "proposal-group?") {
@@ -93,7 +91,6 @@ fn members(children: &[Value]) -> Vec<Member> {
     out
 }
 
-/// The children of the nested group box `want`, depth first.
 fn group_children<'a>(children: &'a [Value], want: &Value) -> Option<&'a [Value]> {
     for child in children {
         if !flag(child, "proposal-group?") {
@@ -109,7 +106,6 @@ fn group_children<'a>(children: &'a [Value], want: &Value) -> Option<&'a [Value]
     None
 }
 
-/// The leaf class `want` in a group tree, depth first.
 fn leaf<'a>(children: &'a [Value], want: &Value) -> Option<&'a Value> {
     for child in children {
         if flag(child, "proposal-group?") {
@@ -123,8 +119,6 @@ fn leaf<'a>(children: &'a [Value], want: &Value) -> Option<&'a Value> {
     None
 }
 
-/// A layer package, `:proposal.unassigned`, a nested group or a class of the
-/// shown proposal view.
 fn in_proposal(packages: &[Value], want: &Value) -> Option<Target> {
     for package in packages {
         if get(package, "id") == Some(want) {
@@ -153,9 +147,6 @@ fn in_proposal(packages: &[Value], want: &Value) -> Option<Target> {
     None
 }
 
-/// A class, or every visible class under a namespace id, in the diagram's own
-/// order. The classes a namespace covers are exactly the ones the source view
-/// paints: policy `:omit` and foreign classes never join.
 fn in_source(doc: &Value, want: &Value) -> Option<Target> {
     let omit = get(doc, "omit");
     let mut found: Vec<Member> = Vec::new();
@@ -177,8 +168,6 @@ fn in_source(doc: &Value, want: &Value) -> Option<Target> {
     if found.is_empty() {
         return None;
     }
-    // An id with classes under it is a component even when a class carries the
-    // same id (a Rust `lib.rs`): the panel refreshes the subtree, not one file.
     let kind = if nested { Kind::Component } else { Kind::Class };
     Some(Target {
         kind,
@@ -215,9 +204,6 @@ pub fn resolve(doc: &Value, focus: &[Value], extra: &Value, id: &Value) -> Resul
             )
         });
     }
-    // `proposal_view` paints no package at all when a proposal's layers and
-    // leftovers are both empty; it leaves the source packages in place, so
-    // the source tree is then what `compile_view` shows too.
     in_source(doc, id).ok_or_else(|| {
         format!(
             "no class or namespace component {} in the shown diagram",

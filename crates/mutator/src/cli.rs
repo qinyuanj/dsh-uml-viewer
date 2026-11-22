@@ -5,10 +5,8 @@ use std::{
     path::PathBuf,
 };
 
-/// The original's default: warn when a file selects more covered mutations.
 const DEFAULT_MUTATION_WARNING: i64 = 50;
 
-/// Positive line numbers, either global or qualified by a relative source path.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LineFilter {
     global: BTreeSet<usize>,
@@ -20,8 +18,6 @@ impl LineFilter {
         self.global.is_empty() && self.per_file.is_empty()
     }
 
-    /// Whether `line` in `file` is selected. Qualified filters select only
-    /// listed paths; an unlisted file has no selected lines.
     pub fn contains(&self, file: &str, line: usize) -> bool {
         if self.per_file.is_empty() {
             self.global.contains(&line)
@@ -85,14 +81,9 @@ pub struct Options {
     pub lines: Option<LineFilter>,
     pub timeout_factor: f64,
     pub mutation_warning: i64,
-    /// `--max-workers`: mutants to run at once; absent means every core.
     pub max_workers: Option<usize>,
-    /// `--copy`: paths outside the project root that every view must show.
-    /// May be repeated; validated by `isolation::resolve_outside`.
     pub copies: Vec<String>,
-    /// `--changed-input`: an explicitly relevant input path, repeatable.
     pub changed_inputs: Vec<String>,
-    /// `--deleted-input`: an input path removed from the tree, repeatable.
     pub deleted_inputs: Vec<String>,
 }
 impl Options {
@@ -102,11 +93,6 @@ impl Options {
     pub fn value(&self, name: &str) -> Option<&str> {
         self.values.get(name).map(String::as_str)
     }
-    /// The digest scope selected by this call. Only explicit changed or
-    /// deleted inputs opt in, and only with confirmation. Copies join a
-    /// confirmed changed scope; copies alone keep the global default. An
-    /// unconfirmed list or a confirmation without explicit inputs leaves the
-    /// digest unavailable, so survived reuse fails closed.
     pub fn test_input_scope(&self) -> TestInputScope {
         let explicit = !self.changed_inputs.is_empty() || !self.deleted_inputs.is_empty();
         let confirmed = self.flag("--confirm-changed-inputs");
@@ -129,8 +115,6 @@ impl Options {
     }
 }
 
-/// Python `int()`: surrounding whitespace, an optional sign and underscores
-/// between digits.
 fn python_int(value: &str) -> Option<i64> {
     let text = value.trim();
     let (sign, digits) = match text.as_bytes().first() {
@@ -160,7 +144,6 @@ fn python_int(value: &str) -> Option<i64> {
     cleaned.parse::<i64>().ok().map(|number| sign * number)
 }
 
-/// Python `float()`: surrounding whitespace and digit-group underscores.
 fn python_float(value: &str) -> Option<f64> {
     let text = value.trim();
     if text.is_empty() {
@@ -226,7 +209,6 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
                 "--root" => options.scope.root = PathBuf::from(value),
                 "-s" | "--source-root" => options.scope.source_roots.push(value.clone()),
                 "--exclude" => options.scope.exclusions.push(value.clone()),
-                // Repeatable: every value is an outside path the call needs.
                 "--copy" => options.copies.push(value.clone()),
                 "--changed-input" => options.changed_inputs.push(value.clone()),
                 "--deleted-input" => options.deleted_inputs.push(value.clone()),

@@ -6,7 +6,6 @@ import type { SessionStates } from '../src/state.js'
 
 it('keeps incompatible v1 root state separate while new activations share the current pool', async () => {
   const root = new Context()
-  // The pre-owned-holder activation had neither transitions nor holder records.
   const legacy = new Map([['checkout', { pool: { connections: new Map(), opening: new Map(), graces: new Map(), graceMs: 30_000 }, prompts: {} }]])
   let legacyDisposed = false
   root.effect(() => () => { legacyDisposed = true }, 'old activation cleanup')
@@ -16,7 +15,6 @@ it('keeps incompatible v1 root state separate while new activations share the cu
   try {
     const first = panelLifetime(root, undefined, services, {}, states)
     const next = panelLifetime(root, undefined, services, {}, states)
-    // Owned open reaches the authoritative policy refusal through a valid current pool.
     const agent = { session: { id: 'session' } } as Agent
     await expect(first.sessions.openOwned(agent, new AbortController().signal, { pageId: 'page', holderId: 'holder' }))
       .rejects.toThrow(/read-only sandbox/)

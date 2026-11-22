@@ -131,9 +131,6 @@ fn diagram_projection(scene: &Value, focus: &Value) -> Value {
     view
 }
 
-/// Multi-diagram documents have no golden views. Each section is exported
-/// with its own size, class rects and routed edges (clipping happens once on
-/// the stacked scene, so section edges carry `:points` but no `:strokes`).
 fn section_projection(scene: &Value, focus: &Value) -> Value {
     let sections: Vec<Value> = edn::record::seq(get(scene, "sections"))
         .iter()

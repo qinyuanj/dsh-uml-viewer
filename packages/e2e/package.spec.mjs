@@ -6,8 +6,6 @@ import { launchViewerLane } from './lane.mjs'
 
 const packages = packageInputs()
 
-// Read file bytes and nanosecond mtimes, including directory membership, so a
-// delete/recreate or a same-content rewrite cannot pass preservation acceptance.
 async function protectedSnapshot(projects) {
   const entries = {}
   async function visit(file, key) {

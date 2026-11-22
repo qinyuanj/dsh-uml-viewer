@@ -1,12 +1,6 @@
-//! Quality refresh targets (#28): what a panel's right-click names, resolved
-//! with the scene's own grouping rules — source class, namespace component,
-//! proposal layer, nested proposal group, `:proposal.unassigned`, `:omit`,
-//! foreign and unknown ids.
-
 use edn::Value;
 use scene::targets::{Kind, Target, resolve};
 
-/// A hierarchical IR document, as `uml-viewer ir` writes it.
 fn doc(text: &str) -> Value {
     scene::ir::read_document(text).expect("the fixture is a hierarchical IR document")
 }
@@ -22,8 +16,6 @@ fn extra(proposal: Option<&str>) -> Value {
     }
 }
 
-/// The member ids, sorted: membership is the contract here, and the file
-/// answer sorts its own paths (`viewer-session::targets`).
 fn members(target: &Target) -> Vec<String> {
     let mut ids: Vec<String> = target.members.iter().map(|m| m.id.clone()).collect();
     ids.sort();
@@ -38,9 +30,6 @@ fn files(target: &Target) -> Vec<String> {
         .collect()
 }
 
-/// One source diagram: a plain class, a namespace component (including a
-/// nested one that only shares a file), a dash-prefixed sibling that is not
-/// inside it, `:omit`ped classes and a foreign one.
 const SOURCE: &str = r#"{:hierarchical true :prefix "demo" :omit [:hidden]
   :classes [{:id :main :file "src/main.rs"}
             {:id :api :file "src/api.rs"}
@@ -70,7 +59,6 @@ fn a_namespace_id_is_every_class_under_it_and_never_a_dash_sibling() {
         members(&target),
         [":core", ":core.extra", ":core.order", ":core.order.line"]
     );
-    // The namespace's own class file and its subtree, one entry per class.
     assert_eq!(
         files(&target),
         [
@@ -80,7 +68,6 @@ fn a_namespace_id_is_every_class_under_it_and_never_a_dash_sibling() {
             "src/core/extra.rs"
         ]
     );
-    // `:core-extra` is a different namespace, not a child of `:core`.
     let sibling = resolve(&doc(SOURCE), &[], &extra(None), &keyword(":core-extra")).unwrap();
     assert_eq!(sibling.kind, Kind::Class);
     assert_eq!(members(&sibling), [":core-extra"]);
@@ -110,14 +97,10 @@ fn omitted_foreign_and_unknown_ids_are_refused() {
     );
     let error = resolve(&source, &[], &extra(None), &keyword(":nowhere")).unwrap_err();
     assert!(error.contains(":nowhere"), "{error}");
-    // An omitted class never joins a component either.
     let component = resolve(&source, &[], &extra(None), &keyword(":core")).unwrap();
     assert!(!files(&component).contains(&"src/hidden.rs".to_owned()));
 }
 
-/// One proposal over classes that exercise the scene's pick rule: an exact
-/// module in a group (`:api`, not its `:api.handler` child), a namespace
-/// subtree (`:core`), a leftover set, proposal `:omit` and a foreign class.
 const PROPOSAL: &str = r#"{:hierarchical true :prefix "demo" :omit []
   :classes [{:id :core.order :file "src/core/order.rs"}
             {:id :core.order.total :file "src/core/order.rs"}
@@ -160,12 +143,9 @@ fn a_proposal_layer_is_its_members_with_omit_subtracted() {
 #[test]
 fn a_nested_proposal_group_takes_the_exact_module_or_else_the_subtree() {
     let proposal = doc(PROPOSAL);
-    // `:api` is an exact class, so the group is that module alone: its
-    // `:api.handler` child is not pulled in, exactly as the scene paints it.
     let exact = resolve(&proposal, &[], &extra(Some(":p-1")), &keyword(":orders")).unwrap();
     assert_eq!(exact.kind, Kind::Component);
     assert_eq!(members(&exact), [":api"]);
-    // A name with no exact class is the namespace subtree.
     let subtree = resolve(
         &proposal,
         &[],
@@ -187,8 +167,6 @@ fn the_unassigned_leftovers_are_the_classes_no_layer_claims() {
     )
     .unwrap();
     assert_eq!(target.kind, Kind::Component);
-    // `:other` is omitted, `:quil` is foreign, and `:api.handler` is covered
-    // by the `:api` claim of the `:orders` group.
     assert_eq!(members(&target), [":util"]);
     assert_eq!(files(&target), ["src/util.rs"]);
 }
@@ -198,8 +176,6 @@ fn a_class_inside_the_shown_proposal_is_the_class_itself() {
     let target = resolve(&doc(PROPOSAL), &[], &extra(Some(":p-1")), &keyword(":api")).unwrap();
     assert_eq!(target.kind, Kind::Class);
     assert_eq!(members(&target), [":api"]);
-    // A proposal paints only what its layers and leftovers hold: this class
-    // is claimed but picked by no group, so it cannot be named there.
     let error = resolve(
         &doc(PROPOSAL),
         &[],
@@ -217,7 +193,6 @@ fn proposal_names_need_the_proposal_tree_and_source_names_need_the_source_tree()
     assert!(error.contains("no class or namespace component"), "{error}");
     let error = resolve(&proposal, &[], &extra(Some(":p-1")), &keyword(":other")).unwrap_err();
     assert!(error.contains("in the shown proposal"), "{error}");
-    // The source tree of the same document still resolves its namespaces.
     let source = resolve(&proposal, &[], &extra(None), &keyword(":core")).unwrap();
     assert_eq!(source.kind, Kind::Component);
     assert_eq!(
@@ -228,8 +203,6 @@ fn proposal_names_need_the_proposal_tree_and_source_names_need_the_source_tree()
 
 #[test]
 fn an_entered_namespace_focus_shows_the_source_tree_even_with_a_proposal() {
-    // `compile_view` paints `view_at(doc, focus)` whenever a focus is set, so
-    // a target is looked up in that same tree.
     let proposal = doc(PROPOSAL);
     let focus = [keyword(":core")];
     let target = resolve(

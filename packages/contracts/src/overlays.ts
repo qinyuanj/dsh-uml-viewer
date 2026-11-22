@@ -166,7 +166,6 @@ function list(value: unknown, label: string): unknown[] {
 
 function bounded(value: unknown, label: string, maxBytes: number): string {
   const text = str(value, label)
-  // UTF-16 length bounds UTF-8 bytes from below; skip encoding huge strings.
   if (text.length > maxBytes || utf8Bytes(text) > maxBytes) at(label, `exceeds ${maxBytes} UTF-8 bytes`)
   return text
 }

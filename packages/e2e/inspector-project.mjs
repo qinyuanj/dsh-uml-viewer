@@ -4,7 +4,6 @@ import path from 'node:path'
 export const TARGET_LINE = 82
 export const TARGET_TEXT = 'export function target(): string { return "目标 " + companion() }'
 
-/** Real scanned modules for #27; top-level exports also match source lookup. */
 export async function makeInspector(home) {
   const root = path.join(home, 'projects', 'inspector')
   await fs.mkdir(path.join(root, 'src'), { recursive: true })

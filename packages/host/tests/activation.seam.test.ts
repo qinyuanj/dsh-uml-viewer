@@ -37,9 +37,6 @@ it.each([['linux', 'x64'], ['darwin', 'arm64'], ['darwin', 'x64'], ['win32', 'ar
     },
   })
   await expect(Promise.resolve(fiber)).rejects.toThrow(/Unsupported/)
-  // This activation also supplies a trusted config.binary, so the host gate is
-  // proven to run ahead of the override. The words below are the delivered
-  // refusal a macOS or Linux profile sees: dropping the reason fails this test.
   expect(reason).toContain(`Unsupported uml-viewer platform: ${platform}/${arch}`)
   expect(reason).toContain('only native Windows x64 (win32-x64) is supported')
   expect(reason).toContain('ships one platform package')
@@ -185,7 +182,6 @@ it('refuses before tools when another live host leases a same-version directory 
     new RegExp(`1\\.0\\.0 is already pinned with different bytes and is in use by another activation in pid ${process.pid}`))
   expect(definitions.size).toBe(0)
   expect(await readFile(binary, 'utf8')).toBe('other bytes in use')
-  // The refused activation leaves no lease of its own behind.
   expect(await readdir(path.join(plugin, 'leases', '1.0.0'))).toEqual(['other-host.lease'])
 })
 

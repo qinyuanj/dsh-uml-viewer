@@ -7,7 +7,6 @@ import { fakeCanvas, DARK_TOKENS } from './fakes.js'
 const golden = (name: string): SceneFrame => JSON.parse(readFileSync(
   new URL(`../../../crates/frame/tests/fixtures/frames/${name}.frame.json`, import.meta.url), 'utf8'))
 
-/** #26 quality overlay: producer geometry and grades, native theme ramp values. */
 describe('quality overlay from producer goldens', () => {
   it('paints independent C and M grades at their producer positions', () => {
     const frame = golden('core-selected')
@@ -18,11 +17,9 @@ describe('quality overlay from producer goldens', () => {
     const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true })
     paintFrame({ ...frame, world: dots, edges: [], chrome: [] }, canvas)
     const ops = canvas.recording.ops
-    // Camera -402,-149 zoom1: screen centers (584,298), (584,310).
     expect(ops.filter(o => o.op === 'arc').map(o => o.args)).toEqual([
       [584, 298, 5, 0, Math.PI * 2], [584, 310, 5, 0, Math.PI * 2],
     ])
-    // Native frame::theme ramp, g=4.0375 and g=1; no TS metric aggregation.
     expect(ops.filter(o => o.op === 'fill').map(o => o.fillStyle)).toEqual(['#403718', '#472c18'])
     expect(ops.filter(o => o.op === 'stroke').map(o => [o.strokeStyle, o.lineWidth])).toEqual([
       ['#d6b357', 1], ['#de884d', 1],

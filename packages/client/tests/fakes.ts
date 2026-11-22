@@ -1,9 +1,3 @@
-/**
- * Test doubles for the Canvas 2D surface and the host theme. They record what
- * the painter asked the browser to draw, which is the observable behavior of a
- * Canvas renderer, and resolve CSS custom properties from a token table so the
- * theme tests can flip light/dark.
- */
 import { estimateW } from '../src/fit.js'
 
 export interface DrawOp {
@@ -17,7 +11,6 @@ export interface DrawOp {
   y?: number
   width?: number
   height?: number
-  /** Every numeric argument of the call, in order (path geometry). */
   args?: number[]
   lineWidth?: number
   lineJoin?: string
@@ -94,9 +87,6 @@ export function recordingContext(measure?: (text: string, sizePx: number) => num
     get textBaseline() { return state.textBaseline },
     set textBaseline(value: string) { state.textBaseline = value },
     measureText(text: string) {
-      // Default: a monospaced face whose advance is the layout estimate at the
-      // current font size, so `fit` is compared against the documented rule.
-      // A test may inject the real Sarasa metrics instead.
       const match = /(\d+(?:\.\d+)?)px/.exec(state.font)
       const size = match ? Number(match[1]) : 10
       return { width: measure ? measure(text, size) : estimateW(text, size) }
@@ -118,7 +108,6 @@ export function recordingContext(measure?: (text: string, sizePx: number) => num
 }
 
 
-/** A canvas with its recording context attached; structurally a real canvas. */
 export type FakeCanvas = HTMLCanvasElement & { recording: RecordingContext }
 
 export class FakeMutationObserver {
@@ -128,9 +117,9 @@ export class FakeMutationObserver {
     this.callback = callback
     FakeMutationObserver.instances.push(this)
   }
-  public observe(): void { /* the instance list is the observable */ }
+  public observe(): void {}
   public trigger(): void { this.callback() }
-  public disconnect(): void { /* no-op */ }
+  public disconnect(): void {}
   public static trigger(): void { for (const instance of FakeMutationObserver.instances) instance.callback() }
 }
 
@@ -140,11 +129,9 @@ export interface CanvasOptions {
   dpr?: number
   width?: number
   height?: number
-  /** Text advance in px at a size; defaults to the layout estimate. */
   measure?: (text: string, sizePx: number) => number
 }
 
-/** A canvas whose 2D context records operations, themed by `tokens`. */
 export function fakeCanvas(options: CanvasOptions = {}): FakeCanvas {
   const recording = recordingContext(options.measure)
   const size = { width: options.width ?? 800, height: options.height ?? 600 }
@@ -165,14 +152,12 @@ export function fakeCanvas(options: CanvasOptions = {}): FakeCanvas {
   return canvas as unknown as FakeCanvas
 }
 
-/** Install a `getComputedStyle` that answers from one token table. */
 export function installTokens(tokens: Record<string, string>): void {
   ;(globalThis as unknown as { getComputedStyle: (el: unknown) => unknown }).getComputedStyle = () => ({
     getPropertyValue: (token: string) => tokens[token] ?? '',
   })
 }
 
-/** The host theme tokens the tests use; values come from the DSH token list. */
 export const LIGHT_TOKENS: Record<string, string> = {
   '--dsw-alias-bg-base': '#ffffff',
   '--dsw-alias-bg-layer-2': '#f7f9f8',

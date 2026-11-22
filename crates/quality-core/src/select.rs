@@ -1,6 +1,3 @@
-//! Source file selection shared by the quality tools: the walk, `-s`
-//! source roots, `--exclude` globs, named paths and text filters.
-
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -8,9 +5,6 @@ use std::path::{Path, PathBuf};
 use crate::language::{Language, SKIP_DIRS, TEST_DIRS, is_source_file, language_of};
 use crate::paths::{posix, relative_posix, resolve, shown, sorted_unique};
 
-/// Which paths a tool counts as source. crapper's table is the default;
-/// dryer adds `.cljd` (dryer `discover.py`), and the same walk, roots,
-/// exclusions, filters and changed-file narrowing serve both.
 #[derive(Clone, Copy)]
 pub struct Discovery {
     pub language_of: fn(&Path) -> Option<Language>,
@@ -18,7 +12,6 @@ pub struct Discovery {
 }
 
 impl Discovery {
-    /// crapper's and mutator's tables.
     pub const CRAPPER: Discovery = Discovery {
         language_of,
         is_source: is_source_file,
@@ -55,13 +48,10 @@ fn walk(root: &Path, found: &mut Vec<PathBuf>, discovery: Discovery) {
     }
 }
 
-/// Every source file under `roots` (a file root is itself), resolved,
-/// deduplicated and sorted by posix path.
 pub fn iter_source_files(roots: &[PathBuf]) -> Vec<PathBuf> {
     iter_source_files_with(roots, Discovery::CRAPPER)
 }
 
-/// The same walk with another language table (dryer's `.cljd`).
 pub fn iter_source_files_with(roots: &[PathBuf], discovery: Discovery) -> Vec<PathBuf> {
     let mut found = Vec::new();
     for root in roots {
@@ -70,16 +60,12 @@ pub fn iter_source_files_with(roots: &[PathBuf], discovery: Discovery) -> Vec<Pa
     sorted_unique(found.iter().map(|path| resolve(path)).collect())
 }
 
-/// `fnmatch.fnmatchcase` for one path segment: `*`, `?`, `[abc]`, `[a-z]`,
-/// `[!abc]`; an unclosed `[` is literal.
 pub fn fnmatch(name: &str, pattern: &str) -> bool {
     let name: Vec<char> = name.chars().collect();
     let pattern: Vec<char> = pattern.chars().collect();
     matches_from(&name, &pattern)
 }
 
-/// The class starting at `pattern[0] == '['`: its length, its members and
-/// whether it is negated; None when unclosed (then `[` is literal).
 fn class(pattern: &[char]) -> Option<(usize, &[char], bool)> {
     let mut index = 1;
     let negate = pattern.get(index) == Some(&'!');
@@ -100,7 +86,6 @@ fn class(pattern: &[char]) -> Option<(usize, &[char], bool)> {
     Some((index + 1, &pattern[start..index], negate))
 }
 
-/// Whether `c` is in the class `body` (`a-z` ranges and single members).
 fn in_class(body: &[char], negate: bool, c: char) -> bool {
     let mut hit = false;
     let mut i = 0;
@@ -140,7 +125,7 @@ fn matches_exclusion(relative: &str, pattern: &str) -> bool {
     let segments: Vec<&str> = pattern.split('/').collect();
     fn step(parts: &[&str], segments: &[&str]) -> bool {
         let Some(&segment) = segments.first() else {
-            return true; // A matching directory also excludes its descendants.
+            return true;
         };
         if segment == "**" {
             return step(parts, &segments[1..])
@@ -157,8 +142,6 @@ fn normalized_pattern(value: &str) -> String {
     value.trim_end_matches('/').to_string()
 }
 
-/// Whether `--exclude` patterns exclude `path`. A match on a directory
-/// excludes everything under it; a path outside `root` never matches.
 pub fn excluded(path: &Path, root: &Path, exclusions: &[String]) -> bool {
     let Some(relative) = relative_posix(&resolve(path), &resolve(root)) else {
         return false;
@@ -168,7 +151,6 @@ pub fn excluded(path: &Path, root: &Path, exclusions: &[String]) -> bool {
         .any(|value| matches_exclusion(&relative, &normalized_pattern(value)))
 }
 
-/// `files` without the excluded ones, in order.
 pub fn exclude_files(files: Vec<PathBuf>, root: &Path, exclusions: &[String]) -> Vec<PathBuf> {
     if exclusions.is_empty() {
         return files;
@@ -179,7 +161,6 @@ pub fn exclude_files(files: Vec<PathBuf>, root: &Path, exclusions: &[String]) ->
         .collect()
 }
 
-/// The usage error for an exclusion that leaves the project root.
 pub fn exclusion_error(pattern: &str) -> Option<String> {
     let normalized = pattern.replace('\\', "/");
     let absolute = Path::new(pattern).is_absolute() || normalized.starts_with('/');
@@ -191,7 +172,6 @@ pub fn exclusion_error(pattern: &str) -> Option<String> {
     None
 }
 
-/// Files inside at least one root, compared after resolving both sides.
 pub fn under_roots(files: Vec<PathBuf>, roots: &[PathBuf]) -> Vec<PathBuf> {
     let roots: Vec<PathBuf> = roots.iter().map(|root| resolve(root)).collect();
     files
@@ -203,8 +183,6 @@ pub fn under_roots(files: Vec<PathBuf>, roots: &[PathBuf]) -> Vec<PathBuf> {
         .collect()
 }
 
-/// A project's declared scope: its root, `-s` source roots and `--exclude`
-/// patterns, as given on the command line.
 #[derive(Clone, Debug, Default)]
 pub struct Scope {
     pub root: PathBuf,
@@ -212,7 +190,6 @@ pub struct Scope {
     pub exclusions: Vec<String>,
 }
 
-/// What the selection named: existing paths and text filters.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Named {
     pub paths: Vec<PathBuf>,
@@ -220,12 +197,10 @@ pub struct Named {
 }
 
 impl Scope {
-    /// The resolved project root.
     pub fn project_root(&self) -> PathBuf {
         resolve(&self.root)
     }
 
-    /// The resolved `-s` roots.
     pub fn roots(&self) -> Vec<PathBuf> {
         let root = self.project_root();
         self.source_roots
@@ -234,14 +209,12 @@ impl Scope {
             .collect()
     }
 
-    /// The first usage error among the exclusions.
     pub fn exclusion_error(&self) -> Option<String> {
         self.exclusions
             .iter()
             .find_map(|pattern| exclusion_error(pattern))
     }
 
-    /// A whole-tree refresh needs every root to exist inside the project.
     pub fn check_whole_tree(&self) -> Result<(), String> {
         let root = self.project_root();
         let values = if self.source_roots.is_empty() {
@@ -267,8 +240,6 @@ impl Scope {
         Ok(())
     }
 
-    /// Positionals that exist (relative to the root) are paths; the rest
-    /// are text filters on the posix path.
     pub fn named(&self, positionals: &[String]) -> Named {
         let root = self.project_root();
         let mut named = Named::default();
@@ -291,12 +262,10 @@ impl Scope {
         }
     }
 
-    /// The walk of the source roots, or of the project root without any.
     pub fn walk(&self) -> Vec<PathBuf> {
         self.walk_with(Discovery::CRAPPER)
     }
 
-    /// The same walk with another language table.
     pub fn walk_with(&self, discovery: Discovery) -> Vec<PathBuf> {
         let roots = self.roots();
         if roots.is_empty() {
@@ -306,15 +275,10 @@ impl Scope {
         }
     }
 
-    /// Named paths: a directory is walked and narrowed to the source roots;
-    /// a file is kept when it is inside them, not excluded and in a known
-    /// language (named test files are kept). `notes` gets one line per
-    /// file dropped.
     pub fn explicit_files(&self, paths: &[PathBuf], notes: &mut dyn Write) -> Vec<PathBuf> {
         self.explicit_files_with(paths, notes, Discovery::CRAPPER)
     }
 
-    /// Named paths under another language table.
     pub fn explicit_files_with(
         &self,
         paths: &[PathBuf],
@@ -345,13 +309,10 @@ impl Scope {
         files
     }
 
-    /// Git changes narrowed by source roots, text filters and exclusions.
-    /// Existing positional paths do not replace the changed set.
     pub fn select_changed(&self, positionals: &[String], notes: &mut dyn Write) -> Vec<PathBuf> {
         self.select_changed_with(positionals, notes, Discovery::CRAPPER)
     }
 
-    /// Git changes under another language table (dryer's `.cljd`).
     pub fn select_changed_with(
         &self,
         positionals: &[String],
@@ -367,13 +328,10 @@ impl Scope {
         exclude_files(filtered, &self.project_root(), &self.exclusions)
     }
 
-    /// crapper's selection: named paths, or the walk; then text filters,
-    /// then exclusions; sorted by posix path.
     pub fn select(&self, positionals: &[String], notes: &mut dyn Write) -> Vec<PathBuf> {
         self.select_with(positionals, notes, Discovery::CRAPPER)
     }
 
-    /// The same selection with another language table.
     pub fn select_with(
         &self,
         positionals: &[String],
@@ -392,7 +350,6 @@ impl Scope {
     }
 }
 
-/// Keep files whose posix path contains any filter text.
 pub fn apply_filters(files: Vec<PathBuf>, filters: &[String]) -> Vec<PathBuf> {
     if filters.is_empty() {
         return files;

@@ -1,15 +1,3 @@
-//! Lua suites: coverage shards, the spec index, and the lines the tests hit.
-//!
-//! The pinned original collects one instrumented Busted suite per Lua module
-//! (`lua_coverage.py` with `lua_coverage.lua`) and reads a per-spec line map
-//! from it; `covered_lines` then takes the LuaCov LCOV report for the line a
-//! mutation site sits on. This port keeps both contracts and splits the
-//! instrumented suite into Busted coverage shards, merging the shard
-//! publications into one index (the shard count is on stderr).
-//!
-//! Everything the collection writes — the collector, shard configs, LuaCov
-//! stats, the LCOV report and the shard publications — lives in the
-//! disposable view scratch, so the production project is never a write target.
 use crate::isolation::View;
 use crate::sites::Site;
 use quality_core::coverage::{Records, read_fresh_lcov};
@@ -22,43 +10,27 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-/// The instrumented collector, shipped with this build. Embedded assets live
-/// outside `crates`, the repository's declared quality business source root.
 const COLLECTOR: &str = include_str!("../../../embedded-assets/mutator/lua_coverage.lua");
-/// The format version the collector and this reader share.
 const VERSION: u64 = 2;
 
-/// The canonical identity of a source path, as the original's `_canonical`.
 pub fn canonical(path: &Path) -> String {
     resolve(path).to_string_lossy().replace('\\', "/")
 }
 
-/// One file's share of the index: which specs cover which lines.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Index {
-    /// The module directory the suite runs in.
     pub directory: PathBuf,
-    /// The full-suite test command, without coverage arguments.
     pub command: Vec<String>,
-    /// Spec path to its share of the suite's wall time, in seconds.
     pub specs: BTreeMap<String, f64>,
-    /// Canonical source to covered line to the specs whose run hit it.
     pub lines: BTreeMap<String, BTreeMap<usize, BTreeSet<String>>>,
-    /// Canonical source to lines whose aggregate hit has no known owner: the
-    /// full suite has to judge those, never a selected subset.
     pub fallback: BTreeMap<String, BTreeSet<usize>>,
-    /// Canonical source to the lines LuaCov recorded a hit for.
     pub hits: BTreeMap<String, BTreeSet<usize>>,
-    /// Seconds the suite spent outside its spec files.
     pub overhead: f64,
-    /// Wall time of the collecting run; not part of the published bytes.
     pub seconds: f64,
-    /// The pristine suite ran in this process, so it is known to pass.
     pub fresh: bool,
 }
 
 impl Index {
-    /// The specs that covered `line`, or None when the full suite must run.
     pub fn select(&self, source: &Path, line: usize) -> Option<Vec<String>> {
         let key = canonical(source);
         if self
@@ -72,7 +44,6 @@ impl Index {
         (!found.is_empty()).then(|| found.iter().cloned().collect())
     }
 
-    /// The original's `seconds_for`: overhead plus each distinct spec once.
     pub fn seconds_for(&self, specs: &[String]) -> f64 {
         self.overhead
             + specs
@@ -83,14 +54,10 @@ impl Index {
                 .sum::<f64>()
     }
 
-    /// The lines this file's tests hit, or None when it is absent from LCOV.
     pub fn hits(&self, source: &Path) -> Option<&BTreeSet<usize>> {
         self.hits.get(&canonical(source))
     }
 
-    /// Every spec of the suite, the ones covering these mutation lines first.
-    /// The full suite still runs, so outcomes keep their full-suite meaning; a
-    /// killing spec just runs early under `--no-keep-going` (ADR 0003).
     pub fn covering_first(&self, source: &Path, lines: &[usize]) -> Vec<String> {
         let mut covering = BTreeSet::new();
         for line in lines {
@@ -109,25 +76,19 @@ impl Index {
     }
 }
 
-/// One shard's instrumented publication, as the collector writes it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Membership {
     pub specs: BTreeMap<String, f64>,
     pub lines: BTreeMap<String, BTreeMap<usize, BTreeSet<String>>>,
     pub fallback: BTreeMap<String, BTreeSet<usize>>,
-    /// A hit outside any spec's run: its owner is unknown, so it is a
-    /// fallback line rather than a selected subset.
     pub unsafe_attribution: bool,
 }
 
-/// One module's collection.
 pub struct Request<'a> {
     pub root: &'a Path,
     pub module: &'a Path,
-    /// The module's sources to mutate; untested ones are still reported.
     pub sources: &'a [PathBuf],
     pub busted_task: Option<&'a str>,
-    /// The Busted coverage shard count; defaults to one per CPU.
     pub shards: Option<u32>,
 }
 
@@ -135,7 +96,6 @@ fn error(message: impl Into<String>) -> String {
     message.into()
 }
 
-/// The original's `_relative_spec`: a spec inside the module, or a refusal.
 fn relative_spec(name: &str, module: &Path) -> Result<String, String> {
     let path = PathBuf::from(name.replace('\\', "/"));
     let path = if path.is_absolute() {
@@ -158,7 +118,6 @@ fn relative_spec(name: &str, module: &Path) -> Result<String, String> {
     Ok(relative)
 }
 
-/// The original's `_seconds`: a finite, non-negative number, never a bool.
 fn seconds(value: &Value) -> Result<f64, String> {
     match value {
         Value::Number(number) => match number.as_f64() {
@@ -169,7 +128,6 @@ fn seconds(value: &Value) -> Result<f64, String> {
     }
 }
 
-/// The original's `_line`: a decimal string above zero.
 fn line(number: &str) -> Result<usize, String> {
     if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
         return Err(error("Invalid coverage line"));
@@ -190,7 +148,6 @@ fn object<'a>(
     }
 }
 
-/// Read one collector publication. Malformed input is refused, never guessed.
 pub fn decode(pending: &str, module: &Path) -> Result<Membership, String> {
     let raw: Value =
         serde_json::from_str(pending).map_err(|_| error("Incomplete spec coverage publication"))?;
@@ -265,8 +222,6 @@ pub fn decode(pending: &str, module: &Path) -> Result<Membership, String> {
     };
     membership.unsafe_attribution = unsafe_attribution;
     if unsafe_attribution {
-        // A hit outside any spec's context cannot be attributed: every line
-        // the collector saw belongs to the full suite.
         for (name, covered) in &membership.lines {
             membership
                 .fallback
@@ -278,7 +233,6 @@ pub fn decode(pending: &str, module: &Path) -> Result<Membership, String> {
     Ok(membership)
 }
 
-/// Merge the shards' publications: spec durations add, memberships union.
 pub fn merge(parts: Vec<Membership>) -> Membership {
     let mut merged = Membership::default();
     for part in parts {
@@ -307,7 +261,6 @@ fn lua_string(text: &str) -> String {
     format!("[{equals}[{text}]{equals}]")
 }
 
-/// The machine's LuaRocks 5.4 trees, or none when luarocks is unusable.
 fn rocks_trees() -> &'static [String] {
     static TREES: OnceLock<Vec<String>> = OnceLock::new();
     TREES.get_or_init(|| {
@@ -345,11 +298,7 @@ fn absolute(entry: &str) -> bool {
     entry.starts_with('/')
 }
 
-/// `LUA_PATH`/`LUA_CPATH` confined to the LuaRocks trees, or None to keep
-/// Lua's own defaults. The view redirects HOME, so the module search path has
-/// to be handed to the child explicitly (`_pinned_lua_paths`).
 pub fn search_paths(module: &Path) -> Option<(String, String)> {
-    // The original's opt-out: keep Lua's own search path untouched.
     if std::env::var("MUTATOR_LUA_NO_PIN").as_deref() == Ok("1") {
         return None;
     }
@@ -422,18 +371,12 @@ pub fn search_paths(module: &Path) -> Option<(String, String)> {
     Some((path.join(";"), cpath.join(";")))
 }
 
-/// The original's Lua scheduling (`engine._prepare`): the sites that survived
-/// the previous run go first, and each group keeps its discovery order. Only
-/// the order of execution changes — the selection and the published bytes do
-/// not — so a slow surviving mutant starts before a fresh kill can idle a
-/// worker.
 pub fn survivors_first(sites: &mut [Site], outcomes: &BTreeMap<String, String>) {
     sites.sort_by_key(|site| {
         outcomes.get(&site.mutation_id).map(String::as_str) != Some("survived")
     });
 }
 
-/// The full-suite command: Busted in process on Lua 5.4, module paths pinned.
 pub fn plan(module: &Path, busted_task: Option<&str>) -> Vec<String> {
     let interpreter = lua::interpreter()
         .map(|path| path.to_string_lossy().into_owned())
@@ -487,8 +430,6 @@ fn hits_of(records: &Records) -> BTreeMap<String, BTreeSet<usize>> {
     hits
 }
 
-/// The conversion runs inside the view too, so it needs the same pinned
-/// search paths as the suite: the view redirects HOME away from the rocks.
 fn pinned(module: &Path, argv: &[String]) -> Vec<String> {
     match search_paths(module) {
         Some((path, cpath)) => {
@@ -504,16 +445,12 @@ fn pinned(module: &Path, argv: &[String]) -> Vec<String> {
     }
 }
 
-/// Collect one module's index in a disposable view.
 pub fn collect(view: &View, request: &Request<'_>) -> Result<Index, String> {
     let root = resolve(request.root);
     let module = resolve(request.module);
     let interpreter = lua::interpreter()
         .ok_or_else(|| error("No Lua 5.4 interpreter (lua5.4 or lua) on PATH for Lua coverage."))?;
-    // A missing or other cluacov version cannot produce this baseline, so the
-    // refusal happens before any test runs.
     lua::require_cluacov(&interpreter).map_err(|found| found.0)?;
-    // The view names the scratch; the collection never composes its layout.
     let scratch = view.lua_coverage_scratch();
     fs::create_dir_all(scratch)
         .map_err(|err| error(format!("Cannot prepare Lua coverage: {err}")))?;
@@ -524,7 +461,6 @@ pub fn collect(view: &View, request: &Request<'_>) -> Result<Index, String> {
     let report = scratch.join("lcov.info");
     let command = plan(&module, request.busted_task);
     let sources = request.sources;
-    // The shard list is the suite that will really run: a named task's specs.
     let specs = lua::module_specs_for_task(&interpreter, &module, request.busted_task);
     let count = shard_count(request.shards, specs.len());
     let mut publications = Vec::new();
@@ -538,8 +474,6 @@ pub fn collect(view: &View, request: &Request<'_>) -> Result<Index, String> {
     let mut failed = None;
     for (index, group) in groups.iter().enumerate() {
         if count > 1 {
-            // One line per shard, as the coverage runner's own report: the
-            // shard count and this shard's launch are both observable.
             eprintln!(
                 "+ ({}) Busted in {} coverage shards: {} -e '<busted runner>' -- busted …",
                 module.display(),
@@ -580,9 +514,6 @@ pub fn collect(view: &View, request: &Request<'_>) -> Result<Index, String> {
             "-c".into(),
             format!("--coverage-config-file={}", config.display()),
         ]);
-        // Test-only: a later command of this collection records whether the
-        // first shard's publication is still readable after this command's
-        // slot was prepared. Absent unless the regression test asked for it.
         #[cfg(all(test, windows))]
         if index > 0
             && let Ok(witness) = std::env::var("MUTATOR_LUA_SCRATCH_WITNESS")
@@ -677,7 +608,6 @@ pub fn collect(view: &View, request: &Request<'_>) -> Result<Index, String> {
     })?;
     let hits = hits_of(&records);
     let mut fallback = membership.fallback;
-    // Any aggregate hit without a known owner must force the full suite.
     for (source, covered) in &hits {
         let owned = membership.lines.get(source);
         for number in covered {
@@ -717,17 +647,12 @@ mod windows_collect_tests {
         }
     }
 
-    /// A missing toolchain is a loud SKIP, and under `MUTATOR_REQUIRE_TOOLCHAINS=1`
-    /// (CI) a failure: a skip that reports `ok` reads like a pass, and this test
-    /// is the only native-Windows evidence that the Lua suite is entered.
     fn skip(reason: &str) {
         if std::env::var_os("MUTATOR_REQUIRE_TOOLCHAINS").as_deref()
             == Some(std::ffi::OsStr::new("1"))
         {
             panic!("required mutation toolchain unavailable: {reason}");
         }
-        // libtest captures `eprintln!`; write to the process's real stderr so the
-        // skip is visible in a CI log.
         use std::io::Write;
         let _ = std::io::stderr().write_all(
             format!("SKIP: {reason}; set MUTATOR_REQUIRE_TOOLCHAINS=1 to make this a failure\n")
@@ -769,8 +694,6 @@ mod windows_collect_tests {
             .unwrap_or_else(|error| panic!("coverage with shards {shards:?}: {error}"));
             unsafe { std::env::remove_var("MUTATOR_LUA_SCRATCH_WITNESS") };
             if shards != Some(1) {
-                // Written by the later shard's own command, after that
-                // command's slot was prepared. A wipe makes it say wiped.
                 assert_eq!(
                     fs::read_to_string(&witness).unwrap_or_default().trim(),
                     "readable",

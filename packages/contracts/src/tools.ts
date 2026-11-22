@@ -2,7 +2,6 @@ import type { PanelRequestTarget } from './requests.js'
 
 export type QualityOperation = 'crap' | 'mutate' | 'dry'
 
-/** A scene/IR id: one EDN keyword without whitespace or EDN delimiters. */
 const KEYWORD = /^:[^\s,()[\]{}"';@^`~\\:][^\s,()[\]{}"';@^`~\\]*$/
 
 /**
@@ -64,7 +63,6 @@ export interface IrRequest {
   request?: string
 }
 
-/** A host-issued panel request id: 32 lowercase hex digits (128 random bits). */
 const REQUEST_ID = /^[0-9a-f]{32}$/
 
 /**
@@ -80,32 +78,12 @@ export function parseRequestId(value: unknown, label: string): string {
 /** Windows device names cannot name a file, with or without an extension. */
 const DEVICE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
 
-/** A control character, NUL and DEL included: no host path may carry one. */
 const CONTROL = /[\u0000-\u001f\u007f]/
 
-/**
- * Refuse a control character in a path.
- * @param field the argument name used in messages.
- * @param value the path.
- */
 function assertPrintable(field: string, value: string): void {
   if (CONTROL.test(value)) throw new Error(`${field} must not contain control characters`)
 }
 
-/**
- * Refuse the spellings Windows would silently reinterpret: an NTFS alternate
- * data stream (`a:b`) anywhere in `value`, and, in each of `parts`, a segment
- * that ends in a dot or a space or names a reserved device (`CON`, `con.edn`).
- *
- * One rule, two validators: `normalizeRelativePath` applies it to every segment
- * of a project-relative path, `normalizeCopyPath` to the segments after the one
- * leading `..` a `--copy` path may carry. Choosing the other option cannot
- * reintroduce a weaker spelling of the same path.
- *
- * @param field the argument name used in messages.
- * @param value the whole path, for the stream rule.
- * @param parts the segments the component rules apply to.
- */
 function assertComponents(field: string, value: string, parts: string[]): void {
   if (value.includes(':')) throw new Error(`${field} must not name an alternate data stream`)
   for (const part of parts) {
@@ -189,7 +167,6 @@ export function parseIrRequest(value: unknown): IrRequest {
   return request
 }
 
-// Keep plain JSON Schema: shared with DSH without importing a host runtime.
 export const IR_PARAMETERS = {
   type: 'object', additionalProperties: false,
   properties: {
@@ -342,8 +319,6 @@ export function parseQualityToolRequest(operation: QualityOperation, value: unkn
   }
   const copies = copyPaths(request.copy)
   const targets = targetPaths('targets', request.targets, true)
-  // The dispatcher knows `--copy` takes a value, so its order is not load
-  // bearing; it still goes before the targets so no path can read as one.
   const options = request.mutateAll === true ? ['--mutate-all'] : []
   return [...options, ...copies.flatMap(copy => ['--copy', copy]), ...targets]
 }

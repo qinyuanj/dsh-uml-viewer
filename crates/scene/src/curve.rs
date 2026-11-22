@@ -1,6 +1,3 @@
-//! Basis curves over routed points (port of `love/uml/engine/curve.lua`).
-//! Bounds deliberately use the control hull, as the JVM does.
-
 use crate::geom::Rect;
 use edn::Value;
 use edn::record::numval;
@@ -17,8 +14,6 @@ fn v2(v: &Value) -> [f64; 2] {
     crate::geom::vec2(v).unwrap()
 }
 
-/// Round polyline corners by replacing a vertex with an entry/exit pair when
-/// the turn is sharp enough; shallow turns keep the vertex.
 pub fn round_corners(ps: &[[f64; 2]], radius: f64) -> Vec<[f64; 2]> {
     if ps.len() < 3 {
         return ps.to_vec();
@@ -45,7 +40,6 @@ pub fn round_corners(ps: &[[f64; 2]], radius: f64) -> Vec<[f64; 2]> {
     out
 }
 
-/// Rotate an end handle onto the 45° cone of the approached rect face.
 fn cone(dx: f64, dy: f64, r: Rect, p: [f64; 2], arriving: bool) -> (f64, f64) {
     let face = crate::geom::face(r, p);
     let (mut nx, mut ny) = match face {
@@ -94,7 +88,6 @@ fn cubic_op(c1: [f64; 2], c2: [f64; 2], p: [f64; 2]) -> Value {
     ])
 }
 
-/// `{:start [x y] :ops [...]}` for routed points; corners rounded first.
 pub fn basis_path(points: &[Value]) -> Value {
     let raw: Vec<[f64; 2]> = points.iter().map(v2).collect();
     let ps = round_corners(&raw, 24.0);
@@ -144,8 +137,6 @@ fn op_put(op: &mut Value, key: &str, v: [f64; 2]) {
     edn::record::put(op, key, pt(v));
 }
 
-/// Constrain the first and last control points so a path leaves/enters the
-/// endpoint rects through their face cones.
 pub fn constrain_ends(path: &Value, from: Option<Rect>, to: Option<Rect>) -> Value {
     let mut out = path.clone();
     let s = v2(edn::record::get(path, "start").unwrap());
@@ -184,7 +175,6 @@ pub fn constrain_ends(path: &Value, from: Option<Rect>, to: Option<Rect>) -> Val
     out
 }
 
-/// Control-hull bounds of a path (start + every op point).
 pub fn path_bounds(path: &Value) -> Option<Rect> {
     let mut rects = Vec::new();
     let s = v2(edn::record::get(path, "start")?);
@@ -202,7 +192,6 @@ pub fn path_bounds(path: &Value) -> Option<Rect> {
     crate::geom::union(&rects)
 }
 
-/// `[behind tip]`: the final segment direction of the path.
 pub fn end_tangent(path: &Value) -> [Value; 2] {
     let mut cur = v2(edn::record::get(path, "start").unwrap());
     let mut behind = cur;
@@ -215,15 +204,8 @@ pub fn end_tangent(path: &Value) -> [Value; 2] {
     [pt(behind), pt(cur)]
 }
 
-/// Halvings of one cubic at most: 2^16 pieces, far below any tolerance
-/// a scene uses; it only bounds degenerate (non-finite) input.
 const MAX_DEPTH: u32 = 16;
 
-/// Append the far end of every piece of the cubic `a c1 c2 d` (`a`
-/// excluded), halving it (de Casteljau) until both control points lie
-/// within `tolerance` of the piece's chord. The curve stays inside its
-/// control hull, so no point of it is farther than `tolerance` from the
-/// polyline (Cairo's `_cairo_spline_error_squared` test).
 fn flatten_cubic(
     [a, c1, c2, d]: [[f64; 2]; 4],
     tolerance: f64,
@@ -244,8 +226,6 @@ fn flatten_cubic(
     flatten_cubic([m, bcd, cd, d], tolerance, depth + 1, out);
 }
 
-/// Sample the path into a polyline that stays within `tolerance` (world
-/// px) of every cubic; line ops keep their end point (#187).
 pub fn flatten_path(path: &Value, tolerance: f64) -> Vec<[f64; 2]> {
     assert!(tolerance > 0.0, "positive flattening tolerance required");
     let mut cur = v2(edn::record::get(path, "start").unwrap());

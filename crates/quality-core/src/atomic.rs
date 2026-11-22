@@ -1,5 +1,3 @@
-//! Replace a file in one step so readers never see a partial write.
-
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -49,10 +47,6 @@ fn replace(staged: &Path, destination: &Path) -> io::Result<()> {
     }
 }
 
-/// Stage `payload` beside `path`, then rename it into place. Bytes are
-/// written as given, so LF stays LF on every host. A failure at any step
-/// leaves the previous file untouched and removes the staged copy; the
-/// staged file is world-readable, as the Python tools leave it.
 pub fn write_bytes(path: &Path, payload: &[u8]) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;

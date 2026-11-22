@@ -1,13 +1,3 @@
-//! The same scope is exercised at each tool's CLI and read from its public
-//! report, for every language. Two duplicate functions per fixture file make
-//! every selected file observable even when the selection has only one file.
-//! Mutate joins through its published forms' :file fields, one snapshot per
-//! selected file. No tool is skipped by host: mutate runs on native Windows too,
-//! where a per-command project copy is the same kind of view the Linux overlay
-//! is, and only its `--test-command` has to be spelled for cmd.exe.
-//!
-//! dryer's one intentional discovery difference is `.cljd` (its
-//! `discover.py`); the fixtures use `.clj`, so both tools must agree exactly.
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
@@ -18,24 +8,15 @@ use crate::crap::Project;
 struct Tool {
     role: &'static str,
     flags: &'static [&'static str],
-    /// The same flags spelled for cmd.exe, when the tool's own command is a shell
-    /// script: mutate's `--test-command` runs in sh on Linux and cmd.exe on
-    /// native Windows, and the two spellings are not interchangeable.
     windows_flags: Option<&'static [&'static str]>,
-    /// The languages each tool handles when not all of them: an empty list means "all".
     languages: &'static [&'static str],
-    /// The selected files as the tool's own published report names them.
     report: fn(&Path, &str) -> BTreeSet<String>,
-    /// An empty selection: the tool's own message on its own stream.
     empty: fn(&Output),
-    /// Whether any report exists at all.
     published: fn(&Path) -> bool,
-    /// Extra per-tool proof that the run did real work.
     verify: fn(&Path),
 }
 
 impl Tool {
-    /// The flags this host can run.
     fn flags(&self) -> &'static [&'static str] {
         if cfg!(windows) {
             self.windows_flags.unwrap_or(self.flags)
@@ -48,8 +29,6 @@ impl Tool {
 struct Fixture {
     language: &'static str,
     extension: &'static str,
-    /// Two functions named `<id>_left` and `<id>_right` with the same body,
-    /// so crap lists both and dry reports the file's pair.
     source: fn(&str) -> String,
 }
 
@@ -96,7 +75,6 @@ fn dry_report(root: &Path, _extension: &str) -> BTreeSet<String> {
     )
 }
 
-/// Every `:file` a mutation snapshot published, across all its snapshots.
 fn mutate_report(root: &Path, _extension: &str) -> BTreeSet<String> {
     fn walk(directory: &Path, files: &mut BTreeSet<String>) {
         let Ok(entries) = fs::read_dir(directory) else {
@@ -122,7 +100,6 @@ fn empty_quality(output: &Output) {
 }
 
 fn empty_mutate(output: &Output) {
-    // The documented deviation: mutate's empty selection goes to stderr.
     assert!(
         String::from_utf8_lossy(&output.stderr).contains("No source files to mutate."),
         "{output:?}"
@@ -134,8 +111,6 @@ fn mutate_snapshots(root: &Path) -> bool {
 }
 
 fn mutate_verify(root: &Path) {
-    // Not a hollow selection: every form with sites ran them all, all were
-    // killed by the fail-every-mutant command, and none survived.
     fn forms(text: &str) -> Vec<(usize, usize, usize, usize)> {
         let mut found = Vec::new();
         for entry in text.split(":id \"").skip(1) {
@@ -206,8 +181,6 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         role: "mutate",
-        // The test command passes pristine code and fails every mutant, so a
-        // complete run of the selected files exits 0 with killed sites.
         flags: &[
             "--no-coverage",
             "--mutate-all",
@@ -216,8 +189,6 @@ const TOOLS: &[Tool] = &[
             "--test-command",
             "if [ -f \"$MUTATOR_VIEW/mutation\" ]; then exit 1; fi; true",
         ],
-        // The same probe in cmd.exe: the marker file exists only for a mutant,
-        // so pristine code passes and every mutant fails.
         windows_flags: Some(&[
             "--no-coverage",
             "--mutate-all",
@@ -226,8 +197,6 @@ const TOOLS: &[Tool] = &[
             "--test-command",
             "if exist \"%MUTATOR_VIEW%\\mutation\" exit 1",
         ]),
-        // Every language this build mutates: Rust (native), Lua (#11), Python,
-        // TypeScript, Go, Java and Clojure (#14).
         languages: &[
             "rust",
             "python",

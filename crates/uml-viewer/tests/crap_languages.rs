@@ -1,7 +1,3 @@
-//! Real coverage toolchains, not fake report writers. The committed EDN was
-//! produced by the pinned Python oracle, never transcribed by hand. Dependency
-//! installation is local to the scratch copy; see fixtures/crap/live/README.md.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -80,7 +76,6 @@ fn check_snapshot(project: &Project, language: &str, output: &Output) {
     assert_eq!(output.status.code(), Some(0), "stderr:\n{}", stderr(output));
     let actual = project.root.join(".metrics/crap.edn");
     let expected = fixture(language).join("expected.edn");
-    // A missing oracle is a broken fixture, not a platform-dependent skip.
     let expected = fs::read(&expected).unwrap_or_else(|error| {
         panic!(
             "cannot read {}: {error}; generate it from the pinned oracle",
@@ -114,14 +109,8 @@ fn python_available(project: &Project) -> bool {
     )
 }
 
-/// The Lua names the coverage runner accepts, in the order it tries them:
-/// Debian's `lua5.4` and the plain `lua` the Windows installer lays down
-/// (`quality_core::runners::lua::interpreter` probes both). Probing both here
-/// is what lets one suite run on either host; copying the interpreter to a
-/// second name in a CI step would only hide the hardcoded name.
 const LUA_PROGRAMS: [&str; 2] = ["lua5.4", "lua"];
 
-/// Whether a Lua 5.4 with the pinned cluacov answers, under either name.
 fn lua_available(project: &Project, prelude: &str) -> bool {
     let mut detail = String::new();
     for program in LUA_PROGRAMS {
@@ -345,8 +334,6 @@ fn node_tools_available(project: &Project) -> bool {
         && available("npm", &["--version"], project, "TypeScript")
 }
 
-/// Node strips types from `.ts` sources from 22.6 (the flag is unknown before
-/// it), so an older runtime is an unavailable toolchain, not a failed test.
 fn node_type_stripping_available(project: &Project) -> bool {
     available(
         "node",

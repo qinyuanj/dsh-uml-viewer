@@ -1,6 +1,3 @@
-//! Navigation and proposal transitions — the events_spec,
-//! canvas_navigation_spec and search_spec oracle.
-
 use edn::record::{get, local_name};
 use edn::{Value, parse};
 use scene::document::{self, ViewState};
@@ -72,8 +69,6 @@ fn enters_nested_namespaces_and_returns_with_back_and_escape() {
         a.focus,
         events::on_key(&b, Some(&Value::String("escape".into())), &dims()).focus
     );
-    // The canvas has no back hotspot any more (#46): a press in the old
-    // 320x44 corner keeps the level; the top bar's crumbs and Escape go back.
     assert_eq!(b.focus, events::on_press(&b, 20.0, 20.0).focus);
     assert_eq!(s.focus, events::back(&s).focus);
     assert_eq!(10.0, s.cam_x);
@@ -161,7 +156,6 @@ fn pans_within_scene_bounds_including_negative_origins() {
     );
     assert_eq!(-50.0, events::on_scroll(&s, -100.0, &dims()).cam_y);
     assert_eq!(0.0, events::on_scroll(&s, 0.0, &dims()).cam_y);
-    // The wheel count is a multiplier (one notch = 48/zoom).
     assert_eq!(96.0, events::on_scroll(&s, 2.0, &dims()).cam_y);
 }
 
@@ -292,7 +286,6 @@ fn opens_existing_proposal_packages_and_nested_groups_then_returns() {
         )
         .is_none()
     );
-    // The old back hotspot is gone (#46): pressing there keeps the layer open.
     assert_eq!(
         Some(&kw("proposal.core")),
         get(&events::on_press(&layer, 20.0, 20.0).extra, "open-layer")
@@ -322,8 +315,6 @@ fn opens_existing_proposal_packages_and_nested_groups_then_returns() {
             .unwrap_or_default()
             .to_owned()
     );
-    // The More menu's Remove arrows toggle names the mode it wants (#46);
-    // an unknown mode leaves the view as it is.
     assert_eq!(
         "triangles",
         local_name(
@@ -539,8 +530,6 @@ fn fits_the_whole_diagram_left_of_the_sidebar_with_control_zero() {
         &with(|d| d.control = true),
     );
     assert!((f.zoom - 0.5).abs() < 1e-12);
-    // The canvas is the whole viewport (#46): the centre of the view is the
-    // centre of the scene, with no strip reserved for a title.
     let (mx, my) = events::world_xy(&f, 610.0, 450.0);
     assert!((mx - 1220.0).abs() < 1e-9 && (my - 450.0).abs() < 1e-9);
     s.scene.assoc(
@@ -733,11 +722,7 @@ fn fit_centres_the_scene_in_the_whole_canvas() {
     );
     let dims = dims();
     let f = events::fit(&s, &dims);
-    // The frame's title and scope line live in the panel's DOM now (#46), so
-    // fit uses the viewport's full height: the scene is centred, not pushed
-    // below a chrome strip, and the bottom still fits.
     let (_, top) = events::world_xy(&f, 0.0, 0.0);
-    // `Dims::vh`: no view height in this test, so the window's 900 points.
     let (_, bottom) = events::world_xy(&f, 0.0, 900.0);
     assert!(
         (top + bottom - 1800.0).abs() <= 1e-6,

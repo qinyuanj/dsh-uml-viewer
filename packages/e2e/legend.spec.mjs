@@ -4,13 +4,6 @@ import { producerFrame, same, sample, screenRect, toScreen } from './canvas.mjs'
 import { toggleFullscreen } from './lifecycle.mjs'
 import { switchLanguage } from './locale-switch.mjs'
 
-/**
- * The diagram's legend (#50, ADR 0015): the rows are typeset by the resident
- * (#44's language table), the panel draws them as its own DOM, 「更多」 opens
- * them as a popover below 900px of panel width, and from 900px they are
- * resident below the diagram — a reserved strip, never an overlay on the
- * classes. A language switch rewords the rows with the next frame.
- */
 let lane
 
 test.beforeAll(async ({ browser }) => { lane = await launchViewerLane(browser) })
@@ -21,11 +14,6 @@ const moreButton = panel => panel.panel.locator('.dsh-uml-viewer-more')
 const moreMenu = panel => panel.panel.locator('.dsh-uml-viewer-more-menu')
 const row = (panel, id) => legend(panel).locator(`[data-row="${id}"]`)
 
-/**
- * Narrow the sidebar to about 400px with the host's own width handle when the
- * default column is wider; the panel's container width is what the layout reads
- * (the same helper the drawer spec uses, #49).
- */
 async function narrowSidebar(panel, width = 400) {
   const current = await panel.panel.evaluate(element => element.clientWidth)
   if (current <= width + 40) return current
@@ -46,7 +34,6 @@ async function narrowSidebar(panel, width = 400) {
   return panel.panel.evaluate(element => element.clientWidth)
 }
 
-/** A canvas point on a class box, from the producer frame. */
 async function classPoint(panel) {
   const frame = await producerFrame(panel, { root: lane.projects.shop, home: lane.home })
   const item = frame.world.find(entry => entry.kind === 'class' && entry.shape !== 'oval')
@@ -59,7 +46,6 @@ test('更多 opens the legend as a popover, and Esc closes it without going back
   const panel = await lane.openPanel('shop')
   await narrowSidebar(panel)
   await expect(panel.panel).toHaveAttribute('data-layout', 'drawer')
-  // Below 900px the legend is a popover: closed until 「更多」 opens it.
   await expect(legend(panel)).toBeHidden()
 
   const at = await classPoint(panel)
@@ -74,7 +60,6 @@ test('更多 opens the legend as a popover, and Esc closes it without going back
   await expect(region).toBeVisible()
   await expect(region).toHaveAttribute('data-mode', 'popover')
   await expect(region).toHaveAccessibleName('Legend')
-  // The rows are the resident's text, in the DSH language (English here).
   await expect(row(panel, 'class-box')).toContainText('Class box')
   await expect(row(panel, 'component-box')).toContainText('Component box')
   await expect(row(panel, 'foreign-package')).toContainText('Foreign package')
@@ -84,7 +69,6 @@ test('更多 opens the legend as a popover, and Esc closes it without going back
   await expect(legend(panel).locator('[data-section]')).toHaveCount(3)
   await lane.screenshot(panel, 't50-legend-popover')
 
-  // Esc closes the popover and stops there: the selection survives.
   await panel.page.keyboard.press('Escape')
   await expect(region).toBeHidden()
   await expect(panel.summary).toHaveAttribute('data-selected', /^:/)
@@ -97,24 +81,18 @@ test('from 900px the legend is resident beside the diagram, and below it returns
   await expect(panel.panel).toHaveAttribute('data-layout', 'drawer')
   await expect(legend(panel)).toBeHidden()
 
-  // The host's fullscreen form widens the same tab; nothing remounts.
   await toggleFullscreen(panel, true)
   await expect.poll(() => panel.panel.evaluate(element => element.clientWidth)).toBeGreaterThanOrEqual(900)
   await expect(panel.panel).toHaveAttribute('data-layout', 'docked')
   const region = legend(panel)
   await expect(region).toBeVisible()
   await expect(region).toHaveAttribute('data-mode', 'docked')
-  // Resident without being opened: no popover state, no close button, and no
-  // 「更多」 entry that would do nothing (F45).
   await expect(region).toHaveAttribute('data-open', 'false')
   await expect(region.getByRole('button', { name: 'Close legend' })).toBeHidden()
   await moreButton(panel).click()
   await expect(moreMenu(panel).getByRole('menuitem', { name: 'Legend', exact: true })).toHaveCount(0)
   await panel.page.keyboard.press('Escape')
 
-  // Pinned, not overlaid (F28): the canvas row reserves a strip below the
-  // diagram, so the legend and the drawing share no pixel and the canvas keeps
-  // the row's full width.
   const legendBox = await region.boundingBox()
   const canvasBox = await panel.canvas.boundingBox()
   const rowBox = await panel.panel.locator('.dsh-uml-viewer-canvas-row').boundingBox()
@@ -123,8 +101,6 @@ test('from 900px the legend is resident beside the diagram, and below it returns
   expect(Math.round(legendBox.width - rowBox.width), 'the strip spans the drawing').toBeLessThanOrEqual(2)
   expect(Math.round(legendBox.y + legendBox.height - (rowBox.y + rowBox.height)), 'the strip ends the row').toBeLessThanOrEqual(2)
   expect(legendBox.height, 'the resident legend is a readable strip').toBeGreaterThan(60)
-  // The resident was told the narrower viewport, so the diagram is fitted to
-  // what is left rather than clipped behind the legend.
   const viewport = await panel.canvas.evaluate(canvas => {
     const rect = canvas.getBoundingClientRect()
     return { width: Math.round(rect.width), height: Math.round(rect.height) }
@@ -132,8 +108,6 @@ test('from 900px the legend is resident beside the diagram, and below it returns
   expect(Math.abs(viewport.width - canvasBox.width)).toBeLessThanOrEqual(2)
   await lane.screenshot(panel, 't50-legend-docked')
 
-  // The overlay root stops above the strip, so a docked card — now reserved
-  // space beside the drawing (F28) — leaves the resident legend in view.
   const frame = await producerFrame(panel, { root: lane.projects.shop, home: lane.home })
   const item = frame.world.find(entry => entry.kind === 'class' && entry.shape !== 'oval')
   expect(item, 'the frame has a class box').toBeTruthy()
@@ -150,7 +124,6 @@ test('from 900px the legend is resident beside the diagram, and below it returns
   await expect(card).toHaveCount(0)
   await expect(region).toBeVisible()
 
-  // Below 900px the resident legend withdraws into the popover again.
   await toggleFullscreen(panel, false)
   await expect(panel.panel).toHaveAttribute('data-layout', 'drawer')
   await expect(region).toBeHidden()
@@ -166,11 +139,7 @@ test('from 900px the legend is resident beside the diagram, and below it returns
 
 test('the legend swatches are the colors the diagram paints with', async () => {
   const panel = await lane.openPanel('atlas')
-  // The hue-fixed roles keep their documented dark values (docs/scene-frame.md).
   await panel.page.evaluate(() => document.body.setAttribute('data-ds-dark-theme', ''))
-  // Use the wide form: it puts the atlas foreign-package oval on the same
-  // canvas as the resident legend, so the swatches can be checked against the
-  // ellipse's actual pixels rather than an off-screen producer rectangle.
   await toggleFullscreen(panel, true)
   await expect(panel.panel).toHaveAttribute('data-layout', 'docked')
   await expect(legend(panel)).toBeVisible()
@@ -181,27 +150,20 @@ test('the legend swatches are the colors the diagram paints with', async () => {
 
   const style = (locator, property) => locator.evaluate((element, property) => getComputedStyle(element)[property], property)
   const swatch = (id, chip = 0) => row(panel, id).locator('.dsh-uml-legend-mark > span').nth(chip)
-  // 质量色: the fill ramp's three sample stops, worst first.
   expect(await Promise.all([0, 1, 2].map(n => style(swatch('quality-ramp', n), 'backgroundColor'))))
     .toEqual(['rgb(74, 40, 24)', 'rgb(61, 58, 24)', 'rgb(30, 74, 56)'])
   await expect(row(panel, 'quality-ramp')).toContainText('Quality color')
-  // 外来包椭圆 is an unmeasured quality oval at GRADE_WORST (grade 1), not a
-  // neutral box and not the ramp's grade-0 stop (F53).
   expect(await style(swatch('foreign-package'), 'borderRadius')).toBe('50%')
   expect(await style(swatch('foreign-package'), 'backgroundColor')).toBe('rgb(71, 44, 24)')
   expect(await style(swatch('foreign-package'), 'borderColor')).toBe('rgb(222, 136, 77)')
   expect(await style(swatch('foreign-package'), 'backgroundColor'))
     .not.toBe(await style(swatch('quality-ramp', 0), 'backgroundColor'))
-  // 违规关系色, 依赖链高亮 and 无数据.
   expect(await style(swatch('violation'), 'borderTopColor')).toBe('rgb(196, 42, 36)')
   expect(await style(swatch('dependency-chain'), 'borderTopColor')).toBe('rgb(62, 152, 236)')
   expect(await style(swatch('no-data'), 'backgroundColor')).toBe('rgb(196, 42, 36)')
-  // 关系淡化 is the plain relation color, faded by the frame's dim alpha.
   expect(await style(swatch('dimmed'), 'borderTopColor')).toBe(await style(swatch('relation'), 'borderTopColor'))
   expect(Number(await style(swatch('dimmed'), 'opacity'))).toBeCloseTo(70 / 255, 3)
 
-  // The foreign-package swatch must be the oval's own worst-grade colors: read
-  // the real canvas pixels where the producer draws the ellipse and its ring.
   const frame = await producerFrame(panel, { root: lane.projects.atlas, home: lane.home })
   const foreignRow = frame.legend.sections.flatMap(section => section.rows)
     .find(entry => entry.id === 'foreign-package')
@@ -224,17 +186,11 @@ test('the legend swatches are the colors the diagram paints with', async () => {
   expect(outline.some(pixel => same(pixel, stroke, 24)),
     `the oval ring is the swatch stroke ${stroke}: ${JSON.stringify(outline.slice(0, 8))}`).toBe(true)
 
-  // 普通关系色 is the host's own token, so compare it with the pixels the
-  // canvas painted for a plain relation in the same frame.
   const edge = frame.edges.find(item => item.kind === 'stroke' && item.stroke.role === 'relation')
   expect(edge, 'the diagram draws a plain relation').toBeTruthy()
-  // Every point of the edge's route is on the line the canvas painted, so one
-  // of them carries the relation color (antialiasing and the boxes' edges make
-  // a single probe unreliable).
   const route = edge.points.map(([x, y]) => toScreen(frame, x, y))
   const probes = route.slice(1).flatMap((to, index) => {
     const from = route[index]
-    // The route's end points sit inside the boxes, so probe the interior.
     return [0.2, 0.4, 0.5, 0.6, 0.8].map(part =>
       [from[0] + (to[0] - from[0]) * part, from[1] + (to[1] - from[1]) * part])
   })
@@ -259,8 +215,6 @@ test('a language switch rewords the legend rows from the resident', async () => 
   await expect(row(panel, 'dependency-chain')).toContainText('Dependency chain')
 
   await switchLanguage(panel.page, '中文')
-  // The panel's own title follows the locale; the rows follow the frame the
-  // resident re-sends, typeset in the language it was told (#44, #50).
   await expect(legend(panel)).toHaveAccessibleName('图例')
   await expect(row(panel, 'dependency-chain')).toContainText('依赖链高亮')
   await expect(row(panel, 'class-box')).toContainText('类框')

@@ -1,7 +1,3 @@
-//! Breadcrumbs and returning to a named level (#45): the tree path the panel
-//! shows in its top bar, and the `back` target that returns to any of it.
-//! Documents are written literally, as in `hierarchy/tests.rs`.
-
 use crate::document::{self, ViewState};
 use crate::events::{self, Crumb, CrumbView};
 use edn::record::get;
@@ -62,7 +58,6 @@ fn the_breadcrumb_path_names_every_namespace_from_the_root_down() {
         ],
         events::breadcrumbs(&state(&[kw("a"), kw("b")], "{}"))
     );
-    // A diagram is not loaded yet: there is no tree to show.
     assert!(events::breadcrumbs(&ViewState::default()).is_empty());
 }
 
@@ -77,7 +72,6 @@ fn a_proposal_breadcrumb_path_starts_at_the_proposal_and_names_its_layers() {
         )],
         events::breadcrumbs(&state(&[], &format!("{{{proposal}}}")))
     );
-    // A declared layer package (`:proposal.<layer>`) is one level.
     assert_eq!(
         vec![
             crumb(
@@ -98,7 +92,6 @@ fn a_proposal_breadcrumb_path_starts_at_the_proposal_and_names_its_layers() {
             "{:proposal true :proposal-id :p-levels :open-layer :proposal.domain}"
         ))
     );
-    // A nested proposal group keeps the levels above it.
     assert_eq!(
         vec![
             crumb(
@@ -130,8 +123,6 @@ fn a_proposal_breadcrumb_path_starts_at_the_proposal_and_names_its_layers() {
 
 #[test]
 fn a_generated_proposal_layer_is_named_the_way_the_canvas_names_it() {
-    // Classes no declared layer claims land in `:proposal.unassigned`; its
-    // label exists only in the scene, so the crumb reads it from there.
     let unassigned = state(
         &[],
         "{:proposal true :proposal-id :p-levels :open-layer :proposal.unassigned}",
@@ -153,8 +144,6 @@ fn a_generated_proposal_layer_is_named_the_way_the_canvas_names_it() {
         ],
         events::breadcrumbs(&unassigned)
     );
-    // A layer the proposal no longer declares is not a level; the path stops
-    // at the proposal rather than inventing one.
     let stale = state(
         &[],
         "{:proposal true :proposal-id :p-levels :open-layer :proposal.gone}",
@@ -171,9 +160,7 @@ fn returning_to_a_level_restores_it_and_forgets_everything_below() {
     assert_eq!(None, middle.selected);
     let root = events::back_to(&deep, None).expect("the root names no id");
     assert!(root.focus.is_empty());
-    // A level the path does not carry is refused, not guessed.
     assert!(events::back_to(&deep, Some(&kw("x"))).is_none());
-    // The deepest level is where the view already is: nothing moves.
     let mut shown = deep.clone();
     shown.cam_x = 12.0;
     let same = events::back_to(&shown, Some(&kw("a.b"))).expect("a.b is the current level");
@@ -195,8 +182,6 @@ fn returning_to_a_proposal_level_reopens_that_layer() {
     let root =
         events::back_to(&group, Some(&kw("p-levels"))).expect("the proposal root is a level");
     assert_eq!(None, get(&root.extra, "open-layer"));
-    // The source root's id is `null`, which a proposal path does not carry.
     assert!(events::back_to(&group, None).is_none());
-    // A proposal's `back` never falls into the source tree.
     assert!(events::back_to(&group, Some(&kw("a"))).is_none());
 }

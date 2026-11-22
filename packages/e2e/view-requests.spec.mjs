@@ -8,12 +8,6 @@ import { chooseContext, listedContexts, newProposal, switcherButton } from './sw
 import { makeViewCompanion } from './view-companion.mjs'
 import { VIEW_POLICY } from './view-policy.mjs'
 
-/** #29 deterministic companion implementation of the protocol, NOT real LLM
- * compliance evidence. It edits only the lane-owned Deep scratch policy with
- * literal splices, once before returning uml_ir(request). Real IR/resident/
- * display are exercised by CI; no synthetic frame or production writer is used.
- * Local validation is Node-only; browser runtime requires CI's existing binary.
- */
 async function refusingCrap(projects) {
   const root = projects.deep
   await fs.writeFile(path.join(root, 'quality-fixture.mjs'), `process.stderr.write('controlled quality refusal\\n'); process.exitCode = 1\n`)
@@ -44,7 +38,6 @@ function targetPoint(frame, id) {
   return toScreen(frame, target.rect.x + target.rect.w / 2, target.rect.y + 10)
 }
 
-/** Fresh producer frame with `id` on the exposed canvas. */
 async function exposed(panel, options, id) {
   return (await exposeTarget(panel, async () => {
     const frame = await producerFrame(panel, options)
@@ -66,7 +59,6 @@ function preserved(edit) {
 }
 
 const composer = a => a.page.locator('[data-composer-input][contenteditable="true"]:visible').last()
-/** The bottom status bar; its request line is the request status (#51). */
 const statusBar = a => a.panel.locator('.dsh-uml-viewer-statusbar')
 const finished = (a, op) => expect(a.page.getByText(`Finished ${op}: IR, display.`, { exact: true }).last()).toBeVisible()
 
@@ -84,8 +76,6 @@ test('Hide after a failed refresh still regenerates the IR, then displays; the d
     await menu(a, frame, ':api', 'Hide')
     await expect(a.page.getByText(/^UML viewer panel request:\n\{:op :omit :target \{:id :api :kind :class\} :context \{:context :real\} :request "[0-9a-f]{32}"\}$/).last()).toBeVisible()
     await finished(a, 'omit')
-    // #52: the companion's uml_ir and the display it followed completed the
-    // hide, and the bar says so.
     await expect(statusBar(a)).toContainText('Hide :api: Done')
     expect(companion.edits).toHaveLength(1)
     preserved(companion.edits[0])
@@ -105,7 +95,6 @@ test('choosing a proposal in the switcher tells the companion; 新建提案 send
   const { lane, companion } = await launch(browser)
   try {
     const a = await lane.openPanel('deep')
-    // The inspector is gone (#47): the top bar's switcher is the only list.
     await expect(a.panel.getByRole('complementary')).toHaveCount(0)
     await expect(switcherButton(a)).toHaveText(/Source diagram/)
     await chooseContext(a, 'Review plan')
@@ -144,7 +133,6 @@ test('choosing a proposal in the switcher tells the companion; 新建提案 send
     expect(created.proposalId).toBe(':p-e2e-1')
     expect(await fs.readFile(path.join(root, 'policy.edn'), 'utf8')).toContain(`{:id :p-e2e-1 :name "${name}" :layers []}`)
     await expect.poll(() => listedContexts(a)).toEqual(['Source diagram', 'Review plan', name])
-    // Creation preserves discussion context; choosing the actual new row changes it.
     await expect(a.summary).toContainText('Discussion: Review plan.')
     await chooseContext(a, name)
     await expect(a.summary).toContainText(`Discussion: ${name}.`)
@@ -152,9 +140,6 @@ test('choosing a proposal in the switcher tells the companion; 新建提案 send
     const unchanged = await fs.readFile(path.join(root, 'policy.edn'))
     await chooseContext(a, 'Source diagram')
     await expect(a.page.getByText('UML viewer panel request:\n{:op :context :context {:context :real}}', { exact: true }).last()).toBeVisible()
-    // #51/#53: a context switch is done as soon as it is admitted, and it is
-    // the newest entry, so the bar's line is the one that shows it. A done
-    // entry fades ten seconds later, so this is where a finished state is read.
     await expect(statusBar(a)).toContainText('Switch discussion context: Done')
     await expect(a.summary).toHaveAttribute('data-context', 'real')
     await expect(a.summary).toHaveAttribute('data-view', 'source')
@@ -175,7 +160,6 @@ test('failed IR after a scoped edit leaves the displayed diagram and draft uncha
     const diagram = await fs.readFile(path.join(root, 'diagram.edn'))
     const summary = await a.summary.innerText()
     await composer(a).fill('Keep failed request draft')
-    // Deliberately malformed scratch policy makes the real IR call fail.
     await fs.writeFile(path.join(root, 'policy.edn'), VIEW_POLICY.replace(':hierarchical true', ':hierarchical [invalid'))
     const start = lane.mock.requests.length
     await menu(a, frame, ':api', 'Hide')

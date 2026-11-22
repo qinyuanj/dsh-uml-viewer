@@ -1,5 +1,3 @@
-//! Routing behaviour — the edges_spec.lua route oracle.
-
 use crate::geom::{self, Rect};
 use crate::route::route;
 use edn::parse;
@@ -60,7 +58,6 @@ fn uses_the_last_equally_smooth_clear_detour_and_first_blocked_fallback() {
     .unwrap();
     route(&mut s);
     close_points("[[20 20] [20 40] [100 40] [100 20]]", &points_of(&s, 0));
-    // A giant wall blocks every detour: the first candidate is the fallback.
     let mut s = parse(
         "{:diagram {:edges [{:from :a :to :b}]} :classes [{:id :a :rect {:x 0 :y 0 :w 40 :h 20}} {:id :b :rect {:x 80 :y 0 :w 40 :h 20}} {:id :wall :rect {:x -100 :y -100 :w 400 :h 400}}]}",
     )
@@ -71,7 +68,6 @@ fn uses_the_last_equally_smooth_clear_detour_and_first_blocked_fallback() {
 
 #[test]
 fn same_rank_edges_route_below_the_rank_box() {
-    // Two side-by-side classes, one edge: straight drop between them.
     let mut s = parse(
         "{:diagram {:edges [{:from :a :to :b :kind :dependency}]} :classes [{:id :a :rect {:x 0 :y 0 :w 40 :h 20} :rank 0} {:id :b :rect {:x 80 :y 0 :w 40 :h 20} :rank 0}]}",
     )
@@ -106,7 +102,6 @@ fn face_picks_the_nearest_rect_side() {
 }
 
 fn crosses(p: [f64; 2], q: [f64; 2], r: Rect) -> bool {
-    // Liang-Barsky clip of segment p-q against the open rect.
     let (dx, dy) = (q[0] - p[0], q[1] - p[1]);
     let (mut t0, mut t1) = (0.0_f64, 1.0_f64);
     for (pp, qq) in [
@@ -133,7 +128,6 @@ fn crosses(p: [f64; 2], q: [f64; 2], r: Rect) -> bool {
 
 #[test]
 fn a_long_edge_passes_intermediate_ranks_beside_their_boxes() {
-    // One class per level stacks a column; a -> d spans two ranks between.
     let d = parse(
         "{:packages [{:id :p :classes [{:id :a :name \"a\" :level 3} {:id :b :name \"b\" :level 2} {:id :c :name \"c\" :level 1} {:id :d :name \"d\" :level 0}]}] :edges [{:from :a :to :b} {:from :b :to :c} {:from :c :to :d} {:from :a :to :d}]}",
     )
@@ -185,8 +179,6 @@ fn assert_clear(scene: &edn::Value, pts: &[[f64; 2]], ids: &[&str]) {
 
 #[test]
 fn a_lane_stub_clears_a_taller_box_in_its_start_row() {
-    // t shares a's row and hangs below it: a 20px stub would bend into t on
-    // its way to the lane, so the lane would be dropped.
     let mut s = parse(
         "{:diagram {:edges [{:from :a :to :b}]} :lanes [{:edge 0 :points [[200 230] [200 290]]}] :classes [{:id :a :rank 2 :rect {:x 0 :y 0 :w 40 :h 20}} {:id :t :rank 2 :rect {:x 60 :y 0 :w 40 :h 100}} {:id :m :rank 1 :rect {:x 0 :y 240 :w 140 :h 40}} {:id :b :rank 0 :rect {:x 180 :y 400 :w 40 :h 20}}]}",
     )
@@ -199,8 +191,6 @@ fn a_lane_stub_clears_a_taller_box_in_its_start_row() {
 
 #[test]
 fn an_unranked_oval_is_not_part_of_a_rank_row() {
-    // The oval has no :rank; counted in rank 0's row it would pull b's stub
-    // up beside a and cut c.
     let mut s = parse(
         "{:diagram {:edges [{:from :a :to :b}]} :lanes [{:edge 0 :points [[160 152] [160 254]]}] :classes [{:id :a :rank 2 :rect {:x 0 :y 0 :w 120 :h 42}} {:id :c :rank 1 :rect {:x 0 :y 182 :w 120 :h 42}} {:id :b :rank 0 :rect {:x 0 :y 364 :w 120 :h 42}} {:id :o :oval? true :rect {:x 300 :y 0 :w 80 :h 30}}]}",
     )
@@ -213,7 +203,6 @@ fn an_unranked_oval_is_not_part_of_a_rank_row() {
 
 #[test]
 fn an_edge_bent_across_a_taller_row_neighbour_leaves_the_row_first() {
-    // End sync bends the chosen detour from a across t, which shares a's row.
     let mut s = parse(
         "{:diagram {:edges [{:from :a :to :b}]} :classes [{:id :t :rank 1 :rect {:x 0 :y 0 :w 200 :h 558}} {:id :a :rank 1 :rect {:x 252 :y 0 :w 136 :h 108}} {:id :b :rank 0 :rect {:x 12 :y 756 :w 120 :h 162}}]}",
     )
@@ -226,8 +215,6 @@ fn an_edge_bent_across_a_taller_row_neighbour_leaves_the_row_first() {
 
 #[test]
 fn spreading_the_attachments_does_not_bend_an_edge_into_a_box() {
-    // a -> b runs straight just below c; spreading the attachments on b's
-    // right face (a -> b, c -> b) would lift it into c.
     let mut s = parse(
         "{:diagram {:edges [{:from :a :to :g} {:from :d :to :b} {:from :a :to :d} {:from :c :to :b} {:from :a :to :b}]} :classes [{:id :d :rank 5 :rect {:x 740 :y 84 :w 160 :h 252}} {:id :b :rank 5 :rect {:x 940 :y 84 :w 128 :h 126}} {:id :c :rank 5 :rect {:x 1108 :y 84 :w 128 :h 90}} {:id :a :rank 5 :rect {:x 1276 :y 124 :w 120 :h 72}} {:id :g :rank 3 :rect {:x 292 :y 1434 :w 136 :h 450}} {:id :s :rank 3 :rect {:x 468 :y 1434 :w 120 :h 72}} {:id :o :rank 2 :rect {:x 52 :y 2082 :w 80 :h 44}}]}",
     )
@@ -246,8 +233,6 @@ fn fell_back(scene: &edn::Value, edge: usize) -> bool {
 
 #[test]
 fn a_lane_through_a_box_is_dropped_and_flagged() {
-    // The lane runs down x=60, straight through m: the edge takes an
-    // ordinary candidate instead and says so (#185).
     let mut s = parse(
         "{:diagram {:edges [{:from :a :to :b}]} :lanes [{:edge 0 :points [[60 230] [60 290]]}] :classes [{:id :a :rank 2 :rect {:x 0 :y 0 :w 40 :h 20}} {:id :m :rank 1 :rect {:x 0 :y 240 :w 140 :h 40}} {:id :b :rank 0 :rect {:x 180 :y 400 :w 40 :h 20}}]}",
     )

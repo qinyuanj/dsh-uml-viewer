@@ -6,7 +6,6 @@ import { validateSessionState } from '@dsh-uml-viewer/contracts'
 
 const SAFE_ID = /[^A-Za-z0-9._-]/g
 
-/** The plugin's own data directory under the DSH home. */
 export function pluginHome(configHome: string | undefined, configured: (() => string | undefined) | undefined): string | undefined {
   if (configHome) return path.resolve(configHome)
   const fromHost = configured?.()
@@ -16,10 +15,6 @@ export function pluginHome(configHome: string | undefined, configured: (() => st
   return undefined
 }
 
-/**
- * Per-session view/discussion state, in the plugin's own directory. DSH's
- * session log stays untouched: this is state the log never carries.
- */
 export class SessionStates {
   private readonly directory: string | undefined
   private readonly writes = new Map<string, Promise<void>>()
@@ -33,7 +28,6 @@ export class SessionStates {
     return path.join(this.directory, `${sessionId.replace(SAFE_ID, '_')}.json`)
   }
 
-  /** Read the stored state; a missing or malformed file is simply "no state". */
   async read(sessionId: string): Promise<SessionState | null> {
     const file = this.file(sessionId)
     if (!file) return null
@@ -42,9 +36,6 @@ export class SessionStates {
       const state = validateSessionState(record)
       if (state.diagram && (!state.loadedDiagram
         || await diagramDigest(state.diagram) !== state.loadedDiagram.sha256)) {
-        // Restoration replays the previously displayed IR only. Changed,
-        // missing or pre-fingerprint IR must pass the normal
-        // uml_ir → uml_display gate again.
         return { ...state, diagram: null }
       }
       return state
@@ -53,7 +44,6 @@ export class SessionStates {
     }
   }
 
-  /** Write atomically (temporary file plus rename) so a crash cannot truncate it. */
   write(sessionId: string, state: SessionState): Promise<void> {
     const previous = this.writes.get(sessionId) ?? Promise.resolve()
     const next = previous.catch(() => {}).then(() => this.publish(sessionId, state))
@@ -69,8 +59,6 @@ export class SessionStates {
     if (!file || !this.directory) return
     await mkdir(this.directory, { recursive: true })
     const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`
-    // The resident bound this state to the buffer its parser read; hashing the
-    // path here would label A's view with bytes that replaced it after the load.
     await writeFile(temporary, `${JSON.stringify(state)}\n`)
     await rename(temporary, file)
   }

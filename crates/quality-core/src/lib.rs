@@ -1,26 +1,3 @@
-//! Shared core of the quality tools (ADR 0012): crapper, mutator and dryer
-//! depend on this crate and never on each other, so all three select the
-//! same files, read the same syntax trees and the same coverage.
-//!
-//! - [`select`]: the source walk, `-s` roots, `--exclude` globs, named
-//!   paths and text filters ([`select::Scope`]).
-//! - [`language`]: language by extension, test files, skipped directories.
-//! - [`grammar`]: the tree-sitter language table and node helpers.
-//! - [`functions`]: functions and methods with namespace, span and
-//!   cyclomatic complexity, per language.
-//! - [`coverage`]: LCOV reports and per-function coverage.
-//! - [`runner`]: coverage runners and custom coverage commands.
-//! - [`process`]: the one process boundary for tool launches.
-//! - [`atomic`]: atomic snapshot publication.
-//! - [`snapshot`]: the `.metrics` EDN writer (number format, key order).
-//! - [`paths`]: Python-compatible `resolve` / `as_posix`.
-//! - [`platform`]: the shared WSL `/mnt` warning, and the host both pinned
-//!   originals decide on; neither refuses an OS or reads a build number
-//!   (ADR 0018).
-//! - [`number`]: Python `float()` for number options; [`digits`] is the
-//!   Unicode decimal digit table it shares with dryer's `int()` counts.
-
-// Shared syntax, serialization and OS primitives for quality tool crates.
 pub use {chrono, edn, libc, serde_json, sha2, tree_sitter};
 
 pub mod atomic;

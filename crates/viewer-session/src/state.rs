@@ -1,13 +1,3 @@
-//! The session state as data (#17): what the plugin host persists with its
-//! session so a reopened session or a restarted DeepSeek Harness returns to
-//! the same view and discussion context. Schema
-//! `dsh-uml-viewer/session-state`, version 1 (`docs/resident-protocol.md`).
-//!
-//! It carries the restoration dimensions `frame::session::restore` applies,
-//! without the historical window chrome and mail cursor (the standalone
-//! window and the companion mail are gone).
-//! Ids and hits stay EDN text, as in the scene frame.
-
 use edn::Value;
 use edn::record::get;
 use scene::document::ViewState;
@@ -50,8 +40,6 @@ pub fn to_json(state: &ViewState) -> Json {
     json!({
         "schema": SCHEMA,
         "version": VERSION,
-        // A waiting canvas has displayed nothing yet: its path is only the
-        // project default, which a restore must not show unasked.
         "diagram": if state.waiting { None } else { state.path.as_deref() },
         "context": state.discussion_context.as_ref().map_or(Json::Null, context_json),
         "focus": state.focus.iter().map(edn_text).collect::<Vec<_>>(),

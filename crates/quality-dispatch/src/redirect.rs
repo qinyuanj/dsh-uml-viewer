@@ -1,10 +1,5 @@
-//! Keep stdout for the one record line: while a tool runs, the process's
-//! standard output (and so every child launched with inherited streams)
-//! writes to standard error instead.
-
 use std::io::Write;
 
-/// Run `work` with stdout pointing at stderr, then restore it.
 pub fn stdout_to_stderr<T>(work: impl FnOnce() -> T) -> T {
     let _ = std::io::stdout().flush();
     let saved = imp::swap();

@@ -1,6 +1,3 @@
-//! `--copy` validation: a path outside the project root, at most one leading
-//! `..`, and it must exist. The normalised relative path is the position a
-//! Windows copy shows beside the project copy, so it may hold no `..` at all.
 use super::resolve_outside;
 use crate::scratch;
 use std::{
@@ -8,7 +5,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// A scratch root with one project directory: its parent is what `..` reaches.
 fn temporary() -> (scratch::Root, PathBuf, PathBuf) {
     let temporary = scratch::Root::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
     let parent = temporary.path().to_path_buf();
@@ -64,7 +60,6 @@ fn one_position_declared_twice_is_one_outside_copy() {
 fn a_path_inside_the_project_root_is_a_usage_error() {
     let (_temporary, project, _parent) = temporary();
     fs::create_dir(project.join("contracts")).unwrap();
-    // The copy already has these; accepting one would promise nothing.
     for value in ["contracts", "./contracts", "src/../contracts", "."] {
         let error = resolve_outside(&project, &request(&[value])).unwrap_err();
         assert!(
@@ -90,7 +85,6 @@ fn an_absolute_path_is_a_usage_error() {
 #[test]
 fn more_than_one_leading_parent_is_a_usage_error() {
     let (_temporary, project, _parent) = temporary();
-    // Two leading `..` would reach outside this call's scratch slot.
     for value in ["../..", "../../elsewhere"] {
         let error = resolve_outside(&project, &request(&[value])).unwrap_err();
         assert!(
@@ -119,9 +113,6 @@ fn a_missing_outside_path_is_a_usage_error() {
     assert!(error.contains("does not exist"), "{error}");
 }
 
-/// A project directory that is not named `project` still cannot be copied back
-/// in: resolving the path lands on the root itself, where the copy already has
-/// every byte.
 #[test]
 fn a_path_that_resolves_back_inside_the_project_is_a_usage_error() {
     let temporary = scratch::Root::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
@@ -136,17 +127,6 @@ fn a_path_that_resolves_back_inside_the_project_is_a_usage_error() {
     assert!(error.contains("../workspace"), "{error}");
 }
 
-/// Every entry the slot declares (`crate::slot`) is never a `--copy` position:
-/// the copy places the project at `project`, redirects the homes to `home`,
-/// `temp` and `appdata`, recreates `output` and `mutation` for every command,
-/// and wipes the `lua-coverage` position a collection's scratch is named after.
-/// Whatever a `--copy` placed there would be deleted or merged over before the
-/// command that needs it read it, so the argument is a usage error. Reading the
-/// list from the declaration is the point: a new reserved location is one edit
-/// there, and this test covers it with no second list to keep in step.
-///
-/// The decision is lexical, before any filesystem work, so a reserved name that
-/// does not exist is never reported as a missing path.
 #[test]
 fn a_reserved_slot_name_is_a_usage_error_not_a_missing_path() {
     let (_temporary, project, _parent) = temporary();
@@ -188,8 +168,6 @@ fn a_reserved_slot_name_is_refused_in_any_case() {
     }
 }
 
-/// A directory link outside the project that points back in, as a Windows
-/// junction or a Linux symlink would; the copy must not treat it as outside.
 #[cfg(unix)]
 #[test]
 fn an_outside_link_into_the_project_is_a_usage_error() {

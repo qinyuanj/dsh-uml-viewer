@@ -1,7 +1,3 @@
-//! Port pills and foreign ovals stay off the class boxes in every view of
-//! the self-hosted diagram, default and wide (#191), and each pill hangs on
-//! its own side of its box so the link's head shows (#189).
-
 use crate::common;
 
 use edn::Value;
@@ -42,7 +38,6 @@ fn no_view_of_the_self_hosted_diagram_draws_a_port_or_oval_on_a_box() {
                 ports_and_ovals.push(p);
             }
         }
-        // (port or oval, box it overlaps)
         let on_a_box: Vec<_> = ports_and_ovals
             .iter()
             .flat_map(|(p, pr)| {
@@ -55,6 +50,5 @@ fn no_view_of_the_self_hosted_diagram_draws_a_port_or_oval_on_a_box() {
         drawn += ports_and_ovals.len();
         assert!(on_a_box.is_empty(), "{focus:?} on a box: {on_a_box:?}");
     }
-    // An isolated view needs no ports; the sweep must still exercise them.
     assert!(drawn > 0, "the sweep draws ports or ovals");
 }

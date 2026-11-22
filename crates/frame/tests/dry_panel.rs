@@ -1,7 +1,3 @@
-//! D2/D3/D4 on the resident seam (#91): class-card rows and the bounded
-//! cluster payload are produced from the same overlaid document. The dry
-//! marker never enters the quality columns.
-
 use edn::{Value, parse};
 use frame::detail;
 use frame::strings::Lang;

@@ -6,12 +6,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { isolateScratch } from './scratch-scope.mjs'
 
-// CI14: the scratch DSH home sat inside this checkout, whose root manifest is
-// the dsh-uml-viewer package with an `exports` map. DSH continues a profile
-// lookup "above the profile" at `<home>/profiles/package.json`; from there
-// Node's package self-reference reached the checkout's own build.
 function checkoutWithScratch() {
-  // Canonical path: Node resolves through symlinks (macOS /var -> /private/var).
   const checkout = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'scratch-scope-')))
   fs.writeFileSync(path.join(checkout, 'package.json'), JSON.stringify({
     name: 'dsh-uml-viewer', private: true, main: 'lib/host.js', exports: { '.': './lib/host.js' },

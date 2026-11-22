@@ -29,7 +29,6 @@ PINS = {
 }
 CLOCK = "2026-11-07T12:00:00+00:00"
 PROJECTS = {
-    # name: (targets in invocation order, directories that get a .venv link)
     "python": (["src/shapes/geometry.py", "legacy/tally/core.py"], [".", "legacy"]),
     "typescript": (["src/calc.ts", "src/view.tsx"], []),
 }
@@ -109,8 +108,6 @@ def oracle_project(name: str, fixture: Path, scratch: Path, venv: Path, run) -> 
 
 
 def site_inventory(fixture: Path) -> dict:
-    """The original's sites, forms and privacy for every corpus and fixture source."""
-
     from mutator.functions import form_digests, form_spans, sites_in_file
 
     found = {}

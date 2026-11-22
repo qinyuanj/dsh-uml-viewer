@@ -1,9 +1,3 @@
-//! Go functions and cyclomatic complexity, following crap4go.
-//!
-//! Package namespaces are import paths from the nearest go.mod; methods
-//! append the receiver type. Function literals contribute their decisions
-//! to the enclosing declaration rather than becoming separate functions.
-
 use std::fs;
 use std::path::Path;
 
@@ -44,9 +38,6 @@ fn name_and_namespace(source: &str, node: Node, package: &str) -> Option<(String
     Some((name.to_string(), format!("{package}.{receiver}")))
 }
 
-/// The nearest go.mod shadows all outer ones, including when it has no
-/// module directive. Like the Python scanner, keep the directive's value
-/// verbatim rather than interpreting Go string literals or comments.
 fn package_namespace(path: &str, root: &Path, package: &str) -> String {
     let absolute = resolve(&root.join(path));
     let Some(directory) = absolute.parent() else {
@@ -60,7 +51,6 @@ fn package_namespace(path: &str, root: &Path, package: &str) -> String {
         let Ok(contents) = fs::read_to_string(candidate) else {
             return package.to_string();
         };
-        // Python str.splitlines() also recognizes these Unicode separators.
         for line in contents.split([
             '\n', '\r', '\u{000b}', '\u{000c}', '\u{001c}', '\u{001d}', '\u{001e}', '\u{0085}',
             '\u{2028}', '\u{2029}',
@@ -81,8 +71,6 @@ fn package_namespace(path: &str, root: &Path, package: &str) -> String {
     package.to_string()
 }
 
-/// Functions with bodies, in source order. `root` anchors relative paths;
-/// the original `path` is retained in each scored function.
 pub fn functions(source: &str, path: &str, root: &Path) -> Vec<Function> {
     let tree = Grammar::Go.parse(source);
     let package = first_of_kind(tree.root_node(), "package_identifier")

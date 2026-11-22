@@ -1,5 +1,3 @@
-//! Hit testing — the edges_spec.lua hit oracle.
-
 use edn::{Value, parse};
 use scene::hit::{self, dep_indicators};
 

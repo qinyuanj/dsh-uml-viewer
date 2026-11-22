@@ -16,7 +16,7 @@ function golden(name: string): unknown {
 
 describe('resident protocol', () => {
   it('accepts a frame event wrapping every producer golden', () => {
-    expect(goldenFiles).toHaveLength(14) // seven views, Chinese and English (#44)
+    expect(goldenFiles).toHaveLength(14)
     for (const name of goldenFiles) {
       const line = JSON.stringify({ version: 1, seq: 3, event: 'frame', frame: golden(name) })
       const event = parseResidentLine(line)
@@ -24,7 +24,6 @@ describe('resident protocol', () => {
       expect(event?.seq).toBe(3)
       if (event?.event !== 'frame') return
       expect(event.frame.schema).toBe('dsh-uml-viewer/scene-frame')
-      // The frame travels unchanged: the resident contract never reshapes the producer's document.
       expect(event.frame).toEqual(golden(name))
     }
   })
@@ -50,7 +49,6 @@ describe('resident protocol', () => {
   })
 
   it('accepts the quality-target answer and refuses a malformed target', () => {
-    // #28: the answer the host validates before it queues a panel request.
     const line = { version: 1, seq: 17, event: 'quality-target',
       target: { id: ':core', kind: 'component', files: ['src/core/a.rs', 'src/core/b.rs'] } }
     expect(parseResidentLine(JSON.stringify(line))).toEqual(line)
@@ -77,15 +75,11 @@ describe('resident protocol', () => {
       { version: 1, seq: 11, event: 'state', state, breadcrumbs: [], status: null, proposals: [] },
     ]
     for (const line of lines) expect(parseResidentLine(JSON.stringify(line))).toEqual(line)
-    // A resident from before #45 has neither field: the panel then shows no
-    // breadcrumbs and no status rather than failing the whole stream.
     const legacy = { version: 1, seq: 12, event: 'state', state }
     expect(validateResidentEvent(legacy)).toEqual({ ...legacy, breadcrumbs: [], status: null, proposals: [] })
     for (const value of ['Shop', [{ name: 'Shop' }], [{ id: 3, name: 'Shop' }], [{ id: null, name: '' }], [{}]]) {
       expect(() => validateResidentEvent({ ...legacy, breadcrumbs: value }), JSON.stringify(value)).toThrow(/breadcrumbs/i)
     }
-    // The code is an enum: the text is the panel's, so an unknown code is a
-    // broken resident, not a message to show.
     for (const status of [{ code: 'lost' }, { code: 'missing-file' }, { code: 'waiting-display', path: 3 }, 'waiting-display']) {
       expect(() => validateResidentEvent({ ...legacy, status }), JSON.stringify(status)).toThrow(/status/i)
     }
@@ -98,8 +92,6 @@ describe('resident protocol', () => {
     const proposals = [{ id: ':p-shop', name: 'Shop split' }, { id: ':p-2', name: '2026-10-24 10:00:00' }]
     const line = { version: 1, seq: 13, event: 'state', state, breadcrumbs: [], status: null, proposals }
     expect(parseResidentLine(JSON.stringify(line))).toEqual(line)
-    // A resident from before #47 lists none: the switcher then offers the
-    // source diagram and 新建提案 only.
     const { proposals: _proposals, ...legacy } = line
     expect(validateResidentEvent(legacy)).toEqual({ ...legacy, proposals: [] })
     for (const value of ['p', [{ id: ':p' }], [{ id: 3, name: 'P' }], [{ id: ':p', name: '' }], [{ id: '', name: 'P' }], [null]]) {
@@ -156,17 +148,11 @@ describe('resident protocol', () => {
   })
 
   it('ignores an event this version does not know, keeping version 1 additive', () => {
-    // docs/resident-protocol.md, Stability: adding an event is compatible and
-    // keeps version 1; the host ignores events it does not know. A new event
-    // must therefore not end the panel stream (#84).
     for (const event of ['paint', 'inspector']) {
       expect(parseResidentLine(JSON.stringify({ version: 1, seq: 9, event, extra: { any: 'field' } }))).toBeNull()
     }
-    // The same is true of a line an older host receives from a newer child
-    // that adds a field to an event version 1 already knows.
     expect(parseResidentLine(JSON.stringify({ version: 1, seq: 10, event: 'ack', futureField: true })))
       .toEqual({ version: 1, seq: 10, event: 'ack' })
-    // A line that names no event at all is still broken, not unknown.
     expect(() => parseResidentLine(JSON.stringify({ version: 1, seq: 9 }))).toThrow(/event/)
     expect(() => parseResidentLine(JSON.stringify({ version: 1, seq: 9, event: 7 }))).toThrow(/event/)
   })

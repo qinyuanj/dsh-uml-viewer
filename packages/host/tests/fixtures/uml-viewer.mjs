@@ -1,6 +1,3 @@
-// A real child process; its observable argv/cwd and output are the CLI seam.
-// `resident` mode delegates to the resident-protocol fixture so one executable
-// serves both seams, exactly as the real binary does.
 import { readFileSync, writeFileSync } from 'node:fs'
 const argv = process.argv.slice(2)
 if (argv[0] === 'resident') {

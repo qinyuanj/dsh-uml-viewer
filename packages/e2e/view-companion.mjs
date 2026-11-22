@@ -3,10 +3,6 @@ import path from 'node:path'
 import assert from 'node:assert/strict'
 import { editViewPolicy, VIEW_POLICY } from './view-policy.mjs'
 
-/** Deterministic test companion, not evidence of real LLM instruction compliance.
- * The lane supplies one owned scratch project via prepare; messages cannot select paths.
- * Synchronous edits complete before the mock endpoint can return uml_ir.
- */
 export function makeViewCompanion() {
   let policy
   let context = 'real'
@@ -61,7 +57,6 @@ export function makeViewCompanion() {
             const original = fs.readFileSync(policy, 'utf8')
             const edit = editViewPolicy(original, text, context)
             if (edit.context !== context) throw new Error('omit differs from discussion context')
-            // Check actual UTF-8 ranges, including comments/CJK, rather than serializing EDN.
             const prefixBytes = Buffer.byteLength(original.slice(0, edit.start))
             assert.deepEqual(Buffer.from(edit.text).subarray(0, prefixBytes), Buffer.from(original).subarray(0, prefixBytes))
             assert.deepEqual(Buffer.from(edit.text).subarray(prefixBytes + Buffer.byteLength(edit.after)),
@@ -73,7 +68,6 @@ export function makeViewCompanion() {
         } catch (error) { return { text: `Refused fixture edit: ${error.message}` } }
         return { tool: { name: 'uml_ir', input: { request: id } } }
       }
-      // Read tool result text structurally; escaped transcript substring matching misses failures.
       const succeeded = name => {
         const ids = tail.flatMap(message => message.content ?? [])
           .filter(part => part.type === 'tool_use' && part.name === name).map(part => part.id)

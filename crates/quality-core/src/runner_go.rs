@@ -1,5 +1,3 @@
-//! Go's built-in statement coverage, one profile per selected module.
-
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};

@@ -1,5 +1,3 @@
-//! Lua 5.4 + Busted/LuaCov coverage. cluacov 1.0.0 is required: its C line
-//! hook determines which source lines are executable, hence the pinned contract.
 use super::typescript::anchor;
 use crate::coverage::{Lines, Records, read_fresh_lcov};
 use crate::paths::{normcase, relative_posix, resolve};
@@ -195,9 +193,6 @@ pub fn module_specs(lua: &Path, module: &Path) -> Vec<String> {
     module_specs_for_task(lua, module, None)
 }
 
-/// The same listing for a named `.busted` task. Without one the listing script
-/// is unchanged; with one the task is a long-bracket literal, never quoted by
-/// hand, so a task name cannot become Lua source.
 pub fn module_specs_for_task(lua: &Path, module: &Path, task: Option<&str>) -> Vec<String> {
     let script = match task {
         Some(task) => SPECS.replacen(
@@ -256,7 +251,6 @@ pub fn shard_specs(specs: &[String], count: usize, module: &Path) -> Vec<Vec<Str
     result
 }
 
-/// Mutator keeps the original unqualified merge error and wraps it itself.
 pub fn merge_stats(parts: &[PathBuf], target: &Path) -> Result<(), CoverageError> {
     merge_stats_in(parts, target, None)
 }
@@ -317,12 +311,6 @@ fn merge_stats_in(
     fs::write(target, bytes).map_err(|e| failure(format!("{e}")))
 }
 
-/// Zero-hit records for selected sources the fresh LuaCov report did not carry
-/// (crapper ADR 0006). LuaCov drops an `includeuntestedfiles` entry it cannot
-/// open, and Lua's `io.open` reads a non-ASCII name in the host ANSI codepage,
-/// so such a source can vanish from the report on Windows. The source was still
-/// selected and nothing executed it, so every physical line is recorded as zero
-/// hits and one form; a source the report does carry keeps its measured lines.
 fn zero_hit_records(selected: &[PathBuf], reported: &Records) -> Result<Records, CoverageError> {
     let known: BTreeSet<String> = reported
         .iter()
@@ -348,8 +336,6 @@ fn zero_hit_records(selected: &[PathBuf], reported: &Records) -> Result<Records,
     Ok(records)
 }
 
-/// `bytes.splitlines()`: physical lines, blank ones and `end` included, with
-/// `\r\n` counted once and a final unterminated segment only when non-empty.
 fn physical_lines(bytes: &[u8]) -> u64 {
     let mut lines = 0;
     let mut index = 0;
@@ -595,9 +581,6 @@ pub fn cover(
 mod tests {
     use super::physical_lines;
 
-    /// The oracle counts len(path.read_bytes().splitlines()), so these are
-    /// Python's bytes.splitlines boundaries: CR, LF, CRLF once, VT, FF,
-    /// 0x1c-0x1e and 0x85 -- but not the UTF-8 bytes of U+2028.
     #[test]
     fn physical_lines_counts_pythons_bytes_splitlines() {
         assert_eq!(physical_lines(b""), 0);

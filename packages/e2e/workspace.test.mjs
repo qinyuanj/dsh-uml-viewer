@@ -2,8 +2,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { chooseWorkspace } from './workspace.mjs'
 
-// DSH changes the chooser optimistically, then mounts the created session.
-// Keep those two observable UI states separate, as in CI2 run-1pliIh.
 function workspacePage(initial = 'shop') {
   let workspace = initial
   let session = `session-${initial}`
@@ -44,10 +42,6 @@ test('workspace choice waits for its conversation before the open prompt can be 
   assert.equal(page.session(), 'session-inspector')
 })
 
-// A second browser page on the same host, as in CI14 run-oAk48s page 2: after
-// "New session" the chip shows its "Choose workspace" placeholder until the
-// draft session mounts, and DSH mounts it in the last used workspace. Reading
-// the conversation waits for that mount, as Playwright's getAttribute does.
 function hydratingPage(lastUsed) {
   let session = null
   let workspace = null

@@ -1,7 +1,4 @@
-//! Shared helpers for the geometry golden tests (`golden_geometry.rs`,
-//! `route_goldens.rs`): fixture paths, vector access and the recursive
-//! structural comparison ported from `edges_spec.close`.
-#![allow(dead_code)] // each test crate uses a different subset
+#![allow(dead_code)]
 
 pub mod levels;
 
@@ -9,32 +6,24 @@ use edn::record::get;
 use edn::{Value, parse};
 use std::path::{Path, PathBuf};
 
-/// Absolute tolerance of every golden number; goldens record it as
-/// `:absolute-tolerance` and the comparison never loosens it.
 pub const TOLERANCE: f64 = 1e-6;
 
 pub fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// `fixtures/<dir>/<name>` in the repository.
 pub fn fixture(dir: &str, name: &str) -> PathBuf {
     repo().join("fixtures").join(dir).join(name)
 }
 
-/// Every view of the self-hosted diagram the scene tests sweep: the whole
-/// diagram, then each crate's package (label, compiled scene).
 pub fn self_hosted_views() -> Vec<(&'static str, Value)> {
     self_hosted_views_with(&Value::Map(vec![]))
 }
 
-/// The view options of the viewer's wide layout (#191).
 pub fn wide() -> Value {
     Value::Map(vec![(Value::keyword("wide"), Value::Bool(true))])
 }
 
-/// Every view of [`self_hosted_views`], then each again in the wide layout
-/// (its label prefixed `wide `).
 pub fn self_hosted_views_both() -> Vec<(String, Value)> {
     let default = self_hosted_views()
         .into_iter()
@@ -45,12 +34,6 @@ pub fn self_hosted_views_both() -> Vec<(String, Value)> {
     default.chain(wide).collect()
 }
 
-/// [`self_hosted_views`] compiled with the view options `extra`.
-///
-/// The document is compiled from `examples/uml-viewer.policy.edn` in
-/// process (#89): `examples/uml-viewer.edn` is a generated artifact the
-/// maintainer refreshes on their own schedule, so reading it lets a stale
-/// snapshot hide a layout regression.
 pub fn self_hosted_views_with(extra: &Value) -> Vec<(&'static str, Value)> {
     let doc = self_hosted_document();
     [
@@ -74,8 +57,6 @@ pub fn self_hosted_views_with(extra: &Value) -> Vec<(&'static str, Value)> {
     .collect()
 }
 
-/// The self-hosted document, compiled once per test binary: the policy and
-/// the source tree are the only inputs (#89).
 fn self_hosted_document() -> &'static Value {
     static DOC: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
     DOC.get_or_init(|| {
@@ -93,7 +74,6 @@ pub fn read_edn(path: &Path) -> Value {
     parse(&text).unwrap()
 }
 
-/// The items of an EDN vector; anything else is empty.
 pub fn items(v: Option<&Value>) -> Vec<Value> {
     match v {
         Some(Value::Vector(v)) => v.clone(),
@@ -101,7 +81,6 @@ pub fn items(v: Option<&Value>) -> Vec<Value> {
     }
 }
 
-/// The golden declares exactly the tolerance the comparison applies.
 pub fn assert_golden_tolerance(golden: &Value, label: &str) {
     assert_eq!(
         Some(&Value::Float(TOLERANCE)),
@@ -110,9 +89,6 @@ pub fn assert_golden_tolerance(golden: &Value, label: &str) {
     );
 }
 
-/// Recursive structural comparison: maps must have the same keys (a missing
-/// key fails by name), vectors the same length, scalars must be equal, and
-/// every number must be finite and within [`TOLERANCE`].
 pub fn assert_close(expected: &Value, actual: Option<&Value>, path: &str) {
     match expected {
         Value::Integer(_) | Value::Float(_) => {

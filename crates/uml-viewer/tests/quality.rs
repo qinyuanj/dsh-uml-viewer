@@ -1,23 +1,8 @@
-//! Seam: the `uml-viewer quality <crap|mutate|dry>` process boundary (#15,
-//! ADR 0001 2026-11-08 appendix). One JSON version-1 result record on stdout;
-//! the tool's own report goes to stderr. No `quality-result.json` is written.
-//!
-//! The acceptance cases are the public-entry cases of ADR 0001: argv fidelity,
-//! the per-tool valid exit sets, missing declarations (exit 3), launch/config
-//! errors (exit 1), differential mutation, `--mutate-all` scoped to the named
-//! targets, all targets in one call, and an explicit error for a language or
-//! platform whose tool is not ported.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// A missing toolchain must never look like a pass (fixtures/mutate/README.md):
-/// say so on the process's real stderr, which libtest does not capture, and fail
-/// when `UML_VIEWER_REQUIRE_FAKE_TOOL=1` asks for the tool. The Windows fake
-/// tool runs on the host Python, so these tests back real fixtures only where
-/// that interpreter exists.
 fn skip_fake_tool(reason: &str) {
     assert!(
         !std::env::var_os("UML_VIEWER_REQUIRE_FAKE_TOOL").is_some_and(|value| value == "1"),
@@ -27,8 +12,6 @@ fn skip_fake_tool(reason: &str) {
     let _ = std::io::stderr().write_all(format!("SKIP: {reason}\n").as_bytes());
 }
 
-/// A scratch project whose name contains a space and `&`, as the public-entry
-/// acceptance requires; removed on drop.
 struct Project {
     base: PathBuf,
     root: PathBuf,
@@ -60,7 +43,6 @@ impl Project {
         self.write("uml-quality.json", text);
     }
 
-    /// Run from a *different* directory: the project root is explicit.
     fn quality(&self, args: &[&str]) -> Output {
         self.quality_in(&self.base, args)
     }
@@ -143,7 +125,6 @@ fn a_whole_tree_crap_run_publishes_its_snapshot_and_a_valid_record() {
     assert_eq!(record["crapScope"], "whole-tree");
     assert_eq!(record["configured"], false);
     assert_eq!(record["tool"], "crapper");
-    // crapper's own report is not mixed into the record stream.
     assert!(stderr(&output).contains("Wrote"), "{}", stderr(&output));
     let snapshot = fs::read_to_string(project.root.join(".metrics/crap.edn")).unwrap();
     assert!(
@@ -153,7 +134,6 @@ fn a_whole_tree_crap_run_publishes_its_snapshot_and_a_valid_record() {
     no_result_file(&project);
 }
 
-/// `uml-viewer quality <args> --root <root>` from a different directory.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn quality_at(cwd: &Path, root: &Path, args: &[&str]) -> Output {
     let mut argv = args.to_vec();
@@ -168,8 +148,6 @@ fn quality_at(cwd: &Path, root: &Path, args: &[&str]) -> Output {
         .unwrap()
 }
 
-/// The record, checked against the real process exit: version 1, the
-/// requested operation, this canonical root and the same exit code.
 fn checked(output: &Output, operation: &str, root: &Path) -> serde_json::Value {
     let text = String::from_utf8(output.stdout.clone()).unwrap();
     let lines: Vec<&str> = text.lines().collect();
@@ -212,9 +190,6 @@ fn checked(output: &Output, operation: &str, root: &Path) -> serde_json::Value {
     record
 }
 
-/// A native fake tool that records its argv (NUL-terminated, so empty
-/// strings and newlines survive) and exits with `code`. POSIX runs it with
-/// `/bin/sh`; Windows with the host Python, skipped loudly when absent.
 struct Fake {
     argv: Vec<String>,
     log: PathBuf,
@@ -322,7 +297,6 @@ fn an_operation_override_appends_caller_args_verbatim_and_uses_its_declared_code
         expected,
         "fixed argv, then caller args verbatim"
     );
-    // The command's stdout is folded into stderr; stdout is the record alone.
     assert!(
         stderr(&output).contains("fake-stdout"),
         "{}",
@@ -376,7 +350,6 @@ fn a_whole_tree_override_ignores_caller_targets_and_a_failure_is_invalid() {
         ["--full-tree"],
         "targets cannot narrow"
     );
-    // The same failing command under dry, which declares only 0.
     let output = project.quality(&["dry"]);
     let record = checked(&output, "dry", &project.root);
     assert_eq!(output.status.code(), Some(1));
@@ -408,8 +381,6 @@ fn a_signal_terminated_operation_reports_128_plus_n_and_is_invalid() {
     assert_eq!(record["validResult"], false);
 }
 
-/// Configuration and launch errors exit 1 with an error record and launch
-/// nothing; every configured operation is validated before any runs.
 #[test]
 fn configuration_and_launch_errors_exit_1_with_an_error_record() {
     let project = Project::new();
@@ -597,8 +568,6 @@ fn mutation_targets_are_checked_before_launch() {
     assert!(!project.root.join(".metrics").exists());
 }
 
-/// All seven languages reach their built-in tools. The Go scan has a real
-/// site, so dispatch cannot silently turn it into an empty selection.
 #[test]
 fn all_quality_languages_reach_the_built_in_tools() {
     let project = Project::new();
@@ -620,8 +589,6 @@ fn all_quality_languages_reach_the_built_in_tools() {
         );
         assert_eq!(output.status.code(), Some(0), "{diagnostics}");
         assert_eq!(record["validResult"], true, "{diagnostics}");
-        // quality reserves stdout for the checked result record; the built-in
-        // mutator's report is redirected to stderr, including this boolean site.
         assert!(
             report.contains("Scan: 1 mutation sites in src/main.go"),
             "{diagnostics}"
@@ -634,8 +601,6 @@ fn all_quality_languages_reach_the_built_in_tools() {
         assert!(!report.contains("No source files"), "{diagnostics}");
         assert!(!project.root.join(".metrics").exists());
     }
-    // After #7, dryer reads every ported language: the same mixed project is
-    // a real run, not an empty success and not a "not ported" refusal.
     let output = project.quality(&["dry"]);
     let record = checked(&output, "dry", &project.root);
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
@@ -644,8 +609,6 @@ fn all_quality_languages_reach_the_built_in_tools() {
 }
 
 #[cfg(not(target_os = "linux"))]
-/// Windows runs mutation in project copies and macOS refuses it with a reason;
-/// on Windows this is therefore not the platform refusal record.
 #[cfg(not(windows))]
 #[test]
 fn mutation_off_linux_is_an_explicit_error_record() {
@@ -697,7 +660,6 @@ fn dry_runs_the_built_in_dryer_on_the_declared_scope() {
     no_result_file(&project);
 }
 
-/// Without a manifest the default standard dispatch runs on the project.
 #[test]
 fn without_a_manifest_the_standard_tool_runs_on_the_project_root() {
     let project = Project::new();
@@ -723,8 +685,6 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
-/// The mutation fixture workspace (fixtures/mutate/rust) copied below the
-/// spaced `&` path; its `project/` is the quality root.
 #[cfg(target_os = "linux")]
 fn mutation_project(project: &Project, options: &str) -> PathBuf {
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/mutate/rust");
@@ -767,11 +727,6 @@ fn snapshots(root: &Path) -> Vec<String> {
     found
 }
 
-/// `:refresh-mutate` and `:refresh-mutate-all` through the dispatcher: every
-/// target in one call, `--mutate-all` only on the named targets, and an
-/// unchanged rerun is differential. The test command fails only inside a
-/// mutant's view, so every mutant is killed (exit 0) and a killed outcome is
-/// reused by the next differential run (a survivor would be re-executed).
 #[cfg(target_os = "linux")]
 #[test]
 fn mutation_is_differential_on_all_targets_in_one_call() {
@@ -806,10 +761,6 @@ fn mutation_is_differential_on_all_targets_in_one_call() {
         "--mutate-all touched only the named targets"
     );
     let before = fs::read(root.join(".metrics/mutate/app.edn")).unwrap();
-    // :refresh-mutate: the same targets again, unchanged, reuse every outcome.
-    // mutator reports the fully reusable run as "No mutations selected; keeping
-    // the previous snapshots."; a rerun after one target changed shows the
-    // other target's reused outcome below.
     let output = quality_at(
         &project.base,
         &root,
@@ -822,8 +773,6 @@ fn mutation_is_differential_on_all_targets_in_one_call() {
         err.contains("No mutations selected; keeping the previous snapshots."),
         "{err}"
     );
-    // Changing one of two targets in one call reuses the other target's
-    // outcome and executes only the changed one.
     let changed = root.join("app/src/more.rs");
     fs::write(
         &changed,
@@ -843,7 +792,6 @@ fn mutation_is_differential_on_all_targets_in_one_call() {
         err.contains("app/src/more.rs: executed=1 reused=0"),
         "{err}"
     );
-    // A new target joins the same call; the unchanged one is still reused.
     let output = quality_at(
         &project.base,
         &root,
@@ -858,16 +806,12 @@ fn mutation_is_differential_on_all_targets_in_one_call() {
     );
     assert!(err.contains("app/src/lib.rs: executed=0 reused=1"), "{err}");
     assert_eq!(snapshots(&root), ["app.edn", "app/more.edn", "util.edn"]);
-    // The differential rerun keeps the snapshot's outcomes.
     let after = fs::read_to_string(root.join(".metrics/mutate/app.edn")).unwrap();
     let before = String::from_utf8(before).unwrap();
     let outcomes = |text: &str| text.split(":outcomes").nth(1).unwrap().to_string();
     assert_eq!(outcomes(&after), outcomes(&before));
 }
 
-/// The contracts fixture (fixtures/quality/records.jsonl, consumed by
-/// packages/contracts/tests/quality.test.ts) is real binary output. Run the
-/// same scenarios and compare the lines byte for byte apart from the root.
 #[test]
 fn the_committed_contract_samples_are_the_binary_output() {
     let project = Project::new();
@@ -879,7 +823,6 @@ fn the_committed_contract_samples_are_the_binary_output() {
         skip_fake_tool("no python on PATH; the samples need a native fake tool");
         return;
     };
-    // The file may be checked out with CRLF; the record line itself has no CR.
     let samples = include_str!("../../../fixtures/quality/records.jsonl").replace('\r', "");
     let samples = samples.as_str();
     let expected: Vec<serde_json::Value> = samples
@@ -889,7 +832,6 @@ fn the_committed_contract_samples_are_the_binary_output() {
     let mut actual = Vec::new();
     actual.push(project.quality(&["crap"]));
     actual.push(project.quality(&["dry"]));
-    // With no target and no --changed, mutator is refused on every platform.
     actual.push(project.quality(&["mutate"]));
     project.config(&format!(
         r#"{{"version":1,"operations":{{
@@ -946,10 +888,6 @@ fn python_executable() -> Option<std::ffi::OsString> {
     None
 }
 
-/// Every named target reaches mutator unexpanded and in the order named
-/// (ADR 0001 2026-11-01): a directory that contains a root, one inside a
-/// root, and a file. `--scan` lists the sites mutator selected, so the
-/// forwarded targets are observable without any test run.
 #[cfg(target_os = "linux")]
 #[test]
 fn named_directories_and_files_reach_one_mutation_call_in_order() {
@@ -970,8 +908,6 @@ fn named_directories_and_files_reach_one_mutation_call_in_order() {
             "{err}"
         );
     }
-    // A named directory outside every root is named on stderr and dropped;
-    // with only such targets the call is refused without launching.
     let output = quality_at(&project.base, &root, &["mutate", "app/tests"]);
     let record = checked(&output, "mutate", &root);
     assert_eq!(output.status.code(), Some(1));
@@ -983,8 +919,6 @@ fn named_directories_and_files_reach_one_mutation_call_in_order() {
     assert_eq!(record["validResult"], false);
 }
 
-/// `:refresh-mutate` with `--changed`: mutator takes the git-changed set,
-/// narrowed by the declared roots and exclusions, with no named target.
 #[cfg(target_os = "linux")]
 #[test]
 fn changed_mutation_selects_the_changed_files_inside_the_declared_scope() {
@@ -1011,7 +945,6 @@ fn changed_mutation_selects_the_changed_files_inside_the_declared_scope() {
             .replace("x / 2", "x / 4"),
     )
     .unwrap();
-    // util stays unchanged; an out-of-scope change is not selected either.
     fs::write(
         root.join("Cargo.toml"),
         fs::read_to_string(root.join("Cargo.toml")).unwrap(),
@@ -1030,9 +963,6 @@ fn changed_mutation_selects_the_changed_files_inside_the_declared_scope() {
     assert!(!err.contains("util/src/lib.rs"), "unchanged file: {err}");
 }
 
-/// The standard route's own exit sets, from the real crapper: a threshold
-/// finding is exit 2 and valid; coverage that joins no function is exit 3
-/// and not valid without a declaration.
 #[test]
 fn crapper_threshold_findings_are_valid_but_an_unmeasured_threshold_is_not() {
     let project = Project::new();
@@ -1040,8 +970,6 @@ fn crapper_threshold_findings_are_valid_but_an_unmeasured_threshold_is_not() {
         "src/lib.rs",
         "\npub fn choose(x: bool) -> i32 {\n    if x { 1 } else { 0 }\n}\n",
     );
-    // Custom coverage writes its report through the host shell on both
-    // platforms, so --full-tree can still score a threshold without a test run.
     let config = |coverage: &str| {
         project.write("src/lcov.txt", coverage);
         project.write("coverage/.keep", "");
@@ -1070,8 +998,6 @@ fn crapper_threshold_findings_are_valid_but_an_unmeasured_threshold_is_not() {
     assert_eq!(record["reason"], serde_json::Value::Null, "crapper ran");
 }
 
-/// `operations` requires crap and mutate; an omitted dry stays on the
-/// standard route (`configured: false`, `tool: dryer`).
 #[test]
 fn an_operations_manifest_without_dry_keeps_the_standard_dryer() {
     let project = Project::new();
@@ -1089,8 +1015,6 @@ fn an_operations_manifest_without_dry_keeps_the_standard_dryer() {
     assert!(project.root.join(".metrics").join("dry.edn").exists());
 }
 
-/// A real crap and dry run over this repository's own Rust fixture project,
-/// copied to scratch so the checkout is never measured in place.
 #[test]
 fn quality_runs_crap_and_dry_on_the_repository_rust_fixture() {
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rust-fixture");

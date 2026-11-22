@@ -1,9 +1,3 @@
-//! Class-card neighbourhood (#159): what the card of one class shows — its
-//! record, directed relationships, package and diagram title. Computed on
-//! demand from the view state; the overlaid document is never cached in
-//! the state, so it stays out of the session snapshot (ADR 0002). Card
-//! phrasing, rows and scrolling belong to the front end.
-
 use crate::document::ViewState;
 use crate::hierarchy;
 use crate::overlay;
@@ -141,7 +135,6 @@ pub fn class_card(state: &ViewState, id: &Value) -> Option<Neighbourhood> {
     let doc = overlay::apply(doc, &state.snapshots);
     let mut m = Merge::default();
     m.edges(seq(get(&doc, "edges")));
-    // Authored leaf data wins over the abbreviated rows of collapsed boxes.
     for c in seq(get(&doc, "classes")) {
         m.class(c);
     }
@@ -152,8 +145,6 @@ pub fn class_card(state: &ViewState, id: &Value) -> Option<Neighbourhood> {
     }
     if flag(&doc, "hierarchical") {
         m.view(&hierarchy::view_at(&doc, &[]));
-        // A port can name an intermediate namespace absent from the root and
-        // current boxes: resolve its parent view only when asked.
         let mut parent: Vec<Value> = local_name(id)
             .unwrap_or_default()
             .split('.')
@@ -206,8 +197,6 @@ pub fn class_card(state: &ViewState, id: &Value) -> Option<Neighbourhood> {
             get(&state.scene, "diagram").cloned().unwrap_or(Value::Nil),
         ),
     ]);
-    // Authored leaf records carry no `:package`: the box that holds the
-    // class is the one on screen.
     let mut card = class_card_in(&merged, id)?;
     card.package = card.package.or_else(|| package_of(&state.scene, id));
     card.dry = get(&doc, "dry").cloned();

@@ -1,4 +1,3 @@
-//! Python mutation: sites, privacy, the per-file test plan and coverage.
 use crate::operators;
 use quality_core::{
     grammar::Node,
@@ -11,7 +10,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// `_python_private`: a leading underscore, except a dunder.
 pub fn private(name: &str) -> bool {
     if name.starts_with("__") && name.ends_with("__") {
         return false;
@@ -19,7 +17,6 @@ pub fn private(name: &str) -> bool {
     name.starts_with('_')
 }
 
-/// `_python_annotation`: union annotations share `a | b`'s syntax tree.
 fn in_annotation(node: Node) -> bool {
     let mut current = node.parent();
     while let Some(ancestor) = current {
@@ -31,7 +28,6 @@ fn in_annotation(node: Node) -> bool {
     false
 }
 
-/// The leaf's site under the original's Python rules.
 pub fn site(node: Node, token: &str) -> Option<(String, &'static str)> {
     operators::leaf(node, token, |token| {
         if let Some(mutant) = operators::bitwise(token) {
@@ -41,9 +37,6 @@ pub fn site(node: Node, token: &str) -> Option<(String, &'static str)> {
     })
 }
 
-/// `_project_interpreter`: the project's virtualenv, or the interpreter on
-/// PATH. The path is absolute and a symlink is not resolved: a view does not
-/// copy the project's `.venv`, and resolving it would leave the virtualenv.
 pub fn interpreter(directory: &Path) -> PathBuf {
     for name in [".venv", "venv"] {
         let candidate = directory.join(name).join(if cfg!(windows) {
@@ -51,7 +44,6 @@ pub fn interpreter(directory: &Path) -> PathBuf {
         } else {
             "bin/python"
         });
-        // os.access(X_OK) is permission-based; existence is not enough.
         if candidate.is_file() && executable(&candidate) {
             return candidate;
         }
@@ -65,8 +57,6 @@ fn executable(path: &Path) -> bool {
 }
 #[cfg(not(unix))]
 fn executable(path: &Path) -> bool {
-    // Every file is executable to os.access on Windows; the suffix is what
-    // CreateProcess needs, and the runner only asks for the interpreter.
     path.is_file()
 }
 
@@ -74,7 +64,6 @@ fn read(path: &Path) -> String {
     fs::read_to_string(path).unwrap_or_default()
 }
 
-/// `_python_command`'s pytest detection.
 pub fn uses_pytest(directory: &Path) -> bool {
     directory.join("pytest.ini").is_file()
         || directory.join("conftest.py").is_file()
@@ -85,7 +74,6 @@ pub fn uses_pytest(directory: &Path) -> bool {
             && read(&directory.join("setup.cfg")).contains("pytest"))
 }
 
-/// `test_plan(root, source, "python", None)`: marker order beats nearness.
 pub fn test_plan(root: &Path, source: &Path) -> (Vec<String>, PathBuf) {
     let root = resolve(root);
     let directory = ["pyproject.toml", "pytest.ini", "setup.cfg"]
@@ -102,7 +90,6 @@ pub fn test_plan(root: &Path, source: &Path) -> (Vec<String>, PathBuf) {
     (command, directory)
 }
 
-/// `runners._python_roots`: every package marker before the next marker.
 pub fn coverage_roots(root: &Path, files: &[PathBuf]) -> Vec<PathBuf> {
     const MARKERS: &[&str] = &[
         "pyproject.toml",
@@ -126,7 +113,6 @@ pub fn coverage_roots(root: &Path, files: &[PathBuf]) -> Vec<PathBuf> {
     found.into_iter().map(PathBuf::from).collect()
 }
 
-/// `runners._python_sources`: the top-level names under each package.
 pub fn coverage_sources(package: &Path, files: &[PathBuf]) -> String {
     let package = resolve(package);
     let tops: BTreeSet<String> = files
@@ -145,12 +131,8 @@ pub fn coverage_sources(package: &Path, files: &[PathBuf]) -> String {
     tops.into_iter().collect::<Vec<_>>().join(",")
 }
 
-/// `runners._python_coverage` as one view command. Every write happens in the
-/// overlay: a view command starts from a fresh upper layer, so the coverage
-/// data, the tests and the report belong to the same script.
 pub struct Coverage {
     pub script: String,
-    /// Project-relative report the caller reads from the view's upper layer.
     pub report: PathBuf,
 }
 pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Coverage {
@@ -158,16 +140,9 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Coverage {
     let report = quality_core::runner::coverage_report(root, package, "python");
     let directory = report.parent().expect("coverage report directory");
     let data = directory.join(".coverage");
-    // A Windows command runs in a copy of the project, so every path it writes
-    // must be relative to the package it runs in: an absolute path would name
-    // the real project and write there. `engine::command_path` is the same rule
-    // the TypeScript script follows. The interpreter is a read, so it stays the
-    // real project's absolute path.
     let directory_text = crate::engine::command_path(package, directory);
     let report_text = crate::engine::command_path(package, &report);
     let data_text = crate::engine::command_path(package, &data);
-    // The Windows diagnostics quote the package and name it from the project
-    // root; the POSIX script's text stays as the original wrote it.
     let package_label = if cfg!(windows) {
         crate::engine::diagnostic_label(root, package)
     } else {
@@ -187,8 +162,6 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Coverage {
     } else {
         format!(" --source={}", quality_core::process::shlex_quote(&source))
     };
-    // One command per branch, so the generated script never re-parses an
-    // argument list: no shell word splitting of a test command.
     let run = if cfg!(windows) {
         format!("{py} -m coverage run --data-file=\"{data_text}\"{source}")
     } else {
@@ -198,8 +171,6 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Coverage {
         )
     };
     let tests = if uses_pytest(package) {
-        // Mutator never installs tools: without pytest the original's install
-        // fallback becomes crapper's unittest fallback.
         if cfg!(windows) {
             // `if not errorlevel 1` is read when it runs, unlike `%ERRORLEVEL%`,
             // which cmd expands before the first command of the line runs.
@@ -259,7 +230,6 @@ pub fn coverage(root: &Path, package: &Path, files: &[PathBuf]) -> Coverage {
 
 #[cfg(test)]
 mod tests {
-    //! Ported from the original `tests/test_runner.py` Python cases.
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -272,8 +242,6 @@ mod tests {
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
             fs::create_dir_all(&directory).unwrap();
-            // Match test_plan's canonical root, including macOS /var aliases
-            // and Windows path spelling, without resolving interpreter symlinks.
             Self(quality_core::paths::resolve(&directory))
         }
         fn write(&self, relative: &str, text: &str) {
@@ -339,7 +307,6 @@ mod tests {
         fs::create_dir_all(link.parent().unwrap()).unwrap();
         std::os::unix::fs::symlink(&target, &link).unwrap();
         project.write("pytest.ini", "[pytest]\n");
-        // Resolving the symlink would leave the virtualenv.
         assert_eq!(interpreter(&project.0), link);
     }
 

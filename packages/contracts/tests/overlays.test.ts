@@ -5,12 +5,6 @@ import {
   utf8Bytes, validateSourceModel,
 } from '../src/index.js'
 
-/**
- * The overlay contract (#27): the validators accept exactly what
- * `crates/viewer-session/src/overlays.rs` writes, and refuse malformed lines
- * instead of letting the panel render a half-parsed model.
- */
-
 const card = {
   id: ':core.order',
   title: 'order',
@@ -174,8 +168,6 @@ describe('overlay validators', () => {
   })
 
   it('no longer knows the inspector: its event is ignored, its action is refused (#47)', () => {
-    // #84: an event this version does not know is additive, never a broken
-    // stream; a resident that still sends `inspector` is ignored by the panel.
     expect(parseResidentLine(JSON.stringify({ version: 1, seq: 7, event: 'inspector', inspector: {} })))
       .toBeNull()
     expect(() => parsePanelAction({ action: 'inspector' })).toThrow(/action/)

@@ -1,7 +1,3 @@
-//! Selection through the public CLI from reports produced by the original's
-//! coverage formats. These tests need no language toolchain: the test command
-//! accepts pristine code and rejects every mutant. Expected covered lines are
-//! from f772a83 tests/test_coverage.py, with Cloverage precedence edge cases.
 #![cfg(any(target_os = "linux", windows))]
 use std::{
     ffi::OsString,

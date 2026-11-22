@@ -1,25 +1,3 @@
-/**
- * The diagram's legend (#50, ADR 0015): what the boxes, the quality colors and
- * the relation colors mean. The rows are the resident's text — the frame's
- * `legend` field, typeset in Rust from the language table (#44) — so a DSH
- * language switch rewords them with the next frame; this module only lays them
- * out as DOM and resolves each sample's semantic role.
- *
- * Where it lives follows #49's layout (`layout.ts`), never the slot the panel
- * sits in: below 900px of *container* width the legend is a popover opened from
- * 「更多」 (`more-menu.ts`), and from 900px it is resident. A resident legend
- * takes a strip of the canvas row below the diagram, so the canvas — and the
- * resident's viewport — shrink with it and the legend never covers a class.
- * The docked card likewise reserves a right-hand column from the drawing stage
- * (F28). Below
- * the diagram the strip keeps the drawing's full width, which a side column
- * would take from it; the overlay root stops above it (index.ts), so a docked
- * drawer never covers it either.
- *
- * Colors go through `theme.ts`'s resolver, the one the canvas paints with, so a
- * legend swatch is the diagram's own color in both light and dark mode. The
- * host's UI primitives are never loaded (ADR 0013).
- */
 import type { LegendRow, LegendSample, SceneFrame } from '@dsh-uml-viewer/contracts'
 import type { PanelLayout } from './layout.js'
 import { ENGLISH_TEXT, type PanelText } from './locale.js'
@@ -32,15 +10,12 @@ export const LEGEND_STYLE = `
   color: var(--dsw-alias-label-primary); font: 12px/1.5 var(--dsw-font-family, system-ui);
 }
 .dsh-uml-legend[hidden] { display: none; }
-/* Below 900px: a popover over the canvas, opened from 「更多」. */
 .dsh-uml-legend[data-mode=popover][data-open=true] {
   display: flex; pointer-events: auto; position: absolute; z-index: 40; top: 8px; left: 8px; right: 8px;
   max-height: calc(100% - 16px); padding: 8px 12px 12px;
   border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px;
   background: var(--dsw-alias-bg-overlay); box-shadow: var(--dsw-shadow-lv2, 0 4px 16px rgb(0 0 0 / 20%));
 }
-/* From 900px the row keeps a strip for it below the diagram: the canvas and
-   the resident's viewport shrink instead of the legend covering a class. */
 .dsh-uml-viewer-panel[data-layout=docked] .dsh-uml-viewer-canvas-row { flex-direction: column; }
 .dsh-uml-viewer-panel[data-layout=docked] .dsh-uml-legend {
   display: flex; flex: 0 0 auto; width: 100%; max-height: 45%;
@@ -71,32 +46,24 @@ export const LEGEND_STYLE = `
 
 export interface LegendOptions {
   text?: PanelText
-  /** Injected for tests; defaults to the host theme the canvas paints with. */
   theme?: () => Theme
-  /** Where the keyboard goes after the popover closed, so shortcuts keep working. */
   onDone?: () => void
 }
 
 export interface Legend {
   readonly element: HTMLElement
-  /** Follow the panel stream: the rows are in every frame, in its language. */
   render(frame: SceneFrame | null): void
-  /** What `layout.ts` measured: a popover when narrow, resident from 900px. */
   setLayout(layout: PanelLayout): void
-  /** True when the legend has its own reserved strip (F45). */
   isResident(): boolean
-  /** The 「更多」 entry: open the popover (narrow), nothing when it is resident. */
   show(): void
   open(): void
   close(): void
-  /** Whether Esc has a popover to close; a resident legend is not a layer. */
   isOpen(): boolean
   dispose(): void
 }
 
 let counter = 0
 
-/** Attach the legend to the canvas row: the reserved strip, or the popover. */
 export function mountLegend(host: HTMLElement, options: LegendOptions = {}): Legend {
   const text = options.text ?? ENGLISH_TEXT
   const doc = host.ownerDocument
@@ -125,9 +92,6 @@ export function mountLegend(host: HTMLElement, options: LegendOptions = {}): Leg
   let open = false
   let dimAlpha = 70
   let frame: SceneFrame | null = null
-  // The frame's legend is pure data. Compare its content, not the object
-  // identity: a status publish with an equivalent legend should not rebuild
-  // ~11 rows of DOM (F55).
   let legendSignature = ''
 
   const mark = (sample: LegendSample, theme: Theme): HTMLElement => {
@@ -140,7 +104,6 @@ export function mountLegend(host: HTMLElement, options: LegendOptions = {}): Leg
       apply(part)
       holder.appendChild(part)
     }
-    // 关系淡化 multiplies every channel, so a faded swatch is an opacity.
     const faded = (): string | null => (dimAlpha < 255 ? String(dimAlpha / 255) : null)
     const box = (width: string, height: string, radius: string, fill: string, stroke: string, dimmed: boolean): void => {
       chip(part => {
@@ -163,7 +126,6 @@ export function mountLegend(host: HTMLElement, options: LegendOptions = {}): Leg
         break
       case 'line':
         chip(part => {
-          // A relation line's sample, at the width the diagram draws it.
           part.style.width = '26px'
           part.style.height = '0'
           part.style.borderTopWidth = '2px'
@@ -192,8 +154,6 @@ export function mountLegend(host: HTMLElement, options: LegendOptions = {}): Leg
         }
         break
       default:
-        // An additive sample kind the panel does not know: the row keeps its
-        // label and draws no swatch, like an unknown frame item kind.
         break
     }
     return holder
@@ -210,7 +170,6 @@ export function mountLegend(host: HTMLElement, options: LegendOptions = {}): Leg
     return item
   }
 
-  /** The frame's rows in the host's colors; a theme switch repaints them. */
   const paint = (): void => {
     const theme = themeOf()
     dimAlpha = frame?.style.dimAlpha ?? dimAlpha
@@ -247,8 +206,6 @@ export function mountLegend(host: HTMLElement, options: LegendOptions = {}): Leg
     if (!open) return
     open = false
     apply()
-    // The close button that closed it is hidden now; the canvas takes the
-    // keyboard back so Esc and the other shortcuts still reach the panel.
     if (layout !== 'docked') options.onDone?.()
   }
   const onClose = (): void => close()
@@ -258,7 +215,6 @@ export function mountLegend(host: HTMLElement, options: LegendOptions = {}): Leg
     event.stopPropagation()
     close()
   }
-  // A host theme switch recolors every swatch, as it repaints the canvas.
   const themeRoot = doc.body as HTMLElement | null
   const Observer = doc.defaultView?.MutationObserver
   const observer = themeRoot && Observer ? new Observer(() => { if (hasRows()) paint() }) : null
@@ -274,9 +230,6 @@ export function mountLegend(host: HTMLElement, options: LegendOptions = {}): Leg
   return {
     element,
     render(next) {
-      // Rows are the frame's, and only their content, language or the dim
-      // alpha changes them; a new frame object with the same legend repaints
-      // nothing (F55).
       const signature = next === null ? '' : JSON.stringify(next.legend)
       const changed = signature !== legendSignature
         || (next?.style.dimAlpha ?? dimAlpha) !== dimAlpha
@@ -312,7 +265,6 @@ export function mountLegend(host: HTMLElement, options: LegendOptions = {}): Leg
   }
 }
 
-/** The 「更多」 entry that opens the legend; a resident legend needs none (F45). */
 export function legendEntries(legend: Legend, text: PanelText): MoreMenuEntry[] {
   if (legend.isResident()) return []
   return [

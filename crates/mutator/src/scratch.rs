@@ -1,19 +1,3 @@
-//! Private scratch roots for overlay views.
-//!
-//! A root is a `0700` directory outside the project with an unpredictable
-//! `mutator-<pid>-<counter>-<16 hex>` name, holding a `0600` owner file. The
-//! owning process keeps that file's `flock` for its lifetime, so a later run
-//! can take the lock only when the owner is gone. That is how a root abandoned
-//! by a killed process is recognised without trusting a pid that the system may
-//! have reused.
-//!
-//! Recognising it is not the whole job. The system releases a dead process's
-//! handles asynchronously, and a killed run's Job Object terminates the
-//! children whose copies sit inside the root after the owner itself is gone,
-//! so the first look at an abandoned root can still find it pinned. A sweep
-//! therefore re-probes one abandoned root for a bounded window instead of
-//! skipping it on the first look, which would lose the guarantee exactly when
-//! the host is busiest (#96).
 use std::{
     collections::BTreeMap,
     ffi::OsStr,
@@ -28,7 +12,6 @@ use std::{
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-/// Roots this process owns, with the owner file whose lock proves it.
 fn roots() -> MutexGuard<'static, BTreeMap<PathBuf, fs::File>> {
     static ROOTS: OnceLock<Mutex<BTreeMap<PathBuf, fs::File>>> = OnceLock::new();
     ROOTS
@@ -37,7 +20,6 @@ fn roots() -> MutexGuard<'static, BTreeMap<PathBuf, fs::File>> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// One scratch root; dropping it removes the tree.
 pub struct Root {
     directory: PathBuf,
 }
@@ -66,7 +48,6 @@ impl Root {
                     };
                 }
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                // The failure already names the operation and the directory.
                 Err(error) => return Err(error),
             }
         }
@@ -91,7 +72,6 @@ impl Drop for Root {
     }
 }
 
-/// A private owner file inside `directory`, locked for this process's life.
 fn claim(directory: &Path) -> io::Result<fs::File> {
     let owner = private_file(&directory.join("owner"))?;
     #[cfg(windows)]
@@ -114,14 +94,11 @@ fn claim(directory: &Path) -> io::Result<fs::File> {
     Ok(owner)
 }
 
-/// Remove one root this process owns and forget its owner file.
 fn discard(directory: &Path) -> io::Result<()> {
     roots().remove(directory);
     force_remove(directory)
 }
 
-/// Remove every root this process still owns: the interrupt path, which cannot
-/// wait for the guards to unwind.
 pub fn discard_all() {
     let directories: Vec<PathBuf> = {
         let mut roots = roots();
@@ -139,26 +116,10 @@ pub fn discard_all() {
     }
 }
 
-/// How long one abandoned root keeps being re-probed while the system releases
-/// what its dead owner left behind.
-///
-/// That release is asynchronous, so the first look after a kill can find the
-/// root still pinned: `LockFileEx` documents that "the time it takes for the
-/// operating system to unlock these locks depends upon available system
-/// resources", and a killed run's Job Object terminates the children whose
-/// copies sit inside the root after the owner itself is gone. The window has to
-/// outlast that under load, and it has to end: a root something else keeps open
-/// is reported, not waited on forever.
 const RECLAIM_WINDOW: Duration = Duration::from_secs(5);
-/// The pause after a failed probe; it doubles up to `RECLAIM_PAUSE_MAX`, so a
-/// root that frees up in a millisecond costs about that.
 const RECLAIM_PAUSE_MIN: Duration = Duration::from_millis(2);
 const RECLAIM_PAUSE_MAX: Duration = Duration::from_millis(50);
 
-/// Remove roots whose owner can no longer clean up: a killed run leaves its
-/// scratch behind, and this call is what reclaims it.
-///
-/// One look at a root is not a verdict; see `RECLAIM_WINDOW` and `reclaim`.
 pub fn sweep(project: &Path) -> io::Result<()> {
     let temporary = temporary(project)?;
     let Ok(entries) = fs::read_dir(&temporary) else {
@@ -175,7 +136,6 @@ pub fn sweep(project: &Path) -> io::Result<()> {
         let Ok(metadata) = fs::symlink_metadata(&path) else {
             continue;
         };
-        // Never a link, only a directory of ours, and only this user's.
         if metadata.file_type().is_symlink() || !metadata.is_dir() || !owned_by_me(&metadata) {
             continue;
         }
@@ -184,12 +144,6 @@ pub fn sweep(project: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Reclaim one root, re-probing it while its dead owner's handles are released.
-///
-/// The lock decides abandonment. The pid only decides how long to wait: it is
-/// read from the name (`mutator-<pid>-...`), and it is never the verdict
-/// because the system may have reused it — a root whose lock can be taken is
-/// abandoned whatever its name says.
 fn reclaim(directory: &Path, name: &str) {
     let owner = name_pid(name);
     let deadline = Instant::now() + RECLAIM_WINDOW;
@@ -197,20 +151,10 @@ fn reclaim(directory: &Path, name: &str) {
     let mut failure: Option<io::Error> = None;
     loop {
         match owner_state(directory) {
-            // No owner file (a run killed between creating the directory and
-            // claiming it, or a tree another sweep already cleared), or a
-            // platform with no owner lock: the same answer every time, and
-            // never this process's to remove.
             Owner::Foreign => return,
-            // The lock is still held by a run that is still working: that root
-            // is not abandoned, and it is not worth one pause of the window. A
-            // lock still held by a dead owner is what the window is for.
             Owner::Live if owner.is_none_or(running) => return,
             Owner::Live => {}
             Owner::Gone(file) => {
-                // The owner file goes last: its handle holds the lock other
-                // sweeps probe for, and on Windows a delete-pending entry keeps
-                // its directory non-empty.
                 let cleared = clear_children(directory);
                 drop(file);
                 match cleared.and_then(|()| force_remove(directory)) {
@@ -237,21 +181,13 @@ fn reclaim(directory: &Path, name: &str) {
     }
 }
 
-/// What one probe of a root's owner lock found.
-// A platform without an owner lock only ever answers `Foreign`.
 #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
 enum Owner {
-    /// The lock is ours: the owner is gone, and no other sweep touches the root
-    /// while this handle lives.
     Gone(fs::File),
-    /// Somebody holds the lock: a live owner, or a dead one the system has not
-    /// finished releasing.
     Live,
-    /// Not a root this process may reclaim.
     Foreign,
 }
 
-/// Probe a root's owner lock: gone, still held, or not a root to reclaim.
 #[cfg(any(target_os = "linux", windows))]
 fn owner_state(directory: &Path) -> Owner {
     let Ok(owner) = fs::OpenOptions::new()
@@ -261,8 +197,6 @@ fn owner_state(directory: &Path) -> Owner {
     else {
         return Owner::Foreign;
     };
-    // A lock that can be taken means the owner died; the handle keeps it until
-    // the tree is gone.
     if take_lock(&owner) {
         Owner::Gone(owner)
     } else {
@@ -275,7 +209,6 @@ fn owner_state(_directory: &Path) -> Owner {
     Owner::Foreign
 }
 
-/// Take the owner's lock without waiting; `false` while the owner holds it.
 #[cfg(target_os = "linux")]
 fn take_lock(owner: &fs::File) -> bool {
     use std::os::unix::io::AsRawFd;
@@ -292,8 +225,6 @@ fn take_lock(owner: &fs::File) -> bool {
     lock_file(owner).is_ok()
 }
 
-/// Remove everything inside a root except its owner file, whose open handle
-/// holds the lock that keeps other sweeps off the tree.
 fn clear_children(directory: &Path) -> io::Result<()> {
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
@@ -305,7 +236,6 @@ fn clear_children(directory: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// The pid a root's name records: `mutator-<pid>-<counter>-<16 hex>`.
 fn name_pid(name: &str) -> Option<u32> {
     name.strip_prefix("mutator-")?
         .split('-')
@@ -314,10 +244,6 @@ fn name_pid(name: &str) -> Option<u32> {
         .ok()
 }
 
-/// Whether the process a root's name records is still running.
-///
-/// Only the waiting decision above uses it, so a false "running" costs a
-/// pause at most. Windows: an openable handle that has not been signalled.
 #[cfg(windows)]
 fn running(pid: u32) -> bool {
     #[link(name = "kernel32")]
@@ -339,8 +265,6 @@ fn running(pid: u32) -> bool {
     running
 }
 
-/// Unix: signal 0 reaches the process, or ESRCH says it is gone; permission
-/// denied means somebody else's process, which is still a process.
 #[cfg(target_os = "linux")]
 fn running(pid: u32) -> bool {
     let sent = unsafe { quality_core::libc::kill(pid as i32, 0) };
@@ -430,7 +354,6 @@ pub fn temporary(project: &Path) -> io::Result<PathBuf> {
             TEMPORARY_VARIABLE
         )));
     }
-    // A relative name would be joined against the project, so it is resolved.
     Ok(if given.is_absolute() { given } else { resolved })
 }
 
@@ -467,11 +390,6 @@ fn environment_temporary() -> PathBuf {
     }
 }
 
-/// A temporary directory a test fixture may build its tree in (#88).
-///
-/// A fixture is not a run: it keeps its own name and its own cleanup, but it
-/// must start where `temporary` accepts, or a host whose system temporary
-/// directory is unwritable fails the fixture with a bare access error.
 #[cfg(test)]
 pub fn fixture() -> PathBuf {
     temporary(Path::new(env!("CARGO_MANIFEST_DIR")))
@@ -495,10 +413,6 @@ fn nonce() -> u64 {
     hasher.finish()
 }
 
-/// Name the operation and the directory when a private directory cannot be
-/// created (#82): a sandbox reports a bare `os error 5` (or 32), which does not
-/// say which directory the run needed. Every creation site gets this message,
-/// so no caller can emit the bare error.
 fn report_creation(path: &Path, result: io::Result<()>) -> io::Result<()> {
     result.map_err(|error| {
         io::Error::new(
@@ -593,24 +507,10 @@ pub fn force_remove(path: &Path) -> io::Result<()> {
     failure.map_or(Ok(()), Err)
 }
 
-/// Remove one entry, waiting out the handles a killed command has not released.
-///
-/// The wipe between two commands races the processes of the one before it: a
-/// test that panicked, and the children its Job Object is still terminating,
-/// can hold files inside the slot for a moment after the command returned.
-/// Windows reports that as a sharing violation, and it clears by itself, so the
-/// same window `reclaim` spends is spent here (#113). Nothing else is waited
-/// on: an error that is not another process's handle is the caller's answer.
 pub fn remove_patiently(path: &Path) -> io::Result<()> {
     retry_while_held(RECLAIM_WINDOW, || force_remove(path))
 }
 
-/// Retry `remove` while the error says another process still holds the file.
-///
-/// Split from `remove_patiently` so the policy can be pinned without a real
-/// Windows share mode: the tests hand it the same `os error 32` production
-/// meets (#113). The window has to end, so a holder that never closes is
-/// reported rather than waited on forever.
 fn retry_while_held<F>(window: Duration, mut remove: F) -> io::Result<()>
 where
     F: FnMut() -> io::Result<()>,
@@ -649,15 +549,6 @@ fn a_handle_held_it(error: &io::Error) -> bool {
 
 #[cfg(test)]
 mod tests {
-    //! The two failures this module must not hide: a temporary directory that
-    //! is a junction, and a scratch directory that cannot be created. Each
-    //! check runs in a child test process, so the temporary directory belongs to
-    //! it alone.
-
-    // Test code is the outside harness: these checks launch `cmd /C mklink` and
-    // the test executable itself. The module lives under `#[cfg(test)]`, so the
-    // lift is test-only by construction and takes the documented
-    // `cfg_attr(test, allow(...))` form (clippy.toml, scripts/test_process_boundary.py).
     #![cfg_attr(test, allow(clippy::disallowed_methods))]
 
     use super::{Root, claim, fixture, nonce, private_directory, sweep, temporary};
@@ -712,9 +603,6 @@ mod tests {
         std::os::unix::fs::symlink(target, link).expect("create a directory symlink");
     }
 
-    /// #105: the wipe between two commands has to take a tree that holds a
-    /// directory link. remove_file refuses a junction with ERROR_ACCESS_DENIED,
-    /// so the link goes with remove_dir, and its target is never followed.
     #[test]
     fn force_remove_takes_a_directory_link_and_leaves_its_target() {
         let root = base("link");
@@ -735,12 +623,6 @@ mod tests {
         let _ = fs::remove_dir_all(&target);
     }
 
-    /// #113: the wipe retries while a killed command's handle is still open.
-    ///
-    /// Opening a file with `File::open` shares delete on Windows, so a real
-    /// holder cannot be staged from safe Rust; the retry is pinned by handing
-    /// it the same error production met. Both attempts and outcome are
-    /// asserted, so a policy that gives up at once fails here.
     #[cfg(windows)]
     #[test]
     fn a_held_handle_is_waited_for_until_the_removal_succeeds() {
@@ -757,7 +639,6 @@ mod tests {
         assert_eq!(attempts.get(), 3, "it waited out the two refused attempts");
     }
 
-    /// A holder that never closes is reported, not waited on forever.
     #[cfg(windows)]
     #[test]
     fn a_handle_that_never_clears_is_reported_at_the_end_of_the_window() {
@@ -781,7 +662,6 @@ mod tests {
         assert!(attempts.get() > 1, "it tries more than once");
     }
 
-    /// An error that is not a held handle is the caller's answer at once.
     #[test]
     fn an_error_that_is_not_a_held_handle_comes_back_at_once() {
         let attempts = std::cell::Cell::new(0);
@@ -805,8 +685,6 @@ mod tests {
             .args(["--exact", &format!("scratch::tests::{test}"), "--nocapture"])
             .env(CHILD, test)
             .env(BASE, base)
-            // Every name the platform's tools read, so the check is about the
-            // junction, not about which spelling this host honoured.
             .env("TMPDIR", tmpdir)
             .env("TMP", tmpdir)
             .env("TEMP", tmpdir)
@@ -818,9 +696,6 @@ mod tests {
         if !status.success() {
             panic!("isolated check `{test}` failed ({status}):\n{output}");
         }
-        // `--exact` selects nothing and still exits 0 when this literal and the
-        // test's own name have drifted apart, so the exit status alone would let
-        // the check pass without running. Trust the child's result line instead.
         let ran = format!("test scratch::tests::{test} ... ok");
         if !output.lines().any(|line| line.trim() == ran) {
             panic!(
@@ -906,11 +781,6 @@ mod tests {
     const HOLD: &str = "MUTATOR_SCRATCH_HOLD";
     const ROOT_PID: &str = "MUTATOR_SCRATCH_ROOT_PID";
 
-    /// The child side of both window cases: create one root, claim it, publish
-    /// its path, then hold the owner lock for `HOLD` milliseconds.
-    ///
-    /// `ROOT_PID` names the root after a process that is already gone; without
-    /// it the root carries this child's pid, which is running.
     fn hold_the_root() {
         let base = child_base();
         let pid = env::var(ROOT_PID)
@@ -920,8 +790,6 @@ mod tests {
         let root = fixture().join(format!("mutator-{pid}-0-{:016x}", nonce()));
         private_directory(&root).expect("create the held root");
         let owner = claim(&root).expect("claim the held root");
-        // Published after the claim, so a parent that sees it knows the lock is
-        // held from here on.
         fs::write(base.join("root"), root.to_str().expect("a utf-8 root"))
             .expect("publish the held root");
         let millis = env::var(HOLD)
@@ -932,8 +800,6 @@ mod tests {
         drop(owner);
     }
 
-    /// Start `test` as a child that holds one root's owner lock, and return it
-    /// with the root it published.
     fn spawn_holder(
         test: &str,
         base: &Path,
@@ -968,8 +834,6 @@ mod tests {
         (child, root)
     }
 
-    /// A pid that is certainly gone: a child of this test executable that has
-    /// already exited and been reaped.
     fn dead_pid() -> u32 {
         let mut child = Command::new(env::current_exe().expect("the test executable"))
             .args(["--exact", "scratch::tests::no_test_has_this_name"])
@@ -982,11 +846,6 @@ mod tests {
         pid
     }
 
-    /// #96: a root whose owner is gone has to be reclaimed even while the
-    /// system is still releasing it. This is the window the CI flake fell into:
-    /// the sweep looked once, found the lock still held, and skipped a root it
-    /// will never look at again. The child here establishes that window
-    /// deliberately — a dead pid in the name, the owner lock still held.
     #[test]
     fn a_root_whose_owner_is_gone_is_reclaimed_while_its_lock_is_released() {
         const CASE: &str = "a_root_whose_owner_is_gone_is_reclaimed_while_its_lock_is_released";
@@ -1015,8 +874,6 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
     }
 
-    /// The window belongs to dead owners only: a live run's root is left alone
-    /// at once, so a sweep never spends it on the runs it is running beside.
     #[test]
     fn a_root_whose_owner_is_running_is_left_alone_at_once() {
         const CASE: &str = "a_root_whose_owner_is_running_is_left_alone_at_once";

@@ -1,7 +1,3 @@
-//! Class-card neighbourhood (#159): the class record, its directed
-//! relationships, package and title, built from IR plus quality snapshots
-//! only. A card keeps leaf identities and relationships across namespaces.
-
 use edn::Value;
 use edn::record::{get, num};
 use scene::Snapshot;
@@ -37,7 +33,6 @@ fn a_root_card_keeps_the_aggregate_relationship() {
 fn a_leaf_card_keeps_its_leaf_identity_relationship_and_quality() {
     let card = class_card(&deep_state(&[]), &kw("alpha.deep.parser")).unwrap();
     assert_eq!(get(&card.class, "id"), Some(&kw("alpha.deep.parser")));
-    // The overlaid leaf record, not the collapsed root box.
     let mu = get(&card.class, "crap")
         .and_then(|c| get(c, "mu"))
         .and_then(num);

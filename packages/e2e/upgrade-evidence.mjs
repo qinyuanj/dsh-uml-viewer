@@ -3,7 +3,6 @@ import path from 'node:path'
 
 const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
 const BINARY = process.platform === 'win32' ? 'uml-viewer.exe' : 'uml-viewer'
-/** Enough activations to cover one upgrade; the journal itself keeps more. */
 const ACTIVATIONS_KEPT = 20
 
 async function readVersion(file) {
@@ -22,7 +21,6 @@ async function readJson(file) {
   }
 }
 
-/** The newest activation records a store holds, oldest first; unreadable lines stay visible. */
 async function readActivations(directory) {
   try {
     const text = await fs.readFile(path.join(directory, 'activations.jsonl'), 'utf8')
@@ -38,7 +36,6 @@ async function readActivations(directory) {
   }
 }
 
-/** The versions a store holds live leases for, so a pin that happened is visible even before current.json moves. */
 async function readLeases(directory) {
   const leases = {}
   for (const entry of (await fs.readdir(path.join(directory, 'leases'), { withFileTypes: true }).catch(() => []))
@@ -48,7 +45,6 @@ async function readLeases(directory) {
   return leases
 }
 
-/** What an activation would read from the installed package: its manifest, and the checkout fallback. */
 async function readManifest(directory) {
   const manifest = await readJson(path.join(directory, 'package.json'))
   if (manifest === undefined) return { error: 'ENOENT' }
@@ -58,7 +54,6 @@ async function readManifest(directory) {
       await fs.access(path.join(directory, 'target', profile, BINARY))
       devBinaries.push(profile)
     } catch {
-      // This checkout profile does not exist.
     }
   }
   return {
@@ -70,22 +65,6 @@ async function readManifest(directory) {
   }
 }
 
-/**
- * Deciding facts for an installed upgrade that answered `applied` but left
- * `current.json` alone (CI12, CI13). Read-only and outside the Host:
- *
- * - every plugin version store directly under the scratch DSH home (the lane's
- *   configured `plugin-state`, or a default `<DSH_HOME>/dsh-uml-viewer` if the
- *   reconciled row lost its `home`), with its version directories, its live
- *   leases and its own activation journal — `source: "unpinned"` is an
- *   activation that runs an override or checkout build and pins nothing, which
- *   looks identical to a pin that never happened when only `current.json` is read;
- * - where the profile's main and platform links point now, and every
- *   dsh-uml-viewer copy the virtual store still holds;
- * - the installed main package manifest and its checkout binaries, which decide
- *   whether `activationBinary` reads a packaged manifest (pins) or a private
- *   checkout manifest (never pins).
- */
 export async function installEvidence(home, { profile = 'web', platform = `@dsh-uml-viewer/${process.platform}-${process.arch}` } = {}) {
   const stores = []
   for (const dir of (await fs.readdir(home, { withFileTypes: true }).catch(() => [])).filter(entry => entry.isDirectory())) {

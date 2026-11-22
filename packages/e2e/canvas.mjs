@@ -3,14 +3,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { viewerBinary } from './dsh-web.mjs'
 
-/**
- * Pixel reads of the real panel canvas and the producer oracle they are
- * compared with. The oracle is the real binary's `scene --frame` for the same
- * IR, focus, viewport and camera the panel shows, so the expected geometry
- * comes from Rust, never from the TypeScript painter under test.
- */
-
-/** The camera the panel summary reports (`Camera: x, y, zoom.`). */
 export async function panelCamera(panel) {
   const text = await panel.summary.innerText()
   const match = /Camera: (-?[\d.]+), (-?[\d.]+), (-?[\d.]+)\./.exec(text)
@@ -18,7 +10,6 @@ export async function panelCamera(panel) {
   return { x: Number(match[1]), y: Number(match[2]), zoom: Number(match[3]) }
 }
 
-/** The CSS viewport the panel sends to the resident (rounded canvas box). */
 export async function panelViewport(panel) {
   return panel.canvas.evaluate(canvas => {
     const rect = canvas.getBoundingClientRect()
@@ -26,7 +17,6 @@ export async function panelViewport(panel) {
   })
 }
 
-/** The producer frame for what `panel` shows (`uml-viewer scene --frame`). */
 export async function producerFrame(panel, { root, home, focus = null, extra = '{}', select = null, hover = null, pointer = null, hoverMetadata = false }) {
   const camera = await panelCamera(panel)
   const viewport = await panelViewport(panel)
@@ -35,7 +25,6 @@ export async function producerFrame(panel, { root, home, focus = null, extra = '
     'scene', '--frame',
     '--ir', path.join(root, 'diagram.edn'),
     '--metrics-root', root,
-    // Source-tree views take the wide layout in the window and the resident.
     '--wide',
     ...(focus ? ['--focus', `[${focus}]`] : []),
     '--width', String(viewport.width), '--height', String(viewport.height),
@@ -50,7 +39,6 @@ export async function producerFrame(panel, { root, home, focus = null, extra = '
   return JSON.parse(fs.readFileSync(output, 'utf8'))
 }
 
-/** `screen = (world - camera) * zoom` (docs/scene-frame.md). */
 export function toScreen(frame, x, y) {
   return [(x - frame.camera.x) * frame.camera.zoom, (y - frame.camera.y) * frame.camera.zoom]
 }
@@ -60,7 +48,6 @@ export function screenRect(frame, rect) {
   return { x, y, w: rect.w * frame.camera.zoom, h: rect.h * frame.camera.zoom }
 }
 
-/** RGBA of each CSS-pixel point on the panel canvas. */
 export async function sample(panel, points) {
   return panel.canvas.evaluate((canvas, pts) => {
     const ctx = canvas.getContext('2d')
@@ -69,7 +56,6 @@ export async function sample(panel, points) {
   }, points)
 }
 
-/** Pixels of a CSS-pixel rect whose color differs from `reference` by more than `tolerance` per channel. */
 export async function inkCount(panel, rect, reference, tolerance = 24) {
   return panel.canvas.evaluate((canvas, args) => {
     const ctx = canvas.getContext('2d')

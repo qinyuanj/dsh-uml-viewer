@@ -1,7 +1,3 @@
-//! Port of `love/uml/domain/policy.lua`: `apply_policy` is the IR seam.
-//! Only the functions on the IR path are ported; namespace/proposal view
-//! helpers belong to the scene core (#137). No input is mutated.
-
 use std::collections::HashMap;
 
 use crate::value::{contains, copy_map, encode_key, get_truthy, id, id_name, ids};
@@ -56,7 +52,6 @@ fn kind_rank(k: Option<&Value>) -> i64 {
     }
 }
 
-/// Pair keyword names for the pair-order hash; pair elements are ids.
 fn pair_names(pair: &Value) -> (String, String) {
     let raw = |v: &Value| match v {
         Value::Keyword(n) | Value::Symbol(n) | Value::String(n) => n.clone(),

@@ -1,12 +1,3 @@
-//! Seam ① through the real binary (#27): the class card and the source window
-//! travel over the resident protocol, and the `state` event lists the
-//! proposals the discussion-context switcher offers (#47, which deleted the
-//! inspector). Every card row, CRAP/mutation figure, no-data line and source
-//! line is produced by `frame::detail` and `frame::source`; the assertions
-//! below name the values
-//! the fixtures and the shared model tests (`crates/frame/tests`) pin down.
-//! The panel renders these events; it never recomputes them.
-
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -31,15 +22,12 @@ fn temp_dir(label: &str) -> PathBuf {
     dir
 }
 
-/// A project directory holding the shop diagram as `diagram.edn`.
 fn shop_project(label: &str) -> PathBuf {
     let dir = temp_dir(label);
     std::fs::copy(shop_ir(), dir.join("diagram.edn")).unwrap();
     dir
 }
 
-/// A project whose IR names a real source file and carries literal quality
-/// figures, so the expected summary text is the fixture's, not a recomputation.
 fn source_project(label: &str) -> PathBuf {
     let dir = temp_dir(label);
     std::fs::create_dir_all(dir.join("src")).unwrap();
@@ -74,7 +62,6 @@ fn source_project(label: &str) -> PathBuf {
     dir
 }
 
-/// One running resident session.
 struct Resident {
     child: Child,
     stdin: Option<ChildStdin>,
@@ -189,7 +176,6 @@ fn items<'a>(frame: &'a Value, kind: &str) -> Vec<&'a Value> {
         .collect()
 }
 
-/// The world centre of a class box, read from the frame the client drew.
 fn centre_of(frame: &Value, id: &str) -> [f64; 2] {
     let class = items(frame, "class")
         .into_iter()
@@ -200,7 +186,6 @@ fn centre_of(frame: &Value, id: &str) -> [f64; 2] {
     [n("x") + n("w") / 2.0, n("y") + n("h") / 2.0]
 }
 
-/// The `state` reply to `save`, the event the panel reads after every frame.
 fn saved(resident: &mut Resident, seq: i64) -> Value {
     resident.ask(seq, json!({"action": "save"}), "state")
 }
@@ -209,8 +194,6 @@ fn saved(resident: &mut Resident, seq: i64) -> Value {
 fn the_state_event_lists_the_proposals_the_switcher_offers() {
     let dir = shop_project("switcher");
     let mut resident = opened(&dir);
-    // The shop fixture's one proposal, by EDN id and its display name; the
-    // source diagram is the switcher's own first row, so it is not listed.
     let state = saved(&mut resident, 2);
     assert_eq!(
         json!([{"id": ":p-shop", "name": "2026-10-24 10:00:00"}]),
@@ -218,8 +201,6 @@ fn the_state_event_lists_the_proposals_the_switcher_offers() {
     );
     assert_eq!(Value::Null, state["state"]["proposalId"]);
 
-    // Choosing the proposal is the existing `context` action; the list does
-    // not change, the view's proposal flag does.
     resident.ask(
         3,
         json!({"action": "context", "proposalId": ":p-shop"}),
@@ -233,7 +214,6 @@ fn the_state_event_lists_the_proposals_the_switcher_offers() {
         state["proposals"]
     );
 
-    // Choosing the source diagram returns to the namespace tree's root.
     let context = resident.ask(
         5,
         json!({"action": "context", "proposalId": null}),
@@ -245,7 +225,6 @@ fn the_state_event_lists_the_proposals_the_switcher_offers() {
     assert_eq!(Value::Null, state["state"]["proposalId"]);
     assert_eq!(json!([]), state["state"]["focus"]);
 
-    // An id the diagram does not list is still refused.
     resident.ask(
         7,
         json!({"action": "context", "proposalId": ":p-missing"}),
@@ -304,7 +283,6 @@ fn double_click_opens_the_class_card_and_close_card_empties_it() {
         card["card"]["maxScroll"],
         "maxScroll is frame::detail::max_scroll"
     );
-    // The plan is the native one: metric columns, member rows, relationships.
     assert!(rows.iter().any(|r| r["kind"] == "col-header"));
     assert!(
         rows.iter()
@@ -326,7 +304,6 @@ fn double_click_opens_the_class_card_and_close_card_empties_it() {
         labels
     );
 
-    // Closing the card leaves none: `card` answers null instead of an error.
     resident.ask(8, json!({"action": "close-card"}), "frame");
     let card = resident.ask(9, json!({"action": "card"}), "card");
     assert_eq!(Value::Null, card["card"], "{card}");
@@ -420,7 +397,6 @@ fn a_card_request_without_an_open_card_answers_null_and_changes_nothing() {
     let mut resident = opened(&dir);
     let card = resident.ask(2, json!({"action": "card"}), "card");
     assert_eq!(Value::Null, card["card"], "{card}");
-    // A card on a class the diagram does not have is no open card either.
     resident.ask(
         3,
         json!({"action": "open-card", "id": ":missing.class"}),
@@ -435,7 +411,6 @@ fn a_card_request_without_an_open_card_answers_null_and_changes_nothing() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-/// Refusing a source path leaves all view/discussion/card state intact.
 fn assert_source_escape_refused(dir: &Path) {
     let mut resident = opened(dir);
     resident.ask(2, json!({"action": "drill-in", "id": ":core"}), "frame");
@@ -504,7 +479,6 @@ fn source_link_outside_the_project_is_refused_without_reading_it() {
         .replace("src/order.rs", "linked/secret.rs");
     std::fs::write(dir.join("diagram.edn"), ir).unwrap();
     assert_source_escape_refused(&dir);
-    // Remove the link itself first; never traverse it during fixture cleanup.
     #[cfg(windows)]
     std::fs::remove_dir(&link).unwrap();
     #[cfg(unix)]
@@ -524,7 +498,6 @@ fn open_source_reads_the_session_project_and_lands_on_the_declaration_line() {
         "frame",
     );
 
-    // The module row: the whole file, no target line.
     let module = resident.ask(
         4,
         json!({"action": "open-source", "id": ":core.order"}),
@@ -536,13 +509,11 @@ fn open_source_reads_the_session_project_and_lands_on_the_declaration_line() {
     assert_eq!(Value::Null, source["line"]);
     assert!(source["file"].as_str().unwrap().ends_with("order.rs"));
     let rows = source["rows"].as_array().unwrap();
-    // 16 lines plus the empty row a trailing newline leaves (frame::source::rows).
     assert_eq!(17, rows.len(), "{rows:?}");
     assert_eq!(json!(1), rows[0]["number"]);
     assert_eq!(json!("use std::fmt;"), rows[0]["display"]);
     assert!(rows.iter().all(|r| r["marked"] == false));
 
-    // A member: its declaration line, tab-expanded text and token runs.
     let member = resident.ask(
         5,
         json!({"action": "open-source", "id": ":core.order", "member": "place"}),
@@ -589,7 +560,6 @@ fn open_source_reads_the_session_project_and_lands_on_the_declaration_line() {
         )
     );
 
-    // A second window for another member; an unknown member is an error.
     let cancel = resident.ask(
         6,
         json!({"action": "open-source", "id": ":core.order", "member": "cancel"}),
@@ -605,7 +575,6 @@ fn open_source_reads_the_session_project_and_lands_on_the_declaration_line() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-/// Every string inside a JSON value, depth first.
 fn strings_in(value: &Value) -> Vec<String> {
     match value {
         Value::String(s) => vec![s.clone()],
@@ -619,7 +588,6 @@ fn has_chinese(text: &str) -> bool {
     text.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
 }
 
-/// The text every no-data marker of a frame shows; the frame has some.
 fn no_data_text(frame: &Value) -> String {
     let texts: Vec<&str> = items(frame, "no-data")
         .iter()
@@ -639,10 +607,6 @@ fn card_texts(card: &Value) -> Vec<String> {
         .collect()
 }
 
-/// #44: the text the resident lays out — the class card, the class box's
-/// no-data marker and the source error — follows the language the panel
-/// passes, English when none or an unsupported one was passed. The view the
-/// session saves never records the language.
 #[test]
 fn the_card_no_data_marker_and_source_error_follow_the_passed_language() {
     let dir = source_project("language");
@@ -674,8 +638,6 @@ fn the_card_no_data_marker_and_source_error_follow_the_passed_language() {
         error["message"]
     );
 
-    // The panel passes Chinese: the answer is the frame in Chinese, and the
-    // open card asked again is Chinese too.
     let frame = resident.ask(
         6,
         json!({"action": "language", "language": "zh-CN"}),
@@ -705,7 +667,6 @@ fn the_card_no_data_marker_and_source_error_follow_the_passed_language() {
         "the saved view has no language: {keys:?}"
     );
 
-    // Any other language reads English; a language must be a string.
     let frame = resident.ask(10, json!({"action": "language", "language": "fr"}), "frame");
     assert_eq!("No data", no_data_text(&frame));
     resident.ask(11, json!({"action": "language", "language": 7}), "error");

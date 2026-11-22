@@ -124,7 +124,6 @@ fn span(v: &Value) -> Option<Span> {
     })
 }
 
-/// A class's :id local name, the key the index is built and read with.
 fn class_key(class: &Value) -> String {
     get(class, "id")
         .and_then(local_name)
@@ -147,14 +146,6 @@ pub fn measured(class: &Value) -> bool {
         && get(class, "shape").and_then(local_name) != Some("oval")
 }
 
-/// The class that owns `span`, through the overlay's join rule: the function
-/// namespace first, then the file.
-///
-/// The file fallback exists because snapshots written before the dryer
-/// reported :namespace/:name (the committed .metrics/dry.edn is one) carry
-/// the file and lines only. It is exact while a file belongs to one class;
-/// when several classes share a file it is not, and the pair is reported
-/// unattributed instead of being attached to a guessed class.
 fn class_of<'a>(classes: &'a [Value], prefix: Option<&Value>, span: &Span) -> Option<&'a Value> {
     if let Some(ns) = &span.namespace {
         return owner(classes, prefix, ns);
@@ -302,14 +293,8 @@ pub fn document_summary(doc: &Value, snapshots: &[crate::overlay::Snapshot]) -> 
     get(&overlaid, "dry").cloned()
 }
 
-/// How many clusters the resident sends to the panel. The full count is kept
-/// in `:clusters`; the list holds the weakest `MAX_CLUSTERS` and `:truncated`
-/// carries the honest remainder (#91).
 const MAX_CLUSTERS: usize = 64;
 
-/// One cluster as the panel reads it: members with file/line and owning class,
-/// and the component's weakest similarity. Owners are EDN id text so a click
-/// can call the existing `locate` action unchanged.
 fn cluster_json(cluster: &Cluster, classes: &[Value]) -> Value {
     let members: Vec<Value> = cluster
         .spans
@@ -328,7 +313,6 @@ fn cluster_json(cluster: &Cluster, classes: &[Value]) -> Value {
             record(entries)
         })
         .collect();
-    // The distinct owners of the cluster, for the summary line.
     let mut owners: Vec<Value> = Vec::new();
     for class in classes {
         if *class != Value::Nil && !owners.contains(class) {
@@ -441,9 +425,6 @@ fn union(parents: &mut [usize], a: usize, b: usize) {
     }
 }
 
-/// Group the spans into connected components. The weakest edge of a
-/// component is its similarity, and the components are ordered worst first so
-/// a caller can truncate from the least confident end.
 fn clusters(spans: &[Span], parents: &mut [usize], edges: &[(usize, usize, f64)]) -> Vec<Cluster> {
     let roots: Vec<usize> = (0..spans.len()).map(|i| find(parents, i)).collect();
     let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();

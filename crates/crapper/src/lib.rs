@@ -28,10 +28,6 @@ pub fn run(args: &[OsString]) -> ExitCode {
     run_on(platform::Host::current(), args)
 }
 
-/// The same contract with the host declared, the seam `crates/dryer` already
-/// takes from the pinned tests' monkeypatch of `sys.platform`: whether a build
-/// below the deleted floor is refused has to be a test's input, never the
-/// machine the test happens to run on (ADR 0018).
 fn run_on(host: platform::Host, args: &[OsString]) -> ExitCode {
     let args: Vec<String> = args
         .iter()
@@ -40,8 +36,6 @@ fn run_on(host: platform::Host, args: &[OsString]) -> ExitCode {
     ExitCode::from(status_on(host, &args))
 }
 
-/// crapper refuses no host: the shared WSL2 warning is its only platform
-/// decision before selection (crapper#18, ADR 0018).
 fn status_on(host: platform::Host, args: &[String]) -> u8 {
     match cli::parse(args) {
         Parsed::Help => {
@@ -121,8 +115,6 @@ fn analyze_project(host: platform::Host, options: &Options) -> u8 {
         if bundle.is_none() {
             match load_bundle(&root) {
                 Ok(found) => bundle = Some(found),
-                // crapper lets the parse error escape: the run fails and the
-                // previous snapshot stays.
                 Err(error) => {
                     eprintln!(
                         "Coverage failed: {error} {} was not replaced.",
@@ -178,8 +170,6 @@ fn count_unscored(entries: &[Entry]) {
     }
 }
 
-/// 0 pass, 2 exceeded, 3 unmeasured: a threshold run with coverage in which
-/// no analysed function was scored cannot pass.
 fn threshold_status(entries: &[Entry], threshold: Option<f64>, coverage_requested: bool) -> u8 {
     let Some(threshold) = threshold else {
         return 0;
@@ -220,11 +210,6 @@ mod tests {
         root
     }
 
-    /// The old build-number gate refused this host before selection; the OS
-    /// alone decides now, so a build below the deleted floor analyses normally
-    /// and still publishes nothing for an empty selection (ADR 0018,
-    /// crapper#18). The host is declared, not read, so this asserts the same
-    /// thing on Linux, on this 19042 machine and on any Windows 11 host.
     #[test]
     fn a_build_below_the_deleted_floor_is_not_refused() {
         let root = scratch("any-windows-build");

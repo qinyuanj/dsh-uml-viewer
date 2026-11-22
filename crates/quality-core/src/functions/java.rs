@@ -1,8 +1,3 @@
-//! Java methods and cyclomatic complexity, following crap4java.
-//!
-//! Constructors, declarations without bodies and methods nested inside an
-//! executable are omitted. Member types keep their own dotted namespace.
-
 use std::path::Path;
 
 use tree_sitter::Node;
@@ -38,8 +33,6 @@ fn is_decision(node: Node) -> bool {
     DECISIONS.contains(&node.kind()) || binary_logic(node, &["&&", "||"])
 }
 
-/// Unlike the generic complexity walk, Java skips nested type declarations
-/// and anonymous class bodies. Lambda decisions still belong to the method.
 fn method_complexity(node: Node) -> u32 {
     let mut score = 1;
     let mut stack = vec![node];
@@ -54,13 +47,9 @@ fn method_complexity(node: Node) -> u32 {
 }
 
 fn whitespace(ch: char) -> bool {
-    // Python's Unicode \\s also includes these four ASCII separators.
     ch.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&ch)
 }
 
-/// The reference uses ^\\s*package\\s+([a-zA-Z_][\\w.]*)\\s*; in multiline
-/// mode, rather than the syntax tree. Preserve its line anchoring and its
-/// treatment of package-looking text inside comments.
 fn package_name(source: &str) -> Option<&str> {
     let starts = std::iter::once(0).chain(source.match_indices('\n').map(|(at, _)| at + 1));
     for at in starts {
@@ -137,8 +126,6 @@ pub fn functions(source: &str, path: &str, _root: &Path) -> Vec<Function> {
         if node.kind() == "method_declaration" {
             found.extend(record(source, node, package, path));
         }
-        // No method below an executable can be an entry. Pruning here also
-        // prevents local and anonymous classes from contributing entries.
         if EXECUTABLES.contains(&node.kind()) {
             continue;
         }

@@ -38,7 +38,6 @@ it('retains a retired activation while a child holds its version, and cleans up 
   childExit()
   expect(existsSync(path.join(home, '1.0.0'))).toBe(false)
   expect(existsSync(path.join(home, '1.1.0', 'resident.cjs'))).toBe(true)
-  // Disposers are single-shot; an ended activation cannot start a new child.
   childExit()
   old.release()
   expect(() => old.retain()).toThrow(/activation has ended/)

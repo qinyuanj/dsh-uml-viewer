@@ -1,4 +1,3 @@
-//! Namespace snapshots and the differential mutation policy.
 use crate::cli::LineFilter;
 use crate::sites::{Form, Site, mutation_file, mutation_namespace};
 use quality_core::edn::Value;
@@ -18,9 +17,7 @@ pub struct PriorForm {
 }
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ChangedInput {
-    /// Project-relative path, or a `../` path for an external copy input.
     pub path: String,
-    /// True when the path is gone and its committed bytes must come from git.
     pub deleted: bool,
 }
 impl ChangedInput {
@@ -41,17 +38,13 @@ impl ChangedInput {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ChangedInputs {
     pub inputs: BTreeSet<ChangedInput>,
-    /// The caller has confirmed this is the complete set of relevant inputs.
     pub confirmed: bool,
 }
 
-/// Which inputs a survived verdict depends on.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum TestInputScope {
-    /// The default: every regular file under the project root.
     #[default]
     Global,
-    /// Only the explicitly declared changed inputs, including deletions.
     Changed(ChangedInputs),
 }
 impl TestInputScope {
@@ -64,14 +57,12 @@ impl TestInputScope {
             confirmed: true,
         })
     }
-    /// The versioned tag persisted beside the digest.
     pub fn tag(&self) -> &'static str {
         match self {
             Self::Global => "global-v1",
             Self::Changed(_) => "changed-v1",
         }
     }
-    /// A canonical, comparable record of the scope and its declared inputs.
     pub fn canonical(&self) -> String {
         match self {
             Self::Global => self.tag().to_string(),
@@ -95,10 +86,7 @@ impl TestInputScope {
 pub struct History {
     pub forms: BTreeMap<(String, String), PriorForm>,
     pub outcomes: BTreeMap<String, String>,
-    /// The digest of the test inputs recorded by the snapshot, when present.
     pub test_input: Option<String>,
-    /// The canonical scope tag recorded with that digest. Older snapshots have
-    /// none, so they cannot authorize survived reuse.
     pub test_input_scope: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -107,7 +95,6 @@ pub struct Decision {
     pub reason: String,
     pub previous: String,
 }
-/// A parsed artifact. Ordered EDN fields preserve legacy form field order.
 #[derive(Clone, Debug)]
 pub struct Snapshot {
     pub path: PathBuf,
@@ -145,12 +132,9 @@ pub fn snapshot_path(root: &Path, namespace: &str) -> io::Result<PathBuf> {
     for part in &parts {
         path.push(part);
     }
-    // Append, rather than replace an extension: dots are namespace characters.
     path.set_file_name(format!("{}.edn", parts.last().unwrap()));
     Ok(path)
 }
-/// Whether `path` is an existing real directory: a symlink is never followed,
-/// so no snapshot is read, published or removed through one.
 fn real_directory(path: &Path) -> io::Result<bool> {
     match fs::symlink_metadata(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
@@ -176,7 +160,6 @@ fn open_directory(path: &Path) -> io::Result<()> {
         Err(error) => Err(error),
     }
 }
-/// The snapshot file may be replaced atomically, but never through a link.
 fn check_snapshot_file(path: &Path) -> io::Result<()> {
     match fs::symlink_metadata(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -247,7 +230,6 @@ fn edn_files(directory: &Path, files: &mut Vec<PathBuf>) {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        // A symlinked directory or file is never visited.
         let Ok(kind) = entry.file_type() else {
             continue;
         };
@@ -313,7 +295,6 @@ pub fn load_history(root: &Path, file_key: &str) -> History {
     history
 }
 
-/// The current form digests, keyed by namespace and form id.
 pub fn digests(forms: &[Form]) -> BTreeMap<(String, String), String> {
     forms
         .iter()
@@ -340,8 +321,6 @@ impl InputFiles {
     }
 }
 
-/// One traversal for both scopes: global keys are project-relative, declared
-/// keys are prefixed by the input spelling so external `../` paths stay.
 fn walk_inputs(
     root: &Path,
     directory: &Path,
@@ -497,9 +476,6 @@ fn changed_inputs(root: &Path, changed: &ChangedInputs) -> io::Result<InputFiles
 fn normalized_command(raw_root: &Path, resolved_root: &Path, command: &str) -> String {
     let raw = raw_root.to_string_lossy().into_owned();
     let resolved = resolved_root.to_string_lossy().into_owned();
-    // A caller may spell the root in its short (8.3) or long form, and the
-    // command may use either separator. Normalize every spelling we know so
-    // the digest describes the inputs, not where the project happens to sit.
     [raw, resolved]
         .into_iter()
         .flat_map(|spelling| [spelling.clone(), spelling.replace('\\', "/")])
@@ -521,19 +497,10 @@ fn hash_inputs(scope: &TestInputScope, command: &str, files: InputFiles) -> Stri
     format!("{:x}", hash.finalize())
 }
 
-/// SHA-256 of the whole-tree test inputs. This is the default; callers that
-/// narrow the input set use [`test_input_digest_with`].
 pub fn test_input_digest(root: &Path, command: &str) -> io::Result<String> {
     test_input_digest_with(root, command, &TestInputScope::Global)
 }
 
-/// SHA-256 of the test inputs a mutant verdict depends on under `scope`.
-///
-/// A global scope keeps the original whole-tree digest. A changed scope hashes
-/// only the declared inputs: ordinary or deleted project files, directories
-/// of either, and external copy paths. Every declaration must be complete and
-/// enumerable; a missing file, an unreadable path or a git failure is an error
-/// so the caller cannot authorize survived reuse with a partial digest.
 pub fn test_input_digest_with(
     root: &Path,
     command: &str,
@@ -549,9 +516,6 @@ pub fn test_input_digest_with(
     Ok(hash_inputs(scope, &command, files))
 }
 
-/// Whether the history records exactly the current form set and its digests.
-/// A form added or rewritten since the snapshot makes the file unreusable,
-/// even when it owns no mutation site of its own.
 pub fn unchanged(forms: &[Form], history: &History) -> bool {
     let current = digests(forms);
     current.len() == history.forms.len()
@@ -563,7 +527,6 @@ pub fn unchanged(forms: &[Form], history: &History) -> bool {
         })
 }
 
-/// The selection and reuse inputs that are constant for one decision pass.
 #[derive(Clone, Copy)]
 pub struct DecideContext<'a> {
     pub mutate_all: bool,
@@ -572,8 +535,6 @@ pub struct DecideContext<'a> {
     pub scope: Option<&'a TestInputScope>,
 }
 
-/// Only a known scope and a known digest can authorize survived reuse.
-/// Two failures are never equal: `None == None` must not become a match.
 fn survived_reuse(
     history: &History,
     scope: Option<&TestInputScope>,
@@ -767,7 +728,6 @@ fn render(value: &Value) -> String {
         Value::Tagged(_, value) => render(value),
     }
 }
-/// The fields of one published snapshot.
 pub struct SnapshotContent<'a> {
     pub namespace: &'a str,
     pub source: &'a str,
@@ -855,7 +815,6 @@ fn remove_empty_dirs(directory: &Path) -> io::Result<()> {
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
         let path = entry.path();
-        // A symlinked child is neither recursed into nor removed here.
         if entry.file_type()?.is_dir() {
             remove_empty_dirs(&path)?;
             if fs::read_dir(&path)?.next().is_none() {
@@ -865,9 +824,6 @@ fn remove_empty_dirs(directory: &Path) -> io::Result<()> {
     }
     Ok(())
 }
-/// Replace one source's results, retaining other sources in shared namespaces.
-/// Publication is atomic per namespace; legacy artifacts are removed afterwards.
-/// One publication request: what changed and the snapshot fields to write.
 pub struct PublishRequest<'a> {
     pub file_key: &'a str,
     pub forms: &'a [Form],
@@ -888,8 +844,6 @@ pub fn write_results(root: &Path, request: PublishRequest<'_>) -> io::Result<Vec
         isolation,
     } = request;
     let root = resolve(root);
-    // Publication and cleanup stay under the project: a symlinked snapshot
-    // directory is refused instead of written through.
     let metrics = root.join(".metrics");
     open_directory(&metrics)?;
     open_directory(&metrics.join("mutate"))?;
@@ -1009,9 +963,6 @@ pub fn write_results(root: &Path, request: PublishRequest<'_>) -> io::Result<Vec
     Ok(written)
 }
 
-// The Python snapshot reader is deliberately a small permissive EDN subset:
-// keywords/symbols become strings; lists become vectors; duplicate keys overwrite
-// their old value without moving its insertion position; unknown escapes lose \\.
 fn parse(source: &str) -> Option<Value> {
     let mut reader = Reader {
         chars: source.chars().collect(),
@@ -1665,7 +1616,6 @@ mod tests {
         let covered = BTreeMap::from([(sites[0].mutation_id.clone(), true)]);
         let outcomes = BTreeMap::from([(sites[0].mutation_id.clone(), "survived".to_string())]);
 
-        // A successful publish first puts a survived verdict on disk.
         write_results(
             &scratch.root(),
             PublishRequest {
@@ -1679,8 +1629,6 @@ mod tests {
             },
         )
         .unwrap();
-        // A failed enumeration must not persist a scope beside the missing
-        // digest, even if an older caller passes one through.
         write_results(
             &scratch.root(),
             PublishRequest {

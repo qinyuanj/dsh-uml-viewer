@@ -1,8 +1,3 @@
-//! CLI behaviour of the `ir` role (#136): usage errors, missing policies and
-//! language detection, mirroring the POSIX entry expectations. These run
-//! `ir::run` in a process with a changed working directory, so they are
-//! serial by file and restore the directory afterwards.
-// Test code is the outside harness: it launches its own children.
 #![allow(clippy::disallowed_methods)]
 
 use std::ffi::OsString;
@@ -18,7 +13,6 @@ fn tempdir(tag: &str) -> PathBuf {
 
 fn run_in(dir: &Path, args: &[&str]) -> ExitCode {
     let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-    // --root keeps this process-global cwd untouched.
     let mut full: Vec<OsString> = vec![OsString::from("--root"), dir.as_os_str().to_owned()];
     full.extend(args);
     ir::run(&full)
@@ -96,8 +90,6 @@ fn source_symlinks_are_refused() {
     assert_source_link_refused(&dir);
 }
 
-/// A directory junction is Windows' unprivileged directory link (symlinks
-/// need Developer Mode), so it is the link a Windows source tree really has.
 #[cfg(windows)]
 fn junction(link: &Path, target: &Path) {
     let status = std::process::Command::new("cmd")
@@ -135,8 +127,6 @@ fn a_junction_to_a_file_tree_outside_the_root_is_refused() {
 #[cfg(windows)]
 #[test]
 fn a_windows_root_yields_slash_separated_relative_files() {
-    // The root arrives as a native `C:\…` path; IR text must carry only
-    // project-relative `/` paths: no drive letter, backslash or `\\?\`.
     let dir = tempdir("native-root");
     std::fs::create_dir_all(dir.join("src").join("pkg")).unwrap();
     std::fs::write(
@@ -254,7 +244,6 @@ fn a_tsconfig_beside_the_source_root_resolves_path_aliases() {
 
 #[test]
 fn a_policy_without_a_source_declaration_still_detects_its_language() {
-    // #166 out of scope: :src and :lang stay optional (src default + detection).
     let dir = tempdir("no-source");
     std::fs::create_dir_all(dir.join("src")).unwrap();
     std::fs::write(dir.join("src/a.py"), "def hello():\n    return True\n").unwrap();

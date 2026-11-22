@@ -1,7 +1,3 @@
-//! `edn::record` is the single definition of the `edn.lua` reading rules
-//! (#151). Expected values follow the Lua semantics: absent, `nil` and
-//! `false` are false; everything else, `0` and `""` included, is true.
-
 use edn::Value;
 use edn::record::{
     flag, get, get_raw, is_true, local_name, num, num_or, put, record, remove, seq, text, truthy,
@@ -52,7 +48,6 @@ fn flag_follows_lua_truthiness() {
 
 #[test]
 fn is_true_is_the_lua_strict_comparison_with_true() {
-    // Lua `g(x,'k')==true`: only the boolean itself, unlike `flag`.
     let m = read(r#"{:t true :f false :n nil :one 1 :yes :yes}"#);
     assert!(is_true(&m, "t"));
     for key in ["f", "n", "missing", "one", "yes"] {

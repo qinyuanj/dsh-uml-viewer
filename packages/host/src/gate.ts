@@ -8,21 +8,10 @@ export interface QualityRecord {
   reason: string | null
 }
 
-/**
- * Per-session FIFO for quality calls (and `uml_ir`, which queues behind them)
- * plus the latest quality outcome.
- *
- * `uml_ir` is refused only after a quality call in that session ended without
- * `validResult: true`; with no quality call, IR remains available for requests
- * that need no refresh (for example :omit or a proposal). Every completed
- * quality invocation replaces the previous one, including refusals and
- * malformed invocations.
- */
 export class QualityGate {
   private readonly latest = new Map<string, QualityRecord>()
   private readonly tails = new Map<string, Promise<void>>()
 
-  /** Queue work behind earlier quality calls in the same session, in call order. */
   run<T>(sessionId: string, task: () => Promise<T>): Promise<T> {
     const previous = this.tails.get(sessionId) ?? Promise.resolve()
     const result = previous.then(task, task)
@@ -58,25 +47,9 @@ export interface IrRecord {
   validResult: boolean
   exitCode: number | null
   reason: string | null
-  /**
-   * The panel request entry this IR answered, or null when it answered none
-   * (#84): the entry whose grant id the IR presented, or the entry the IR took
-   * up as the head when it presented none. The display that follows completes
-   * exactly this entry — never a queue head read when the display runs.
-   */
   requestId: string | null
 }
 
-/**
- * The per-session IR gate: `uml_display` may run only after the latest
- * `uml_ir` in the same session succeeded.
- *
- * This is a host-process record of this plugin's own tool calls, so it is
- * conservative after a restart or a session fork: the first `uml_display`
- * there is refused until `uml_ir` runs again. It never reports a stale success.
- * The record also carries the panel request the IR answered, so a display that
- * follows completes exactly that request (#84).
- */
 export class IrGate {
   private readonly sessions = new Map<string, IrRecord>()
 
@@ -84,12 +57,6 @@ export class IrGate {
     this.sessions.set(sessionId, record)
   }
 
-  /**
-   * The panel request the latest `uml_ir` answered in this session (#84).
-   * @param sessionId the session.
-   * @returns that entry's id, or null when that IR answered no request (the
-   * session's queue was empty when it ran, or none ran).
-   */
   answered(sessionId: string): string | null {
     return this.sessions.get(sessionId)?.requestId ?? null
   }
@@ -107,18 +74,8 @@ export class IrGate {
   }
 }
 
-/** The panel requests that regenerate the IR without a quality refresh. */
 export type GrantKind = 'omit' | 'new-proposal'
 
-/**
- * Host-issued ids of the no-refresh panel requests (#29). The visible request
- * message carries the id; `uml_ir({request})` presents it to run although an
- * earlier quality call in the session failed, because the request reads no new
- * quality data. An id is 128 random bits, bound to the session and the request
- * kind, and single-use: the first `uml_ir` that presents it consumes it,
- * whatever that IR's outcome. Each session keeps at most `LIMIT` pending ids,
- * the oldest dropped first; the activation clears them all when it ends.
- */
 export class RequestGrants {
   static readonly LIMIT = 32
   private readonly sessions = new Map<string, Map<string, GrantKind>>()
@@ -135,14 +92,12 @@ export class RequestGrants {
     return id
   }
 
-  /** Withdraw an id whose message was never admitted. */
   revoke(sessionId: string, id: string): void {
     const pending = this.sessions.get(sessionId)
     pending?.delete(id)
     if (pending?.size === 0) this.sessions.delete(sessionId)
   }
 
-  /** Use an id once; an unknown, used or foreign id is a refusal with a reason. */
   consume(sessionId: string, id: string): { ok: true; kind: GrantKind } | { ok: false; reason: string } {
     const pending = this.sessions.get(sessionId)
     const kind = pending?.get(id)

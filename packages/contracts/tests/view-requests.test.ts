@@ -1,6 +1,3 @@
-// #29: the panel requests that change what the diagram shows (omit, the
-// discussion context, a new proposal). They need no quality refresh; the
-// companion edits the policy in place and regenerates the IR.
 import { describe, expect, it } from 'vitest'
 import {
   IR_PARAMETERS, defaultProposalName, parseIrRequest, parsePanelAction, parseProposalName, renderContextRequest,
@@ -72,7 +69,6 @@ describe('new proposal requests', () => {
   })
 
   it('defaults the name to the local time to the second, like the egui viewer', () => {
-    // 2026-11-09 14:05:06 local time, whatever the machine's time zone is.
     expect(defaultProposalName(new Date(2026, 10, 9, 14, 5, 6))).toBe('2026-11-09 14:05:06')
     expect(defaultProposalName(new Date(2027, 0, 2, 3, 4, 5, 999))).toBe('2027-01-02 03:04:05')
   })

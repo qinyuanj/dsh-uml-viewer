@@ -1,20 +1,3 @@
-//! `uml-viewer scene --frame`: the scene frame of one view as JSON (#16).
-//!
-//! ```text
-//! uml-viewer scene --frame --ir <file.edn> [--focus <edn>] [--metrics-root <dir>]
-//!                  [--wide [--aspect <w/h>]] [--extra <edn map>]
-//!                  [--width <pt>] [--height <pt>] [--zoom <z> --camera <x>,<y>]
-//!                  [--select <edn hit>] [--hover <edn hit>] [--pointer <x>,<y>]
-//!                  [--hover-metadata] [--lang <tag>] [--output <file>]
-//! ```
-//!
-//! Without `--frame` the arguments go to the scene geometry export
-//! unchanged (`scene::run`). The view is fitted to the viewport, as the
-//! window shows a freshly opened diagram, unless `--zoom` places the
-//! camera. A hit is the EDN map hit testing yields, e.g.
-//! `{:kind :class :id :ir.graph}`. `--lang` is the language the resident
-//! lays text out in (`zh`, else English, the default).
-
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -49,7 +32,6 @@ struct Options {
     select: Option<Value>,
     hover: Option<Value>,
     pointer: Option<(f64, f64)>,
-    /// The optional bounded hover metadata (#26); off for the goldens.
     hover_metadata: bool,
     lang: Lang,
     output: Option<PathBuf>,
@@ -236,8 +218,6 @@ fn execute(opts: &Options) -> Result<(), String> {
     state.hover = opts.hover.clone();
     state.pointer = opts.pointer;
     let frame = crate::frame::build(&state, opts.width, opts.height, opts.lang);
-    // The goldens are written without the optional capability; --hover-metadata
-    // adds the same field the resident sends.
     let json = if opts.hover_metadata {
         frame.to_json_string_with_hover(&state.scene)
     } else {

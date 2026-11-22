@@ -2,14 +2,6 @@ import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
 import { panelViewport, producerFrame, toScreen } from './canvas.mjs'
 
-/**
- * The panel equivalent of the deleted dpi_window.edn / dpi_shots.edn window
- * drivers (dsh-uml-viewer#30): on a scale-2 display the canvas backing store
- * is the CSS viewport times the device pixel ratio, a click at the producer's
- * CSS geometry still hits the drawn class, and the canvas follows a resized
- * page. The window-only sidebar drag (280 -> 340) and window size limits have
- * no panel counterpart: the host owns the panel's size.
- */
 test('scale-2 canvas rasterizes at device pixels, hits at CSS points and follows a resized page', async ({ browser }) => {
   const lane = await launchViewerLane(browser, { deviceScaleFactor: 2 })
   try {

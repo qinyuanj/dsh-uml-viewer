@@ -1,18 +1,3 @@
-//! The panel overlays (#27): the class card and the source window as
-//! resident-protocol JSON (the inspector left with #47). Every text,
-//! CRAP/mutation figure, no-data line, card row, metric column, color role and
-//! source line comes from the shared window-free models (`frame::detail`,
-//! `frame::source`). Nothing is recomputed here
-//! beyond serializing those models, so the TypeScript panel only renders.
-//!
-//! Source text is read here, in the resident, from the session project; the
-//! browser never touches the filesystem. A source window is bounded by the
-//! `SOURCE_*` limits below, checked before the body is read past
-//! [`SOURCE_MAX_FILE_BYTES`], before any declaration lookup or tokenization
-//! and before the event is serialized. A source over a limit is an explicit
-//! `error`; it is never truncated. `packages/contracts/src/overlays.ts`
-//! (`SOURCE_LIMITS`) carries the same numbers and must stay equal.
-
 use edn::Value;
 use edn::record::{get, local_name};
 use serde_json::{Value as Json, json};
@@ -49,10 +34,6 @@ fn too_large(what: &str, detail: String) -> String {
     format!("source too large to open: {what} {detail}; it is not truncated")
 }
 
-/// Read at most `max` bytes of `path`: a larger file is refused from its
-/// metadata, and a file that grows while it is read is refused at `max + 1`
-/// bytes, so the resident never holds more than one byte past the limit.
-/// `Ok(None)` is a file that is not UTF-8, which is not openable source.
 fn read_bounded(path: &std::path::Path, max: u64) -> Result<Option<String>, String> {
     use std::io::Read;
     let file = std::fs::File::open(path).map_err(|e| format!("cannot read source: {e}"))?;
@@ -74,8 +55,6 @@ fn read_bounded(path: &std::path::Path, max: u64) -> Result<Option<String>, Stri
     Ok(String::from_utf8(bytes).ok())
 }
 
-/// The row, line and painted-line bounds of a body, checked on its bytes
-/// before the declaration lookup splits, scans or tokenizes it.
 fn check_body(body: &str) -> Result<(), String> {
     let rows = body.bytes().filter(|b| *b == b'\n').count() + 1;
     if rows > SOURCE_MAX_ROWS {
@@ -107,9 +86,6 @@ fn check_body(body: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The window's rows with their token runs, refusing a row over
-/// [`SOURCE_MAX_RUNS_PER_ROW`] or a source over [`SOURCE_MAX_RUNS`] before
-/// allocating the run that crosses it.
 fn source_rows(body: &str, line: Option<usize>, lang: &str) -> Result<Vec<Json>, String> {
     let mut runs = 0usize;
     source::rows(body, line)
@@ -143,8 +119,6 @@ fn source_rows(body: &str, line: Option<usize>, lang: &str) -> Result<Vec<Json>,
         .collect()
 }
 
-/// A writer that stops at `left` bytes, so measuring a payload never builds
-/// more than the limit allows.
 struct Budget {
     left: usize,
 }
@@ -164,9 +138,6 @@ impl std::io::Write for Budget {
     }
 }
 
-/// True when `value` serializes to at most `max` bytes. The measurement
-/// stops at the limit instead of allocating the oversized text. The quality
-/// target answer (#28, [`crate::targets`]) is bounded the same way.
 pub(crate) fn serializes_within(value: &Json, max: usize) -> bool {
     serde_json::to_writer(Budget { left: max }, value).is_ok()
 }
@@ -277,14 +248,9 @@ pub fn source_json(
     let candidate = session.project_root().join(file);
     project_source(&project, &candidate)?;
     let root = session.project_root().to_string_lossy().into_owned();
-    // `Files::read` answers only Some/None; a size refusal is kept here so it
-    // reaches the caller as itself, not as "could not open".
     let refused: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
     let files = source::Files {
         root: Some(root),
-        // Recheck each actual access, including link/junction resolution. No
-        // source body is ever read before the project containment check, and
-        // none is kept past the size, row and line bounds.
         read: &|path| {
             let path = project_source(&project, std::path::Path::new(path)).ok()?;
             let checked = read_bounded(&path, SOURCE_MAX_FILE_BYTES).and_then(|body| match body {
@@ -335,10 +301,6 @@ pub fn source_json(
     Ok(payload)
 }
 
-/// The source boundary resolves links/junctions before checking containment.
-/// Reject parent traversal explicitly, even when a later component returns to
-/// the project, so source resolution cannot depend on an escaping prefix.
-/// The quality target answer (#28) uses the same boundary for its files.
 pub(crate) fn project_source(
     project: &std::path::Path,
     candidate: &std::path::Path,
@@ -387,7 +349,6 @@ mod source_bound_tests {
 
     #[test]
     fn limits_match_the_contracts_source_limits() {
-        // packages/contracts/src/overlays.ts SOURCE_LIMITS.
         assert_eq!(SOURCE_MAX_FILE_BYTES, 262_144);
         assert_eq!(SOURCE_MAX_ROWS, 4000);
         assert_eq!(SOURCE_MAX_LINE_BYTES, 4096);
@@ -441,8 +402,6 @@ mod source_bound_tests {
         assert!(check_body(&tabs).is_ok());
         let wider = format!("{}x", "\t".repeat(SOURCE_MAX_LINE_BYTES - 1));
         assert!(check_body(&wider).is_ok());
-        // 4096 raw bytes is the line limit; the display limit is exactly twice it,
-        // so a line within the raw limit always paints within the display limit.
         assert_eq!(SOURCE_MAX_DISPLAY_BYTES, 2 * SOURCE_MAX_LINE_BYTES);
     }
 
@@ -474,7 +433,7 @@ mod source_bound_tests {
     #[test]
     fn a_source_over_the_total_run_limit_is_refused() {
         let line = ";".repeat(SOURCE_MAX_RUNS_PER_ROW);
-        let rows = SOURCE_MAX_RUNS / SOURCE_MAX_RUNS_PER_ROW; // 39 full rows = 19968 runs
+        let rows = SOURCE_MAX_RUNS / SOURCE_MAX_RUNS_PER_ROW;
         let at = format!("{}{}", format!("{line}\n").repeat(rows), ";".repeat(32));
         assert!(source_rows(&at, None, "rust").is_ok());
         let over = format!("{}{}", format!("{line}\n").repeat(rows), ";".repeat(33));

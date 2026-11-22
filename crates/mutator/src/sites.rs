@@ -1,4 +1,3 @@
-//! Mutation replacements bound to the functions scored by quality-core.
 use quality_core::functions::functions_in_file;
 use quality_core::grammar::{Grammar, preorder, text};
 use quality_core::language::{Language, language_of};
@@ -50,7 +49,6 @@ fn hash(text: &str) -> String {
     format!("{:x}", Sha256::digest(text.as_bytes()))
 }
 
-// Python str.splitlines recognizes CRLF and these Unicode separators too.
 fn lines(source: &str) -> Vec<&str> {
     let mut found = Vec::new();
     let mut start = 0;
@@ -81,7 +79,6 @@ fn lines(source: &str) -> Vec<&str> {
     }
     found
 }
-/// Hash an inclusive function span after trimming each line's trailing whitespace.
 pub fn digest(source: &str, start: usize, end: usize) -> String {
     let selected: Vec<_> = lines(source)
         .into_iter()
@@ -95,7 +92,6 @@ pub fn digest(source: &str, start: usize, end: usize) -> String {
         .collect();
     hash(&selected.join("\n"))
 }
-/// `_header`: the declaration's first seven lines, outer attributes skipped.
 fn header(source: &str, start: usize, end: usize) -> String {
     let selected = lines(source)
         .into_iter()
@@ -112,8 +108,6 @@ fn header(source: &str, start: usize, end: usize) -> String {
     }
     header.to_string()
 }
-/// `is_private` per language: Python and TypeScript keep their own rules in
-/// their modules; Rust and Lua read the declaration's header.
 fn private(language: Language, name: &str, source: &str, start: usize, end: usize) -> bool {
     let header = header(source, start, end);
     match language {
@@ -121,19 +115,15 @@ fn private(language: Language, name: &str, source: &str, start: usize, end: usiz
         Language::TypeScript => crate::typescript::private(name, &header),
         Language::Clojure => crate::clojure::private(&header),
         Language::Java => crate::typescript::mentions_private(&header),
-        // `name[:1].islower()`: an unexported Go identifier.
         Language::Go => name.chars().next().is_some_and(char::is_lowercase),
-        // A Lua function is private only when its declaration is `local`.
         Language::Lua => header
             .strip_prefix("local")
             .is_some_and(|rest| rest.starts_with(char::is_whitespace)),
-        // Python checks pub\s: pub(crate) deliberately remains private.
         _ => !header
             .strip_prefix("pub")
             .is_some_and(|rest| rest.starts_with(char::is_whitespace)),
     }
 }
-/// Compact identity JSON, including Python json.dumps' default ensure_ascii.
 pub fn mutation_id(
     file: &str,
     namespace: &str,
@@ -172,7 +162,6 @@ pub fn mutation_file(id: &str) -> Option<String> {
 pub fn mutation_namespace(id: &str) -> Option<String> {
     mutation_field(id, 1)
 }
-/// Python `sites.py` operator rules for the languages this port discovers.
 fn replacement(
     language: Language,
     token: &str,
@@ -180,8 +169,6 @@ fn replacement(
 ) -> Option<(&'static str, &'static str)> {
     if parent == "binary_expression" {
         return Some(match language {
-            // Lua spells inequality `~=`; `//` becomes `/` one way, and `..`,
-            // `#`, `%`, `^` and the bitwise operators are never rewritten.
             Language::Lua => match token {
                 "+" => ("-", "arithmetic"),
                 "-" => ("+", "arithmetic"),
@@ -220,14 +207,11 @@ fn replacement(
             },
         });
     }
-    // `not` is Lua's spelling of the deleted unary operator.
     if parent == "unary_expression" && matches!(token, "!" | "not" | "-") {
         return Some(("", "unary"));
     }
     None
 }
-/// One leaf's site: Python and TypeScript keep their rules in their own
-/// modules; Rust and Lua share the table above plus the literal swaps.
 fn leaf_site(
     language: Language,
     node: quality_core::grammar::Node,
@@ -237,9 +221,7 @@ fn leaf_site(
     match language {
         Language::Python => crate::python::site(node, token),
         Language::TypeScript => crate::typescript::site(node, token),
-        // mutate4java: Java's decisions, no bitwise, shift or remainder swaps.
         Language::Java => crate::operators::leaf(node, token, crate::operators::binary),
-        // mutate4go: the same, but `/` is never rewritten (`*` -> `/` is one way).
         Language::Go => crate::operators::leaf(node, token, |token| {
             (token != "/")
                 .then(|| crate::operators::binary(token))
@@ -258,12 +240,8 @@ fn leaf_site(
 }
 type FormParts = (usize, Vec<(usize, usize, String)>);
 
-/// A raw site: line, UTF-8 byte span, original, mutant and category.
 pub type RawSite = (usize, usize, usize, String, String, &'static str);
 
-/// The original's `discover_raw`: every site of `source` in source order,
-/// before sites are bound to functions. Clojure is read by its own reader;
-/// every other language walks its grammar's leaves.
 pub fn raw_sites(language: Language, source: &str, path: &Path) -> Vec<RawSite> {
     let grammar = match language {
         Language::Clojure => return crate::clojure::raw_sites(source),
@@ -298,8 +276,6 @@ pub fn raw_sites(language: Language, source: &str, path: &Path) -> Vec<RawSite> 
     found
 }
 
-/// Mutation sites in source order and forms in first-line order. Test code is
-/// excluded by shared function discovery; private forms retain their defn-/ IDs.
 pub fn discover(
     source: &str,
     path: &Path,
@@ -314,8 +290,6 @@ pub fn discover(
     } else {
         resolve(&root.join(path))
     };
-    // The original resolves both sides before naming the module. Malformed Lua
-    // is an input error for the caller to report, never a panic.
     let functions = functions_in_file(language, source, &posix(&located), &resolve(root))?;
     let mut forms: Vec<Form> = Vec::new();
     let mut grouped: BTreeMap<(String, String), FormParts> = BTreeMap::new();
@@ -418,7 +392,6 @@ pub fn discover(
     forms.sort_by_key(|form| form.line);
     Ok((found, forms))
 }
-/// Replace the site's UTF-8 byte span.
 pub fn apply_site(source: &str, site: &Site) -> String {
     format!(
         "{}{}{}",

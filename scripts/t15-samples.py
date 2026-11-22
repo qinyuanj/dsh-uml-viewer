@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""Emit real `uml-viewer quality` records for the committed contracts samples.
-
-Usage: python scripts/t15-samples.py <uml-viewer binary> <destination.jsonl>
-
-The records are actual binary output on a scratch project whose name holds a
-space and `&`, with the scratch root replaced by `/project`.
-"""
 import json
 from pathlib import Path
 import subprocess
@@ -27,7 +20,6 @@ with tempfile.TemporaryDirectory() as scratch:
 
     (root / 'uml-quality.json').write_text(json.dumps({'version': 1, 'standardTools': {
         'sourceRoots': ['crates'], 'crapperOptions': ['--no-coverage']}}))
-    # No target: refused identically on every platform.
     records = [record('crap'), record('dry'), record('mutate')]
     (root / 'uml-quality.json').write_text(json.dumps({'version': 1, 'operations': {
         'crap': {'argv': [sys.executable, '-c', 'raise SystemExit(1)'], 'forwardArgs': 'none',

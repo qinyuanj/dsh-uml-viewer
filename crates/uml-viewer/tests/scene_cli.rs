@@ -1,7 +1,3 @@
-//! Seam A through the real binary (#137): `uml-viewer scene` parses argv,
-//! reads IR EDN and writes a geometry projection that matches the JVM
-//! goldens within 1e-6.
-
 use edn::{Value, parse};
 use std::path::{Path, PathBuf};
 use std::process::Output;
@@ -98,8 +94,6 @@ fn repeated_focus_flags_export_one_view_each_and_write_to_output() {
 
 #[test]
 fn a_metrics_root_overlays_quality_but_not_golden_geometry() {
-    // lua-fixture has real `.metrics` snapshots; geometry must be unchanged
-    // because quality only paints, it does not move boxes.
     let ir = repo().join("fixtures/jvm-goldens/lua.ir.edn");
     let root = repo().join("lua-fixture");
     let plain = run(&["--ir", ir.to_str().unwrap()]);

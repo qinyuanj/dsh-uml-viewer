@@ -1,4 +1,3 @@
-//! Stamp/coverage gate ports from crapper 4068857, observed at the CLI seam.
 use super::crap::{Project, stderr};
 use std::fs;
 use std::process::Output;
@@ -18,8 +17,6 @@ fn stamp_fingerprint_matches_pinned_python_json_rows() {
     let result = run(&p);
     assert_eq!(result.status.code(), Some(0), "{}", stderr(&result));
     let text = fs::read_to_string(p.root.join(STAMP)).unwrap();
-    // Python 4068857 stamp.fingerprint: sha256(json.dumps(["a.rs", 14,
-    // 12340000000]) + "\\n"), independently generated with hashlib.
     assert!(
         text.contains("4b0277cfb14e0550ba5c3aa75372ac66e109b076783d3467382501d66f717784"),
         "{text}"
@@ -46,8 +43,6 @@ fn fresh_custom_report_does_not_assign_a_siblings_suffix_coverage() {
     assert!(p.snapshot().unwrap().contains(":coverage nil, :crap nil"));
 }
 
-// The test executable is a portable, Rust-only coverage fixture command.
-// Tests invoke this exact test in a fresh process at the scratch project root.
 #[test]
 fn coverage_fixture_command() {
     if !std::path::Path::new("a.rs").is_file() {
@@ -164,8 +159,6 @@ fn edits_during_coverage_drop_stamp_but_tool_caches_do_not() {
     assert_eq!(result.status.code(), Some(0), "{}", stderr(&result));
     let text = stderr(&result);
     assert!(text.contains("Files changed while coverage ran"));
-    // The warning names the file that moved, from the fingerprints on either
-    // side of the run rather than a second walk of the tree.
     assert!(
         text.contains("changed:") && text.contains("tests/test_a.rs"),
         "{text}"

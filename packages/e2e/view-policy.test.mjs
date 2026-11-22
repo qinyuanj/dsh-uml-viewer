@@ -57,7 +57,6 @@ test('companion refuses a mismatched omit context and keeps the chosen context t
     const proposalOmit = omit('{:context :proposal :name "Review plan" :proposal-id :p-review}')
     assert.match(companion.reply(modelRequest(proposalOmit)).text, /^Refused/)
     assert.equal(fs.readFileSync(path.join(deep, 'policy.edn'), 'utf8'), VIEW_POLICY)
-    // CI7 run-GWPnzU request 006: the resident quotes name before proposal-id.
     const choice = 'UML viewer panel request:\n{:op :context :context {:context :proposal :name "Review plan" :proposal-id :p-review}}'
     assert.equal(companion.reply(modelRequest(choice)).text, 'Discussing the chosen diagram.')
     assert.equal(fs.readFileSync(path.join(deep, 'policy.edn'), 'utf8'), VIEW_POLICY)

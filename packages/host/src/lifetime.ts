@@ -5,9 +5,6 @@ import { PanelPrompts } from './prompt.js'
 import { disposePool, ResidentPool, ResidentSessions } from './resident.js'
 import type { SessionStates } from './state.js'
 
-// The root context outlives a plugin replacement; no process-global registry.
-// Symbol.for also survives loading a new copy of this module after an update.
-// v2 includes owned holders, serialized transitions and separate panel/borrow refs.
 const STATE = Symbol.for('dsh-uml-viewer.panel-state.v2')
 
 interface Shared {
@@ -16,20 +13,11 @@ interface Shared {
 }
 type Root = Context & { [STATE]?: Map<string, Shared> }
 
-/** The per-plugin-home panel state this activation joins. */
 export interface PanelLifetime {
   readonly sessions: ResidentSessions
   readonly prompts: PanelPrompts
 }
 
-/**
- * Open panels retain their children across a plugin replacement. The new
- * activation joins the root's state: actions for an existing session reach
- * its old resident, and a fresh session starts with the new pinned argv.
- * Last-panel close still stops its resident and drops its prompt section;
- * root shutdown is a second owner that stops every remaining child, even if
- * no panel close arrives.
- */
 export function panelLifetime(ctx: Context, home: string | undefined, services: HostServices,
   config: Config, states: SessionStates): PanelLifetime {
   const root = ctx.root as Root

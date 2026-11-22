@@ -1,26 +1,10 @@
-/**
- * The top bar's 「更多」 menu (#46, ADR 0015): fit the view and the Remove
- * arrows toggle, each with its shortcut beside it. The legend entry joins them
- * in #50; the request list of #51 lives in the status bar, not here.
- *
- * The menu is plain markup styled from host theme tokens (ADR 0013: the host's
- * UI primitives are never loaded). Same rule as the element menu (#43):
- * `role="menu"` only while open. The host's shortcut service treats any
- * `[role="menu"]` in the document as an open modal, even a hidden one, and a
- * modal blocks the tab's refresh command.
- */
 import type { PanelController } from './panel.js'
 import { ENGLISH_TEXT, type PanelText } from './locale.js'
 
-/** One item of the More menu. */
 export interface MoreMenuEntry {
-  /** Stable key; later tickets add their entries beside these. */
   readonly id: string
-  /** The item's text, read in the current language. */
   label(): string
-  /** The shortcut shown beside the label (`Ctrl+0`), where the item has one. */
   readonly shortcut?: string
-  /** A toggle's state, drawn as `aria-checked` on a checkbox item. */
   checked?(): boolean
   disabled?(): boolean
   run(): void
@@ -49,7 +33,6 @@ export const MORE_MENU_STYLE = `
 .dsh-uml-viewer-more-menu .dsh-uml-viewer-more-shortcut { flex: 0 0 auto; color: var(--dsw-alias-label-tertiary); }
 `
 
-/** The built-in entries: fit the view, and the Remove arrows toggle. */
 export function moreMenuEntries(controller: PanelController, text: PanelText): MoreMenuEntry[] {
   return [
     {
@@ -62,11 +45,8 @@ export function moreMenuEntries(controller: PanelController, text: PanelText): M
     {
       id: 'remove-arrows',
       label: () => text.t('more.removeArrows'),
-      // `triangles` is the arrow-less mode; any other mode (a restored view
-      // included) first clears to it, so a saved mode cannot strand the user.
       checked: () => controller.declutterMode === 'triangles',
       run: () => {
-        // The panel stream reports its own failures; the menu just asks.
         void controller
           .setDeclutter(controller.declutterMode === 'triangles' ? 'full' : 'triangles')
           .catch(() => {})
@@ -77,14 +57,11 @@ export function moreMenuEntries(controller: PanelController, text: PanelText): M
 
 export interface MoreMenuOptions {
   text?: PanelText
-  /** Read when the menu opens, so later tickets add entries without a remount. */
   entries: () => readonly MoreMenuEntry[]
-  /** Put the keyboard back where it was after an entry ran. */
   onDone?: () => void
 }
 
 export interface MoreMenu {
-  /** Open or close the menu; the top bar's button and Esc both do this. */
   toggle(): void
   open(): void
   close(): void
@@ -94,11 +71,6 @@ export interface MoreMenu {
 
 let counter = 0
 
-/**
- * Attach the More menu to its trigger button. The menu element is appended to
- * `host` (the top bar) so it is anchored under the button and stays inside the
- * panel's own box.
- */
 export function mountMoreMenu(host: HTMLElement, trigger: HTMLButtonElement, options: MoreMenuOptions): MoreMenu {
   const text = options.text ?? ENGLISH_TEXT
   const doc = host.ownerDocument
@@ -129,7 +101,6 @@ export function mountMoreMenu(host: HTMLElement, trigger: HTMLButtonElement, opt
 
   const build = (): void => {
     menu.setAttribute('aria-label', text.t('more.label'))
-    // A reopen rebuilds the items: labels and toggle states may have changed.
     menu.replaceChildren()
     const entries = options.entries()
     items = entries.map(entry => {
@@ -175,8 +146,6 @@ export function mountMoreMenu(host: HTMLElement, trigger: HTMLButtonElement, opt
 
   const onTrigger = (): void => show()
   const dismiss = (event: Event): void => {
-    // A press on the trigger is the toggle, not a dismissal: closing here
-    // would let the click that follows reopen the menu for good.
     if (!open || event.target === trigger) return
     if (event.target !== menu && !menu.contains?.(event.target as Node)) close()
   }

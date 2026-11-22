@@ -44,7 +44,6 @@ def git_output(root, *arguments):
 
 
 def base_commit():
-    """Use the one canonical CI base SHA; never open an unfiltered lane."""
     base = os.environ.get(BASE_SHA_ENV, '').strip()
     require(bool(base), f'mutate: missing {BASE_SHA_ENV}; refusing an unfiltered lane')
     require(SHA.fullmatch(base) is not None, f'mutate: malformed base SHA: {base!r}')
@@ -74,11 +73,6 @@ def hunk_lines(header):
 
 
 def parse_diff(diff):
-    """Map configured targets to their changed new-side lines.
-
-    Only zero-context unified hunks are accepted. Unknown paths, hunks or
-    trailing text fail closed rather than being treated as an empty diff.
-    """
     changed = {target: set() for target, _ in MUTATE_TARGETS}
     seen = set()
     current = None
@@ -131,11 +125,6 @@ def changed_lines(root, base):
 
 
 def per_target_line_filter(root, lines_by_target):
-    """Build path:line entries and remember targets with no changed lines.
-
-    The mutator's qualified grammar makes a line in one target unable to
-    select a site with the same number in the other target.
-    """
     entries = []
     zero_targets = set()
     for target, lines in lines_by_target.items():
@@ -151,7 +140,6 @@ def per_target_line_filter(root, lines_by_target):
 
 
 def build_mutation_command(root, binary, base):
-    """Keep both business targets and the full test command in one call."""
     reports = [path for folder in ('coverage', 'target/coverage')
                for path in (root / folder).rglob('lcov.info')]
     require(bool(reports) and all(path.stat().st_size > 0 for path in reports),
@@ -186,9 +174,6 @@ def validate(text, operation, code, root):
 
 
 def validate_mutation_snapshots(root, started, zero_targets):
-    # The JSON record carries no per-file outcomes; each published snapshot
-    # does. A fresh mtime proves this run selected the file rather than merely
-    # reusing the snapshot committed with the project.
     for target, relative in MUTATE_TARGETS:
         snapshot = root / relative
         require(snapshot.is_file(), f'mutate: missing snapshot for {target}: {relative}')

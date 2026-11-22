@@ -1,7 +1,3 @@
-//! The project boundary: canonical project and diagram paths. The window's
-//! proposal write-back (#141) left with the window (dsh-uml-viewer#30);
-//! proposals are edited in the policy by the companion.
-
 use std::path::{Path, PathBuf};
 
 /// `std::fs::canonicalize`, or `path` itself when it does not resolve. On

@@ -1,8 +1,3 @@
-// `pnpm test:package` entry: the package contract, the stale-payload identity
-// gate and the release guards run together, so dropping one suite from CI shows
-// up here. The identity suite mirrors a source tree, so it only runs with an
-// explicit disposable scratch parent; this wrapper supplies one under the
-// ignored .scratch/ tree and removes it afterwards.
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -24,7 +19,5 @@ try {
   if (result.error) throw result.error
   process.exitCode = result.status ?? 1
 } finally {
-  // Only the directory this run created; an explicit scratch parent is the
-  // caller's to clean.
   if (owned) await rm(owned, { recursive: true, force: true })
 }

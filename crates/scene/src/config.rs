@@ -1,7 +1,3 @@
-//! Quality thresholds, grades and pooling (port of
-//! `love/uml/domain/config.lua`). The band boundaries, the grade ramps and
-//! the pooling rules are golden-protected behaviour: unchanged from the JVM.
-
 use edn::Value;
 use edn::record::{flag, get, num, numval};
 
@@ -9,7 +5,6 @@ pub const GRADE_BEST: f64 = 10.0;
 pub const GRADE_MID: f64 = 5.5;
 pub const GRADE_WORST: f64 = 1.0;
 
-/// CRAP traffic-light: missing data is red (never hidden).
 pub fn crap_band(score: Option<f64>) -> Value {
     Value::keyword(match score {
         None => "red",
@@ -19,7 +14,6 @@ pub fn crap_band(score: Option<f64>) -> Value {
     })
 }
 
-/// Mutation traffic-light: missing data is red as well.
 pub fn mutation_band(score: Option<f64>) -> Value {
     Value::keyword(match score {
         None => "red",
@@ -55,7 +49,6 @@ pub fn mutation_grade(score: Option<f64>) -> f64 {
     }
 }
 
-/// CRAP risk of a summary map: `mu + sigma`; absent `mu` means no risk data.
 pub fn crap_risk(crap: Option<&Value>) -> Option<f64> {
     let mu = num(get(crap?, "mu")?)?;
     Some(mu + get(crap?, "sigma").and_then(num).unwrap_or(0.0))
@@ -177,7 +170,6 @@ pub fn metric_rating(
     }
 }
 
-/// killed / (killed + survived + mut-gap), None when nothing was measured.
 pub fn mutation_ratio(m: &Value) -> Option<f64> {
     let k = get(m, "killed").and_then(num);
     let s = get(m, "survived").and_then(num);
@@ -191,7 +183,6 @@ pub fn mutation_ratio(m: &Value) -> Option<f64> {
     None
 }
 
-/// One CRAP score per function, absent metrics default to one.
 pub fn function_weight(c: &Value) -> f64 {
     match get(c, "ops") {
         Some(Value::Vector(ops)) => (ops.len().max(1)) as f64,
@@ -236,7 +227,6 @@ fn rounded(g: &Group) -> Value {
     ])
 }
 
-/// Summarize bare numbers and `{:mu}` records; empty input gives None.
 pub fn summarize_scores(scores: &[Value]) -> Option<Value> {
     let xs: Vec<f64> = scores
         .iter()
@@ -251,7 +241,6 @@ pub fn summarize_scores(scores: &[Value]) -> Option<Value> {
     Some(rounded(&group(&xs)))
 }
 
-/// Modules only: no foreign classes, no oval stubs.
 fn module(c: &Value) -> bool {
     !flag(c, "foreign") && get(c, "shape") != Some(&Value::keyword("oval"))
 }
@@ -263,9 +252,6 @@ fn score(x: &Value) -> Option<f64> {
     }
 }
 
-/// Pool per-class CRAP into a directory/package summary. Classes without any
-/// metric count as red (`mu = 20` per function). `rolled` keeps an authored
-/// summary over freshly pooled function scores.
 pub fn pool_crap(classes: &[Value], rolled: bool) -> Option<Value> {
     let mut groups: Vec<Group> = Vec::new();
     for c in classes {
@@ -335,8 +321,6 @@ pub fn pool_crap(classes: &[Value], rolled: bool) -> Option<Value> {
     }))
 }
 
-/// Pool mutation counts; unmeasured classes contribute their function weight
-/// to the gap. None when nothing was measured and no gap exists.
 pub fn pool_mutants(classes: &[Value]) -> Option<Value> {
     let (mut k, mut s, mut g, mut u) = (0.0, 0.0, 0.0, 0.0);
     let (mut measured, mut uncovered) = (false, false);

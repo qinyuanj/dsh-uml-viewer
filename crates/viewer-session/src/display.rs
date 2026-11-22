@@ -1,10 +1,3 @@
-//! How a displayed diagram loads (`:display`, from the companion's mail or
-//! the plugin host's `display` action): exactly as a fresh document load,
-//! with the metrics root derived from the diagram (`metrics::root`), not
-//! from the project, so a diagram elsewhere still joins its own snapshots.
-//! The path it records is the canonical one (`display_path`), because the
-//! session state keeps that text and a restore must reproduce it exactly.
-
 use std::cell::RefCell;
 use std::path::{Component, Path, PathBuf};
 
@@ -30,7 +23,6 @@ impl DisplayBoundary {
     }
 }
 
-/// Hash the same string buffer the IR parser consumed (without re-reading its path).
 pub(crate) fn digest(text: &str) -> String {
     format!("{:x}", Sha256::digest(text.as_bytes()))
 }
@@ -102,8 +94,6 @@ mod tests {
     use edn::record::get;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// A fresh temporary directory per call: process id plus an in-process
-    /// counter, so parallel tests never share one.
     fn scratch(label: &str) -> std::path::PathBuf {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -117,9 +107,6 @@ mod tests {
         std::fs::write(directory.join("second.edn"), "{:title \"Second\"}").unwrap();
         let boundary = DisplayBoundary::new(&directory);
         let root = directory.to_string_lossy().into_owned();
-        // A resolved path is a filesystem path, not a `/`-formatted string:
-        // compare it as a path, and against the OS for the file itself, so the
-        // assertion states "this file under the root" on both hosts.
         let resolved = boundary.resolve("second.edn", None);
         assert_eq!(
             std::fs::canonicalize(directory.join("second.edn")).unwrap(),
@@ -130,8 +117,6 @@ mod tests {
             Path::new("/abs/x.edn"),
             Path::new(&boundary.resolve("/abs/x.edn", None))
         );
-        // POSIX names: `\` is an ordinary character and `C:` no drive (on
-        // Windows `C:/x.edn` is absolute and kept as it is).
         assert_eq!(
             Path::new(&root).join("odd\\name.edn"),
             Path::new(&boundary.resolve("odd\\name.edn", None))
@@ -143,7 +128,6 @@ mod tests {
         );
         #[cfg(windows)]
         assert_eq!("C:/x.edn", boundary.resolve("C:/x.edn", None));
-        // A state's own project root wins when it names one.
         assert_eq!(
             Path::new("/other").join("second.edn"),
             Path::new(&boundary.resolve("second.edn", Some("/other")))
@@ -164,8 +148,6 @@ mod tests {
 
     #[test]
     fn a_display_path_loads_under_the_launch_canonical_project_root() {
-        // The shell canonicalizes the project root once; a relative display
-        // path must join and normalize under that same root on both hosts.
         let directory = scratch("uml mail canonical");
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(directory.join("second.edn"), "{:title \"Second\"}").unwrap();
@@ -177,10 +159,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(directory);
     }
 
-    /// The saved state is what a restart replays, so one displayed file has
-    /// one persisted `diagram` path: two spellings of the same file must not
-    /// save two states, and the path saved is the canonical one the restored
-    /// session writes back (CI9 `windows-mutate`, fingerprint round trip).
     #[test]
     fn a_displayed_diagram_keeps_one_persisted_path_whichever_spelling_showed_it() {
         let directory = scratch("uml display persisted");

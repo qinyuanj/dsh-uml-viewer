@@ -4,10 +4,8 @@ import { PANEL_FONT_PATH } from '@dsh-uml-viewer/contracts'
 import type { HostServices } from './dsh.js'
 
 export const FONT_MEDIA_TYPE = 'font/ttf'
-/** The face the installer provisions: Sarasa Mono SC Regular 1.0.42. */
 export const FONT_FILE = 'SarasaMonoSC-Regular.ttf'
 
-/** The module's bundled browser half loads this family so CJK advances match the layout estimate. */
 export const FONT_URL = PANEL_FONT_PATH
 
 /**

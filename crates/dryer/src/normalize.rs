@@ -1,10 +1,8 @@
-//! Python dryer's normalized tree and structural fingerprint set.
 use quality_core::grammar::{Node, children, text};
 use quality_core::language::Language;
 use quality_core::snapshot::string;
 use std::collections::HashSet;
 
-/// A normalized subtree: `K`, a name string or a list in dryer's `shape.py`.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Normalized {
     Keyword(String),
@@ -286,7 +284,6 @@ fn normalize_callee(node: Node, source: &str, language: Option<Language>) -> Nor
         }
         return Normalized::Vector(out);
     }
-    // A named callee always normalizes to a form for Rust's grammar.
     normalize(node, source, true, language).unwrap_or_else(|| keyword("symbol"))
 }
 fn normalize_attribute(
@@ -307,10 +304,6 @@ fn normalize_attribute(
     Normalized::Vector(out)
 }
 
-/// `(node_count, fingerprints)` for `node` in `language`; the Lua-only
-/// operators count as operators only for Lua.
-/// `dryer.astnorm.normalize`: the normalized tree, or `None` when the node
-/// is only punctuation.
 #[cfg(test)]
 pub(crate) fn normalized(
     node: Node,
@@ -320,8 +313,6 @@ pub(crate) fn normalized(
     normalize(node, source, false, language)
 }
 
-/// `(node_count, fingerprints)` of the normalized tree; `None` for a node
-/// that normalizes to nothing.
 pub(crate) fn normalized_shape(
     node: Node,
     source: &str,

@@ -1,6 +1,3 @@
-//! EDN codec behaviour through `parse`/`encode` (#135). Expected values are
-//! literals from the spec and `love/uml/edn.lua`, not recomputed.
-
 use edn::{Value, encode, parse};
 
 fn kw(name: &str) -> Value {
@@ -54,7 +51,6 @@ fn equal_maps_in_any_order_encode_to_identical_bytes() {
 
 #[test]
 fn sets_round_trip_sorted_and_reject_duplicates() {
-    // Byte order: `"` (0x22) sorts before `:` (0x3a).
     assert_eq!("#{\"c\" :a :b}", round("#{\"c\" :b :a}"));
     assert_eq!(parse("#{1 2}").unwrap(), parse("#{2 1}").unwrap());
     assert!(parse("#{:a :a}").is_err());

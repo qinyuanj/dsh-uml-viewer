@@ -1,4 +1,3 @@
-//! Native report formats used by Go, Java and Cloverage.
 use crate::coverage::{
     Lines, Records, SuffixIndex, candidates, coverage_percent, normalize_path, python_repr,
     python_strip, splitlines,
@@ -10,18 +9,14 @@ use crate::report_files::{ReportTree, report_texts};
 use regex::Regex;
 use std::{fs, path::Path};
 
-/// crapper `suffix_match`: `suffix`'s path segments end `path`'s.
 pub fn suffix_match(path: &str, suffix: &str) -> bool {
     let segments = |p: &str| crate::coverage::segments(p);
     let a = segments(path);
     let b = segments(suffix);
     !b.is_empty() && a.len() >= b.len() && a[a.len() - b.len()..] == b
 }
-/// Profile source → (start line, end line, statements, executions).
 pub(crate) type GoProfile = Vec<(String, Vec<(usize, usize, u64, u64)>)>;
 
-/// crapper `_profile_segments`: the first profile file any candidate name of
-/// `path` matches, exactly or by a path suffix either way.
 pub(crate) fn go_segments<'p>(
     profile: &'p GoProfile,
     path: &str,
@@ -51,7 +46,6 @@ pub(crate) const JACOCO_REPORTS: &[&str] = &[
     "*/*/target/site/jacoco/jacoco.xml",
 ];
 
-/// JaCoCo XML with its DOCTYPE removed, as crapper and mutator parse it.
 pub(crate) fn jacoco_document(text: &str) -> String {
     Regex::new(r"(?i)<!DOCTYPE[^>]*>")
         .unwrap()
@@ -59,13 +53,10 @@ pub(crate) fn jacoco_document(text: &str) -> String {
         .into_owned()
 }
 
-/// crapper `_merge_forms`: Cloverage's per-line form counts for every HTML
-/// page under `target/coverage`, keyed by the page path without `.html`.
 pub(crate) fn cloverage_forms(root: &Path) -> Records {
     tree_cloverage_forms(ReportTree::plain(root))
 }
 
-/// [`cloverage_forms`] over a plain or overlay report tree.
 pub(crate) fn tree_cloverage_forms(tree: ReportTree<'_>) -> Records {
     let mut forms = Records::default();
     let span =
@@ -111,8 +102,6 @@ impl Default for Reports {
 }
 
 impl Reports {
-    /// crapper `_SuffixIndex.get` for Cloverage HTML: an exact report key
-    /// wins, then the earliest record ending with a candidate.
     pub fn forms_percent(&self, path: &str) -> Option<&Lines> {
         self.forms.get(path)
     }
@@ -146,7 +135,6 @@ impl Reports {
             _ => None,
         }
     }
-    /// crapper `parse_jacoco_index`: unparseable XML raises for the run.
     fn add_java(&mut self, text: &str) -> Result<(), String> {
         let clean = jacoco_document(text);
         let doc = roxmltree::Document::parse(&clean)
@@ -194,9 +182,6 @@ impl Reports {
     }
 }
 
-/// crapper `parse_go_profile`, merged into `profile` as `_merge_lists` does:
-/// an unusable segment raises, so the run fails instead of publishing
-/// unmeasured classes.
 pub(crate) fn parse_go_profile(text: &str, profile: &mut GoProfile) -> Result<(), String> {
     for (index, raw) in splitlines(text).into_iter().enumerate() {
         let number = index + 1;
@@ -214,8 +199,6 @@ pub(crate) fn parse_go_profile(text: &str, profile: &mut GoProfile) -> Result<()
         if fields.len() != 3 || !fields[0].contains(':') {
             return Err(invalid());
         }
-        // The range separator is the last colon; a Windows absolute source
-        // key can also contain a drive colon before the disposable-copy path.
         let Some((file, range)) = fields[0].rsplit_once(':') else {
             return Err(invalid());
         };

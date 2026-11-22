@@ -5,8 +5,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { DARK_HUES, resolveTheme } from '../src/theme.js'
 import { fakeCanvas, DARK_TOKENS } from './fakes.js'
 
-/** Host React element seam: exercise the exported components with the host's
- * createElement boundary. Actual layout/scroll/selection runs in Playwright. */
 interface Element { type: string; props: Record<string, any>; children: any[] }
 function elements() {
   const code = buildSync({ entryPoints: [fileURLToPath(new URL('../src/overlay-view.ts', import.meta.url))],
@@ -18,7 +16,6 @@ function elements() {
     },
     useRef: () => ({ current: null }), useState: (value: unknown) => [value, () => {}], useEffect: () => {},
   }
-  // `Overlays` resolves its first theme from the page; a light page with no tokens.
   const page = { document: { body: {} }, getComputedStyle: () => ({ getPropertyValue: () => '' }) }
   vm.runInNewContext(code, { module, exports: module.exports, require: () => hooks, ...page })
   return module.exports
@@ -66,12 +63,10 @@ it('renders source tokens, declaration marker and unselectable gutter without re
   expect(all(tree, e => e.props['data-marked'] === true)[0]!.props['data-source-line']).toBe(82)
   expect(text(all(tree, e => e.type === 'code')[0]!)).toBe('  pub fn target()')
   expect(all(tree, e => e.props.className === 'dsh-uml-source-gutter')[0]!.props['aria-hidden']).toBe(true)
-  // The drawer's back button returns to the card; × closes the whole drawer.
   all(tree, e => e.props['aria-label'] === 'Back to class card')[0]!.props.onClick()
   expect(backToCard).toHaveBeenCalledTimes(1)
   all(tree, e => e.props['aria-label'] === 'Close source window')[0]!.props.onClick()
   expect(closeDrawer).toHaveBeenCalledTimes(1)
-  // A source with no card to return to has no back button.
   const alone = elements().SourceView!({ controller: {}, model: sourceModel, back: false })
   expect(all(alone, e => e.props['aria-label'] === 'Back to class card')).toEqual([])
 })
@@ -130,7 +125,6 @@ describe('bounded source DOM', () => {
     expect(rows.some(e => e.props['data-source-line'] === 3000 && e.props['data-marked'] === true)).toBe(true)
     const scroll = all(tree, e => e.props.className === 'dsh-uml-source-scroll')[0]!
     expect(scroll.props['data-source-rows']).toBe(4000)
-    // Spacers keep the full scroll height: rendered + spacer rows = file rows.
     const spacers = scroll.children.filter((e: any) => e.props['aria-hidden'] === true && e.props.style?.height !== undefined)
     const spacerRows = spacers.reduce((sum: number, e: any) => sum + e.props.style.height, 0) / view.SOURCE_ROW_HEIGHT
     expect(spacerRows + rows.length).toBe(4000)

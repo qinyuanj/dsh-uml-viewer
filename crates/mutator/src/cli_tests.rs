@@ -1,7 +1,3 @@
-//! `--copy` parsing: the option takes one path per occurrence and may repeat.
-//!
-//! What the path is allowed to be is not a parsing question; the validation
-//! matrix is in `isolation_outside_tests.rs`, next to `resolve_outside`.
 use crate::cli;
 
 fn parse(args: &[&str]) -> Result<cli::Options, String> {
@@ -21,8 +17,6 @@ fn copy_is_repeatable_and_keeps_every_value_in_order() {
     ])
     .unwrap();
     assert_eq!(options.copies, ["../contracts", "../shared/contracts"]);
-    // Two spellings of one position stay two arguments here; the resolver is
-    // what collapses them, so a caller can still see exactly what it passed.
     let repeated = parse(&["--copy", "../contracts", "--copy", "../contracts"]).unwrap();
     assert_eq!(repeated.copies, ["../contracts", "../contracts"]);
 }

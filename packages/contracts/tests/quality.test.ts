@@ -2,8 +2,6 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { parseQualityResult, parseQualityToolRequest, validateQualityToolResult } from '../src/index.js'
 
-// Lines printed by the Rust binary (crates/uml-viewer/tests/quality.rs checks
-// the binary still prints exactly these fields).
 const samples = readFileSync(new URL('../../../fixtures/quality/records.jsonl', import.meta.url), 'utf8')
   .split('\n').filter(Boolean)
 
@@ -52,10 +50,8 @@ describe('quality tool request', () => {
     expect(parseQualityToolRequest('mutate', {
       targets: ['src/a.rs', 'src/b.rs'], copy: ['../contracts', '../docs/release'], mutateAll: true,
     })).toEqual(['--mutate-all', '--copy', '../contracts', '--copy', '../docs/release', 'src/a.rs', 'src/b.rs'])
-    // A Windows spelling reaches argv in the one normalized form.
     expect(parseQualityToolRequest('mutate', { targets: ['src/a.rs'], copy: ['..\\contracts'] }))
       .toEqual(['--copy', '../contracts', 'src/a.rs'])
-    // Without copy the argv is byte for byte what it always was.
     expect(parseQualityToolRequest('mutate', { targets: ['src/a.rs'] })).toEqual(['src/a.rs'])
     expect(parseQualityToolRequest('mutate', { targets: ['src/a.rs'], copy: [] })).toEqual(['src/a.rs'])
   })
@@ -86,8 +82,6 @@ describe('quality tool request', () => {
   })
 
   it('refuses a copy path for exactly what a project-relative path is refused for', () => {
-    // One component rule, two options: the copy validator must reject the
-    // Windows spellings the project-relative one rejects, in the same words.
     const refused: [string, RegExp][] = [
       ['../contracts/ab:c.ts', /alternate data stream/],
       ['../CON', /device name/],
@@ -101,7 +95,6 @@ describe('quality tool request', () => {
       expect(() => parseQualityToolRequest('mutate', { targets: ['src/a.rs'], copy: [path] }),
         path).toThrow(rule)
     }
-    // The ordinary spellings still pass, and keep the one normalized form.
     expect(parseQualityToolRequest('mutate', { targets: ['src/a.rs'], copy: ['../docs/release'] }))
       .toEqual(['--copy', '../docs/release', 'src/a.rs'])
     expect(parseQualityToolRequest('mutate', { targets: ['src/a.rs'], copy: ['..\\server\\Cargo.toml'] }))

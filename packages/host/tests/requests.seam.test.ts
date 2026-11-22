@@ -1,12 +1,3 @@
-// #28 seam: right-click quality requests become visible queued user messages
-// in the panel's bound session, through DSH's real `sessionController.prompt`
-// shape, in click order, with the companion rules present only while a panel
-// stream is open. A real Cordis Context hosts the built plugin; a real child
-// speaks the resident protocol.
-//
-// What the target covers is the resident's answer (`quality-target`), so these
-// cases never parse an IR and no diagram file exists in the project: the
-// files in the delivered message can only come from the resident.
 import { Context } from '@deepseek-ai/cordis'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -25,7 +16,6 @@ import type { Agent, HostServices, SpawnSpec } from '../src/dsh.js'
 const goldenFrame = fileURLToPath(new URL('../../../crates/frame/tests/fixtures/frames/root.frame.json', import.meta.url))
 const fakeBinary = [process.execPath, fileURLToPath(new URL('./fixtures/uml-viewer.mjs', import.meta.url))]
 
-/** What the fake resident answers for each element id; the host may only use this. */
 const TARGETS: Record<string, Record<string, unknown>> = {
   'session-a': {
     ':core': { kind: 'component', files: ['src/from-resident/a.ts', 'src/from-resident/b.ts'] },
@@ -78,7 +68,6 @@ async function setup(options: { shown?: boolean; controller?: boolean } = {}) {
     const root = await mkdtemp(path.join(os.tmpdir(), `uml requests ${id} `))
     roots.push(root)
     projects[id] = root
-    // No diagram file: only the resident's answer can name source files.
     await writeFile(path.join(root, 'resident.json'), JSON.stringify({
       framePath: goldenFrame,
       ...(options.shown === false ? {} : { openWaiting: false }),
@@ -96,7 +85,6 @@ async function setup(options: { shown?: boolean; controller?: boolean } = {}) {
       getSectionOrder: () => 100,
     } } } as unknown as Agent
   }
-  /** Every prompt DSH admitted, in admission order; `hold` delays one admission. */
   const admitted: PromptRequest[] = []
   const started: PromptRequest[] = []
   let hold: ((request: PromptRequest) => Promise<void>) | null = null
@@ -129,7 +117,6 @@ async function setup(options: { shown?: boolean; controller?: boolean } = {}) {
     watch(agent: Agent, signal: AbortSignal): AsyncIterable<PanelEvent>
     action(agent: Agent, action: unknown): Promise<{ accepted: boolean; reason: string | null }>
   }
-  /** Open a panel stream and keep reading it; `statuses` is every request-status list it pushed. */
   const open = async (session: string) => {
     const controller = new AbortController()
     controllers.push(controller)
@@ -147,7 +134,6 @@ async function setup(options: { shown?: boolean; controller?: boolean } = {}) {
     return {
       events,
       statuses,
-      /** The latest list once `condition` holds for it. */
       async status(condition: (list: RequestStatusEntry[]) => boolean) {
         await until(() => { const last = statuses().at(-1); return last !== undefined && condition(last) })
         return statuses().at(-1)!
@@ -157,7 +143,6 @@ async function setup(options: { shown?: boolean; controller?: boolean } = {}) {
   }
   const request = (session: string, request: string, id: string, extra: Record<string, unknown> = {}) =>
     viewer().action(agents[session]!, { action: 'quality-request', request, id, ...extra })
-  /** The actions the fake resident actually received, in order. */
   const actions = (session: string): Promise<{ action: string; id?: string }[]> =>
     readFile(path.join(projects[session]!, 'resident-actions.log'), 'utf8')
       .then(text => text.trimEnd().split('\n').filter(Boolean).map(line => {
@@ -170,7 +155,6 @@ async function setup(options: { shown?: boolean; controller?: boolean } = {}) {
 
 const header = 'UML viewer panel request:\n'
 
-/** Wait for a condition instead of sleeping a fixed time. */
 async function until(condition: () => boolean, ms = 5000): Promise<void> {
   const deadline = Date.now() + ms
   while (!condition()) {
@@ -189,10 +173,8 @@ it('queues one visible user message in the bound session for each refresh, namin
   expect(s.admitted.map(r => [r.sessionId, r.mode, r.content])).toEqual(['refresh-crap', 'refresh-mutate', 'refresh-mutate-all']
     .map(op => ['session-a', 'queue', [{ type: 'text',
       text: `${header}{:op :${op} :target {:id :core.order :kind :class} :files ["src/from-resident/order.ts"]}` }]]))
-  // Each message is its own admission with a fresh correlation id.
   expect(new Set(s.admitted.map(r => r.requestId)).size).toBe(3)
   expect(s.admitted.every(r => typeof r.requestId === 'string' && r.requestId.length > 0)).toBe(true)
-  // Session B's panel is open too, but never receives A's request.
   expect(s.admitted.some(r => r.sessionId === 'session-b')).toBe(false)
   expect(await s.request('session-b', 'refresh-crap', ':api')).toEqual({ accepted: true, reason: null })
   expect(s.admitted.at(-1)).toMatchObject({ sessionId: 'session-b',
@@ -203,13 +185,10 @@ it('uses only the resident answer: no IR file exists and a client-named file is 
   const s = await setup()
   await s.open('session-a')
   expect(existsSync(path.join(s.projects['session-a']!, 'diagram.edn'))).toBe(false)
-  // The panel sends an id and a file of its own; only the id is a field.
   expect(await s.request('session-a', 'refresh-mutate', ':core', { files: ['../outside.ts'] }))
     .toEqual({ accepted: true, reason: null })
   expect(s.admitted.map(r => r.content[0]!.text)).toEqual([
     `${header}{:op :refresh-mutate :target {:id :core :kind :component} :files ["src/from-resident/a.ts" "src/from-resident/b.ts"]}`])
-  // What the host asked: the resident action for that element, never a `save`
-  // read of the IR path and never a client file.
   const actions = await s.actions('session-a')
   expect(actions.filter(entry => entry.action === 'quality-target')).toEqual([{ action: 'quality-target', id: ':core' }])
   expect(actions.some(entry => entry.action === 'save')).toBe(false)
@@ -260,7 +239,6 @@ it('admits overlapping requests strictly in click order, one at a time', async (
     s.request('session-a', 'refresh-mutate', ':core'),
     s.request('session-a', 'refresh-mutate-all', ':api'),
   ]
-  // The first admission is still pending: nothing behind it may overtake it.
   await until(() => s.started.length >= 1)
   await new Promise(resolve => setTimeout(resolve, 200))
   expect(s.started.map(r => r.content[0]!.text.split('\n')[1]!.split(' ')[1])).toEqual([':refresh-crap'])
@@ -305,8 +283,6 @@ it('only queues: it never steers the running turn, so the composer and its draft
   await s.open('session-a')
   await s.request('session-a', 'refresh-crap', ':api')
   await s.request('session-a', 'refresh-mutate-all', ':core')
-  // `queue` waits behind the running turn as a new user message; `steer` would
-  // inject into it. No other part of the prompt request is sent.
   expect(s.admitted.map(r => r.mode)).toEqual(['queue', 'queue'])
   for (const r of s.admitted) expect(Object.keys(r).sort()).toEqual(['content', 'mode', 'requestId', 'sessionId'])
 })
@@ -319,7 +295,6 @@ it('carries the companion rules only while that session has an open panel', asyn
   expect(s.sections['session-a']).toHaveLength(1)
   const text = s.sections['session-a']![0]!.text as string
   expect(text).toBe(rules)
-  // The rules name the delivered request format and the one-call mutation rule.
   for (const phrase of [header.trim(), ':refresh-crap', ':refresh-mutate-all', ':files', 'uml_mutate', 'mutateAll', 'uml_ir', 'uml_display', 'validResult']) {
     expect(text).toContain(phrase)
   }
@@ -329,20 +304,15 @@ it('carries the companion rules only while that session has an open panel', asyn
   expect(s.sections['session-a']).toEqual([])
 })
 
-// #51 request status A: the host keeps each session's request-status list in
-// memory and pushes the whole list on the panel stream, when the stream opens
-// and on every change.
 const queued = (op: string, target: unknown, id: unknown = expect.any(String)) =>
   ({ id, op, target, state: 'queued', reason: null, exitCode: null })
 
 it('pushes the session’s list when the stream opens, and an admitted refresh is queued at once', async () => {
   const s = await setup()
   const panel = await s.open('session-a')
-  // The list arrives on subscribe, before any request, and is a valid event.
   expect(await panel.status(list => list.length === 0)).toEqual([])
   expect(await s.request('session-a', 'refresh-crap', ':core.order')).toEqual({ accepted: true, reason: null })
   const [entry] = await panel.status(list => list.length === 1)
-  // Its id is the admitted message's correlation id.
   expect(entry).toEqual(queued('refresh-crap', { id: ':core.order', kind: 'class' }, s.admitted[0]!.requestId))
   await s.request('session-a', 'refresh-mutate', ':core')
   expect(await panel.status(list => list.length === 2)).toEqual([
@@ -353,12 +323,10 @@ it('pushes the session’s list when the stream opens, and an admitted refresh i
 it('marks a request DSH did not admit as failed with the admission reason, and never queues it', async () => {
   const s = await setup()
   const panel = await s.open('session-a')
-  // Refused before the message: the resident names no target for the element.
   expect(await s.request('session-a', 'refresh-mutate', ':nowhere')).toMatchObject({ accepted: false })
   const [unresolved] = await panel.status(list => list.length === 1)
   expect(unresolved).toEqual({ id: expect.any(String), op: 'refresh-mutate', target: null, state: 'failed',
     reason: 'no class or namespace component :nowhere in the shown diagram', exitCode: null })
-  // Refused by DSH itself: the element was resolved, the session refused the message.
   s.reject(() => new Error('session is archived'))
   expect(await s.request('session-a', 'refresh-crap', ':api')).toMatchObject({ accepted: false })
   const list = await panel.status(list => list.length === 2)
@@ -366,7 +334,6 @@ it('marks a request DSH did not admit as failed with the admission reason, and n
     state: 'failed', reason: expect.stringMatching(/session is archived/), exitCode: null })
   expect(list[0]!.id).not.toBe(list[1]!.id)
   expect(s.admitted).toEqual([])
-  // Nothing was ever queued.
   expect(panel.statuses().flat().some(entry => entry.state === 'queued')).toBe(false)
 })
 
@@ -385,7 +352,6 @@ it('keeps a session’s entries for a stream opened later, as after a page refre
   await s.request('session-a', 'refresh-mutate', ':nowhere')
   const before = await first.status(list => list.length === 2)
   await first.close()
-  // The page refreshed: a new stream of the same session gets the list on subscribe.
   const second = await s.open('session-a')
   expect(await second.status(list => list.length === 2)).toEqual(before)
   expect(before.map(entry => entry.state)).toEqual(['queued', 'failed'])
@@ -402,11 +368,9 @@ it('never shows one session’s entries on another session’s panel', async () 
   await s.request('session-b', 'refresh-crap', ':api')
   expect(await b.status(list => list.length === 1)).toEqual([
     queued('refresh-crap', { id: ':api', kind: 'class' }, s.admitted.at(-1)!.requestId)])
-  // B saw only its own list; A's list never grew B's entry.
   expect(b.statuses().every(list => list.length <= 1)).toBe(true)
   await new Promise(resolve => setTimeout(resolve, 100))
   expect(a.statuses().at(-1)).toHaveLength(2)
-  // A late B stream gets B's list alone.
   const late = await s.open('session-b')
   expect(await late.status(list => list.length === 1)).toEqual(b.statuses().at(-1))
 })
@@ -415,7 +379,6 @@ it('keeps every resident event while request-status updates interleave with them
   const s = await setup()
   const panel = await s.open('session-a')
   await until(() => panel.events.some(event => event.kind === 'frame'))
-  // A burst of requests and resident answers at once: nothing of either is lost.
   await Promise.all([
     ...[':api', ':core', ':core.order'].map(id => s.request('session-a', 'refresh-crap', id)),
     ...['a', 'b', 'c'].map(query => s.viewer().action(s.agents['session-a']!, { action: 'search', query })),
@@ -425,9 +388,6 @@ it('keeps every resident event while request-status updates interleave with them
   expect(panel.events.flatMap(event => event.kind === 'search' ? [event.query] : [])).toEqual(['a', 'b', 'c'])
 })
 
-// #53: a failed entry stays until the user dismisses it; the dismissal is a
-// panel action the host answers by dropping the entry for every panel of the
-// session, including one opened after a page refresh.
 it('drops a dismissed failure for every panel of the session and keeps it gone after a refresh', async () => {
   const s = await setup()
   const a = await s.open('session-a')
@@ -442,19 +402,14 @@ it('drops a dismissed failure for every panel of the session and keeps it gone a
   expect(await dismiss('session-a', failed!.id)).toEqual({ accepted: true, reason: null })
   expect(await a.status(list => list.length === 1)).toEqual([admitted])
   expect(await twin.status(list => list.length === 1)).toEqual([admitted])
-  // A page refresh: the new stream never sees the dismissed entry.
   await a.close()
   const reopened = await s.open('session-a')
   expect(await reopened.status(() => true)).toEqual([admitted])
-  // Another session's failure is not this session's to dismiss, and the
-  // dismissal never reaches a resident.
   const [other] = await b.status(list => list.length === 1)
   expect(await dismiss('session-a', other!.id)).toEqual({ accepted: false, reason: expect.stringMatching(/no finished request/) })
   expect(b.statuses().at(-1)).toEqual([other])
   expect((await s.actions('session-a')).some(entry => entry.action === 'dismiss-request')).toBe(false)
-  // A queued request is still in the session's queue: it cannot be dismissed.
   expect(await dismiss('session-a', admitted!.id)).toEqual({ accepted: false, reason: expect.stringMatching(/no finished request/) })
-  // A malformed id is refused by the contract before anything else.
   expect(await dismiss('session-a', 'not an id')).toEqual({ accepted: false, reason: expect.stringMatching(/id/) })
   expect(reopened.statuses().at(-1)).toEqual([admitted])
 })

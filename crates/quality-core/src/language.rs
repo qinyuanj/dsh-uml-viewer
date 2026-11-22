@@ -1,8 +1,5 @@
-//! Which language a file is written in, and which files are tests.
-
 use std::path::Path;
 
-/// The seven analysed languages (ADR 0012).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Language {
     Clojure,
@@ -15,7 +12,6 @@ pub enum Language {
 }
 
 impl Language {
-    /// The name the tools print and stamp (`rust`, `typescript`, ...).
     pub fn name(self) -> &'static str {
         match self {
             Language::Clojure => "clojure",
@@ -45,7 +41,6 @@ const EXTENSIONS: &[(&str, Language)] = &[
     ("lua", Language::Lua),
 ];
 
-/// Directories no walk enters.
 pub const SKIP_DIRS: &[&str] = &[
     ".git",
     ".hg",
@@ -69,7 +64,6 @@ pub const SKIP_DIRS: &[&str] = &[
     ".luarocks",
 ];
 
-/// Directories holding tests: not walked, and any file below one is a test.
 pub const TEST_DIRS: &[&str] = &["test", "tests", "spec", "specs", "__tests__"];
 
 const TEST_SUFFIXES: &[&str] = &[
@@ -94,7 +88,6 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// The language of `path` by its extension; `*.d.ts` has none.
 pub fn language_of(path: &Path) -> Option<Language> {
     if file_name(path).ends_with(".d.ts") {
         return None;
@@ -106,8 +99,6 @@ pub fn language_of(path: &Path) -> Option<Language> {
         .map(|(_, language)| *language)
 }
 
-/// A test by name (`*_test.go`, `test_*.py`, ...) or by any directory in
-/// the path named like a test directory.
 pub fn is_test_file(path: &Path) -> bool {
     let name = file_name(path);
     if TEST_SUFFIXES.iter().any(|suffix| name.ends_with(suffix)) || name == "conftest.py" {
@@ -120,7 +111,6 @@ pub fn is_test_file(path: &Path) -> bool {
         .any(|part| TEST_DIRS.iter().any(|dir| part.as_os_str() == *dir))
 }
 
-/// Source the walk selects: a known language, not a test.
 pub fn is_source_file(path: &Path) -> bool {
     language_of(path).is_some() && !is_test_file(path)
 }

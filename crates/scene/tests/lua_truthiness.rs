@@ -1,9 +1,3 @@
-//! Lua truthiness of authored IR flags (#147 review): in the original scene
-//! core `false` and an absent key are both false. Hand-written IR may spell
-//! a flag out as `false`; the view must then be the one without the flag.
-//! Expected values come from the pre-#144 Lua core (git a692019^, love/uml),
-//! compiled once offline on these exact documents.
-
 use edn::Value;
 use edn::record::get;
 
@@ -66,14 +60,8 @@ fn private_false_on_an_op_keeps_the_member_line() {
                        :ops [{:name "run" :text "run" :private false} {:name "stop" :text "stop"}]}]
             :edges []}"#,
     );
-    // Lua: name, rule and both ops (4 lines, h 90); `:private true` gives 72.
     assert_eq!("{:h 90 :w 120 :x 68 :y 100}", rect(&class(&scene, "a")));
 }
-
-// #154: every flag the Lua core read as `if g(x,'k')` (or `not not g(..)`)
-// treats an authored `false` or `nil` as omission and any other value
-// (`:yes`, `1`) as `true`. Each test compares those spellings against the
-// omitted and the `true` output, which are the reference behaviours.
 
 const FALSY: [&str; 2] = ["false", "nil"];
 const TRUTHY: [&str; 2] = [":yes", "1"];
@@ -82,7 +70,6 @@ fn encoded(v: &Value) -> String {
     edn::encode(v).unwrap()
 }
 
-/// What the scene draws: class rects, packages and edges.
 fn drawn(scene: &Value) -> String {
     let rects: Vec<Value> = edn::record::seq(get(scene, "classes"))
         .iter()
@@ -98,7 +85,6 @@ fn drawn(scene: &Value) -> String {
 
 #[test]
 fn dummy_false_is_hit_before_a_dummy_roll_up() {
-    // hit.lua:34-35: dummies are skipped once any class is not a dummy.
     let hit = |flag: &str| {
         let scene = edn::parse(&format!(
             r#"{{:classes [{{:id :a :rect {{:x 0 :y 0 :w 100 :h 50}} {flag}}}
@@ -116,7 +102,6 @@ fn dummy_false_is_hit_before_a_dummy_roll_up() {
 
 #[test]
 fn violating_is_lua_truthy_on_hit_deps_and_indicators() {
-    // hit.lua:7 `not not g(e,'violating')`; hit.lua:18 `if g(dep,'violating')`.
     for (v, want) in [
         ("false", false),
         ("nil", false),
@@ -149,8 +134,6 @@ fn violating_is_lua_truthy_on_hit_deps_and_indicators() {
 
 #[test]
 fn drill_is_lua_truthy_on_class_hits_and_layer_ids() {
-    // hit.lua:39 `['drill?']=not not g(c,'drill?')`; events.lua:174
-    // `if kind=='class' and G.get(hit,'drill?')`.
     for (v, want) in [
         ("false", false),
         ("nil", false),
@@ -175,8 +158,6 @@ fn drill_is_lua_truthy_on_class_hits_and_layer_ids() {
 
 #[test]
 fn hierarchical_is_lua_truthy_on_read_and_compile() {
-    // ir.lua:53 `if g(raw,'hierarchical') then return raw end`;
-    // document.lua:14 and overlay.lua:39 `if g(doc,'hierarchical')`.
     let doc = |v: &str| {
         format!(
             r#"{{:hierarchical {v} :prefix "x" :order [a b]
@@ -192,7 +173,6 @@ fn hierarchical_is_lua_truthy_on_read_and_compile() {
 
 #[test]
 fn proposal_extra_is_lua_truthy_when_compiling_a_view() {
-    // document.lua:16: `(extra==true or g(extra,'proposal')) and ps[1]`.
     let doc = scene::ir::read_document(
         r#"{:hierarchical true :classes [{:id :a} {:id :b}] :edges []
             :proposals [{:id :p :layers [{:id :l1 :nses [:a]} {:id :l2 :nses [:b]}]}]}"#,

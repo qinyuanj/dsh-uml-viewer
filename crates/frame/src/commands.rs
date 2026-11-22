@@ -1,9 +1,3 @@
-//! Pure drawing model (port of `love/uml/adapters/class_boxes.lua` and
-//! `edges.lua`): scene EDN plus the selection/hover hits in, renderer
-//! commands out; `frame` turns them into its typed draw lists. Colors are
-//! semantic theme roles; widths stay in points and scale with DPI at paint
-//! time, never with zoom.
-
 use edn::Value;
 use edn::record::{flag, get, local_name, seq};
 use scene::document::ViewState;
@@ -14,10 +8,6 @@ use crate::lod::{self, Tier};
 use crate::strings::Lang;
 use crate::theme::{self, Role, RowMarker, fonts};
 
-// Text keeps the layout's 12px side padding; package titles also clear the
-// C/M dots. A class stacks its C/M dots in the right padding and puts its
-// α/I marker in the left one, so its text rows keep the full width the
-// layout sized the box for.
 pub const PAD: f64 = 12.0;
 pub const PACKAGE_TITLE_RESERVE: f64 = 48.0;
 /// An unmeasured class reserves a bottom strip for its 无数据 marker.
@@ -179,10 +169,6 @@ pub enum Command {
         owner_id: Option<Value>,
         dimmed: bool,
     },
-    // The frame's only screen-space chrome (#46, ADR 0015): the hover popup
-    // that follows the pointer, in view coordinates (scaled by DPI at paint
-    // time). Titles, the proposal banner, the return line, the status line and
-    // the centred hint left the frame: the panel draws them as DOM.
     Popup {
         x: f64,
         y: f64,
@@ -213,10 +199,6 @@ impl Command {
         }
     }
 
-    /// The coarsest LOD tier that draws this command (`lod`): silhouettes
-    /// and package titles at every tier, C/M dots and class names from
-    /// Frames, the remaining class detail at Full only. A quality dot's
-    /// letter is drawn at Full only.
     pub fn tier(&self) -> Tier {
         match self {
             Command::Package { .. } | Command::Class { .. } => Tier::Blocks,
@@ -288,7 +270,6 @@ pub enum EdgeCommand {
         behind: [f64; 2],
         color: Role,
         /// Opaque interior of a closed head (canvas, or ink for a filled diamond).
-        /// Never dim this fill: it masks the shaft; `dimmed` affects only the outline.
         fill: Role,
         width: f32,
         hot: bool,
@@ -393,9 +374,6 @@ pub fn text_slots(c: &Value, r: Rect, unmeasured: bool) -> Vec<Command> {
                 {
                     *t = Some(top);
                     *hh = Some(*size * k);
-                    // The bold offset and italic shear overhang into the
-                    // side padding, so a name as wide as the layout's
-                    // estimate still draws at full size.
                     let overhang =
                         *size * (if *bold { 0.05 } else { 0.0 } + if *italic { 0.2 } else { 0.0 });
                     *max_w = w - 2.0 * PAD + overhang;
@@ -484,8 +462,6 @@ pub fn commands(
         let Some(pr) = Rect::from_value(get(p, "rect").unwrap_or(&Value::Nil)) else {
             continue;
         };
-        // Pooled package CRAP substitutes mu=20 for unmeasured members, so
-        // missing is counted from the member classes themselves.
         let mut count = 0i64;
         for c in seq(get(scene, "classes")) {
             if get(c, "package") == get(p, "id") && scene::rating(c).missing {
@@ -508,7 +484,6 @@ pub fn commands(
             band,
             red: band == "red",
             size: fonts::CANVAS as f64,
-            // The italic shear overhangs into the dots' reserve.
             max_w: pr.w - PACKAGE_TITLE_RESERVE + fonts::CANVAS as f64 * 0.2,
             missing: count > 0,
             missing_count: count,
@@ -616,7 +591,6 @@ pub fn commands(
         let shape = local_name(get(c, "shape").unwrap_or(&Value::Nil))
             .unwrap_or_default()
             .to_owned();
-        // A foreign oval is never measured: its red frame says enough.
         let no_data_label = unmeasured && shape != "oval";
         let mut class_commands = Vec::new();
         class_commands.push(Command::Class {
@@ -664,7 +638,6 @@ pub fn commands(
                 } else {
                     "I".into()
                 },
-                // Top-left, after the level number when there is one.
                 x: r.x
                     + 4.0
                     + level
@@ -690,7 +663,6 @@ pub fn commands(
             });
         }
         let mut slots = text_slots(c, r, unmeasured);
-        // The 2px title band runs under the name slot in the box stroke color.
         for s in &slots {
             if let Command::Text {
                 role,
@@ -826,9 +798,6 @@ enum Attention {
     Hovered,
 }
 
-/// Violation semantics win: attention never turns a violating edge white or
-/// gold. Other edges use white for hover and blue for the chain, at the
-/// same width so color alone distinguishes those states.
 fn edge_style(violating: bool, attention: Attention) -> (Role, f32) {
     use theme::widths as W;
     match (violating, attention) {
@@ -957,9 +926,6 @@ pub fn fit(
     }
     let budget = max_w.max(0.0);
     let mut fitted = size * budget / natural;
-    // Real glyph advances snap to the pixel grid, so width is not linear in
-    // size: shrink until the measured text is inside the budget (a wider
-    // label would overrun its slot).
     for _ in 0..8 {
         let w = width(fitted);
         if w <= budget || w <= 0.0 {
@@ -1015,8 +981,6 @@ pub fn popup(state: &ViewState, width: f64, height: f64) -> Option<Command> {
     })
 }
 
-/// The hover popup rows: an edge's dependencies, or in the overview tiers
-/// the name of the hovered class, whose box is too narrow to show it.
 fn hover_rows(state: &ViewState) -> Vec<PopupRow> {
     let hover_kind = state
         .hover
@@ -1056,8 +1020,6 @@ fn hover_rows(state: &ViewState) -> Vec<PopupRow> {
     }
 }
 
-/// `from -> to` rows, violations first: the dependency hover tooltip, which the
-/// panel also renders from the frame's optional `hover` metadata (#26).
 pub(crate) fn dependency_rows(deps: &[Value]) -> Vec<PopupRow> {
     let mut rows: Vec<PopupRow> = deps
         .iter()

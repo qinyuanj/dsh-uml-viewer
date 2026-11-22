@@ -1,11 +1,7 @@
-//! The report paths and texts shared by crapper and mutator: `root.glob`
-//! with literal segments, at most one `**`, and files in name order.
 use crate::paths::{posix, resolve};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// `root.glob(pattern)` for patterns of literal segments with at most one
-/// `**`; directory entries are visited in name order.
 pub(crate) fn glob(root: &Path, pattern: &str) -> Vec<PathBuf> {
     if pattern.starts_with("*/") || pattern.starts_with("*/*/") {
         let depth = usize::from(pattern.starts_with("*/*/")) + 1;
@@ -67,14 +63,6 @@ pub(crate) fn glob(root: &Path, pattern: &str) -> Vec<PathBuf> {
     found
 }
 
-/// The directory reports are read from: one plain tree, or an overlayfs
-/// upper layer read through to its lower layer after the mount is gone.
-///
-/// The overlay form shows what the mounted view showed: an upper entry
-/// shadows the lower one, a whiteout (a 0/0 character device) deletes it, a
-/// non-directory hides everything below it, and an opaque upper directory
-/// (`user.overlay.opaque` or `trusted.overlay.opaque` = `y`) hides the lower
-/// directory's contents.
 #[derive(Clone, Copy)]
 pub struct ReportTree<'a> {
     top: &'a Path,
@@ -82,7 +70,6 @@ pub struct ReportTree<'a> {
 }
 
 impl<'a> ReportTree<'a> {
-    /// Every report as `root` holds it.
     pub fn plain(root: &'a Path) -> Self {
         Self {
             top: root,
@@ -90,7 +77,6 @@ impl<'a> ReportTree<'a> {
         }
     }
 
-    /// An overlay's `upper` directory over its `lower` directory.
     pub fn overlay(upper: &'a Path, lower: &'a Path) -> Self {
         Self {
             top: upper,
@@ -98,7 +84,6 @@ impl<'a> ReportTree<'a> {
         }
     }
 
-    /// Where `relative` is visible as a regular file, if it is.
     pub fn file(&self, relative: &Path) -> Option<PathBuf> {
         let Some(lower) = self.lower else {
             let path = self.top.join(relative);
@@ -136,8 +121,6 @@ impl<'a> ReportTree<'a> {
         None
     }
 
-    /// `glob(pattern)` over the merged view, in the order a glob over the
-    /// mounted view lists it: each matched directory in component order.
     fn glob(&self, pattern: &str) -> Vec<PathBuf> {
         let Some(lower) = self.lower else {
             return glob(self.top, pattern);
@@ -167,8 +150,6 @@ impl<'a> ReportTree<'a> {
             .collect()
     }
 
-    /// Every `.html` file under `directory`, as (path, path below
-    /// `directory`), in the sorted depth-first order of a plain walk.
     pub(crate) fn htmls(&self, directory: &Path) -> Vec<(PathBuf, PathBuf)> {
         fn walk(root: &Path, out: &mut Vec<PathBuf>) {
             let Ok(entries) = fs::read_dir(root) else {
@@ -257,12 +238,10 @@ fn opaque(_: &Path) -> bool {
     false
 }
 
-/// The text of each report once, in pattern order.
 pub(crate) fn report_texts(root: &Path, patterns: &[&str]) -> Vec<String> {
     tree_report_texts(ReportTree::plain(root), patterns)
 }
 
-/// [`report_texts`] over a plain or overlay report tree.
 pub(crate) fn tree_report_texts(tree: ReportTree<'_>, patterns: &[&str]) -> Vec<String> {
     let mut seen: Vec<String> = Vec::new();
     let mut texts = Vec::new();

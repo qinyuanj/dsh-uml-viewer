@@ -4,14 +4,6 @@ import type { SceneFrame } from '@dsh-uml-viewer/contracts'
 import { validateSceneFrame } from '@dsh-uml-viewer/contracts'
 import { hoverAt, withHover } from '../src/hover.js'
 
-/**
- * The resident's optional hover metadata (#26, `crates/frame/src/hover.rs`):
- * dependency-tooltip rows and bundled-edge `via-ids`, which no stroke carries.
- * The goldens come from `scene --frame`, which deliberately omits the field, so
- * these cases add it to a real producer frame. The row text and order are the
- * producer's (`commands::dependency_rows`); this suite proves the client renders
- * them verbatim and invents nothing when the capability is absent.
- */
 const golden = (name: string): SceneFrame => JSON.parse(readFileSync(
   new URL(`../../../crates/frame/tests/fixtures/frames/${name}.frame.json`, import.meta.url), 'utf8')) as SceneFrame
 
@@ -43,8 +35,6 @@ describe('resident hover metadata (via-ids and dependency tooltip)', () => {
     expect(warm.map(e => e.kind === 'stroke' && [e.from, e.to, e.stroke.role])).toEqual([
       [':api', ':serde', 'relation-hover'],
     ])
-    // Without the capability the client falls back to the endpoints alone;
-    // root-hover-frames is the producer's own behaviour for this scene.
     expect(withHover(frame, { kind: 'class', id: ':core.order' }, null).edges.some(e => e.kind === 'stroke' && e.warm)).toBe(false)
   })
 
@@ -60,12 +50,9 @@ describe('resident hover metadata (via-ids and dependency tooltip)', () => {
     const popup = hovered.chrome.at(-1)!
     expect(popup.kind).toBe('popup')
     if (popup.kind !== 'popup') throw new Error('popup')
-    // Rows are the metadata's, verbatim and in its order (violations first).
     expect(popup.rows).toEqual(METADATA.edges[0]!.rows)
     expect(popup.fill).toEqual({ role: 'popup' })
     expect(popup.border).toEqual({ role: 'line' })
-    // Placement and size are `commands::chrome`'s: two rows, the widest text
-    // estimated at the 18 px body font (19 half-width chars = 171), +16.
     expect(popup.rect).toEqual({ x: 300, y: 256, w: 187, h: 56 })
   })
 
@@ -90,12 +77,9 @@ describe('resident hover metadata (via-ids and dependency tooltip)', () => {
     expect(hit).toMatchObject({ kind: 'indicator', id: indicator.id })
     const hovered = withHover(frame, hit, [100, 100])
     expect(hovered.edges).toEqual(frame.edges)
-    // This metadata names another indicator id, so no popup here.
     expect(hovered.chrome.some(c => c.kind === 'popup')).toBe(false)
     const named = { ...frame, hover: { ...METADATA, indicators: [{ ...METADATA.indicators[0]!, id: indicator.id }] } }
     expect(withHover(named, hit, [100, 100]).chrome.some(c => c.kind === 'popup')).toBe(false)
-    // Rows match by id and triangle: two indicators may share a class id, and
-    // only the hovered triangle may show its tooltip.
     const triangle = indicator.points
     const both = { ...frame, hover: { ...METADATA, indicators: [
       { ...METADATA.indicators[0]!, points: [[0, 0], [1, 0], [0, 1]] as [number, number][] },
@@ -129,8 +113,6 @@ describe('scene-frame hover contract', () => {
       { complete: true, edges: [{ from: ':a', to: ':b', viaIds: [], rows: rows(129) }], indicators: [] },
       { complete: true, edges: Array.from({ length: 17 }, () => ({ from: ':a', to: ':b', viaIds: [], rows: rows(128) })), indicators: [] },
       { complete: true, edges: [{ from: ':a', to: ':b', viaIds: [], rows: [{ text: 'x'.repeat(4097), violating: false, ink: { role: 'ink' } }] }], indicators: [] },
-      // Exactly the row budget, each row within its own byte bound, and still
-      // over the 512 KiB whole-metadata bound.
       { complete: true, edges: Array.from({ length: 16 }, () => ({
         from: ':a', to: ':b', viaIds: [],
         rows: rows(128).map(row => ({ ...row, text: 'y'.repeat(4000) })),
@@ -139,7 +121,6 @@ describe('scene-frame hover contract', () => {
       { complete: true, edges: [], indicators: [{ id: ':a', points: [[0, 0], [1, 1]], rows: [] }] },
     ]
     for (const hover of bad) expect(() => validateSceneFrame({ ...base(), hover }), JSON.stringify(hover).slice(0, 60)).toThrow()
-    // The 4097-byte id is over the byte bound; 4097 ASCII bytes is 4097.
     expect(() => validateSceneFrame({ ...base(), hover: {
       complete: true, edges: [], indicators: [{ id: 'x'.repeat(4097), points: [[0, 0], [1, 1], [2, 2]], rows: [] }],
     } })).toThrow(/UTF-8 bytes/)

@@ -1,7 +1,3 @@
-//! Source-only regression cases for native report provenance. No test runs a
-//! command: every fixture is a directory tree under the temp directory,
-//! reached through `View::reused`, and `isolation::report_path` maps it the
-//! way a Windows copy or a Linux overlay would.
 use super::*;
 use quality_core::native_coverage::{NativeReports, jacoco_lines};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -41,11 +37,9 @@ fn put(path: impl AsRef<Path>, text: &str) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, text).unwrap();
 }
-/// A Go profile whose only source has `hits` executions on line 7.
 fn go_profile(source: &str, hits: usize) -> String {
     format!("mode: set\n{source}:7.1,7.9 1 {hits}\n")
 }
-/// A JaCoCo report for `p/Foo.java`, one instruction on line 7.
 fn jacoco(hits: usize) -> String {
     format!(
         "<report><package name=\"p\"><sourcefile name=\"Foo.java\">\
@@ -59,7 +53,6 @@ fn source(module: &Path, language: Language) -> PathBuf {
         _ => unreachable!(),
     }
 }
-/// The module's own generated report for its own source key.
 fn module_report(base: &Path, module: &str, language: Language, hits: usize) {
     let module = base.join(module);
     match language {
@@ -71,13 +64,11 @@ fn module_report(base: &Path, module: &str, language: Language, hits: usize) {
         _ => unreachable!(),
     }
 }
-/// Exercise the production report ingestion seam without launching a runner.
 fn exact_scope(root: &Path, view: &View, module: &Path, language: Language) -> ModuleCoverage {
     let mut coverage = Coverage::default();
     merge_module_native(&mut coverage, view, root, module, language).unwrap();
     coverage.modules.pop().unwrap()
 }
-/// Reports of a stale language, read the unrestricted way the old merge did.
 fn contaminated_global(base: &Path, coverage: &mut Coverage, language: Language) {
     if language == Language::Go {
         coverage.native = Some(NativeReports::load(base).unwrap());
@@ -111,8 +102,6 @@ fn generated_go_scope_ignores_a_copied_sibling_profile() {
         put(&selected_source, "source");
         let view = fixture.view(selected);
         let base = isolation::report_path(&view, Path::new(""));
-        // The fresh profile covers another source; the stale copied sibling
-        // still names the selected key with a hit.
         put(
             base.join(selected).join("target/coverage/go/coverage.out"),
             &go_profile("src/current.go", 0),
@@ -146,8 +135,6 @@ fn generated_java_scope_ignores_a_copied_sibling_report_with_the_same_key() {
         put(&selected_source, "source");
         let view = fixture.view(selected);
         let base = isolation::report_path(&view, Path::new(""));
-        // Newer sources lost the class; the stale copy still reports it, and
-        // both modules would agree on the key `p/Foo.java`.
         put(
             base.join(selected).join("target/site/jacoco/jacoco.xml"),
             &jacoco(0)
@@ -264,7 +251,6 @@ fn custom_native_reads_the_view_and_rebases_absolute_go_keys() {
     for file in [&go, &java, &clojure] {
         put(file, "source");
     }
-    // Host reports disagree with the live view, so reading the host shows up.
     module_report(&root, "", Language::Go, 0);
     module_report(&root, "", Language::Java, 0);
     let view = fixture.view("copy");
@@ -294,7 +280,6 @@ fn custom_native_reads_the_view_and_rebases_absolute_go_keys() {
             file.display()
         );
     }
-    // The copy's absolute Go key must name the project source, not the copy.
     assert_eq!(
         coverage
             .native
@@ -307,8 +292,6 @@ fn custom_native_reads_the_view_and_rebases_absolute_go_keys() {
 
 #[test]
 fn custom_module_without_its_own_report_reads_the_root_globs() {
-    // The original reads `*/target/...` globally after an in-place command, so
-    // a module with no report of its own uses whatever those globs name.
     for language in [Language::Go, Language::Java] {
         for (present, absent) in [("a", "b"), ("b", "a")] {
             let fixture = Fixture::new();
@@ -348,8 +331,6 @@ fn custom_module_without_its_own_report_reads_the_root_globs() {
 
 #[test]
 fn custom_cloverage_omitting_a_namespace_warns_instead_of_failing() {
-    // MERGE-14-FIX B1: a namespace the tests never loaded has no Cloverage
-    // page. The original warns, leaves its sites uncovered and publishes.
     let fixture = Fixture::new();
     let root = fixture.root();
     put(root.join("deps.edn"), "{}");
@@ -380,15 +361,11 @@ fn custom_cloverage_omitting_a_namespace_warns_instead_of_failing() {
         selected_lines(&coverage, &root, &measured),
         Some(BTreeSet::from([7]))
     );
-    // None is what makes the caller print "No coverage data for …; its sites
-    // are uncovered." and continue.
     assert_eq!(selected_lines(&coverage, &root, &omitted), None);
 }
 
 #[test]
 fn custom_root_report_covers_a_nested_module_without_its_own_report() {
-    // MERGE-14-FIX B2: root pom.xml and app/pom.xml; the custom command
-    // writes only the root-level report, which names the nested source.
     for language in [Language::Java, Language::Go] {
         let fixture = Fixture::new();
         let root = fixture.root();
@@ -433,9 +410,6 @@ fn custom_root_report_covers_a_nested_module_without_its_own_report() {
 
 #[test]
 fn custom_reads_an_unchanged_project_report_through_the_view() {
-    // MERGE-14-FIX B3: a mixed TypeScript and Go project whose custom command
-    // regenerates only LCOV. The existing Go profile is in the project; a
-    // Windows copy holds it, a Linux view shows it from below its upper layer.
     let fixture = Fixture::new();
     let root = fixture.root();
     put(root.join("go.mod"), "module example.com/app\n");
@@ -452,7 +426,6 @@ fn custom_reads_an_unchanged_project_report_through_the_view() {
         unchanged.join("target/coverage/go/coverage.out"),
         &go_profile(&quality_core::paths::posix(&go), 1),
     );
-    // The command's own writes: upper now has `target/coverage`, but not `go`.
     put(base.join("coverage/lcov.info"), "");
     put(base.join("target/coverage/typescript/lcov.info"), "");
     let mut coverage = Coverage::default();
@@ -467,7 +440,6 @@ fn custom_reads_an_unchanged_project_report_through_the_view() {
     );
 }
 
-/// An overlay whiteout over `path`, as the kernel leaves one in upper.
 #[cfg(target_os = "linux")]
 fn whiteout(path: &Path) {
     use quality_core::libc;
@@ -500,7 +472,6 @@ fn custom_whiteout_in_the_view_keeps_a_deleted_project_report_absent() {
     );
     let view = fixture.view("copy");
     let base = isolation::report_path(&view, Path::new(""));
-    // The command removed the stale profile and wrote none.
     whiteout(&base.join(report));
     put(base.join("coverage/lcov.info"), "");
     assert_eq!(isolation::report_tree(&base, &root).file(report), None);
@@ -528,7 +499,6 @@ fn custom_opaque_view_directory_hides_the_project_reports_below_it() {
     put(root.join(report), &go_profile("src/foo.go", 1));
     let view = fixture.view("copy");
     let base = isolation::report_path(&view, Path::new(""));
-    // `rm -rf target/coverage/go && mkdir target/coverage/go` in the view.
     let directory = base.join("target/coverage/go");
     fs::create_dir_all(&directory).unwrap();
     let name = std::ffi::CString::new(directory.as_os_str().as_bytes()).unwrap();
@@ -559,7 +529,6 @@ fn custom_opaque_view_directory_hides_the_project_reports_below_it() {
     }
     let tree = isolation::report_tree(&base, &root);
     assert_eq!(tree.file(report), None);
-    // A sibling outside the opaque directory still reads through.
     put(root.join("coverage.out"), &go_profile("src/foo.go", 1));
     assert_eq!(
         tree.file(Path::new("coverage.out")),
@@ -575,7 +544,6 @@ fn go_root_source_does_not_borrow_a_subpackage_with_the_same_basename() {
     put(&root_source, "source");
     let view = fixture.view("copy");
     let base = isolation::report_path(&view, Path::new(""));
-    // Another package sharing the basename comes first in the profile.
     put(
         base.join("target/coverage/go/coverage.out"),
         &format!(
@@ -592,8 +560,6 @@ fn go_root_source_does_not_borrow_a_subpackage_with_the_same_basename() {
         selected_lines(&coverage, &root, &root_source),
         Some(BTreeSet::from([7]))
     );
-    // A source the module report does not name must stay unmeasured rather
-    // than match the subpackage's basename.
     assert_eq!(
         selected_lines(&coverage, &root, &root.join("other/foo.go")),
         None

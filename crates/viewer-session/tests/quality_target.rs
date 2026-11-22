@@ -1,6 +1,3 @@
-//! Quality refresh targets (#28) as the resident answers them: canonical
-//! project-relative files, deduplicated, bounded, or an explicit refusal.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -92,8 +89,6 @@ fn a_component_answer_is_sorted_and_each_file_once() {
     let source = SOURCE.replace(r#"{:id :core.sourceless :name "Sourceless"}"#, "");
     let answer = target_in(&root, &source, ":core").unwrap();
     assert_eq!(answer["kind"], json!("component"));
-    // `:core.order` and `:core.order.line` collapse to one file, and the
-    // order is the producer's, so two requests always agree.
     assert_eq!(
         files(&answer),
         ["src/core/cart.rs", "src/core/lib.rs", "src/core/order.rs"]
@@ -106,7 +101,6 @@ fn a_class_without_a_source_file_refuses_itself_and_its_component() {
     let root = source_project("sourceless");
     let error = target_in(&root, SOURCE, ":core.sourceless").unwrap_err();
     assert!(error.contains("has no source file"), "{error}");
-    // A component never silently drops the class it cannot refresh.
     let error = target_in(&root, SOURCE, ":core").unwrap_err();
     assert!(error.contains(":core.sourceless"), "{error}");
 }
@@ -185,7 +179,6 @@ fn a_proposal_component_is_resolved_from_the_shown_proposal() {
                :layers [{:id :domain :label "Domain" :nses [:core]}
                         {:id :io :label "IO" :nses [:core.cart]}]}]}"#;
     let document = doc(ir);
-    // Without a proposal the layer id is not in the shown tree.
     let error = targets::quality_target_for(
         &document,
         &[],
@@ -205,7 +198,6 @@ fn a_proposal_component_is_resolved_from_the_shown_proposal() {
     .unwrap();
     assert_eq!(answer["kind"], json!("component"));
     assert_eq!(files(&answer), ["src/core/cart.rs", "src/core/order.rs"]);
-    // Leftovers are the classes no layer claims.
     let unassigned = targets::quality_target_for(
         &document,
         &[],
@@ -233,7 +225,6 @@ fn the_resident_reads_the_context_its_loaded_session_shows() {
     write(&root, "diagram.edn", ir);
     let mut session = Session::open(root.clone(), root.join("diagram.edn"), Start::Fresh)
         .expect("the fixture diagram loads");
-    // Before the context is chosen the source tree is shown.
     assert!(targets::quality_target_json(&session, &keyword(":proposal.domain")).is_err());
     session.act(
         Action::Choose(Some(keyword(":p-1"))),

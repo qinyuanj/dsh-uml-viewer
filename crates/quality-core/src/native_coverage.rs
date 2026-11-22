@@ -1,12 +1,3 @@
-//! The per-line coverage mutator reads for Go, Java and Clojure.
-//!
-//! crapper scores a function from these reports; mutator asks which lines a
-//! test hit (mutator `coverage.py`). The readers are crapper's own: the Go
-//! statement profile and Cloverage form counts load exactly as `load_bundle`
-//! loads them, including its failure on a malformed Go profile or JaCoCo
-//! report. Java's line index is mutator's `_jacoco_index`, which skips an
-//! unreadable report instead.
-
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -17,7 +8,6 @@ use crate::coverage_reports::{
 };
 use crate::report_files::{ReportTree, tree_report_texts};
 
-/// The reports `load_bundle` reads under one directory, in its order.
 #[derive(Default)]
 pub struct NativeReports {
     go: GoProfile,
@@ -26,15 +16,10 @@ pub struct NativeReports {
 }
 
 impl NativeReports {
-    /// crapper `load_bundle(root)`: the Go profiles, the Cloverage pages and
-    /// the LCOV reports. A malformed Go profile or JaCoCo report is the error
-    /// crapper raises.
     pub fn load(root: &Path) -> Result<Self, String> {
         Self::load_tree(ReportTree::plain(root))
     }
 
-    /// [`NativeReports::load`] over the reports a view shows: a Linux
-    /// overlay's upper layer read through to the unchanged project.
     pub fn load_tree(tree: ReportTree<'_>) -> Result<Self, String> {
         let mut reports = NativeReports::default();
         for text in tree_report_texts(tree, GO_REPORTS) {
@@ -51,8 +36,6 @@ impl NativeReports {
         Ok(reports)
     }
 
-    /// Read only the profile a module's command just generated. In a Windows
-    /// copy, sibling reports still exist and must not enter this result.
     pub fn go_report(path: &Path) -> Result<Self, String> {
         let text = std::fs::read_to_string(path)
             .map_err(|error| format!("Go coverage report unavailable: {error}"))?;
@@ -61,8 +44,6 @@ impl NativeReports {
         Ok(reports)
     }
 
-    /// Map absolute source keys from a disposable copy back to its project.
-    /// Relative report keys keep their module-specific interpretation.
     pub fn rebase(&mut self, from: &Path, to: &Path) {
         let from = format!("{}/", crate::paths::posix(from).trim_end_matches('/'));
         let to = crate::paths::posix(to);
@@ -83,8 +64,6 @@ impl NativeReports {
         self.lcov = lcov;
     }
 
-    /// Forget reports about to be regenerated. A failed runner must not
-    /// reuse stale hits from an older report.
     pub fn invalidate(&mut self, language: crate::language::Language) {
         match language {
             crate::language::Language::Go => self.go.clear(),
@@ -96,8 +75,6 @@ impl NativeReports {
         }
     }
 
-    /// Reports another directory produced, after these, as one glob over
-    /// both would list them.
     pub fn extend(&mut self, other: NativeReports) {
         for (file, segments) in other.go {
             match self.go.iter_mut().find(|(key, _)| *key == file) {
@@ -109,8 +86,6 @@ impl NativeReports {
         self.lcov.update(other.lcov);
     }
 
-    /// mutator `_go_lines`: every line of a segment with a hit, or None when
-    /// no profile names the file (crapper `_profile_segments`).
     pub fn go_lines(&self, path: &str) -> Option<BTreeSet<usize>> {
         if self.go.is_empty() {
             return None;
@@ -125,8 +100,6 @@ impl NativeReports {
         )
     }
 
-    /// A module-relative key must match exactly: a bare basename must not
-    /// borrow a subpackage's same-named source through suffix matching.
     pub fn go_lines_exact(&self, path: &str) -> Option<BTreeSet<usize>> {
         let (_, segments) = self.go.iter().find(|(key, _)| {
             crate::coverage::normalize_path(key) == crate::coverage::normalize_path(path)
@@ -140,37 +113,28 @@ impl NativeReports {
         )
     }
 
-    /// Cloverage's per-line form counts, keyed by report path.
     pub fn forms(&self) -> &Records {
         &self.forms
     }
 
-    /// The merged LCOV records, keyed by report path.
     pub fn lcov(&self) -> &Records {
         &self.lcov
     }
 }
 
-/// Python `int(text or "0")` for the plain decimal attributes JaCoCo writes.
 fn attribute(value: Option<&str>) -> Option<i64> {
     let text = value.filter(|text| !text.is_empty()).unwrap_or("0");
     text.trim().parse().ok()
 }
 
-/// mutator `_jacoco_index`: `package/File.java` → the lines with a covered
-/// instruction or branch, over every JaCoCo report under `root`. A report
-/// that does not parse is skipped.
 pub fn jacoco_lines(root: &Path) -> Vec<(String, BTreeSet<usize>)> {
     jacoco_lines_tree(ReportTree::plain(root))
 }
 
-/// [`jacoco_lines`] over a plain or overlay report tree.
 pub fn jacoco_lines_tree(tree: ReportTree<'_>) -> Vec<(String, BTreeSet<usize>)> {
     jacoco_texts(tree_report_texts(tree, JACOCO_REPORTS))
 }
 
-/// Read exactly one freshly generated module report, retaining the existing
-/// malformed-XML behavior of the JaCoCo line reader.
 pub fn jacoco_report(path: &Path) -> Vec<(String, BTreeSet<usize>)> {
     jacoco_texts(std::fs::read_to_string(path))
 }

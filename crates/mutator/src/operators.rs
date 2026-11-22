@@ -1,13 +1,5 @@
-//! The original `sites.py` leaf rules shared by Python, TypeScript, Go and Java.
-//!
-//! Every language but Clojure walks the syntax tree's leaves with the same
-//! rule: a token under a binary parent is swapped through the Java table (plus
-//! the bitwise, shift and remainder swaps), `!`/`not` and unary `-` are
-//! deleted, booleans swap and the literals `0` and `1` flip. The language
-//! modules supply only their grammar-specific exceptions.
 use quality_core::grammar::Node;
 
-/// `_BINARY`: Java's decisions, spelled for every language that uses them.
 pub fn binary(token: &str) -> Option<&'static str> {
     Some(match token {
         "+" => "-",
@@ -30,7 +22,6 @@ pub fn binary(token: &str) -> Option<&'static str> {
     })
 }
 
-/// `_BITWISE_BINARY`: the swaps TypeScript, Rust and Python add.
 pub fn bitwise(token: &str) -> Option<&'static str> {
     Some(match token {
         "^" | "&" => "|",
@@ -42,7 +33,6 @@ pub fn bitwise(token: &str) -> Option<&'static str> {
     })
 }
 
-/// `_category`: the original falls back to "arithmetic" (so `%` is one).
 pub fn category(token: &str) -> &'static str {
     match token {
         ">" | ">=" | "<" | "<=" => "comparison",
@@ -69,8 +59,6 @@ const NUMBERS: &[&str] = &[
     "num_lit",
 ];
 
-/// One leaf's site under `_operator` then `_literal`; `binary_mutant` is the
-/// language's binary table, already refusing tokens it must not mutate.
 pub fn leaf(
     node: Node,
     token: &str,
@@ -106,6 +94,5 @@ pub fn leaf(
         let flipped = if token == "0" { "1" } else { "0" };
         found = Some((flipped.to_string(), "constant"));
     }
-    // `_add` drops a replacement that equals the original.
     found.filter(|(mutant, _)| mutant != token)
 }

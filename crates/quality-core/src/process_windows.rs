@@ -1,7 +1,3 @@
-//! Documented Win32 process boundary. Keep the primary thread handle from
-//! CreateProcessW: assign the suspended process to a non-inheritable,
-//! kill-on-close job before ResumeThread can let it create descendants.
-
 use super::Program;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
@@ -49,7 +45,6 @@ fn wide(value: &OsStr) -> io::Result<Vec<u16>> {
     Ok(text)
 }
 
-/// MSVCRT argv quoting, including empty strings and backslashes before quotes.
 fn quote(value: &OsStr) -> Vec<u16> {
     let mut out = vec![b'"' as u16];
     let mut slashes = 0;
@@ -74,11 +69,6 @@ fn quote(value: &OsStr) -> Vec<u16> {
     out
 }
 
-/// Only quote an argument when the command line would otherwise rewrite it.
-/// Quoting every argument is not the same line to a program that parses its own
-/// switches: `cmd.exe "/d" "/c" "set"` leaves a stray quote after `/c`, so cmd
-/// runs `"set` and exits 1 instead of printing the environment. MSVCRT reads a
-/// bare argument as itself, so this quotes the same set as `list2cmdline`.
 fn append_argument(line: &mut Vec<u16>, arg: &OsStr) {
     line.push(b' ' as u16);
     if needs_quotes(arg) {
@@ -88,8 +78,6 @@ fn append_argument(line: &mut Vec<u16>, arg: &OsStr) {
     }
 }
 
-/// A space, tab, newline or vertical tab would split the argument, a quote
-/// would rewrite it, and an empty one would vanish: only those are quoted.
 fn needs_quotes(value: &OsStr) -> bool {
     value.is_empty()
         || value
@@ -392,9 +380,6 @@ impl Drop for Attributes {
     }
 }
 
-/// The job this command's tree belongs to. Killing a job (also via
-/// kill-on-close) only starts termination; it does not wait for descendants to
-/// release their files and working directories.
 struct Job {
     handle: OwnedHandle,
     drained: bool,
@@ -404,9 +389,6 @@ impl Job {
         self.handle.as_raw_handle()
     }
 
-    /// Terminate every member and wait, bounded, until each process object has
-    /// signalled. The call is the same whether the leader was killed or exited
-    /// by itself: its descendants are never allowed to outlive the command.
     fn finish(&mut self) -> io::Result<()> {
         if self.drained {
             return Ok(());
@@ -424,7 +406,7 @@ impl Job {
             let process = match owned(unsafe { OpenProcess(0x0010_0000 | 0x1000, 0, pid) }) {
                 Ok(process) => process,
                 Err(error) if error.raw_os_error() == Some(ERROR_INVALID_PARAMETER as i32) => {
-                    continue; // Exited and no longer openable.
+                    continue;
                 }
                 Err(error) => return Err(error),
             };
@@ -437,7 +419,7 @@ impl Job {
                 ))?;
             }
             if member == 0 {
-                continue; // PID reuse: never wait on another job's process.
+                continue;
             }
             let remaining = limit.saturating_sub(started.elapsed());
             match unsafe {
@@ -452,8 +434,6 @@ impl Job {
         Ok(())
     }
 
-    /// Query after termination, growing the aligned variable-length buffer if
-    /// this tree has more members than the initial allocation.
     fn process_ids(&self) -> io::Result<Vec<u32>> {
         let offset = std::mem::offset_of!(JOBOBJECT_BASIC_PROCESS_ID_LIST, ProcessIdList)
             / size_of::<usize>();
@@ -496,8 +476,6 @@ impl Drop for Job {
     }
 }
 
-/// A bounded drain that did not finish is a failed cleanup, reported to the
-/// caller rather than covered by a longer wait.
 fn drain_timeout() -> io::Error {
     io::Error::new(
         io::ErrorKind::TimedOut,
@@ -554,12 +532,6 @@ fn finish(reader: Option<std::thread::JoinHandle<io::Result<Vec<u8>>>>) -> io::R
     }
 }
 
-/// One command supervised until it ends, a timeout expires or a stop arrives.
-///
-/// The same creation path as [`execute`]: suspended `CreateProcessW` with the
-/// kill-on-close job in `PROC_THREAD_ATTRIBUTE_JOB_LIST`. The job is the only
-/// thing that can reach descendants, so a timeout, a stop, a returned error or
-/// an abruptly killed caller all end the whole tree.
 pub(super) struct Running {
     // Struct fields drop in declaration order: terminate the tree before the
     // leader's guard waits when a caller drops an unconsumed supervisor.
@@ -573,10 +545,7 @@ pub(super) struct Running {
     err: Option<File>,
 }
 pub(super) enum Ended {
-    /// The command's own exit code. A Windows exit code is unsigned; a
-    /// negative value here is the shell's own spelling, never a signal.
     Exited(i32),
-    /// The supervisor asked the job to stop: `reason` is `timeout` or `stop`.
     Killed(&'static str),
 }
 pub(super) fn start(
@@ -643,8 +612,6 @@ pub(super) fn supervise(
     Ok(ended)
 }
 
-/// The suspended creation both entries share. `streams` decides between
-/// captured pipes, inherited terminal handles and one redirected output file.
 fn spawn(
     exe: OsString,
     mut line: Vec<u16>,

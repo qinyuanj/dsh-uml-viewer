@@ -1,14 +1,8 @@
-//! Seam ① for `uml-viewer crap`: the subcommand run on scratch projects.
-//! The cases are crapper's pytest cases (selection, `-s`, `--exclude`,
-//! empty selection, usage errors, Rust functions), ported to the binary:
-//! each asserts the published snapshot, the streams and the exit status.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// A scratch project directory, removed on drop.
 pub struct Project {
     pub root: PathBuf,
 }
@@ -35,7 +29,6 @@ impl Project {
         path
     }
 
-    /// `uml-viewer crap --root <root> args…`, run from the project root.
     pub fn crap(&self, args: &[&str]) -> Output {
         crap_in(&self.root, &self.root, args)
     }
@@ -44,7 +37,6 @@ impl Project {
         fs::read_to_string(self.root.join(".metrics").join("crap.edn")).ok()
     }
 
-    /// `(namespace, name, complexity)` of every published entry, in order.
     pub fn entries(&self) -> Vec<(String, String, u32)> {
         let text = self.snapshot().expect("a published snapshot");
         text.lines()
@@ -68,7 +60,6 @@ impl Project {
             .collect()
     }
 
-    /// Published names, sorted, as crapper's `_names` helper reads them.
     pub fn names(&self) -> Vec<String> {
         let mut names: Vec<String> = self.entries().into_iter().map(|e| e.1).collect();
         names.sort();
@@ -82,7 +73,6 @@ impl Drop for Project {
     }
 }
 
-/// The path with symlinks resolved, without Windows' `\\?\` prefix.
 pub fn canonical(path: &Path) -> PathBuf {
     let path = fs::canonicalize(path).unwrap();
     let text = path.to_string_lossy();
@@ -113,7 +103,6 @@ pub fn stderr(output: &Output) -> String {
     String::from_utf8(output.stderr.clone()).unwrap()
 }
 
-/// crapper's help text: usage errors print `<message>\n\n<HELP>` on stderr.
 fn help() -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_uml-viewer"))
         .args(["crap", "--help"])
@@ -132,7 +121,6 @@ fn manifest(project: &Project, name: &str) {
     );
 }
 
-/// One function per file, named after the file stem (crapper's `CLJ` tree).
 fn rust_tree(project: &Project, files: &[&str]) {
     manifest(project, "demo");
     for relative in files {
@@ -156,8 +144,6 @@ fn tree(project: &Project) {
 fn scope_tree(project: &Project) {
     rust_tree(project, &["src/a.rs", "src/x/c.rs", "lib/b.rs"]);
 }
-
-// --- test_cli.py: usage errors and help ------------------------------------
 
 #[test]
 fn usage_errors_name_the_problem_and_print_help_to_stderr() {
@@ -192,8 +178,6 @@ fn usage_errors_name_the_problem_and_print_help_to_stderr() {
     assert_eq!(help, stdout(&output));
 }
 
-/// Raw native bytes complement the golden's `<SEP>` normalization: pinned
-/// crapper prints `root / ".metrics" / "crap.edn"` with host separators.
 #[cfg(windows)]
 #[test]
 fn native_windows_wrote_path_has_no_mixed_separators() {
@@ -205,9 +189,6 @@ fn native_windows_wrote_path_has_no_mixed_separators() {
     assert_eq!(stderr(&output), expected);
 }
 
-/// Both tools share `quality_core::number::python_float`, and the pinned
-/// originals' `_threshold` and `_number` are the same `float()`.
-/// `fixtures/dry/threshold/cases.tsv` holds the originals' answers.
 #[test]
 fn threshold_parses_like_python_float_at_the_crapper_seam() {
     let help = help();
@@ -227,8 +208,6 @@ fn threshold_parses_like_python_float_at_the_crapper_seam() {
             "{argv:?}"
         );
     }
-    // Python's float() reads every Unicode Nd digit and keeps single
-    // underscores between digits; these all parse and reach the scan.
     project.write("src/lib.rs", "pub fn one() {}\n");
     let crap = |value: &str| {
         let output = project.crap(&["--no-coverage", "--threshold", value]);
@@ -349,8 +328,6 @@ fn absolute_and_parent_exclusions_are_usage_errors() {
         assert_eq!(Some(0), output.status.code(), "{pattern}");
     }
 }
-
-// --- test_cli.py / test_scope.py: selection ---------------------------------
 
 #[test]
 fn selects_directories_filters_and_reports_an_empty_selection() {
@@ -723,8 +700,6 @@ fn wrote(project: &Project) -> String {
     )
 }
 
-// --- test_cli.py: coverage, thresholds and exit statuses --------------------
-
 fn choose(project: &Project, lcov: &str) {
     manifest(project, "demo");
     project.write(
@@ -804,7 +779,6 @@ fn partial_coverage_keeps_its_status_and_counts_the_unscored() {
 fn a_snapshot_that_cannot_be_published_keeps_the_previous_one() {
     let project = Project::new();
     tree(&project);
-    // A directory where the snapshot belongs cannot be replaced by a file.
     fs::create_dir_all(project.root.join(".metrics/crap.edn/inside")).unwrap();
     let output = project.crap(&["--no-coverage"]);
     assert_eq!(Some(1), output.status.code());
@@ -851,8 +825,6 @@ fn report_comes_before_the_metrics_line() {
     assert_eq!(wrote(&project), stderr(&output));
 }
 
-// --- test_rust.py: functions, namespaces and test code ----------------------
-
 fn rust_entries(name: &str, relative: &str, source: &str) -> Vec<(String, String, u32)> {
     let project = Project::new();
     manifest(&project, name);
@@ -860,7 +832,6 @@ fn rust_entries(name: &str, relative: &str, source: &str) -> Vec<(String, String
     let output = project.crap(&["--no-coverage", relative]);
     assert_eq!(Some(0), output.status.code(), "{}", stderr(&output));
     let mut entries = project.entries();
-    // The snapshot is sorted; compare as crapper's tests do, by file order.
     entries.sort_by_key(|entry| {
         source
             .find(&format!("fn {}", entry.1))

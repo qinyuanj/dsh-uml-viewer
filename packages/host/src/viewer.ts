@@ -10,7 +10,6 @@ function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** Map one resident line to the panel event the browser receives; `null` means "nothing to show". */
 export function panelEvent(event: ResidentEvent): PanelEvent | null {
   switch (event.event) {
     case 'frame':
@@ -18,17 +17,10 @@ export function panelEvent(event: ResidentEvent): PanelEvent | null {
     case 'context':
       return { kind: 'context', context: event.context }
     case 'state':
-      // #45: the breadcrumb path and the localized status code ride along,
-      // #47: so does the switcher's proposal list; the persisted session state
-      // is passed through untouched.
       return { kind: 'state', state: event.state, breadcrumbs: event.breadcrumbs, status: event.status,
         proposals: event.proposals }
     case 'search':
       return { kind: 'search', query: event.query, results: event.results }
-    // #27: card/source are answers to one panel's action and travel
-    // on that action's ack, never into every watching panel's stream. #28's
-    // quality-target is the same kind of private answer: the host asked for it
-    // through a quiet request and queues the message itself.
     case 'card':
     case 'source':
     case 'quality-target':
@@ -53,7 +45,6 @@ export class ViewerService {
     private readonly sessions: ResidentSessions,
     private readonly prompts: PanelPrompts,
     private readonly requests: PanelRequests,
-    /** Each session's request status (#51); the same store `PanelRequests` records into. */
     private readonly statuses: RequestStatuses = new RequestStatuses(),
   ) {}
 
@@ -88,9 +79,6 @@ export class ViewerService {
     }
     this.prompts.openPanel(agent)
     const queue = connection.attach()
-    // #51: the session's request status rides on this stream, sent once after
-    // the opening events and again after every change. Only the latest list
-    // matters, so changes made while this panel is not reading coalesce.
     const sessionId = agent.session.id
     let statusChanged = true
     let wake: (() => void) | null = null
@@ -102,8 +90,6 @@ export class ViewerService {
       yield { kind: 'ready', actions: [...connection.actions] }
       if (connection.latestContext) yield { kind: 'context', context: connection.latestContext }
       if (connection.latestFrame) yield { kind: 'frame', seq: null, frame: connection.latestFrame }
-      // A resident read in flight is kept across a status wake-up, never
-      // abandoned, so no resident event is lost to the merge.
       let reading: Promise<IteratorResult<ResidentEvent>> | null = null
       for (;;) {
         if (statusChanged) {
@@ -126,10 +112,6 @@ export class ViewerService {
       connection.detach(queue)
       this.prompts.closePanel(agent.session.id)
       // A stream ending is a carrier loss, not a panel close: the gateway aborts
-      // the method signal and returns this generator on a client unload, on a
-      // reconnect and on a panel body remount during a right-sidebar
-      // presentation change. Only `close` is definite, so a withdrawn stream
-      // leaves the resident in its bounded grace (#32, D13).
       if (owner) await this.sessions.releaseOwned(connection, owner)
       else await this.sessions.release(connection, connection.closeRequested ? 'closed' : 'withdrawn')
     }
@@ -152,18 +134,11 @@ export class ViewerService {
    */
   async action(agent: Agent, action: PanelAction, signal?: AbortSignal): Promise<PanelAck> {
     try {
-      // #28: a quality refresh is a message to this panel's session, not a
-      // resident action. Only the element id and op cross from the browser.
       if (action.action === 'quality-request') {
-        // Re-parse: the carrier validates too, but the delivered message is
-        // built only from fields this validator accepted.
         const request = parsePanelAction(action)
         if (request.action !== 'quality-request') throw new Error('quality-request expected')
         return await this.requests.deliver(agent, request.request, request.id)
       }
-      // #29: hiding, choosing the discussion context and adding a proposal are
-      // messages to the companion too, admitted in the same click-order queue.
-      // The context switch still reaches the resident first, inside that queue.
       if (action.action === 'omit' || action.action === 'new-proposal' || action.action === 'context') {
         const request = parsePanelAction(action)
         if (request.action === 'omit') return await this.requests.omit(agent, request.id)
@@ -171,8 +146,6 @@ export class ViewerService {
         if (request.action === 'context') return await this.requests.context(agent, request.proposalId)
         throw new Error('view request expected')
       }
-      // #53: dismissing a finished request is the host's own list; it never
-      // reaches the resident. Every panel of the session gets the new list.
       if (action.action === 'dismiss-request') {
         const request = parsePanelAction(action)
         if (request.action !== 'dismiss-request') throw new Error('dismiss-request expected')
@@ -183,7 +156,6 @@ export class ViewerService {
       const { event } = await this.sessions.refresh(agent, signal ?? new AbortController().signal, action as unknown as { action: string })
       if (event.event === 'error') return { accepted: false, reason: event.message }
       const ack: PanelAck = { accepted: true, reason: null }
-      // The overlay models ride on the ack of the action that asked for them.
       if (event.event === 'card') ack.card = event.card
       else if (event.event === 'source') ack.source = event.source
       return ack

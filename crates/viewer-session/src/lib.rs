@@ -1,19 +1,3 @@
-//! The viewer session (#17): the part of the viewer that does not draw. It
-//! holds the view state and the discussion context, applies user actions,
-//! hot-reloads the diagram and its quality snapshots, loads displayed
-//! diagrams and restores a saved view. It knows no companion, mail, window
-//! or plugin host: the resident mode (`resident`, driven by the plugin host
-//! over stdin/stdout) is its shell; the standalone window that was its
-//! other shell is gone (dsh-uml-viewer#30). It reads the real project
-//! files, so it is not pure; the clock is an input.
-//!
-//! - [`Session`]: the session itself;
-//! - `display` (how a displayed diagram loads), `metrics` (quality snapshot
-//!   loading and the reload stamp);
-//! - `state`: the session state as JSON data the host persists;
-//! - `targets`: what a panel's quality refresh covers (#28);
-//! - `resident`: the `resident` role (`docs/resident-protocol.md`).
-
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -217,9 +201,7 @@ impl Session {
         self.force_refresh = true;
     }
 
-    /// Poll the IR and metrics stamps; reload when either changed.
     fn reload(&mut self) {
-        // A waiting canvas stays empty until a diagram is displayed.
         if self.state.waiting {
             return;
         }
@@ -332,10 +314,6 @@ impl Session {
         if let Some(path) = self.state.path.clone() {
             self.diagram = PathBuf::from(path);
         }
-        // #84: the status describes the diagram file this session names, so a
-        // command that loaded it clears a stale `missing-file` — including a
-        // display of the very path that was missing. Only a command that failed
-        // to load keeps it.
         if path_changed || loaded.is_some() {
             self.canvas_status = None;
         }
@@ -389,8 +367,6 @@ impl Session {
     }
 }
 
-/// Centre the window on the world point at the current zoom: the camera is
-/// the top-left world point.
 fn centre_on(state: &mut ViewState, [x, y]: [f64; 2], dims: &Dims) {
     state.cam_x = x - dims.window_w / (2.0 * state.zoom);
     state.cam_y = y - dims.window_h / (2.0 * state.zoom);

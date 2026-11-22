@@ -1,8 +1,3 @@
-//! Semantic color roles (#16): every color the viewer drew before the frame
-//! existed is a role, and the dark palette resolves each role to exactly
-//! the color (and alpha) the deleted egui window painted for that use. The
-//! literals are the pre-frame theme constants and paint alphas.
-
 use frame::theme::{self, Rgba, Role};
 
 fn rgba(r: u8, g: u8, b: u8, a: u8) -> Rgba {
@@ -23,7 +18,6 @@ fn the_dark_palette_keeps_every_existing_color_use() {
         (Role::Selected, rgba(255, 255, 255, 255)),
         (Role::Good, rgba(95, 181, 138, 255)),
         (Role::Danger, rgba(255, 64, 48, 255)),
-        // gamma_multiply(0.92) of the canvas: 235/255.
         (Role::ChromePlate, rgba(22, 28, 32, 235)),
         (Role::Popup, rgba(18, 22, 24, 240)),
         (Role::RowWash, rgba(232, 196, 72, 32)),

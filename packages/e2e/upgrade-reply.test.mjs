@@ -6,7 +6,6 @@ const MAIN = 'D:\\a\\dsh-uml-viewer\\dsh-uml-viewer/.scratch/upgrade-packages/ds
 const tools = [{ name: 'plugin_manager' }, { name: 'uml_display' }]
 const user = text => ({ role: 'user', content: [{ type: 'text', text }] })
 const use = (id, input) => ({ role: 'assistant', content: [{ type: 'tool_use', id, name: 'plugin_manager', input }] })
-// The pinned tool returns JSON.stringify(result) wrapped in a text block, as CI11 recorded.
 const result = (id, value) => ({ role: 'user', content: [{ type: 'tool_result', tool_use_id: id,
   content: [{ type: 'text', text: JSON.stringify(value) }], is_error: false }] })
 const system = { role: 'system', content: [{ type: 'text', text: 'You are an AI agent powered by DeepSeek Harness.' }] }
@@ -50,7 +49,6 @@ test('a removal that waits for a restart is reported as not applied', () => {
 test('install prompt calls public install_bundle with the absolute main tarball and reports its own result', () => {
   const observed = {}
   const reply = upgradeReply(observed, { main: MAIN })
-  // The earlier removal turn stays in the transcript; only the latest prompt's tail counts.
   const earlier = [user(UPGRADE_PROMPTS.remove), use('l1', { action: 'list_bundles', limit: 100 }), result('l1', {}),
     use('r1', { action: 'remove_bundle', target: 'dsh-uml-viewer' }), result('r1', removed),
     { role: 'assistant', content: [{ type: 'text', text: 'Isolated removal applied' }] }]

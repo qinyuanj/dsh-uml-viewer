@@ -4,12 +4,6 @@ import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 import { describe, expect, it } from 'vitest'
 
-/**
- * The checks that can only be made on the built artifact: the browser bundle
- * is `lib/client.js`, produced by `pnpm build`. They assert the client facet
- * the host serves, and that React and the UI primitives never enter the
- * payload (ADR 0013, D1).
- */
 const root = path.resolve(fileURLToPath(new URL('../../..', import.meta.url)))
 const bundlePath = path.join(root, 'lib', 'client.js')
 const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')) as {
@@ -38,7 +32,6 @@ function registered(): Factory {
   return captured
 }
 
-/** The smallest DOM that `apply` touches: the injected stylesheet only. */
 function fakeDocument(): Record<string, unknown> {
   const head = { appendChild: () => undefined }
   return {
@@ -98,15 +91,11 @@ describe('built client bundle', () => {
   it('declares the client facet the host reads: dsh.client, a ./client export, and the shipped files', () => {
     expect(pkg.dsh?.client?.platform).toBe('web')
     expect(pkg.dsh?.client?.immediately).toBe(true)
-    // Activation order only: the Remote gateway and the right sidebar must be
-    // mounted before the tab registers.
     expect(pkg.dsh?.client?.inject).toEqual(['@deepseek-ai/dsh-api-gateway', '@deepseek-ai/dsh-client-ui-sidebar-right'])
-    // No non-baseline module requests: everything but React is bundled.
     expect(pkg.dsh?.client?.external ?? []).toEqual([])
     expect(pkg.exports['./client']).toBe('./lib/client.js')
     expect(pkg.files).toContain('lib')
     expect(pkg.files).toContain('fonts')
-    // The bundle is a closure-factory registration for the package name.
     expect(bundle.startsWith('window.__ModuleLoader__.load({ id: "dsh-uml-viewer", factory: (require) => {')).toBe(true)
     expect(bundle).not.toContain('var(--dsw-alias-state-error-primary, #')
     const factory = registered()
@@ -118,7 +107,6 @@ describe('built client bundle', () => {
     expect(bundle).not.toContain('react-dom')
     expect(bundle).not.toContain('__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED')
     expect(bundle).not.toContain('react.production.min')
-    // The only module request is the host-injected React.
     const requests = [...bundle.matchAll(/require\(\s*(["'])([^"']+)\1\s*\)/g)].map(match => match[2])
     expect([...new Set(requests)]).toEqual(['react'])
   })
@@ -143,22 +131,16 @@ describe('built client bundle', () => {
       expect.objectContaining({ id: 'dsh-uml-viewer', kind: 'dsh-uml-viewer' }),
     ])
     const names = harness.slots.map(entry => entry.name)
-    // The full-width form is the host's fullscreen: no `main` page of its own (#43).
-    // Each `uml_*` tool owns one keyed tool result view (#54).
     expect(names.slice(-2)).toEqual(['sidebar.right.pane.tab', 'sidebar.right.pane.tab.title'])
     const tools = harness.slots.filter(entry => entry.name === 'tool.call.toolview')
     expect(tools.map(entry => entry.descriptor.key)).toEqual(['uml_crap', 'uml_mutate', 'uml_dry', 'uml_ir', 'uml_display'])
     for (const entry of harness.slots.slice(-2)) expect(entry.descriptor.key).toBe('dsh-uml-viewer')
-    // Every registration went through a slot/service injection that exists.
     expect(harness.services).toEqual([
       'tool.call.toolview', 'tool.call.toolview', 'tool.call.toolview', 'tool.call.toolview', 'tool.call.toolview',
       'sidebarRightTabs', 'sidebar.right.pane.tab', 'sidebar.right.pane.tab.title', 'sidebarRight',
     ])
-    // Closing the UML tab is the explicit close: one handler for the tab's kind.
     expect(harness.closeHandlers.map(entry => entry.kind)).toEqual(['dsh-uml-viewer'])
 
-    // The pane component is a real component: React is asked for the panel element,
-    // and the element it builds carries the panel class the stylesheet targets.
     const pane = harness.slots.find(entry => entry.name === 'sidebar.right.pane.tab')!
       .component({ sessionId: 'session-a' })
     const element = pane as { type: string; props: Record<string, unknown> }

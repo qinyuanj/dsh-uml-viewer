@@ -28,11 +28,6 @@ async function flush(): Promise<void> {
   await new Promise<void>(resolve => setImmediate(resolve))
 }
 
-/**
- * A real PanelController over a scripted stream, with a real fake-DOM bar:
- * clicks, labels, acknowledgements and the save that follows them all go
- * through the production modules.
- */
 async function harness(options: { declutter?: string | null; rejectSave?: boolean } = {}) {
   const ack = deferred<unknown>()
   let mounted = false
@@ -82,7 +77,7 @@ async function harness(options: { declutter?: string | null; rejectSave?: boolea
     text: ENGLISH_TEXT,
     entries: () => moreMenuEntries(controller, ENGLISH_TEXT),
   })
-  actions.length = 0 // Opening/frame synchronization has completed before the click.
+  actions.length = 0
   mounted = true
   const menuElement = host.children.find(child => child.className.includes('dsh-uml-viewer-more-menu'))!
   const item = (id: string): Element => menuElement.descendants().find(child =>
@@ -241,11 +236,9 @@ describe('the top bar More menu (#46)', () => {
     const h = await harness()
     h.trigger.fire('click')
     expect(h.menu.isOpen()).toBe(true)
-    // The pointerdown that precedes the second click must not close it early.
     h.trigger.fire('pointerdown')
     h.trigger.fire('click')
     expect(h.menu.isOpen()).toBe(false)
-    // A press anywhere else closes it.
     h.menu.open()
     expect(h.menu.isOpen()).toBe(true)
     h.host.fire('pointerdown')

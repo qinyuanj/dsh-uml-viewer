@@ -1,9 +1,3 @@
-//! Port of `love/uml/graph.lua`'s pipeline: select the scanner for a
-//! language, scan a project, merge the scans. `register`/`lookup`
-//! indirection exists in Lua for dynamic loading; in Rust the four scanners
-//! are static modules behind [`scan_project`]. The scanner seam and the
-//! id/path rules the scanners share live in [`crate::scan`].
-
 use std::collections::HashMap;
 
 use edn::Value;
@@ -27,8 +21,6 @@ fn lookup(lang: &Value) -> Result<&'static dyn Scanner, String> {
     }
 }
 
-/// `scan_project(lang, root, opts)`: snapshots the source tree for the
-/// language and runs its scanner. `root` is adapter-relative.
 pub fn scan_project(
     lang: &Value,
     root: &str,
@@ -121,9 +113,6 @@ pub fn merge_scans(scans: &[Value]) -> Result<Value, String> {
     ]))
 }
 
-/// A `:qualified` stub names a path into another scanned project. It joins
-/// the deepest real class on that path only when both carry the same explicit
-/// crate identity. Scanner-only identity never leaves this merge.
 fn qualified_stubs(classes: &mut Vec<Value>) -> HashMap<String, Value> {
     fn krate(c: &Value) -> Option<&str> {
         match get(c, "scan-crate") {

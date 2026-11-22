@@ -1,14 +1,9 @@
-//! Lua functions and cyclomatic complexity (pinned crapper `lua.py`).
-//! Nested functions stay within their enclosing entry; only bound closures
-//! become entries. The namespace is the module's require path.
 use super::Function;
 use crate::grammar::{Grammar, children, end_line, start_line, text};
 use crate::language::Language;
 use std::path::Path;
 use tree_sitter::Node;
 
-/// Python `strip_root` then `removeprefix("./")`: the module path below the
-/// project root, whichever of the two the caller supplied.
 fn relative(path: &str, project_root: &str) -> String {
     let root = project_root.replace('\\', "/");
     let root = root.trim_end_matches('/');

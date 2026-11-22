@@ -1,5 +1,3 @@
-//! Crate-internal hit queries, moved from `tests/hit.rs` (#163).
-
 use crate::hit;
 use edn::{Value, parse};
 

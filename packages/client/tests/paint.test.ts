@@ -35,10 +35,8 @@ describe('Canvas 2D namespace tree', () => {
     const ops = canvas.recording.ops
     const boxes = frame.world.filter(item => item.kind === 'package' || item.kind === 'class')
     expect(boxes.length).toBeGreaterThan(0)
-    // Each box is filled and outlined once.
     expect(ops.filter(op => op.op === 'fill').length).toBeGreaterThanOrEqual(boxes.length)
     expect(ops.filter(op => op.op === 'stroke').length).toBeGreaterThanOrEqual(boxes.length)
-    // The canvas is cleared with the host theme's canvas token.
     const clear = ops.find(op => op.op === 'fillRect')
     expect(clear).toMatchObject({ fillStyle: '#161c20', width: 1220, height: 884 })
   })
@@ -51,7 +49,6 @@ describe('Canvas 2D namespace tree', () => {
     paintFrame(frame, dark)
     expect(light.recording.ops.find(op => op.op === 'fillRect')!.fillStyle).toBe('#ffffff')
     expect(dark.recording.ops.find(op => op.op === 'fillRect')!.fillStyle).toBe('#161c20')
-    // Text exists in both and uses the host's label colors, not a hard-coded white.
     const lightText = light.recording.ops.filter(op => op.op === 'fillText')
     const darkText = dark.recording.ops.filter(op => op.op === 'fillText')
     expect(lightText.length).toBeGreaterThan(0)
@@ -70,7 +67,6 @@ describe('Canvas 2D namespace tree', () => {
       expect(op.font).toContain('UML Viewer Sarasa')
       expect(op.font).toContain(FONT_STACK.split(',')[0]!.replace(/"/g, '').trim())
     }
-    // Every fitted label fits the maxW the producer gave that line.
     for (const item of frame.world) {
       if (item.kind !== 'text' || !item.text) continue
       const op = drawn.find(candidate => candidate.text === item.text)
@@ -80,8 +76,6 @@ describe('Canvas 2D namespace tree', () => {
   })
 
   it('fits every label inside its box with the real Sarasa advances', () => {
-    // Painting with the face the panel loads, not the layout estimate: the
-    // drawn label (plus bold/italic allowance) must stay inside the box's maxW.
     const frame = golden('proposal.frame.json')
     const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true, measure: (text, size) => sarasa.widthPx(text, size) })
     paintFrame(frame, canvas)
@@ -98,8 +92,6 @@ describe('Canvas 2D namespace tree', () => {
         .toBeLessThanOrEqual(item.maxW + 1e-6)
       expect(size).toBeLessThanOrEqual(item.size + 1e-9)
     }
-    // Every golden label already fits at its nominal size, so fitting is proven
-    // separately below; here the point is that the real face never overflows.
     expect(checked).toBeGreaterThan(5)
   })
 
@@ -118,7 +110,6 @@ describe('Canvas 2D namespace tree', () => {
     const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true, measure: (text, size) => sarasa.widthPx(text, size) })
     paintFrame(synthetic, canvas)
     const drawn = canvas.recording.ops.filter(op => op.op === 'fillText' && op.text === label)
-    // The template is a bold name line: two passes at one fitted size.
     expect(drawn).toHaveLength(2)
     expect(drawn[1]!.font).toBe(drawn[0]!.font)
     const size = fontPx(drawn[0]!)
@@ -136,15 +127,10 @@ describe('Canvas 2D namespace tree', () => {
     paintFrame(frame, canvas)
     const drawn = canvas.recording.ops.find(op => op.op === 'fillText' && op.text === 'Util')
     expect(drawn).toBeDefined()
-    // px = round(slot * zoom) = round(15 * 106/127) = round(12.52) = 13, never the nominal 16.
     expect(fontPx(drawn!)).toBe(13)
   })
 
   it('dims every draw of every world item kind the producer marks dimmed', () => {
-    // core-selected is the full-lod golden with the producer's dimmed items.
-    // Every kind any golden carries is checked: each dimmed golden item as
-    // written, and kinds with no dimmed instance (port, port-link) forced
-    // dimmed. child-wash appears in no golden, so it stays synthetic.
     const frame = golden('core-selected.frame.json')
     expect(frame.lod).toBe('full')
     const dim = frame.style.dimAlpha / 255
@@ -162,13 +148,11 @@ describe('Canvas 2D namespace tree', () => {
       rect: { x: 70, y: 150, w: 100, h: 16 },
       marker: { wash: { role: 'row-wash' }, bar: { role: 'row-bar' }, barWidth: 2 },
     } as unknown as SceneFrame['world'][number])
-    // The golden's own dimmed package and quality items carry text.
     expect(items.filter(item => item.kind === 'package' || item.kind === 'quality').length).toBeGreaterThanOrEqual(5)
     const covered = new Set<string>()
     for (const item of items) {
       const canvas = fakeCanvas({ tokens: DARK_TOKENS, dark: true })
       paintFrame({ ...frame, world: [item], edges: [], chrome: [] }, canvas)
-      // Exclude only the canvas clear; every draw op of the item is dimmed.
       const drawn = canvas.recording.ops.filter(op => ['fill', 'stroke', 'fillText', 'fillRect'].includes(op.op)
         && !(op.op === 'fillRect' && op.x === 0 && op.y === 0 && op.width === frame.viewport.width && op.height === frame.viewport.height))
       const label = `${item.kind} ${'id' in item ? String(item.id) : ''}`
@@ -223,7 +207,6 @@ describe('Canvas 2D namespace tree', () => {
 
   it('keeps a closed arrowhead opaque while its outline dims', () => {
     const frame = golden('root.frame.json')
-    // Find a dimmed closed head; the producer writes one for the selected view.
     const head = frame.edges.find(edge => edge.kind === 'head' && edge.head !== 'open' && edge.dimmed)
     const candidates = head ?? frame.edges.find(edge => edge.kind === 'head' && edge.head !== 'open')
     expect(candidates, 'the producer frame has a closed head').toBeDefined()
@@ -239,7 +222,6 @@ describe('Canvas 2D namespace tree', () => {
     const outline = canvas.recording.ops.filter(op => op.op === 'stroke')
     expect(fills.length).toBe(1)
     expect(outline.length).toBe(1)
-    // The interior stays fully opaque (alpha 1); only the outline is dimmed.
     expect(fills[0]!.globalAlpha).toBe(1)
     expect(outline[0]!.globalAlpha).toBeCloseTo(70 / 255, 3)
   })
@@ -262,8 +244,6 @@ describe('Canvas 2D namespace tree', () => {
     const frame = { ...golden('root.frame.json'), waiting: true, world: [], edges: [], chrome: [] } as SceneFrame
     const canvas = fakeCanvas({ tokens: LIGHT_TOKENS })
     paintFrame(frame, canvas)
-    // No hint is painted into the frame any more; the canvas is only themed,
-    // and the status bar carries the localized waiting/status text.
     expect(canvas.recording.ops.filter(op => op.op === 'fillText')).toHaveLength(0)
     expect(canvas.recording.ops.find(op => op.op === 'fillRect')!.fillStyle).toBe('#ffffff')
   })

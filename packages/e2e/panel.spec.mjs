@@ -2,18 +2,11 @@ import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
 import { producerFrame, toScreen } from './canvas.mjs'
 
-/**
- * The panel is three DOM sections (#46, ADR 0015): the top bar (breadcrumbs,
- * discussion context, search, 「更多」), the canvas, and the bottom status bar.
- * The frame no longer carries the title, the proposal banner, the return line,
- * the status line or the hint; what those said is in the two bars.
- */
 const topBar = panel => panel.panel.locator('.dsh-uml-viewer-topbar')
 const statusBar = panel => panel.panel.locator('.dsh-uml-viewer-statusbar')
 const moreButton = panel => topBar(panel).getByRole('button', { name: 'More actions', exact: true })
 const searchButton = panel => topBar(panel).getByRole('button', { name: 'Search classes (Ctrl+F)', exact: true })
 
-/** The element that has the keyboard, by class, through the panel's own DOM. */
 async function focused(panel) {
   return await panel.page.evaluate(() => {
     const active = document.activeElement
@@ -57,8 +50,6 @@ test('lays out the top bar, the canvas and the status bar in the narrow sidebar 
   const lane = await launchViewerLane(browser)
   try {
     const panel = await lane.openPanel('deep')
-    // The panel is the sidebar column, not a floating window: three sections
-    // stack inside it and the canvas never sits under a bar.
     const panelBox = await panel.panel.boundingBox()
     const [bar, canvas, status] = await Promise.all([
       topBar(panel).boundingBox(),
@@ -78,8 +69,6 @@ test('lays out the top bar, the canvas and the status bar in the narrow sidebar 
     expect(canvas.height).toBeGreaterThan(150)
     expect(status.y + status.height).toBeLessThanOrEqual(panelBox.y + panelBox.height + 1)
 
-    // The bar's controls in reading order: the breadcrumb path, the discussion-
-    // context switcher (#47), the search button and 「更多」.
     await expect(topBar(panel).getByRole('navigation', { name: 'Breadcrumb path' })).toBeVisible()
     await expect(topBar(panel).getByRole('button', { name: 'Discussion context: Source diagram', exact: true }))
       .toHaveAttribute('aria-haspopup', 'menu')
@@ -87,8 +76,6 @@ test('lays out the top bar, the canvas and the status bar in the narrow sidebar 
     await expect(searchButton(panel)).toBeVisible()
     await expect(moreButton(panel)).toBeVisible()
 
-    // **Tab** walks them in that order: a breadcrumb level, the switcher, then
-    // search, then 「更多」. Drill in first so the path has a level to focus.
     const root = await producerFrame(panel, { root: lane.projects.deep, home: lane.home })
     const core = root.world.find(item => item.id === ':core' && (item.kind === 'class' || item.kind === 'package'))
     expect(core, 'the root has a drillable core component').toBeTruthy()
@@ -103,8 +90,6 @@ test('lays out the top bar, the canvas and the status bar in the narrow sidebar 
     await panel.page.keyboard.press('Tab')
     expect((await focused(panel))?.className).toContain('dsh-uml-viewer-more')
 
-    // Both bars paint with the host's own theme tokens, so a light/dark switch
-    // repaints them with the host, and neither is a raw colour of its own.
     const tokenBackground = token => panel.page.evaluate(name => {
       const probe = document.createElement('div')
       probe.style.background = `var(${name})`
@@ -127,8 +112,6 @@ test('lays out the top bar, the canvas and the status bar in the narrow sidebar 
     }
     await panel.page.evaluate(() => document.body.removeAttribute('data-ds-dark-theme'))
 
-    // 「更多」 carries Fit view (with its shortcut) and the Remove arrows toggle;
-    // the element menu's rule holds here too: `role="menu"` only while open.
     const menu = topBar(panel).locator('.dsh-uml-viewer-more-menu')
     expect(await menu.getAttribute('role')).toBeNull()
     await moreButton(panel).click()
@@ -153,8 +136,6 @@ test('shows the canvas status in the bottom status bar before any display (#46)'
   const lane = await launchViewerLane(browser)
   try {
     const shop = await lane.openPanel('shop', { display: false })
-    // No title, banner, return line, status or hint in the frame any more: the
-    // waiting canvas is empty and its status is the bar's localized text.
     expect(await shop.summary.getAttribute('data-status')).toBe('waiting-display')
     await expect(statusBar(shop)).toBeVisible()
     await expect(statusBar(shop)).toHaveAttribute('aria-label', 'Panel status')

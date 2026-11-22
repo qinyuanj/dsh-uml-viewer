@@ -1,22 +1,5 @@
 #!/usr/bin/env python3
-"""One guardrail command: the checks that are safe to run at any time.
-
-This is the only guardrail command on every host, native Windows included
-(ADR 0010; the earlier `check.ps1` stays retired). Python suites run with the
-interpreter that runs this file. The cargo check builds the release binary,
-then runs the workspace tests. Stops at the first failure so the printed
-label names the actual cause. The quality refresh (`uml-viewer quality
-crap|mutate|dry`, then `uml-viewer ir`) is deliberately absent: it needs
-serialized, declared-scope runs against a real project, so it cannot be a
-default check. The old public entry and its Python suites were deleted with
-the companion (#18); the real-window drivers were deleted with the
-standalone window (dsh-uml-viewer#30), whose scenarios are the panel's
-Playwright suite (`pnpm test:e2e`).
-
-Usage:
-    python3 -I scripts/check.py
-    py -3 -I scripts\\check.py              # native Windows (no python3 there)
-"""
+"""One guardrail command: the checks that are safe to run at any time."""
 import argparse
 from pathlib import Path
 import shutil
@@ -24,7 +7,6 @@ import subprocess
 import sys
 
 REPO = Path(__file__).resolve().parents[1]
-# Static source rules: seconds, no build, so they run first.
 FAST_SUITES = ['test_process_boundary.py', 'test_line_endings.py',
               'test_mutate_goldens_help.py']
 
@@ -43,7 +25,6 @@ def cargo_suite():
     cargo = interpreter('cargo')
     if not cargo:
         return 'failed', 1, 'cargo is required (the workspace tests)'
-    # The release binary is what the panel and the quality refresh run.
     code, output = run([cargo, 'build', '--release', '--locked'])
     if code != 0:
         return 'failed', code, output
@@ -52,7 +33,6 @@ def cargo_suite():
 
 
 def python_suite(name):
-    """A Python suite under this interpreter (Windows has no `python3`)."""
     code, output = run([sys.executable, '-I', str(REPO / 'scripts' / name)])
     return ('executed' if code == 0 else 'failed'), code, output
 
@@ -63,14 +43,12 @@ def python_checks(names):
 
 
 def selected_checks():
-    """Fast source rules, then the cargo build and tests."""
     checks = python_checks(FAST_SUITES)
     checks += [('cargo build --release --locked + cargo test --workspace --locked', cargo_suite)]
     return checks
 
 
 def run_checks(checks):
-    """Each check in order, stopping after the first failure."""
     results = []
     for label, check in checks:
         status, code, output = check()

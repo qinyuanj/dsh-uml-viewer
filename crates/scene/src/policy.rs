@@ -1,7 +1,3 @@
-//! Policy helpers shared by namespace/proposal views (port of the view-side
-//! half of `love/uml/domain/policy.lua`: merge/kinds/violations/proposals).
-//! `apply_policy` itself belongs to the IR generator (#136).
-
 use edn::Value;
 use edn::record::{drop_keys, flag, get, local_name, name, numval, seq};
 
@@ -27,7 +23,6 @@ fn matches(x: &Value, p: &Value) -> bool {
     x == p || x.starts_with(&format!("{p}."))
 }
 
-/// Is the class id under any `:omit` prefix?
 pub fn omitted_id(x: &Value, omit: Option<&Value>) -> bool {
     seq(omit).iter().any(|p| matches(x, p))
 }
@@ -42,9 +37,6 @@ pub fn kind_rank(k: Option<&Value>) -> i64 {
     }
 }
 
-/// The original leaf relationship carried by a visible edge. Keeping kind
-/// with the endpoints lets dependency highlighting ignore stronger parallel
-/// association/inheritance arrows without losing a bundled dependency.
 pub(crate) fn leaf_dependency(e: &Value) -> Value {
     Value::Map(vec![
         (
@@ -72,8 +64,6 @@ pub(crate) fn leaf_dependency(e: &Value) -> Value {
     ])
 }
 
-/// Merge parallel edges per directed endpoint pair; the strongest kind wins,
-/// violations are preserved, and output order follows Clojure's group-by.
 pub fn merge_edges(edges: &[Value]) -> Value {
     struct Group {
         pair: (Value, Value),
@@ -101,8 +91,6 @@ pub fn merge_edges(edges: &[Value]) -> Value {
             });
         let group = &mut groups[gi];
         group.deps.push(leaf_dependency(e));
-        // The first edge of a new pair seeded `best` above; still apply the
-        // kind comparison so an equal-rank later edge wins, as in Lua.
         group.violating = group.violating || edn::record::is_true(e, "violating");
         if kind_rank(get(e, "kind")) >= kind_rank(get(&group.best, "kind")) {
             group.best = e.clone();
@@ -132,8 +120,6 @@ pub fn merge_edges(edges: &[Value]) -> Value {
     )
 }
 
-/// A pair key is a keyword (the IR's edge endpoints); anything else would
-/// make Clojure's `group-by` key shape differ, so it is a programming error.
 fn keyword_name(value: &Value) -> &str {
     match value {
         Value::Keyword(n) => n.as_str(),
@@ -141,8 +127,6 @@ fn keyword_name(value: &Value) -> &str {
     }
 }
 
-/// Restamp `:violating` on dependency edges that climb the rank order, and
-/// `:level` on classes, from a rank map.
 pub fn restamp_ranks(classes: &[Value], edges: &[Value], ranks: &Value) -> Value {
     Value::Map(vec![
         (
@@ -213,7 +197,6 @@ fn with_levels(classes: &[Value], ranks: &Value, clear: bool) -> Vec<Value> {
         .collect()
 }
 
-/// Apply `:edge-kinds` overrides and drop `:omit-edges` pairs.
 pub fn apply_edge_kinds(edges: &[Value], kinds: Option<&Value>, omit: Option<&Value>) -> Value {
     let empty = Value::Map(vec![]);
     let kinds = default(kinds, &empty);
@@ -232,9 +215,6 @@ pub fn apply_edge_kinds(edges: &[Value], kinds: Option<&Value>, omit: Option<&Va
             && edn::record::truthy(Some(k))
         {
             edn::record::put(&mut c, "kind", k.clone());
-            // The override replaces the relation represented by this pair,
-            // including leaves cached before merging. Highlighting traverses
-            // those leaves, so retaining scanned kinds would contradict it.
             if let Some(Value::Vector(deps)) = get(&c, "deps") {
                 let deps = deps
                     .iter()
@@ -258,7 +238,6 @@ pub fn apply_edge_kinds(edges: &[Value], kinds: Option<&Value>, omit: Option<&Va
     Value::Vector(out)
 }
 
-/// Flatten an nse tree into its leaf/class ids, in encounter order.
 pub fn nse_ids(nses: Option<&Value>) -> Vec<Value> {
     let mut out = Vec::new();
     for x in seq(nses) {
@@ -313,8 +292,6 @@ fn layers_from(xs: Option<&Value>) -> Vec<Value> {
     out
 }
 
-/// Normalize a proposal body (map or bare layers vector); None when it has
-/// no layers.
 pub fn normalize_proposal(p: Option<&Value>) -> Option<Value> {
     let p = p?;
     let layers = match p {
@@ -376,8 +353,6 @@ fn named(p: &Value, i: usize) -> Option<Value> {
     Some(out)
 }
 
-/// Named proposals of a policy or IR document (`:proposals`, then the
-/// legacy singular `:proposal`).
 pub fn named_proposals(x: &Value) -> Vec<Value> {
     let mut out = Vec::new();
     match get(x, "proposals") {
@@ -433,7 +408,6 @@ pub fn proposal_by_id(x: &Value, want: Option<&Value>) -> Option<Value> {
         .find(|p| get(p, "id") == Some(&want_id))
 }
 
-/// Layers of the first named proposal, else the normalized singular form.
 #[cfg(test)]
 pub fn proposal_layers(x: &Value) -> Vec<Value> {
     if let Some(first) = named_proposals(x).into_iter().next() {

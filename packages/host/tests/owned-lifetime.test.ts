@@ -62,7 +62,6 @@ it('last close acknowledges a stopped resident even when a previous action still
   await h.sessions.openOwned(h.agent, signal, owner('first'))
   const borrowed = await h.sessions.open(h.agent, signal, false)
   expect(await h.sessions.closeOwned(h.agent, owner('first'))).toBe(true)
-  // An immediate Open must select the new activation, never rejoin this child.
   expect(h.pool.connections.has('session')).toBe(false)
   expect(h.requests).toContain('quit')
   await h.sessions.release(borrowed, 'borrowed')

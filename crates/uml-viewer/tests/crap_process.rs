@@ -1,5 +1,3 @@
-//! Native process-tree contract at the real `uml-viewer crap` CLI seam.
-//! The coverage command and its descendants are Rust executables, not Python.
 #![cfg(windows)]
 
 use super::crap::{Project, canonical};
@@ -17,12 +15,10 @@ unsafe extern "system" {
     fn CloseHandle(handle: *mut c_void) -> i32;
 }
 
-// These handles pin the process identities, so a reused PID cannot pass a test
-// or cause cleanup to terminate an unrelated process.
 struct Descendant(*mut c_void);
 impl Descendant {
     fn open(pid: u32) -> Self {
-        let handle = unsafe { OpenProcess(0x0010_0001, 0, pid) }; // SYNCHRONIZE | PROCESS_TERMINATE
+        let handle = unsafe { OpenProcess(0x0010_0001, 0, pid) };
         if handle.is_null() {
             assert_eq!(Some(87), std::io::Error::last_os_error().raw_os_error());
         }

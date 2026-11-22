@@ -1,4 +1,3 @@
-//! Existing CRAP gates remain in the native Windows CI filter.
 use super::crap::{Project, stderr, stdout};
 
 #[test]
@@ -72,8 +71,6 @@ fn malformed_lua_source_fails_and_keeps_the_previous_snapshot() {
 
 #[test]
 fn malformed_go_profile_fails_and_keeps_the_previous_snapshot() {
-    // crapper parse_go_profile raises on an unusable segment, so the run
-    // exits 1 and the previous snapshot stays; it must not publish N/A.
     let p = Project::new();
     p.write("go.mod", "module example.com/bad\n\ngo 1.20\n");
     p.write("board.go", "package bad\n\nfunc Place() int { return 1 }\n");

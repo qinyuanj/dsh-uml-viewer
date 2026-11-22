@@ -21,12 +21,10 @@ SOURCE = GOLDENS / "SOURCE"
 
 
 def pinned_commit() -> str:
-    """The crapper commit `goldens/SOURCE` pins for every CLI expectation."""
     return SOURCE.read_text(encoding="utf-8").split()[1]
 
 
 def default_reference() -> Path:
-    """The pinned crapper tests, wherever this worktree sits in the tree."""
     for base in (ROOT, *ROOT.parents):
         candidate = base / "spec203-notes" / "ref" / "crapper" / "tests"
         if candidate.is_dir():
@@ -38,7 +36,6 @@ def default_reference() -> Path:
 
 
 def verify_reference(reference: Path) -> None:
-    """Refuse a checkout that is not the pinned crapper commit."""
     checkout = reference.parent
     if not (checkout / ".git").exists():
         print(
@@ -164,8 +161,6 @@ def go_cases(tests: PinnedTests):
         else:
             group = "root-module"
         case("go", group, source, path or "board.go", f"test_edges.py:{line}", module="example.com/behavior/root" if group == "root-module" else None, original_path=path)
-    # Extra original Go complexity calls (closure/type-switch/select) are added
-    # by the parent fixture only when they have a source in the pinned tests.
 
 
 def java_cases(tests: PinnedTests):
@@ -193,7 +188,7 @@ def java_cases(tests: PinnedTests):
 def clojure_cases(tests: PinnedTests):
     for _, line, values in tests.calls("test_clojure", "cyclomatic_complexity"):
         source = values[0]
-        complexity = None  # The parent reads scalar assertions from the original pytest.
+        complexity = None
         if source == "(defn foo [x] (cond a b":
             case("clojure", "omitted", source, "unfinished.clj", f"test_clojure.py:{line}", omitted=True, reason="Private unfinished complexity test; extraction drops an unclosed defn.")
             continue
@@ -218,8 +213,6 @@ def clojure_cases(tests: PinnedTests):
         case("clojure", f"private-{line}", values[0], "edge.clj", f"test_edges.py:{line}", note="Public extraction gives the same function; private raw text assertion is not CLI observable.")
     for _, line, values in tests.calls("test_clojure", "namespace_from_path"):
         path, root = values
-        # Preserve a leading src/ for strip_src; strip an original project
-        # prefix or source root because each case is independently selected.
         source_root = PurePosixPath(path).parent.as_posix()
         for prefix in ("/proj/", "/proj", "pkg/", "."):
             if source_root.startswith(prefix):
@@ -239,7 +232,6 @@ def group_directory(item: dict) -> Path:
 
 
 def placed_source(item: dict) -> Path:
-    """Where the source must sit: under its declared `-s` root, not the group root."""
     root = item["source_root"]
     source = group_directory(item) / item["path"]
     if root in ("", "."):
@@ -280,7 +272,6 @@ def generate(tests: PinnedTests, check: bool):
         if item["language"] == "go" and item.get("module"):
             files[group_directory(item) / "go.mod"] = f"module {item['module']}\n\ngo 1.20\n"
         if item.get("helper_only"):
-            # String blanking has no CLI output; the group has no scenario.
             continue
         name = scenario_name(item)
         if any(

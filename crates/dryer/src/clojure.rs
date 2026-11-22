@@ -1,8 +1,3 @@
-//! Clojure source, read and normalized the way dry4clj does it: dryer's
-//! `clojure_read.py`, ported. Clojure has no tree-sitter grammar here; forms
-//! come from this reader so reader conditionals, discards, metadata, tagged
-//! literals and reader errors behave exactly like the original.
-
 use crate::normalize::Normalized;
 use quality_core::number::decimal_digit;
 
@@ -11,7 +6,6 @@ const TERMINATORS: &[char] = &[
     '(', ')', '[', ']', '{', '}', '"', ';', '\'', '@', '^', '`', '~', '\\', ',', '#', ':',
 ];
 
-/// A form in the source, with the line it starts on.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Form {
     Sym(String, usize),
@@ -93,16 +87,13 @@ mod number {
         let sign = usize::from(chars.get(at + 1).is_some_and(|c| *c == '+' || *c == '-'));
         digits(chars, at + 1 + sign)
     }
-    /// Every position each alternative can end at, longest first.
     fn ends(chars: &[char]) -> Vec<usize> {
         let mut found = Vec::new();
-        // \d+/\d+
         for first in digits(chars, 0) {
             if chars.get(first) == Some(&'/') {
                 found.extend(digits(chars, first + 1));
             }
         }
-        // \d+\.\d+(?:[eE][+-]?\d+)?
         for first in digits(chars, 0) {
             if chars.get(first) == Some(&'.') {
                 for second in digits(chars, first + 1) {
@@ -111,19 +102,16 @@ mod number {
                 }
             }
         }
-        // \.\d+(?:[eE][+-]?\d+)?
         if chars.first() == Some(&'.') {
             for second in digits(chars, 1) {
                 found.extend(exponent(chars, second));
                 found.push(second);
             }
         }
-        // \d+(?:[eE][+-]?\d+)?
         for first in digits(chars, 0) {
             found.extend(exponent(chars, first));
             found.push(first);
         }
-        // 0[xX][0-9A-Fa-f]+
         if chars.first() == Some(&'0') && chars.get(1).is_some_and(|c| *c == 'x' || *c == 'X') {
             found.extend(hex(chars, 2));
         }
@@ -454,7 +442,6 @@ impl<'a> Reader<'a> {
     }
 }
 
-/// Top-level forms, plus a warning when a later form could not be read.
 pub(crate) fn read_source(text: &str) -> (Vec<Form>, Option<String>) {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let chars: Vec<char> = text.chars().collect();
@@ -494,7 +481,6 @@ fn children(form: &Form) -> Vec<&Form> {
     }
 }
 
-/// The last line any part of the form occupies.
 pub(crate) fn max_line(form: &Form) -> usize {
     children(form)
         .into_iter()
@@ -544,7 +530,6 @@ pub(crate) fn normalize(form: &Form, head: bool) -> Normalized {
     }
 }
 
-/// A non-empty top-level list whose head is not `ns`.
 pub(crate) fn is_candidate_form(form: &Form) -> bool {
     let Form::Coll(coll) = form else {
         return false;

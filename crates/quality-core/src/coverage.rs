@@ -1,10 +1,3 @@
-//! Coverage reports and the coverage of each function's line range.
-//!
-//! LCOV line hits serve Rust (and later TypeScript, Python, Lua). Reports
-//! already on disk are matched to sources by path suffix; a report a custom
-//! coverage command just wrote is validated strictly and matched exactly.
-//! A file with no coverage data scores N/A rather than 0%.
-
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,11 +6,8 @@ use crate::functions::Function;
 use crate::language::Language;
 use crate::paths::{normcase, resolve};
 
-/// Line → (covered lines, lines): one `DA` record per line.
 pub type Lines = HashMap<u64, (u64, u64)>;
 
-/// Report records in report order; a repeated key keeps its first position
-/// and takes the later value, as a Python dict does.
 #[derive(Clone, Debug, Default)]
 pub struct Records {
     order: Vec<String>,
@@ -49,7 +39,6 @@ impl Records {
     }
 }
 
-/// Percent-decoding as `urllib.parse.unquote` does (invalid UTF-8 replaced).
 fn unquote(text: &str) -> String {
     if !text.contains('%') {
         return text.to_string();
@@ -72,8 +61,6 @@ fn unquote(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// A report path in comparable form: decoded, `/` separators, no `file:`
-/// or leading `./`, no doubled slashes.
 pub fn normalize_path(path: &str) -> String {
     let mut text = unquote(path).replace('\\', "/");
     if let Some(rest) = text.strip_prefix("file:") {
@@ -96,7 +83,6 @@ pub(super) fn segments(path: &str) -> Vec<String> {
         .collect()
 }
 
-/// The names one source path may appear under in a report.
 pub(super) fn candidates(source_path: &str) -> Vec<String> {
     let relative = normalize_path(source_path);
     let absolute = if source_path.is_empty() {
@@ -118,7 +104,6 @@ pub(super) fn candidates(source_path: &str) -> Vec<String> {
     found
 }
 
-/// `100 · covered / total`, 0 when there is nothing to count.
 pub fn coverage_percent(covered: u64, total: u64) -> f64 {
     if total == 0 {
         return 0.0;
@@ -126,7 +111,6 @@ pub fn coverage_percent(covered: u64, total: u64) -> f64 {
     100.0 * covered as f64 / total as f64
 }
 
-/// Coverage of lines `start..=end`; None without data for the file.
 pub fn percent_for_range(lines: Option<&Lines>, start: usize, end: usize) -> Option<f64> {
     let lines = lines?;
     let (mut covered, mut total) = (0, 0);
@@ -139,7 +123,6 @@ pub fn percent_for_range(lines: Option<&Lines>, start: usize, end: usize) -> Opt
     Some(coverage_percent(covered, total))
 }
 
-/// `str.splitlines()`: every line boundary Python recognizes.
 pub fn splitlines(text: &str) -> Vec<&str> {
     let mut lines = Vec::new();
     let mut start = 0;
@@ -178,7 +161,6 @@ pub(super) fn python_strip(text: &str) -> &str {
     text.trim_matches(|c: char| c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c))
 }
 
-/// A string as Python's `repr` prints it inside an exception message.
 pub(super) fn python_repr(text: &str) -> String {
     let mut out = String::from("'");
     for c in text.chars() {
@@ -202,8 +184,6 @@ fn digits(text: &str) -> Option<u64> {
     text.parse().ok()
 }
 
-/// Permissive LCOV: `SF` opens a record, `DA:line,hits` lines fill it,
-/// anything else is ignored.
 pub fn parse_lcov(text: &str) -> Records {
     let mut out = Records::default();
     let mut current: Option<String> = None;
@@ -217,7 +197,6 @@ pub fn parse_lcov(text: &str) -> Records {
         } else if let Some(source) = &current
             && let Some(rest) = line.strip_prefix("DA:")
         {
-            // `DA:(\d+),(\d+)` matched at the start of the line.
             let (number, rest) = rest.split_at(
                 rest.find(|c: char| !c.is_ascii_digit())
                     .unwrap_or(rest.len()),
@@ -237,8 +216,6 @@ pub fn parse_lcov(text: &str) -> Records {
     out
 }
 
-/// Validate the LCOV a coverage command just wrote, resolving `SF` against
-/// `source_base`. Keys are the resolved source paths.
 pub fn read_fresh_lcov(report: &Path, source_base: &Path) -> Result<Records, String> {
     let bytes = fs::read(report).map_err(|error| io_message(&error, report))?;
     let text = String::from_utf8(bytes).map_err(|error| {
@@ -317,7 +294,6 @@ pub fn read_fresh_lcov(report: &Path, source_base: &Path) -> Result<Records, Str
     Ok(out)
 }
 
-/// `([1-9]\d*),(\d+)(?:,[0-9a-fA-F]{32})?` as a full match.
 fn fresh_da(value: &str) -> Option<(u64, u64)> {
     let mut fields = value.split(',');
     let line = fields.next()?;
@@ -333,7 +309,6 @@ fn fresh_da(value: &str) -> Option<(u64, u64)> {
     Some((digits(line)?, digits(hits)?))
 }
 
-/// An OSError as Python prints it.
 fn io_message(error: &std::io::Error, path: &Path) -> String {
     let path = path.display();
     match error.kind() {
@@ -345,9 +320,6 @@ fn io_message(error: &std::io::Error, path: &Path) -> String {
     }
 }
 
-/// Legacy exact-then-suffix matching: an exact normalized key first, else the
-/// first report record, in report order, whose path ends with any candidate
-/// name of the source.
 pub(super) struct SuffixIndex {
     normalized: HashMap<String, usize>,
     lines: Vec<Lines>,
@@ -403,7 +375,6 @@ impl SuffixIndex {
     }
 }
 
-/// Coverage for every analysed function.
 pub struct CoverageBundle {
     languages: crate::coverage_reports::Reports,
     suffix: SuffixIndex,
@@ -412,7 +383,6 @@ pub struct CoverageBundle {
 }
 
 impl CoverageBundle {
-    /// Reports already on disk, matched by path suffix.
     pub fn from_reports(lcov: &Records) -> CoverageBundle {
         CoverageBundle {
             languages: crate::coverage_reports::Reports::default(),
@@ -422,8 +392,6 @@ impl CoverageBundle {
         }
     }
 
-    /// Managed Lua coverage matches exact selected files; other languages retain
-    /// legacy disk report matching in mixed-language projects.
     pub fn add_fresh(&mut self, records: &Records, root: &Path) {
         let exact = records
             .iter()
@@ -432,7 +400,6 @@ impl CoverageBundle {
         self.managed_lua = Some((exact, root.to_path_buf()));
     }
 
-    /// A validated fresh report, matched by resolved path under `root`.
     pub fn fresh(records: &Records, root: &Path) -> CoverageBundle {
         let mut exact = HashMap::new();
         for (key, lines) in records.iter() {
@@ -448,13 +415,6 @@ impl CoverageBundle {
         }
     }
 
-    /// The percentage of `function`'s lines covered, or None.
-    ///
-    /// Java (JaCoCo) and Go (statement profile) have their own report formats
-    /// and never fall back to LCOV, so a custom coverage command's fresh
-    /// report leaves them unmeasured. Every other language prefers
-    /// Cloverage's form counts and only then reads LCOV, as crapper's
-    /// `percent_for` does.
     pub fn percent_for(&self, function: &Function) -> Option<f64> {
         if function.language == Language::Lua
             && let Some((exact, root)) = &self.managed_lua
@@ -490,8 +450,6 @@ pub(crate) const LCOV_REPORTS: &[&str] = &[
     "coverage/**/lcov.info",
 ];
 
-/// Every LCOV report on disk under `root`, merged; a later record for a
-/// source wins.
 pub fn load_bundle(root: &Path) -> Result<CoverageBundle, String> {
     let mut bundle = CoverageBundle::from_reports(&Records::default());
     bundle.languages = crate::coverage_reports::Reports::load(root)?;
@@ -503,8 +461,6 @@ pub fn load_bundle(root: &Path) -> Result<CoverageBundle, String> {
     Ok(bundle)
 }
 
-/// crapper `suffix_match`: `suffix`'s path segments end `path`'s. Shared by
-/// the LCOV lookups and mutator's report line lookup.
 pub fn report_suffix_match(path: &str, suffix: &str) -> bool {
     crate::coverage_reports::suffix_match(path, suffix)
 }

@@ -68,7 +68,6 @@ def snapshots(root: Path) -> dict[str, bytes]:
 
 
 def with_scope(data: bytes) -> bytes:
-    """Add the port's scope tag to a pinned original snapshot."""
     marker = b" :outcomes {"
     assert data.count(marker) == 1, data[:200]
     return data.replace(marker, b' :test-input-scope "global-v1" :outcomes {')
@@ -124,8 +123,6 @@ def oracle_project(name: str, fixture: Path, scratch: Path, run) -> dict:
 
 
 def site_inventory(fixture: Path) -> dict:
-    """The original's sites, forms and privacy for the corpus and fixture sources."""
-
     from mutator.functions import form_digests, form_spans, sites_in_file
 
     found = {}

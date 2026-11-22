@@ -1,6 +1,3 @@
-//! Text width and class box lines — the layout_text_spec.lua oracle plus the
-//! member-line rules exercised by viewer_spec.
-
 use crate::layout::{CHAR_W, class_box_size, class_lines, text_w};
 use edn::parse;
 use edn::record::{get, local_name};
@@ -11,7 +8,6 @@ fn jvm_width_for_ascii_two_byte_and_astral_text() {
     assert_eq!(0.0, text_w(None));
     assert_eq!(40.0, text_w(Some("Hello")));
     assert_eq!(24.0, text_w(Some("«α»")));
-    // U+1F600 is one UTF-16 surrogate pair on the JVM: two units.
     assert_eq!(16.0, text_w(Some("\u{1F600}")));
 }
 
@@ -19,11 +15,11 @@ fn jvm_width_for_ascii_two_byte_and_astral_text() {
 fn full_width_cjk_counts_as_two_half_width_characters() {
     assert_eq!(32.0, text_w(Some("中文")));
     assert_eq!(16.0 + 8.0 * 3.0 + 16.0, text_w(Some("类Box提")));
-    assert_eq!(16.0, text_w(Some("，"))); // U+FF0C full-width comma
-    assert_eq!(16.0, text_w(Some("。"))); // U+3002 CJK punctuation
-    assert_eq!(16.0, text_w(Some("한"))); // Hangul syllable
-    assert_eq!(8.0, text_w(Some("—"))); // U+2014 stays half width
-    assert_eq!(8.0, text_w(Some("ｱ"))); // U+FF71 half-width katakana
+    assert_eq!(16.0, text_w(Some("，")));
+    assert_eq!(16.0, text_w(Some("。")));
+    assert_eq!(16.0, text_w(Some("한")));
+    assert_eq!(8.0, text_w(Some("—")));
+    assert_eq!(8.0, text_w(Some("ｱ")));
 }
 
 #[test]
@@ -53,7 +49,6 @@ fn member_lines_show_stereotype_public_members_and_rules() {
         .count();
     assert_eq!(2, rules);
     let (_, h, _) = class_box_size(&c);
-    // 24 base + name/stereo 2*18 + field/op 2*18 + rules 2*12.
     assert_eq!(24.0 + 4.0 * 18.0 + 2.0 * 12.0, h);
 }
 
@@ -78,7 +73,6 @@ fn hidden_members_and_children_replace_member_lines() {
 
 #[test]
 fn box_width_grows_with_the_widest_line() {
-    // 24 + 10 half-width cells is below the 120 floor.
     let (w, _, _) = class_box_size(&parse("{:name \"abcdefghij\"}").unwrap());
     assert_eq!(120.0, w);
     let (w, _, _) = class_box_size(&parse("{:name \"abcdefghijklmnopqrstuvw\"}").unwrap());
@@ -97,7 +91,6 @@ fn row_of(scene: &edn::Value, id: &str) -> f64 {
 
 #[test]
 fn one_level_stacks_dependents_above_their_dependencies() {
-    // a -> b -> c in one level; d and e depend on each other, then on c.
     let d = parse(
         "{:packages [{:id :p :classes [{:id :a :name \"a\" :level 1} {:id :b :name \"b\" :level 1} {:id :c :name \"c\" :level 1} {:id :d :name \"d\" :level 1} {:id :e :name \"e\" :level 1} {:id :z :name \"z\" :level 0}]}] :edges [{:from :a :to :b} {:from :b :to :c} {:from :d :to :e} {:from :e :to :d} {:from :e :to :c} {:from :c :to :z}]}",
     )
@@ -126,8 +119,6 @@ fn a_level_without_inner_dependencies_keeps_one_row() {
 
 #[test]
 fn a_deep_chain_in_one_level_shares_its_top_row() {
-    // a -> b -> c -> d -> e in one level: rows stop at three, so a and b
-    // join c in the top row.
     let d = parse(
         "{:packages [{:id :p :classes [{:id :a :name \"a\" :level 0} {:id :b :name \"b\" :level 0} {:id :c :name \"c\" :level 0} {:id :d :name \"d\" :level 0} {:id :e :name \"e\" :level 0}]}] :edges [{:from :a :to :b} {:from :b :to :c} {:from :c :to :d} {:from :d :to :e}]}",
     )
@@ -173,7 +164,6 @@ fn rect_of(scene: &edn::Value, id: &str) -> crate::geom::Rect {
 
 #[test]
 fn levels_are_further_apart_than_the_sub_rows_of_one_level() {
-    // a -> b -> c: a and b share level 1 (two sub-rows), c is level 0.
     let d = parse(
         "{:packages [{:id :p :classes [{:id :a :name \"a\" :level 1} {:id :b :name \"b\" :level 1} {:id :c :name \"c\" :level 0}]}] :edges [{:from :a :to :b} {:from :b :to :c}]}",
     )
@@ -186,7 +176,6 @@ fn levels_are_further_apart_than_the_sub_rows_of_one_level() {
 
 #[test]
 fn edgeless_classes_of_a_levels_package_sit_in_a_grid_below() {
-    // a -> b; c..g have no edges: four to a grid row, below b.
     let d = parse(
         "{:packages [{:id :p :classes [{:id :a :name \"a\" :level 1} {:id :b :name \"b\" :level 0} {:id :c :name \"c\" :level 1} {:id :d :name \"d\" :level 1} {:id :e :name \"e\" :level 0} {:id :f :name \"f\" :level 1} {:id :g :name \"g\" :level 0}]}] :edges [{:from :a :to :b}]}",
     )
@@ -200,7 +189,6 @@ fn edgeless_classes_of_a_levels_package_sit_in_a_grid_below() {
     assert!(row_of(&s, "g") > first, "the fifth starts a new row");
 }
 
-/// Rows of (id, width, lane?) and the neighbour lists for `nearby`.
 fn nearby_of(
     rows: &[&[(&str, f64, bool)]],
     links: &[(&str, &str)],
@@ -232,7 +220,6 @@ fn nearby_of(
 
 #[test]
 fn nearby_moves_a_box_toward_its_neighbour_but_not_the_widest_row() {
-    // The top row packs to 380 wide; b slides under the far right box c.
     let x = nearby_of(
         &[
             &[
@@ -254,8 +241,6 @@ fn nearby_moves_a_box_toward_its_neighbour_but_not_the_widest_row() {
 
 #[test]
 fn nearby_never_moves_a_row_past_the_widest_packed_row() {
-    // The top row packs to 340 wide. b (300 wide) wants its centre under
-    // c's at 240, i.e. x = 90, but may only shift 340 - 300 = 40.
     let x = nearby_of(
         &[
             &[("a", 100.0, false), ("c", 200.0, false)],
@@ -269,8 +254,6 @@ fn nearby_never_moves_a_row_past_the_widest_packed_row() {
 
 #[test]
 fn nearby_keeps_lanes_in_order_between_their_boxes() {
-    // Both lanes lead toward z far left of the gap between a and c: they
-    // stop at a's right edge plus 20 and keep their 12px spacing.
     let x = nearby_of(
         &[
             &[("z", 40.0, false)],
@@ -288,12 +271,8 @@ fn nearby_keeps_lanes_in_order_between_their_boxes() {
     assert!(x["l2"] + 20.0 <= x["c"], "lanes stay left of c");
 }
 
-/// Level-2 classes of [`wide_diagram`]: one rank far taller than wide.
 const LEAVES: usize = 30;
 
-/// A `:levels` package in the wide layout (#191): [`LEAVES`] level-2
-/// classes on one hub, a level-0 base, an edgeless class, a foreign oval, and a long
-/// edge from the first leaf to the base.
 fn wide_diagram(aspect: f64) -> edn::Value {
     let leaves: String = (1..=LEAVES)
         .map(|i| format!("{{:id :a{i} :name \"leaf{i}\" :level 2}}"))
@@ -314,7 +293,6 @@ fn class_of<'a>(scene: &'a edn::Value, id: &str) -> &'a edn::Value {
         .unwrap()
 }
 
-/// Distinct left edges of the leaves: one per column they fill.
 fn leaf_columns(scene: &edn::Value) -> Vec<f64> {
     let mut xs: Vec<f64> = (1..=LEAVES)
         .map(|i| rect_of(scene, &format!("a{i}")).x)
@@ -373,9 +351,6 @@ fn a_wide_layout_folds_a_tall_rank_into_consecutive_columns() {
 fn the_target_aspect_decides_the_fold() {
     let wide = crate::compose::compile_diagram(&wide_diagram(crate::document::WIDE_ASPECT));
     let tall = crate::compose::compile_diagram(&wide_diagram(0.3));
-    // The shelf search answers the target aspect with both knobs: how many
-    // boxes a column stacks and where the strip wraps (#89). A tall canvas
-    // therefore comes out narrower than a wide one.
     let shape = |s: &edn::Value| {
         let size = get(s, "size").unwrap();
         let n = |k: &str| edn::record::num(get(size, k).unwrap()).unwrap();
@@ -393,8 +368,6 @@ fn the_target_aspect_decides_the_fold() {
 #[test]
 fn a_wide_layout_runs_its_levels_left_to_right_then_the_oval_and_the_grid() {
     let s = crate::compose::compile_diagram(&wide_diagram(crate::document::WIDE_ASPECT));
-    // Reading order: the strip wraps into shelves (#89), so the rank a column
-    // carries is the order - left to right, then the shelf below.
     let rank = |id: &str| edn::record::num(get(class_of(&s, id), "rank").unwrap()).unwrap();
     let first_leaf = (1..=LEAVES)
         .map(|i| rank(&format!("a{i}")))

@@ -1,4 +1,3 @@
-//! Cloverage uses its HTML form counters when `--lcov` is unavailable.
 use crate::process::Program;
 use crate::runner::run_shell;
 use std::path::Path;

@@ -11,7 +11,6 @@ export function irResult(projectRoot: string, patch: Partial<IrResult> = {}): Ir
     stdout: '', stderr: '', truncated: false, ...patch }
 }
 
-/** The IR tool consumes the operation-independent process policy and runner. */
 export async function runIr(services: HostServices, config: Config, exec: ToolRunContext, args: string[]): Promise<IrResult> {
   const agent = exec.agent
   if (!agent?.session) return irResult('', { reason: 'uml_ir requires a live DSH session' })

@@ -1,16 +1,3 @@
-/**
- * The panel's top bar (#46, ADR 0015): the breadcrumb path, the discussion-
- * context switcher (#47, `context-switcher.ts`), the search button with its box and result list, and the 「更多」 menu. It is the
- * first section of the three-part skeleton; `statusbar.ts` is the last and the
- * canvas sits between them. `index.ts` only wires the three together.
- *
- * Plain markup styled from host theme tokens — the host's UI primitives are
- * never loaded (ADR 0013). Every string comes from the locale files, so a DSH
- * language switch relabels the bar in place (#42).
- *
- * Later tickets edit this file alone for the top bar: #50 adds its legend
- * entry through `moreEntries`.
- */
 import { defaultProposalName, type BreadcrumbLevel } from '@dsh-uml-viewer/contracts'
 import type { PanelController, PanelStatus } from './panel.js'
 import { ENGLISH_TEXT, type PanelText } from './locale.js'
@@ -74,27 +61,16 @@ ${SWITCHER_STYLE}`
 export interface TopBarOptions {
   controller: PanelController
   text?: PanelText
-  /** Put the keyboard back where it was after a top-bar control ran. */
   onDone?: () => void
-  /** Entries later tickets add to the More menu (#50's legend). */
   moreEntries?: () => readonly MoreMenuEntry[]
-  /**
-   * What the discussion-context switcher does (#47). `index.ts` routes these
-   * through the overlay controller; without them the panel controller sends
-   * the same actions itself.
-   */
   context?: SwitcherActions
 }
 
 export interface TopBar {
   readonly element: HTMLElement
-  /** Follow the panel stream: the path, the discussion and the search box. */
   render(status: PanelStatus): void
-  /** **Ctrl+F** and the search button: open the box and put the caret in it. */
   openSearch(): void
-  /** The controller already opened the search: reveal the box, focus it. */
   focusSearch(): void
-  /** Whether this key target is the search box, which handles its own keys. */
   owns(target: EventTarget | null): boolean
   dispose(): void
 }
@@ -105,14 +81,12 @@ function labelButton(element: HTMLElement, label: string, title: string): void {
   element.setAttribute('aria-label', title)
 }
 
-/** Attach the top bar to its section of the panel. */
 export function mountTopBar(host: HTMLElement, options: TopBarOptions): TopBar {
   const text = options.text ?? ENGLISH_TEXT
   const controller = options.controller
   const doc = host.ownerDocument
   const bar = doc.createElement('div')
   bar.className = 'dsh-uml-viewer-topbar'
-  // One button per level above the current one, the current level as text.
   const crumbs = doc.createElement('nav')
   crumbs.className = 'dsh-uml-viewer-crumbs'
   const spacer = doc.createElement('span')
@@ -252,8 +226,6 @@ export function mountTopBar(host: HTMLElement, options: TopBarOptions): TopBar {
   input.addEventListener('keydown', onSearchKey)
   input.addEventListener('input', onSearchInput)
   labels()
-  // A DSH language switch relabels the bar in place; the level names are the
-  // tree's, but their button titles are ours.
   const unsubscribe = text.subscribe(() => {
     if (text.language === lastLanguage) return
     lastLanguage = text.language
@@ -270,7 +242,6 @@ export function mountTopBar(host: HTMLElement, options: TopBarOptions): TopBar {
     render,
     openSearch,
     focusSearch,
-    // The search box and the switcher handle their own keys (#47).
     owns: target => target === input || (target !== null && switcher.element.contains?.(target as Node) === true),
     dispose() {
       unsubscribe()

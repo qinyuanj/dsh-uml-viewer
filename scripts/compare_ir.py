@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Structural EDN comparison for IR files (replaces compare_ir.lua, #144).
-
-Map ordering is irrelevant, vector order is exact, numeric values compare by
-value (an integer and the same float are equal). Nothing is installed: the
-parser below covers the subset the IR and its JVM goldens use.
-"""
 import sys
 from pathlib import Path
 

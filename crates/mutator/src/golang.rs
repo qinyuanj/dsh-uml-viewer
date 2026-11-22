@@ -1,13 +1,9 @@
-//! Go mutation: the per-file test plan and the coverage command.
 use quality_core::{
     paths::{relative_posix, resolve},
     runner::nearest,
 };
 use std::path::{Path, PathBuf};
 
-/// `test_plan(root, source, "go", None)`: `go test -count=1 <package>` in the
-/// nearest module, the package as a `./`-relative path (`.` for the module's
-/// own directory), one argument even with a space in it.
 pub fn test_plan(root: &Path, source: &Path) -> (Vec<String>, PathBuf) {
     let root = resolve(root);
     let directory = nearest(source, "go.mod", &root).unwrap_or_else(|| root.clone());
@@ -27,8 +23,6 @@ pub fn test_plan(root: &Path, source: &Path) -> (Vec<String>, PathBuf) {
     )
 }
 
-/// crapper's Go runner for one module, as one view command: the profile goes
-/// to the module's `target/coverage/go/coverage.out`, which the view keeps.
 pub fn coverage_script() -> String {
     if cfg!(windows) {
         "mkdir target\\coverage\\go 2>nul & del /f /q target\\coverage\\go\\coverage.out 2>nul & go test ./... -coverprofile=target/coverage/go/coverage.out"
@@ -41,7 +35,6 @@ pub fn coverage_script() -> String {
 
 #[cfg(test)]
 mod tests {
-    //! Ported from the original `tests/test_runner.py` Go plan cases.
     use super::*;
     use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};

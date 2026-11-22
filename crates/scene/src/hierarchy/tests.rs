@@ -1,8 +1,3 @@
-//! Namespace and proposal views — the hierarchy_spec.lua oracle. The busted
-//! suite builds documents through `apply_policy` (#136's seam); here the
-//! equivalent documents are written literally, which is exactly what the IR
-//! the scene core consumes looks like.
-
 use crate::hierarchy as H;
 use edn::record::{get, local_name, num};
 use edn::{Value, parse};
@@ -168,7 +163,6 @@ fn routes_off_view_dependencies_into_ports_while_keeping_visible_arrows() {
     assert_eq!(Some(&kw("domain")), get(&in_deps[0], "id"));
     assert!(box_at(&inner, "engineering").is_none());
     assert!(edge(&inner, "engine.layout", "domain").is_none());
-    // :omit hides the subtree at the root view.
     let mut d = d;
     geom_put_omit(&mut d);
     let omitted = H::view_at(&d, &[]);
@@ -315,7 +309,6 @@ fn preserves_named_proposals_nested_groups_leftovers_omission_and_drill_views() 
         Some(&Value::String("Quil/Swing".into())),
         get(&outer_contents[0], "name")
     );
-    // Deep nested owner edges stay absent until the member boxes are visible.
     assert!(edge(&v, "outer", "jvm.cli").is_none());
     assert!(box_at(&v, "ir").is_none());
     let group = H::find_nested_group(&d, Some(&kw("split")), &kw("quil-swing")).unwrap();
@@ -377,10 +370,6 @@ fn uses_actual_namespace_children_and_drills_with_self_modules_and_foreign_ovals
     assert_eq!(Some(&Value::String("source".into())), get(&inner, "title"));
 }
 
-// Lua truthiness of authored IR flags (#147 review, #154), moved from
-// `tests/lua_truthiness.rs`: an authored `false` or `nil` is omission and
-// any other value (`:yes`, `1`) is `true`.
-
 const FALSY: [&str; 2] = ["false", "nil"];
 const TRUTHY: [&str; 2] = [":yes", "1"];
 
@@ -390,7 +379,6 @@ fn encoded(v: &Value) -> String {
 
 #[test]
 fn dummy_false_is_not_taken_as_the_package_endpoint_when_hiding_classes() {
-    // hierarchy.lua:239: `if get(c,'dummy?') then endpoint=…`.
     let hidden = |flag: &str| {
         let view = edn::parse(&format!(
             r#"{{:packages [{{:id :p :classes [{{:id :a {flag}}} {{:id :b}}]}} {{:id :q :classes [{{:id :c}}]}}]
@@ -418,7 +406,6 @@ fn dummy_false_is_not_taken_as_the_package_endpoint_when_hiding_classes() {
 
 #[test]
 fn proposal_group_false_keeps_the_namespace_label() {
-    // hierarchy.lua:34 `module_name`: `if get(c,'proposal-group?')` uses :name.
     let name = |flag: &str| {
         let doc = edn::parse(&format!(
             r#"{{:hierarchical true :classes [{{:id :a.x :name "Custom" {flag}}} {{:id :b}}] :edges []
@@ -446,7 +433,6 @@ fn proposal_group_false_keeps_the_namespace_label() {
 
 #[test]
 fn violating_false_does_not_turn_a_collapsed_arrow_into_a_violation() {
-    // hierarchy.lua:222: `if get(e,'violating') and not viol then …`.
     let collapsed = |flag: &str| {
         let view = edn::parse(&format!(
             r#"{{:packages [{{:id :p :classes [{{:id :a}} {{:id :b}}]}}]

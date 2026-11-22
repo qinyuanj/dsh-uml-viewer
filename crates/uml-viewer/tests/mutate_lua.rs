@@ -1,23 +1,9 @@
-//! A real Lua mutation must enter the Busted suite, on native Windows too.
-//!
-//! The Windows view wipes a slot before every command. #71 made the collection's
-//! own scratch — the instrumented collector, each shard's stats and the LCOV
-//! conversion input — outlive that wipe, in one shard and in several. These
-//! cases pin the consequence a caller can see on both native platforms: the
-//! baseline really runs the suite and the mutants are really judged, without
-//! `--reuse-coverage`.
-//!
-//! A dead bootstrap and a failing suite both end in `Lua tests exited N`, so the
-//! readouts here separate them: Busted's own summary line is the evidence that
-//! the suite was entered at all.
 #![cfg(any(target_os = "linux", windows))]
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// A copy of the committed fixture: a two-module Busted project with an untested
-/// source, so these cases need no working tree outside this repository.
 fn lua_project(name: &str) -> PathBuf {
     fn copy(from: &Path, to: &Path) {
         fs::create_dir_all(to).unwrap();
@@ -50,7 +36,6 @@ fn remove_lua_project(root: &Path) {
     fs::remove_dir_all(directory).unwrap();
 }
 
-/// The committed snapshot of the pinned original, as the judgement oracle.
 fn golden(name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/mutate/lua/goldens")
@@ -59,11 +44,8 @@ fn golden(name: &str) -> String {
         .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()))
 }
 
-/// The one probe the collection itself makes: Lua 5.4, the LuaRocks loader,
-/// cluacov 1.0.0 (the pinned C line hook), Busted and the LuaCov LCOV reporter.
 const TOOLCHAIN: &str = "assert(_VERSION == 'Lua 5.4', _VERSION); pcall(require, 'luarocks.loader'); assert(require('cluacov.version') == '1.0.0'); assert(require('busted.runner')); assert(require('luacov.reporter.lcov'))";
 
-/// Why the toolchain is absent, or `None` when it is whole.
 fn missing_lua_toolchain() -> Option<String> {
     for program in ["lua5.4", "lua"] {
         let loads = std::process::Command::new(program)
@@ -81,20 +63,15 @@ fn missing_lua_toolchain() -> Option<String> {
     ))
 }
 
-/// A missing toolchain is a loud SKIP, and a failure under
-/// `MUTATOR_REQUIRE_TOOLCHAINS=1` (CI). A silent skip reads like a pass, and
-/// these cases exist to show a suite that really runs.
 fn skip(reason: &str) {
     assert!(
         !std::env::var_os("MUTATOR_REQUIRE_TOOLCHAINS").is_some_and(|value| value == "1"),
         "MUTATOR_REQUIRE_TOOLCHAINS=1; {reason}"
     );
-    // libtest captures the test's own stderr; write to the process's real one.
     use std::io::Write;
     let _ = std::io::stderr().write_all(format!("SKIP: {reason}\n").as_bytes());
 }
 
-/// One `uml-viewer mutate` call on the fixture's `src/calc.lua`.
 struct Run {
     code: Option<i32>,
     stderr: String,
@@ -119,11 +96,6 @@ fn run(root: &Path, flags: &[&str], environment: &[(&str, &str)]) -> Run {
     }
 }
 
-/// Busted's own summary, once per test command it ran:
-/// `2 successes / 0 failures / 0 errors / 0 pending : 0.0 seconds`, with
-/// "success" singular when it is one. A collector that cannot be opened dies
-/// before Busted exists, so this count is what separates "the suite was never
-/// entered" from "the suite ran and failed".
 fn busted_runs(stderr: &str) -> usize {
     stderr
         .lines()
@@ -136,7 +108,6 @@ fn busted_runs(stderr: &str) -> usize {
         .count()
 }
 
-/// The shard launches the collection reports, for this shard count.
 fn shard_launches(stderr: &str, count: usize) -> usize {
     stderr
         .lines()
@@ -144,10 +115,6 @@ fn shard_launches(stderr: &str, count: usize) -> usize {
         .count()
 }
 
-/// What the console says about a run that never reached the suite. Every arm is
-/// a different cause than a test verdict, and the message says which. None is a
-/// platform refusal: ADR 0018 removed the build gate, so no host is refused
-/// before a command runs and nothing can print a build number here.
 fn never_entered(stderr: &str) -> String {
     if let Some(line) = stderr
         .lines()
@@ -173,9 +140,6 @@ fn never_entered(stderr: &str) -> String {
     "Busted never printed a summary; the run stopped before the suite".into()
 }
 
-/// The baseline really ran the suite, not just the collector: every spec file
-/// loaded and passed. One shard runs both files in one Busted process, several
-/// shards run one file each.
 fn assert_baseline_passed(stderr: &str, shards: usize) {
     let passing = |prefix: &str| {
         stderr
@@ -197,7 +161,6 @@ fn assert_baseline_passed(stderr: &str, shards: usize) {
     }
 }
 
-/// The suite was entered. Callers judge the mutants only after this.
 fn assert_entered(stderr: &str) {
     assert!(
         busted_runs(stderr) > 0,
@@ -206,9 +169,6 @@ fn assert_entered(stderr: &str) {
     );
 }
 
-/// The outcome map of a mutation snapshot: every judged mutant id and its
-/// verdict. The clock and the isolation field are not part of it, so it is the
-/// same bytes on every platform.
 fn outcomes(snapshot: &str) -> BTreeMap<String, String> {
     const OPEN: &str = ":outcomes {";
     let start = snapshot
@@ -227,9 +187,6 @@ fn outcomes(snapshot: &str) -> BTreeMap<String, String> {
     found
 }
 
-/// The baseline ran the suite and the mutants were judged: the published
-/// outcomes are the committed golden's, which only a run that both measured
-/// coverage and re-ran the suite per mutant can produce.
 fn assert_judged(root: &Path, run: &Run) {
     let path = root.join(".metrics/mutate/calc.edn");
     let snapshot = fs::read_to_string(&path).unwrap_or_else(|error| {
@@ -264,8 +221,6 @@ fn assert_judged(root: &Path, run: &Run) {
     );
 }
 
-/// The default shard count for this fixture: one per CPU, capped by its two
-/// spec files, exactly as the collection decides it.
 fn default_shards() -> usize {
     std::thread::available_parallelism()
         .map(std::num::NonZeroUsize::get)
@@ -273,8 +228,6 @@ fn default_shards() -> usize {
         .clamp(1, 2)
 }
 
-/// One coverage shard: the baseline runs the whole suite in one Busted process,
-/// so no shard is launched, and every covered site is judged.
 #[test]
 fn lua_mutation_enters_the_suite_in_one_coverage_shard() {
     if let Some(reason) = missing_lua_toolchain() {
@@ -293,9 +246,6 @@ fn lua_mutation_enters_the_suite_in_one_coverage_shard() {
     remove_lua_project(&root);
 }
 
-/// The default shard count: the same suite split by the collection's own count,
-/// merged afterwards. This is the half that #70's LF normalisation unblocked on
-/// Windows, so it is run with the shard pin cleared rather than with a guess.
 #[test]
 fn lua_mutation_enters_the_suite_in_the_default_coverage_shards() {
     if let Some(reason) = missing_lua_toolchain() {
@@ -324,8 +274,6 @@ fn lua_mutation_enters_the_suite_in_the_default_coverage_shards() {
     remove_lua_project(&root);
 }
 
-/// `--reuse-coverage` still skips this collection: no Busted process runs, no
-/// shard is launched, and the run is not the collection's own failure.
 #[test]
 fn reuse_coverage_still_skips_the_lua_collection() {
     if let Some(reason) = missing_lua_toolchain() {
@@ -344,7 +292,6 @@ fn reuse_coverage_still_skips_the_lua_collection() {
         "--reuse-coverage launched a coverage shard:\n{}",
         run.stderr
     );
-    // Neither the collection's failure exit (2) nor a refused run (1).
     assert!(
         matches!(run.code, Some(0) | Some(3)),
         "exit {:?}:\n{}",

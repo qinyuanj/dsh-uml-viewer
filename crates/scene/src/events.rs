@@ -56,8 +56,6 @@ fn rebuild(mut s: ViewState) -> ViewState {
         && edn::record::flag(&doc, "hierarchical")
     {
         s.scene = document::compile_view(&doc, &s.snapshots, &s.focus.clone(), &s.extra.clone());
-        // Recompiling geometry is not navigation: keep camera/zoom and valid
-        // selection targets (ADR 0002).
         s = document::drop_missing_detail(s);
     }
     s
@@ -87,8 +85,6 @@ pub fn show_proposal(s: &ViewState, id: Option<&Value>) -> ViewState {
     }
     let mut n = s.clone();
     n.focus = vec![];
-    // `E.assoc` removes a key when the value is EDN nil (the Lua `put` path
-    // writes `nil_value`, which `E.get` reports as absent).
     n.extra = match &id {
         Some(id) => {
             let mut extra = n.extra.clone();
@@ -392,7 +388,6 @@ fn document_title(doc: &Value) -> String {
     }
 }
 
-/// The proposal view itself: the tree root of a discussion in a proposal.
 fn proposal_level(proposals: &[Value], pid: &Value) -> Crumb {
     let named = proposals.iter().find(|p| get(p, "id") == Some(pid));
     Crumb {
@@ -410,7 +405,6 @@ fn proposal_name(proposal: &Value) -> String {
     }
 }
 
-/// A layer's box id in the proposal view: `:proposal.<layer>`.
 fn layer_box_id(layer: &Value) -> Value {
     Value::keyword(&format!(
         "proposal.{}",
@@ -427,7 +421,6 @@ fn layer_crumb(layer: &Value) -> Crumb {
     }
 }
 
-/// A layer's or a nested group's name: its declared label, else its id.
 fn declared_name(node: &Value) -> String {
     match get(node, "label") {
         Some(Value::String(text)) if !text.is_empty() => text.clone(),
@@ -438,8 +431,6 @@ fn declared_name(node: &Value) -> String {
     }
 }
 
-/// The path from the tree root through the proposal's layers to the open
-/// layer: a declared layer package, or a nested group below one.
 fn proposal_path(
     s: &ViewState,
     doc: &Value,
@@ -452,7 +443,6 @@ fn proposal_path(
         return vec![root];
     };
     let layers = seq(get(&proposal, "layers")).to_vec();
-    // A nested group keeps every level above it.
     for declared in &layers {
         if let Some(path) = group_path(get(declared, "nses"), layer) {
             let mut out = vec![root, layer_crumb(declared)];
@@ -474,10 +464,6 @@ fn proposal_path(
     {
         return vec![root, layer_crumb(declared)];
     }
-    // A package the proposal view generates (`:proposal.unassigned`) is a
-    // level too, and the canvas is what names it. A layer the document no
-    // longer declares is not: the canvas falls back to the proposal root, so
-    // the path stops there instead of naming a level nothing shows.
     match open_layer_name(&s.scene, layer) {
         Some(name) => vec![
             root,
@@ -493,7 +479,6 @@ fn proposal_path(
     }
 }
 
-/// The name the scene gives the open proposal layer's package, if it shows it.
 fn open_layer_name(scene: &Value, layer: &Value) -> Option<String> {
     seq(get(scene, "packages"))
         .iter()
@@ -504,7 +489,6 @@ fn open_layer_name(scene: &Value, layer: &Value) -> Option<String> {
         })
 }
 
-/// The declared groups from the outermost one containing `target` down to it.
 fn group_path(nses: Option<&Value>, target: &Value) -> Option<Vec<Value>> {
     for node in seq(nses) {
         if !matches!(node, Value::Map(_)) {
@@ -580,7 +564,6 @@ pub fn zoom_at(s: &ViewState, factor: f64, ax: f64, ay: f64) -> ViewState {
     n
 }
 
-/// The pointer anchors zooming when it is on the canvas, else the centre.
 fn anchor(dims: &Dims, s: &ViewState) -> (f64, f64) {
     if let Some(p) = dims.pointer.or(s.pointer) {
         return p;
@@ -762,7 +745,6 @@ pub fn layer_id(hit_value: Option<&Value>) -> Option<Value> {
     }
 }
 
-/// Detail target identity of a class, child row or port hit.
 pub(crate) fn detail_id_for(hit_value: Option<&Value>) -> Option<Value> {
     let hit_value = hit_value?;
     match get(hit_value, "kind").map(name).as_deref() {

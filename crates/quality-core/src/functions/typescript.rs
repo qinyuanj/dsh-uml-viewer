@@ -1,5 +1,3 @@
-//! TypeScript and TSX functions, methods and structural complexity.
-
 use std::path::Path;
 
 use tree_sitter::Node;

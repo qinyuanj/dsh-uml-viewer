@@ -1,21 +1,3 @@
-/**
- * The selection action bar (#48, ADR 0015): what can be done to the selected
- * class or component, without a double-click or the right-click menu. It sits
- * over the bottom edge of the canvas, just above the status bar, so panning and
- * zooming never move it and showing it never resizes or re-fits the canvas; the
- * card/source drawer (#49) pushes it up, or aside when the drawer docks, so the
- * two never cover each other.
- *
- * - A class: its name, Open class card, Refresh CRAP, Differential mutation, Hide.
- * - A component (a drillable box, or a proposal layer): its name, Drill in, and
- *   the same three requests.
- * - A foreign package (外来包椭圆): its name only.
- *
- * Full mutation is slow, so it waits in a secondary menu. The requests are the
- * element menu's own (`ELEMENT_REQUESTS`); the right-click menu stays an
- * equivalent entry. Plain markup styled from host theme tokens (ADR 0013); every
- * string comes from the locale files and follows a DSH language switch (#42).
- */
 import type { PanelAck, PanelAction, SceneFrame } from '@dsh-uml-viewer/contracts'
 import { ENGLISH_TEXT, type PanelText } from './locale.js'
 import { ELEMENT_REQUESTS, sendElementRequest, type ElementRequest } from './requests.js'
@@ -54,43 +36,25 @@ export const ACTION_BAR_STYLE = `
 }
 .dsh-uml-viewer-action-menu[hidden] { display: none; }
 .dsh-uml-viewer-action-menu button { display: block; width: 100%; text-align: left; color: inherit; }
-/* The class card / source drawer (#49) owns the lower half of the canvas, or the
-   right edge of it from 900px; the bar keeps clear of it, so neither surface
-   hides the other's rows or its scrollbar. Only an open drawer is in the DOM. */
 .dsh-uml-viewer-panel:has(.dsh-uml-drawer) .dsh-uml-viewer-action-bar { bottom: calc(50% + 8px); }
-/* A docked card already reserved its column from the canvas area (F28), so the
-   bar simply keeps the bottom edge of the space that is left. */
 .dsh-uml-viewer-panel[data-layout="docked"]:has(.dsh-uml-drawer) .dsh-uml-viewer-action-bar { bottom: 8px; }
 `
 
-/** What the bar offers depends on the kind of element selected. */
 export interface ElementSelection {
   kind: 'class' | 'component' | 'foreign'
-  /** The element id (EDN), as the panel requests carry it. */
   id: string
-  /** The name the element is drawn with. */
   name: string
-  /** A member row: the id has no class card of its own (#48 F49). */
   member?: boolean
 }
 
-/** One keyword value of a flat EDN hit map, such as `:id` in `{:kind :class :id :core}`. */
 function keyword(edn: string, key: string): string | null {
   return new RegExp(`:${key}\\s+(:[^\\s,{}\\[\\]()]+)`).exec(edn)?.[1] ?? null
 }
 
-/** The last namespace segment, for an element the frame draws without a name. */
 function localName(id: string): string {
   return id.replace(/^:/, '').split(/[./]/).pop() || id
 }
 
-/**
- * The element the resident's `state` event says is selected (`selected`, an
- * EDN hit such as `{:kind :class :id :core :drill? true}`), named from the
- * frame that shows it. Nothing to act on is `null`: no selection, a dependency
- * port, the level's own frame (`:view`, hit by a click on blank canvas), or an
- * element this frame does not draw.
- */
 export function elementSelection(selected: string | null, frame: SceneFrame | null): ElementSelection | null {
   if (!selected || !frame) return null
   const kind = keyword(selected, 'kind')
@@ -104,36 +68,28 @@ export function elementSelection(selected: string | null, frame: SceneFrame | nu
   }
   if (kind !== ':class' && kind !== ':child') return null
   const member = kind === ':child'
-  // A child row is drawn inside its parent's box, not as a box of its own.
   const shown = frame.world.some(entry => entry.kind === 'class' && entry.id === (member ? keyword(selected, 'parent') : id))
   if (!shown) return null
   const box = frame.world.find(entry => entry.kind === 'class' && entry.id === id)
   const label = frame.world.find(entry => entry.kind === 'text' && entry.owner === id && entry.line === 'name')
   const name = (label?.kind === 'text' ? label.text : null) ?? localName(id)
   if (box?.kind === 'class' && box.shape === 'oval') return { kind: 'foreign', id, name }
-  // A member id cannot resolve a class card or a drill-in; keep the requests
-  // that name the member, but never offer the parent-only actions (F49).
   return { kind: !member && /:drill\?\s+true\b/.test(selected) ? 'component' : 'class', id, name, ...(member ? { member: true } : {}) }
 }
 
 export interface ActionBarOptions {
   text?: PanelText
-  /** The panel's `action` call: drill-in and the element requests. */
   send(action: PanelAction): Promise<PanelAck | null>
-  /** Open the class card through the overlays, which then fetch it. */
   openCard(id: string): void | Promise<void>
-  /** A refusal goes to the status bar; a thunk is re-read in the current language. */
   report(reason: string | (() => string) | null): void
 }
 
 export interface ActionBar {
   readonly element: HTMLElement
-  /** Show the bar for this selection, or hide it. */
   render(selection: ElementSelection | null): void
   dispose(): void
 }
 
-/** Attach the action bar over the bottom of the canvas area (`host`). */
 export function mountActionBar(host: HTMLElement, options: ActionBarOptions): ActionBar {
   const text = options.text ?? ENGLISH_TEXT
   const doc = host.ownerDocument
@@ -145,8 +101,6 @@ export function mountActionBar(host: HTMLElement, options: ActionBarOptions): Ac
   name.className = 'dsh-uml-viewer-action-name'
   const buttons = doc.createElement('span')
   buttons.className = 'dsh-uml-viewer-action-buttons'
-  // Same rule as the element and More menus: `role="menu"` only while open,
-  // because the host reads any `[role="menu"]` as an open modal.
   const menu = doc.createElement('div')
   menu.className = 'dsh-uml-viewer-action-menu'
   menu.hidden = true
@@ -192,10 +146,7 @@ export function mountActionBar(host: HTMLElement, options: ActionBarOptions): Ac
     bar.dataset.id = id
     name.textContent = selection.name
     name.setAttribute('title', id)
-    // A foreign package is not the project's code: nothing to measure or hide.
     if (kind === 'foreign') return
-    // A member-row id has no class card or component to drill into. Hide the
-    // unresolvable action rather than making it a silent no-op (F49).
     if (!selection.member) buttons.appendChild(kind === 'class'
       ? button(text.t('actionBar.openCard'), () => { void options.openCard(id) })
       : button(text.t('actionBar.drillIn'), () => { void options.send({ action: 'drill-in', id }).catch(() => {}) }))
@@ -233,8 +184,6 @@ export function mountActionBar(host: HTMLElement, options: ActionBarOptions): Ac
     buttons.appendChild(more)
   }
 
-  // Escape closes the open secondary menu and goes no further; with the menu
-  // closed it reaches the panel, whose Escape clears the selection.
   const onKey = (event: KeyboardEvent): void => {
     if (menu.hidden || event.isComposing || event.key !== 'Escape') return
     event.preventDefault()
@@ -256,7 +205,6 @@ export function mountActionBar(host: HTMLElement, options: ActionBarOptions): Ac
   return {
     element: bar,
     render(next) {
-      // A frame republishes the same selection; only a change rebuilds the bar.
       if (next?.id === selection?.id && next?.kind === selection?.kind
         && next?.name === selection?.name && next?.member === selection?.member) return
       selection = next

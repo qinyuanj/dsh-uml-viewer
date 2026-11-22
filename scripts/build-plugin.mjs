@@ -1,6 +1,5 @@
 import { build } from 'esbuild'
 
-// One published host entry. Workspace contracts are bundled; DSH owns Cordis.
 await build({
   entryPoints: ['packages/host/src/index.ts'],
   outfile: 'lib/host.js',
@@ -9,14 +8,10 @@ await build({
   platform: 'node',
   target: 'node22',
   external: ['@deepseek-ai/*'],
-  // docs/companion-rules.md is the prompt section's only source (#18).
   loader: { '.md': 'text' },
   sourcemap: true,
 })
 
-// The browser half. React comes from the host's platform module table, so it
-// is an external `require`, never embedded (ADR 0013, D1). The output is the
-// closure-factory handoff `dsh.client` packages must use.
 await build({
   entryPoints: ['packages/client/src/index.ts'],
   outfile: 'lib/client.js',

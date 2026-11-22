@@ -6,7 +6,6 @@ import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 import { releaseVersion } from './version.mjs'
 
-// Run this suite only with an explicit disposable scratch parent.
 const parent = process.env.UML_VIEWER_PACKAGE_TEST_SCRATCH
 if (!parent || !path.isAbsolute(parent)) throw new Error('Set absolute UML_VIEWER_PACKAGE_TEST_SCRATCH')
 const source = path.resolve(import.meta.dirname, '..')

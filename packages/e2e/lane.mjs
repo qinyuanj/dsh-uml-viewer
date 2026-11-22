@@ -8,15 +8,8 @@ import { isolateScratch } from './scratch-scope.mjs'
 import { chooseWorkspace } from './workspace.mjs'
 import { bindRefresh, recordActions } from './lifecycle.mjs'
 
-/**
- * Reusable #22–#29 browser lane: one scratch host/mock model, one browser
- * context per DSH session, and only UI-level panel reads and gestures.
- * `reopen` reloads the Web client; `restart` stops and boots the DSH host on
- * the same scratch home, so saved session state is exercised for real.
- */
 export async function launchViewerLane(browser, options = {}) {
   const packages = packageInputs(options)
-  // CI14: run homes must not resolve into the checkout around the scratch.
   isolateScratch(SCRATCH)
   const home = await fs.mkdtemp(path.join(SCRATCH, 'run-'))
   const projects = await makeProjects(home)
@@ -31,16 +24,12 @@ export async function launchViewerLane(browser, options = {}) {
     await mock.stop()
     throw error
   }
-  // Boot output includes the scratch host's token URL. Retain routing facts
-  // without persisting URL query/fragment credentials in textual diagnostics.
   const redact = text => text.replace(/(https?:\/\/[^\s?#]+)[?#][^\s]*/g, '$1[redacted]')
   const pages = []
   const records = new Map()
   const diagnostics = path.join(SCRATCH, 'diagnostics', path.basename(home))
   await fs.mkdir(diagnostics, { recursive: true })
 
-  // Observe the real DOM and transport at the disputed boundaries; never use
-  // these snapshots as an assertion or as a substitute for panel readiness.
   async function capturePage(page, phase) {
     const record = records.get(page)
     try {
@@ -90,13 +79,11 @@ export async function launchViewerLane(browser, options = {}) {
   }
 
   async function newPage() {
-    // `deviceScaleFactor` emulates a high-DPI display (the deleted dpi drivers, #30).
     const scale = options.deviceScaleFactor ? { deviceScaleFactor: options.deviceScaleFactor } : {}
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, ...scale })
     const page = await context.newPage()
     pages.push(page)
     const problems = []
-    // Attached before the page loads, so the Remote carrier is seen from its start.
     records.set(page, { number: records.size + 1, problems, transportProblems: [], sent: recordActions(page) })
     await bindRefresh(page)
     page.on('pageerror', error => problems.push(error.message))
@@ -112,8 +99,6 @@ export async function launchViewerLane(browser, options = {}) {
       }, true)
     })
     // On a busy Windows host the preview notice can arrive after the initial
-    // quiet window. Dismiss it through its real button whenever it obstructs
-    // a later user action, rather than sleeping or forcing clicks through it.
     await page.addLocatorHandler(page.getByRole('dialog', { name: 'Preview Notice' }), async dialog => {
       await dialog.getByRole('button', { name: 'Continue', exact: true }).click()
     })
@@ -152,7 +137,6 @@ export async function launchViewerLane(browser, options = {}) {
       await dismissOverlays(page)
       {
         const newSession = page.getByRole('button', { name: 'New session', exact: true }).first()
-        // A late Preview Notice can arrive after the initial quiet period.
         await newSession.click({ timeout: 2000 }).catch(async () => {
           await dismissOverlays(page)
           await newSession.click({ timeout: 30_000 })
@@ -195,8 +179,6 @@ export async function launchViewerLane(browser, options = {}) {
       }
       records.get(page).stage = 'open-sidebar'
       const opened = await openSidebar(page)
-      // A panel opened before any display shows the waiting canvas, which is
-      // how the status bar's canvas-status line is observed (#46).
       if (options.display === false) {
         await expect(opened.summary).toHaveAttribute('data-status', 'waiting-display', { timeout: 30_000 })
         records.get(page).stage = 'panel-waiting'
@@ -220,7 +202,6 @@ export async function launchViewerLane(browser, options = {}) {
     }
   }
 
-  /** Reopen the same conversation's panel without running IR or display again. */
   async function reopenPanel(panel) {
     const { page, problems } = panel
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 60_000 })
@@ -230,13 +211,11 @@ export async function launchViewerLane(browser, options = {}) {
     return result(page, problems, opened)
   }
 
-  /** Open the UML tab again in the same page, e.g. after the user closed it. */
   async function reopenTab(panel) {
     const opened = await openSidebar(panel.page)
     return result(panel.page, panel.problems, opened)
   }
 
-  /** Stop the isolated host, boot it on the same home, and reopen that session. */
   async function restart(panel) {
     const sessionId = panel.sessionId
     await panel.page.context().close().catch(() => {})
@@ -246,8 +225,6 @@ export async function launchViewerLane(browser, options = {}) {
     const { page, problems } = await newPage()
     await page.goto(host.url, { waitUntil: 'domcontentloaded', timeout: 60_000 })
     await dismissOverlays(page)
-    // A fresh browser context boots DSH's new-session page. Reopen the saved
-    // conversation through its workspace-tree row, as a user does.
     const row = page.locator(`[data-row-key="session:${sessionId}"]`)
     await expect(row).toBeVisible({ timeout: 30_000 })
     await row.click()
@@ -265,7 +242,6 @@ export async function launchViewerLane(browser, options = {}) {
     await panel.page.mouse.up()
   }
 
-  /** Real Ctrl+wheel notches over the canvas centre; positive `notches` zoom out. */
   async function wheel(panel, notches) {
     const box = await panel.canvas.boundingBox()
     if (!box) throw new Error('panel canvas has no box')
@@ -273,7 +249,6 @@ export async function launchViewerLane(browser, options = {}) {
     await panel.page.keyboard.down('Control')
     try {
       for (let i = 0; i < Math.abs(notches); i += 1) {
-        // Browser deltaY positive is down, hence zoom out with Control.
         await panel.page.mouse.wheel(0, Math.sign(notches) * 100)
         await panel.page.waitForTimeout(30)
       }
@@ -282,7 +257,6 @@ export async function launchViewerLane(browser, options = {}) {
     }
   }
 
-  /** Click or double-click a canvas-local CSS point. */
   async function point(panel, [x, y], clicks = 1) {
     const box = await panel.canvas.boundingBox()
     if (!box) throw new Error('panel canvas has no box')
@@ -308,12 +282,7 @@ export async function launchViewerLane(browser, options = {}) {
     home, get host() { return host }, mock, projects, packages,
     openPanel, reopenPanel, reopenTab, restart, pan, wheel, point, sendPrompt, screenshot, close, uninstall,
     installPlatform: file => installed.installPlatform(file),
-    // The isolated host's own stdout/stderr, redacted and bounded. Activation
-    // warnings and errors reach it and never the page, the session or the DOM.
     hostOutput: (limit = 8000) => redact(host.output()).slice(-limit),
-    // A replacement may re-register the sidebar contribution. Let an automatic
-    // remount win; otherwise select the real UML tab, never a synthetic mount.
-    // A panel that stays closed after either is a failed acceptance, not retried.
     reattachPanel: async panel => {
       const framed = () => expect(panel.summary).toHaveAttribute('data-kind', 'frame', { timeout: 10_000 })
       try { await framed() } catch {
