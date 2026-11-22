@@ -46,6 +46,36 @@ fn positive_line(value: &str) -> Result<usize, String> {
     Ok(number as usize)
 }
 
+fn parse_line_filter(value: &str) -> Result<LineFilter, String> {
+    let mut global = BTreeSet::new();
+    let mut per_file: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
+    for piece in value.split(',').map(str::trim).filter(|v| !v.is_empty()) {
+        let (path, number) = match piece.rsplit_once(':') {
+            Some((path, number)) => (Some(line_path(path)), positive_line(number)?),
+            None => (None, positive_line(piece)?),
+        };
+        match path {
+            Some(path) => {
+                if path.is_empty() {
+                    return Err("--lines requires a source path before ':'".into());
+                }
+                per_file.entry(path).or_default().insert(number);
+            }
+            None => {
+                global.insert(number);
+            }
+        }
+    }
+    if !global.is_empty() && !per_file.is_empty() {
+        return Err("--lines cannot mix global and file-qualified numbers".into());
+    }
+    let filter = LineFilter { global, per_file };
+    if filter.is_empty() {
+        return Err("--lines requires a line number".into());
+    }
+    Ok(filter)
+}
+
 #[derive(Default)]
 pub struct Options {
     pub scope: Scope,
@@ -222,33 +252,7 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
                     })?;
                 }
                 "--lines" => {
-                    let mut global = BTreeSet::new();
-                    let mut per_file: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
-                    for piece in value.split(',').map(str::trim).filter(|v| !v.is_empty()) {
-                        let (path, number) = match piece.rsplit_once(':') {
-                            Some((path, number)) => (Some(line_path(path)), positive_line(number)?),
-                            None => (None, positive_line(piece)?),
-                        };
-                        match path {
-                            Some(path) => {
-                                if path.is_empty() {
-                                    return Err("--lines requires a source path before ':'".into());
-                                }
-                                per_file.entry(path).or_default().insert(number);
-                            }
-                            None => {
-                                global.insert(number);
-                            }
-                        }
-                    }
-                    if !global.is_empty() && !per_file.is_empty() {
-                        return Err("--lines cannot mix global and file-qualified numbers".into());
-                    }
-                    let filter = LineFilter { global, per_file };
-                    if filter.is_empty() {
-                        return Err("--lines requires a line number".into());
-                    }
-                    options.lines = Some(filter);
+                    options.lines = Some(parse_line_filter(value)?);
                 }
                 _ => (),
             }
