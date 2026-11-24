@@ -187,6 +187,106 @@ differences:
 EXIT=1
 ```
 
+## Round 2：评审后的两处阻塞修复
+
+评审（lead）指出两处阻塞问题，均已在同一分支修复。
+
+### F1 — `docs/releasing.md` 状态头又落后一个版本（#141 的老毛病复发）
+
+原文写着「Status (2026-11-24): `v1.2.0` is the last verified published release」和
+「The npm registry listed 1.2.0 as the highest published ... when checked on 2026-11-24」，
+已经不成立。按评审给出的事实改成：
+
+- `v1.2.2` 是最后确认发布成功的版本：tag `v1.2.2`（`ec032adc`）、run 45421102962，
+  publish job 从 2026-11-24T15:07:05Z 起等 `release` 环境的人工审批，lead 于 16:35:00Z
+  批准，16:35:37Z 成功；`dsh-uml-viewer@1.2.2` 与 `@dsh-uml-viewer/win32-x64@1.2.2`
+  都在 npm 上，都有签名的 SLSA provenance（sigstore logIndex 4082439086 / 4082439869），
+  registry `time.modified` 2026-11-24T16:38:13.657Z，两包 `dist-tags.latest` 都是 1.2.2。
+- `v1.2.1` **至今从未发布**：tag `v1.2.1`（`8168004a`）、run 45031367826，publish job
+  于 2026-11-22T14:16:01Z 被 cancelled，npm 两个包上都没有 1.2.1。
+- 并显式写明：这个状态头 #141 已经修过一次、又落后了一个版本，是同一缺陷的第二遍。
+
+状态头日期改用「npm registry time 2026-11-24T16:38:13Z」，避免本地时区歧义。
+
+### F2 — 严格「仓库版本 == tag 版本」会把 main 在合法发版前窗口里弄红
+
+场景：维护者先提版本、推 main，再推 `v*` tag。此刻仓库版本（如 1.2.3）比最新 tag
+（`v1.2.2`）新，旧实现会报漂移、CI 红——而其实什么都没发布、什么都没坏，正是
+本家族被 #143 坑过的「红着合并」。
+
+改成三态（判据：仓库版本 vs 最新 tag 版本）：
+
+| 状态 | 条件 | 行为 |
+|---|---|---|
+| `in-progress` | 仓库版本 **>** tag 版本 | 打印「release in progress …」，**exit 0**；registry 差异只作 warning |
+| `tagged` | 仓库版本 **==** tag 版本 | 保留严格比较：npm `latest` 必须相等，且该版本必须存在于两个包的版本列表 |
+| `behind` | 仓库版本 **<** tag 版本 | 失败：tag 存在但树里没有该版本 |
+
+实现：`releaseState()` 纯函数 + `compareReleaseFacts` 返回 `{ ok, state, problems, warnings }`；
+`in-progress` 时 registry 侧的问题进 `warnings` 而非 `problems`；CLI 在 `in-progress` 打印
+`formatInProgress` 并 exit 0。文档 `docs/releasing.md` 的 drift gate 一节补了三态说明。
+
+测试从 13 条增到 16 条，新增/改写：
+- `releaseState` 三态判据；
+- (a) 仓库版本比 tag 新 → `in-progress`、ok、`formatInProgress` 文案含
+  「release in progress: repository package.json version 1.2.3 is newer than the newest release tag v1.2.2」；
+- (b) 仓库版本比 tag 旧 → `behind`、失败、文案含「the tree does not carry the tagged version」；
+- (c) tagged 状态、npm 缺该版本 → 失败（原有）；
+- 命令行层：(a) `--repo-version 1.2.3 --tag v1.2.2` exit 0 + in-progress 文案、
+  tagged 落后 exit 1、三方一致 exit 0。
+
+### F3 — round 2 的复验（精确命令与退出码）
+
+```
+$ node --test --test-reporter=tap scripts/release-drift.test.mjs
+1..16 / # tests 16 / # pass 16 / # fail 0            EXIT=0
+
+$ pnpm version:check
+Release version 1.2.2: Cargo/npm manifests consistent  EXIT=0
+
+$ pnpm test:package
+ℹ tests 104 / ℹ pass 104 / ℹ fail 0                   EXIT=0
+
+$ node scripts/release-drift.mjs                      # 真实当前状态
+release facts agree: 1.2.2 = v1.2.2 (dsh-uml-viewer@1.2.2, @dsh-uml-viewer/win32-x64@1.2.2)
+EXIT=0
+
+$ node scripts/release-drift.mjs --grace-ms 0 --tag v9.9.9 --repo-version 9.9.9   # 故意不一致
+release drift detected after 1 attempt(s) over 2s:
+  npm latest dsh-uml-viewer                 = 1.2.2
+  npm latest @dsh-uml-viewer/win32-x64      = 1.2.2
+  repository package.json version     = 9.9.9
+  newest release tag                  = v9.9.9 (9.9.9)
+differences:
+  - npm latest for dsh-uml-viewer is 1.2.2, not the tag version 9.9.9 (the registry is behind the tag)
+  - npm has no version 9.9.9 for dsh-uml-viewer: the tag's version was never published
+  - npm latest for @dsh-uml-viewer/win32-x64 is 1.2.2, not the tag version 9.9.9 (the registry is behind the tag)
+  - npm has no version 9.9.9 for @dsh-uml-viewer/win32-x64: the tag's version was never published
+EXIT=1
+
+$ node scripts/release-drift.mjs --grace-ms 0 --repo-version 1.2.3   # 模拟发版前（版本领先 tag）
+release in progress: repository package.json version 1.2.3 is newer than the newest release tag v1.2.2 (1.2.2); nothing is tagged yet, so there is no release to check against npm.
+  npm latest dsh-uml-viewer                 = 1.2.2
+  npm latest @dsh-uml-viewer/win32-x64      = 1.2.2
+  repository package.json version     = 1.2.3
+  newest release tag                  = v1.2.2 (1.2.2)
+EXIT=0
+
+# 同样的发版前状态，但用真实文件模拟（临时把 package.json 改成 1.2.3，跑完立刻还原，不加 --repo-version）：
+$ node scripts/release-drift.mjs --grace-ms 0
+release in progress: repository package.json version 1.2.3 is newer than the newest release tag v1.2.2 (1.2.2); ...
+EXIT=0
+$ node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).version)"
+1.2.2                                  # 已还原，git diff -- package.json 为空
+
+# 仓库版本落后于 tag（真实漂移）：应失败
+$ node scripts/release-drift.mjs --grace-ms 0 --repo-version 1.2.1 --tag v1.2.2
+release drift detected after 1 attempt(s) over 2s:
+  ...
+  - repository package.json version 1.2.1 is older than the newest release tag v1.2.2 (1.2.2): the tree does not carry the tagged version
+EXIT=1
+```
+
 ## 已知边界 / 备注
 
 - `scripts/check.py` 在这个 worktree 里跑不了完整形态：它要 `cargo build --release --locked`
@@ -195,8 +295,11 @@ EXIT=1
 - CI 上的 `release-drift` job 用 `ubuntu-latest`（其它 job 是 `windows-latest`）：
   这个检查只读 registry 与 git tag，与平台无关，用 ubuntu 更省。仓库既有 job 仍用
   windows-latest，未改动。
-- 门禁在「版本已经提到 main、但 tag 还没推」的窗口里会红（仓库版本领先于最新 tag）。
-  这是 issue 要求的三方严格一致；宽限窗口内的重试会重新读取 tag，
-  `git fetch --tags` 能把窗口内推上来的 tag 捡回来。默认窗口 5 分钟。
+- ~~门禁在「版本已经提到 main、但 tag 还没推」的窗口里会红~~：这条已在 round 2 修掉
+  （见下）。现在仓库版本领先于最新 tag 视为「发版进行中」，exit 0，不会把 main 弄红。
+- issue 的验收「把 package.json 的 version 改成一个 npm 上不存在的版本，检查必须失败」
+  在 round 2 之后有条件成立：新版本**落后**于最新 tag（如把 1.2.2 改成 1.2.1）会失败；
+  **领先**于最新 tag 则是合法的发版前窗口，按评审 F2 的要求 exit 0（并打印三个值）。
+  已发布版本在 npm 上缺失的情形由「tagged 状态」覆盖（tag 存在、npm 没有该版本 → 失败）。
 - 没有 push、没有开 PR、没有动 issue、没有改 `.metrics/`、`examples/uml-viewer.edn`，
   也没有改任何已发布版本号。
