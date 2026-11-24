@@ -81,6 +81,27 @@ class RefreshPaths(unittest.TestCase):
         self.assertEqual(changed[IR], {10, 11})
         self.assertEqual(changed[DRY], {5})
 
+    def test_deleting_file_header_with_zero_new_count_parses(self):
+        header = '@@ -1,6 +0,0 @@'
+        self.assertEqual(ci_refresh.hunk_lines(header), (6, 0, 0))
+        diff = (
+            f'diff --git a/{IR} b/{IR}\n'
+            f'--- a/{IR}\n'
+            f'+++ b/{IR}\n'
+            f'{header}\n'
+            '-//! IR generation (#136)\n'
+            '-//!\n'
+            '-//! Port of the CLI\n'
+            '-//!\n'
+            '-//! Public entry is run.\n'
+            '-\n'
+        )
+        self.assertEqual(ci_refresh.parse_diff(diff), {IR: set(), DRY: set()})
+
+    def test_zero_new_start_with_positive_new_count_is_rejected(self):
+        with self.assertRaisesRegex(RuntimeError, 'invalid new-side line'):
+            ci_refresh.hunk_lines('@@ -1,6 +0,2 @@')
+
     def test_asymmetric_changes_zero_only_the_unchanged_target(self):
         write_targets(self.root, {IR: 2, DRY: 10})
         line_filter, zero_targets = ci_refresh.per_target_line_filter(
