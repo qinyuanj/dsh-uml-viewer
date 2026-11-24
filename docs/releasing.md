@@ -1,16 +1,30 @@
 # Release packaging and publishing
 
-Status (2026-11-24): `v1.2.0` is the last verified **published** release.
-[Run 45017205734](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45017205734)
-assembled the native Windows x64 platform archive and the main archive, verified
-the inventory and published both with SLSA provenance. This is the first
-tag-driven release after the one-host decision (ADR 0002, #5, #12).
+Status (npm registry time 2026-11-24T16:38:13Z): `v1.2.2` is the last verified
+**published** release, and
+`v1.2.1` is still the one that never was.
 
-The tree and tag `v1.2.1` now carry version 1.2.1, but
-[run 45031367826](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45031367826)
-for that tag was `cancelled` on 2026-11-22; no `1.2.1` publication is claimed.
-The npm registry listed 1.2.0 as the highest published main and platform package
-version when checked on 2026-11-24.
+[Run 45421102962](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45421102962)
+for tag `v1.2.2` (`ec032adc`) assembled the native Windows x64 platform archive
+and the main archive, verified the inventory and published both with signed SLSA
+provenance. The `publish` job waited on the `release` environment's manual
+approval from 2026-11-24T15:07:05Z; the lead approved the deployment at
+16:35:00Z and the job succeeded at 16:35:37Z. `dsh-uml-viewer@1.2.2` and
+`@dsh-uml-viewer/win32-x64@1.2.2` are both on npm with signed provenance
+(sigstore logIndex 4082439086 and 4082439869), registry `time.modified`
+2026-11-24T16:38:13.657Z, and `dist-tags.latest` is 1.2.2 for both packages.
+
+`v1.2.1` was never published. Tag `v1.2.1` (`8168004a`) ran
+[45031367826](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45031367826),
+whose `publish` job was `cancelled` on 2026-11-22T14:16:01Z, and npm never
+carried a 1.2.1 on either package.
+
+This header is worth watching: #141 already corrected it once, and it then
+drifted one version behind again, still naming v1.2.0 as the last published
+release after v1.2.2 shipped and reached the registry at 16:38:13Z. A release
+record that lags the registry is the same defect class twice over, which is why
+the drift gate below (`scripts/release-drift.mjs`) compares the registry, the
+repository version and the newest tag instead of trusting a green `ci` run.
 
 The previous `v1.1.0` release (2026-11-16) assembled all four platforms and
 published all five archives; it predates that decision and is history. Its first
@@ -180,6 +194,8 @@ The report prints each value and every difference. Comparing `latest` alone is
 not enough: the check also requires the tag's version to exist in the npm
 version list, so a tag whose package was never published is reported even when
 `latest` happens to match.
+
+
 
 The check reads the public registry only: it needs no npm credential and adds
 no npm dependency. When the registry cannot be reached it fails with a clear
