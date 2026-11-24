@@ -15,11 +15,12 @@ row. Its one exact-version optional dependency targets native Windows x64, the
 only delivered host ([qinyuanj/home-uml-viewer ADR 0002](https://github.com/qinyuanj/home-uml-viewer/blob/main/docs/adr/0002-macos-is-not-a-supported-host.md));
 any other host refuses activation with a reason. End users need DSH
 (`>=0.2.2-rc.1 <0.3.0`) and git; native packages require no Rust, Python or
-Herdr installation. Status (2026-11-24): `1.2.0` is the last verified published
-release, with SLSA provenance from [run 45017205734](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45017205734).
-The tree and tag carry `1.2.1`, but [run 45031367826](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45031367826)
-ended `cancelled`, so no `1.2.1` publication is claimed. Local package assembly
-remains available.
+Herdr installation. Status (2026-11-25): `1.2.2` is the latest verified published
+release, with SLSA provenance from [run 45421102962](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45421102962),
+published after the `release` environment approval. `1.2.1` was tagged but never
+published: [run 45031367826](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45031367826)
+was cancelled at that approval, so no `1.2.1` publication is claimed. Local
+package assembly remains available.
 
 Install local archives through DSH plugin management (use absolute paths):
 
