@@ -96,7 +96,10 @@ fn claim(directory: &Path) -> io::Result<fs::File> {
 
 fn discard(directory: &Path) -> io::Result<()> {
     roots().remove(directory);
-    force_remove(directory)
+    // The directory leaves the registry before the removal, so a transient
+    // refusal has nowhere left to wait: wait here, where the caller can
+    // still see the failure, instead of leaking an untracked copy.
+    remove_patiently(directory)
 }
 
 pub fn discard_all() {
@@ -107,7 +110,7 @@ pub fn discard_all() {
         directories
     };
     for directory in directories {
-        if let Err(error) = force_remove(&directory) {
+        if let Err(error) = remove_patiently(&directory) {
             eprintln!(
                 "Cannot remove mutation scratch {}: {error}",
                 directory.display()
@@ -535,10 +538,12 @@ where
 /// Whether the error is another process's open handle, not a verdict.
 ///
 /// ERROR_SHARING_VIOLATION (32) and ERROR_LOCK_VIOLATION (33) both mean the
-/// holder has to close first, and the numbers are Windows' own.
+/// holder has to close first. ERROR_ACCESS_DENIED (5) is the same wait from
+/// the other side: Windows refuses the removal of a directory that is another
+/// process's current directory. The numbers are Windows' own.
 fn a_handle_held_it(error: &io::Error) -> bool {
     #[cfg(windows)]
-    let held = matches!(error.raw_os_error(), Some(32) | Some(33));
+    let held = matches!(error.raw_os_error(), Some(5) | Some(32) | Some(33));
     #[cfg(not(windows))]
     let held = {
         let _ = error;
@@ -775,6 +780,81 @@ mod tests {
             &base,
         );
 
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn discard_all_waits_for_a_transient_file_handle() {
+        let base = base("discard-all");
+        let project = base.join("project");
+        fs::create_dir_all(&project).unwrap();
+        let root = Root::new(&project).expect("create a registered root");
+        let held = root.path().join("held.txt");
+        fs::write(&held, "held").unwrap();
+        #[cfg(windows)]
+        let file = {
+            use std::os::windows::fs::OpenOptionsExt;
+            fs::OpenOptions::new()
+                .read(true)
+                .share_mode(0)
+                .open(&held)
+                .expect("hold a file in the root")
+        };
+        let start = Instant::now();
+        let dropper = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(500));
+            drop(file);
+        });
+        super::discard_all();
+        let waited = start.elapsed();
+        dropper.join().expect("the file holder ended");
+        assert!(
+            !root.path().exists(),
+            "discard_all left a root whose file handle was released"
+        );
+        assert!(
+            waited >= Duration::from_millis(300),
+            "discard_all removed a root while a file was held: {waited:?}"
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_dropped_root_waits_for_a_transient_file_handle() {
+        let base = base("drop-root");
+        let project = base.join("project");
+        fs::create_dir_all(&project).unwrap();
+        let root = Root::new(&project).expect("create a registered root");
+        let held = root.path().join("held.txt");
+        fs::write(&held, "held").unwrap();
+        let path = root.path().to_path_buf();
+        #[cfg(windows)]
+        let file = {
+            use std::os::windows::fs::OpenOptionsExt;
+            fs::OpenOptions::new()
+                .read(true)
+                .share_mode(0)
+                .open(&held)
+                .expect("hold a file in the root")
+        };
+        let dropper = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(500));
+            drop(file);
+        });
+        let start = Instant::now();
+        drop(root);
+        let waited = start.elapsed();
+        dropper.join().expect("the file holder ended");
+        assert!(
+            !path.exists(),
+            "the dropped root survived a held file handle"
+        );
+        assert!(
+            waited >= Duration::from_millis(300),
+            "the dropped root was removed while a file was held: {waited:?}"
+        );
         let _ = fs::remove_dir_all(&base);
     }
 

@@ -6,6 +6,7 @@ import { mountContextSwitcher, SWITCHER_STYLE, type SwitcherActions } from './co
 
 export const TOPBAR_STYLE = `
 .dsh-uml-viewer-topbar {
+  position: relative;
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: 0 0 auto; min-height: 36px; padding: 4px 8px;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary);

@@ -300,10 +300,18 @@ fn ctrl_break_interrupts_the_run_and_removes_the_copies() {
     assert_eq!(status.code(), Some(149), "128 + SIGBREAK(21)");
     let stderr = fs::read_to_string(fixture.directory.join("cli.stderr")).unwrap();
     assert!(stderr.contains("Interrupted by SIGBREAK"), "{stderr}");
+    assert!(
+        !stderr.contains("Cannot remove mutation scratch"),
+        "the interrupted run could not remove its copies: {stderr}"
+    );
     for process in &watched {
         assert!(process.ended(), "a mutant survived Ctrl+Break");
     }
-    assert_eq!(fixture.scratch_roots(pid), Vec::<PathBuf>::new());
+    assert_eq!(
+        fixture.scratch_roots(pid),
+        Vec::<PathBuf>::new(),
+        "Ctrl+Break left scratch copies behind: {stderr}"
+    );
     assert!(!fixture.project().join(".metrics/mutate/app.edn").exists());
 }
 

@@ -74,6 +74,16 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
   const quality = new QualityGate()
   const grants = new RequestGrants()
   const states = new SessionStates(home)
+  // Cordis disposes effects in reverse order: this lease must be released only
+  // after panelLifetime has stopped every resident that can hold its executable.
+  ctx.effect(() => async () => {
+    grants.clear()
+    try {
+      await sessions.checkpoint()
+    } finally {
+      pinned.release()
+    }
+  }, 'dsh-uml-viewer: activation version lease')
   const { sessions, prompts } = panelLifetime(ctx, home, services, effectiveConfig, states)
   const requests = new PanelRequests(services, sessions, grants)
   const viewer = new ViewerService(sessions, prompts, requests, requests.statuses)
@@ -230,14 +240,6 @@ function register(ctx: Context, config: Config, home: string | undefined, pinned
 
   ctx.inject(['webServer'], () => registerFontRoute(services, packageRoot()) ?? (() => {}))
 
-  ctx.effect(() => async () => {
-    grants.clear()
-    try {
-      await sessions.checkpoint()
-    } finally {
-      pinned.release()
-    }
-  }, 'dsh-uml-viewer: activation version lease')
 }
 
 function presentedRequest(args: unknown): string | undefined {
