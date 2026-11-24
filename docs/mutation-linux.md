@@ -1,12 +1,13 @@
 # Linux mutation isolation
 
-> **Retained path, not a delivered host**: Linux x64 left the delivery surface
-> (qinyuanj/home-uml-viewer ADR 0002); native Windows x64 is the host. The
-> namespace view below stays in `crates/mutator` because it is the only entry
-> point for restoring Linux support later, and because it is cheaper and more
-> thorough than the per-command copies Windows uses. The *Linux runner
-> requirements and CI preflight* section records the environment this path needs,
-> not a delivery guarantee.
+> **Status (2026-11-24): historical implementation notes, not a delivered host**:
+> Linux x64 left the delivery surface (qinyuanj/home-uml-viewer ADR 0002);
+> native Windows x64 is the only delivered host. The namespace view below stays
+> in `crates/mutator` because it is the only entry point for restoring Linux
+> support later, and because it is cheaper and more thorough than the
+> per-command copies Windows uses. The *Linux runner requirements and CI
+> preflight* section records the environment this retained path needs, not a
+> delivery guarantee.
 
 This Rust port handles **all seven languages on Linux: Rust, Lua, Python,
 TypeScript, Go, Java and Clojure**.

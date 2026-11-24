@@ -15,8 +15,11 @@ row. Its one exact-version optional dependency targets native Windows x64, the
 only delivered host ([qinyuanj/home-uml-viewer ADR 0002](https://github.com/qinyuanj/home-uml-viewer/blob/main/docs/adr/0002-macos-is-not-a-supported-host.md));
 any other host refuses activation with a reason. End users need DSH
 (`>=0.2.2-rc.1 <0.3.0`) and git; native packages require no Rust, Python or
-Herdr installation. Version 1.2.0 is published, with SLSA provenance from the
-tag-driven release. Local package assembly also remains available.
+Herdr installation. Status (2026-11-24): `1.2.0` is the last verified published
+release, with SLSA provenance from [run 45017205734](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45017205734).
+The tree and tag carry `1.2.1`, but [run 45031367826](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45031367826)
+ended `cancelled`, so no `1.2.1` publication is claimed. Local package assembly
+remains available.
 
 Install local archives through DSH plugin management (use absolute paths):
 
@@ -75,7 +78,9 @@ inventory and the then-current
 first tag-driven release and published all five packages with provenance after
 the `release` environment approval (#34). Browser acceptance is
 [partial, with a separate passing packaged lifecycle case](docs/e2e-harness.md#ci);
-installed-profile update acceptance remains unverified (#32).
+Status (2026-11-24): installed-profile update acceptance was verified in CI for
+[qinyuanj/dsh-uml-viewer#32](https://github.com/qinyuanj/dsh-uml-viewer/issues/32)
+(closed COMPLETED 2026-11-09; Windows `panel-e2e` [run 42655748595](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/42655748595)).
 
 `Cargo.toml` `[workspace.package].version` is the release version authority;
 every crate inherits it. Change it, run `pnpm version:sync`, update the Cargo
@@ -140,10 +145,10 @@ it); WSL2 and macOS are not delivered (qinyuanj/home-uml-viewer ADR 0002). The
 three quality tools (`crap`, `mutate`, `dry`) follow the same rule: their
 pinned originals dropped their own build floors (qinyuanj/crapper#18,
 qinyuanj/dryer#5, qinyuanj/mutator#30), so `uml-viewer quality crap`, `dry` and
-`mutate` run on any Windows build. Only `mutate` refuses an OS, naming macOS,
-where neither isolation mechanism exists. Linux is no longer delivered, so the
-namespace view it uses stays in the code, unreachable, as the only entry point
-for restoring Linux later ([docs/mutation-linux.md](docs/mutation-linux.md)).
+`mutate` run on any native Windows x64 build. The Linux namespace view stays in
+the code, unreachable from delivery, as the only entry point for restoring Linux
+later; [docs/mutation-linux.md](docs/mutation-linux.md) is historical
+implementation notes (status 2026-11-24), not a current platform guide.
 
 The IR is **topology**: the namespace tree, classes, and edges. **Metrics**
 (CC, coverage, CRAP, killed/survived/uncovered) come from `.metrics/`
@@ -190,10 +195,10 @@ Quality data comes from the same binary. `uml-viewer quality crap|mutate|dry`
 applies the declared scope in `uml-quality.json` (ADR 0001;
 [docs/quality-dispatch.md](docs/quality-dispatch.md)) and prints the
 version-1 result record; `crap`, `mutate` and `dry` are also subcommands of
-their own with the original tools' options. Mutation isolation is per
-platform: [docs/mutation-linux.md](docs/mutation-linux.md) and
-[docs/mutation-windows.md](docs/mutation-windows.md); macOS `mutate` refuses
-with exit 1.
+their own with the original tools' options. Status (2026-11-24): mutation is
+delivered only on native Windows x64 ([docs/mutation-windows.md](docs/mutation-windows.md)).
+The Linux namespace path is retained but not delivered ([historical docs/mutation-linux.md](docs/mutation-linux.md));
+macOS is not a delivered host.
 
 ```sh
 ./target/release/uml-viewer quality crap                          # .metrics/crap.edn

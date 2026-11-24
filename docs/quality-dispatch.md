@@ -169,10 +169,12 @@ passed all seven snapshot/scanning tests, five report-selection tests and the
 mutation-site comparison, closing #14. The optional external Clojure corpus
 check remains ignored unless its separate corpus inputs are provided.
 
-Mutation runs on Linux (namespace views,
-[mutation-linux.md](mutation-linux.md)) and native Windows (per-command project
-copies, #10, [mutation-windows.md](mutation-windows.md)); on macOS it refuses
-with exit 1 before any command (`Mutation testing is not supported on macOS`).
+Status (2026-11-24): mutation is delivered only on native Windows x64, using
+per-command project copies ([mutation-windows.md](mutation-windows.md), #10).
+The Linux namespace path is retained in `crates/mutator` but unreachable from
+delivery; [mutation-linux.md](mutation-linux.md) is historical implementation
+notes. macOS is not a delivered host, and `mutate` refuses it with exit 1 before
+any command (`Mutation testing is not supported on macOS`).
 A project that declares its own `operations` command is responsible for what
 that command does; the dispatcher reports its real exit.
 

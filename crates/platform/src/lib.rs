@@ -1,29 +1,29 @@
-//! The single delivered-platform decision (ADR 0007, ADR 0010, ADR 0018),
-//! asked by `ir`. [`decide`] is a pure function of a declared OS name, so
-//! every platform's answer is testable on any host; [`support`] is the only
-//! place that reads the running machine.
+//! The single delivered-platform decision (qinyuanj/home-uml-viewer ADR 0002,
+//! ADR 0010, ADR 0018), asked by `ir`. [`decide`] is a pure function of a
+//! declared OS/architecture pair, so the one host is testable anywhere;
+//! [`support`] is the only place that reads the running machine.
 //!
-//! Delivered: Linux (WSL2), macOS, and native Windows. There is no Windows
-//! build-number floor: ADR 0018 removed it, because every build it separated
-//! ran this code and the number was only ever a date, not a capability.
+//! Delivered: native Windows x64 only. There is no Windows build-number floor:
+//! ADR 0018 removed it, because every build it separated ran this code and the
+//! number was only ever a date, not a capability.
 
-/// What a platform is delivered on, as the refusal names it.
-const DELIVERED: &str = "WSL2, macOS and native Windows";
+/// The delivered host, as the refusal names it.
+const DELIVERED: &str = "native Windows x64";
 
-/// Whether `os` (a `std::env::consts::OS` name) is a delivered platform; the
+/// Whether `(os, arch)` (from `std::env::consts`) is the delivered host; the
 /// refusal is one line that names what would be accepted.
-pub fn decide(os: &str) -> Result<(), String> {
-    match os {
-        "linux" | "macos" | "windows" => Ok(()),
-        other => Err(format!(
-            "Unsupported platform: {other}. uml-viewer is delivered on {DELIVERED}"
+pub fn decide(os: &str, arch: &str) -> Result<(), String> {
+    match (os, arch) {
+        ("windows", "x86_64") => Ok(()),
+        _ => Err(format!(
+            "Unsupported host: {os}/{arch}. uml-viewer is delivered on {DELIVERED}"
         )),
     }
 }
 
 /// [`decide`] for the running machine.
 pub fn support() -> Result<(), String> {
-    decide(std::env::consts::OS)
+    decide(std::env::consts::OS, std::env::consts::ARCH)
 }
 
 #[cfg(test)]
@@ -31,23 +31,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_delivered_operating_systems_are_accepted() {
-        assert_eq!(Ok(()), decide("linux"));
-        assert_eq!(Ok(()), decide("macos"));
-        assert_eq!(Ok(()), decide("windows"));
+    fn only_native_windows_x64_is_accepted() {
+        assert_eq!(Ok(()), decide("windows", "x86_64"));
     }
 
     #[test]
-    fn any_other_os_is_refused_naming_the_delivered_platforms() {
+    fn every_other_host_is_refused_naming_the_delivered_host() {
+        for (os, arch) in [
+            ("linux", "x86_64"),
+            ("macos", "aarch64"),
+            ("windows", "aarch64"),
+            ("freebsd", "x86_64"),
+        ] {
+            assert_eq!(
+                Err(format!(
+                    "Unsupported host: {os}/{arch}. uml-viewer is delivered on native Windows x64"
+                )),
+                decide(os, arch)
+            );
+        }
+    }
+
+    #[test]
+    fn support_matches_decide_for_the_running_host() {
         assert_eq!(
-            Err("Unsupported platform: freebsd. uml-viewer is delivered on WSL2, macOS and native Windows".to_owned()),
-            decide("freebsd")
+            decide(std::env::consts::OS, std::env::consts::ARCH),
+            support()
         );
-    }
-
-    #[test]
-    fn the_development_host_is_a_delivered_platform() {
-        // Linux (WSL2), macOS and native Windows all run the suite.
-        assert_eq!(Ok(()), support(), "{}", std::env::consts::OS);
     }
 }
