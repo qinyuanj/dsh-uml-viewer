@@ -70,8 +70,6 @@
   (use the `.exe` path above on Windows). The Sarasa face is
   packaged in `fonts/`.
 
-Do not commit or push unless asked.
-
 ## Agent skills
 
 ### Issue tracker
