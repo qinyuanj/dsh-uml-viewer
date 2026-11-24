@@ -785,12 +785,13 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn discard_all_waits_for_a_transient_file_handle() {
+    fn root_drop_waits_for_a_transient_file_handle() {
         let base = base("discard-all");
         let project = base.join("project");
         fs::create_dir_all(&project).unwrap();
         let root = Root::new(&project).expect("create a registered root");
-        let held = root.path().join("held.txt");
+        let path = root.path().to_path_buf();
+        let held = path.join("held.txt");
         fs::write(&held, "held").unwrap();
         #[cfg(windows)]
         let file = {
@@ -806,18 +807,38 @@ mod tests {
             std::thread::sleep(Duration::from_millis(500));
             drop(file);
         });
-        super::discard_all();
+        // Dropping this root must wait for its own held file. Calling the
+        // process-global `discard_all` here deleted other tests' live roots
+        // (#144), including an in-progress Lua collection scratch.
+        drop(root);
         let waited = start.elapsed();
         dropper.join().expect("the file holder ended");
         assert!(
-            !root.path().exists(),
-            "discard_all left a root whose file handle was released"
+            !path.exists(),
+            "the dropped root survived a released file handle"
         );
         assert!(
             waited >= Duration::from_millis(300),
-            "discard_all removed a root while a file was held: {waited:?}"
+            "the root was removed while a file was held: {waited:?}"
         );
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_scratch_fixture_does_not_delete_another_live_root() {
+        let base = base("scratch-fixture-isolation");
+        let project = base.join("project");
+        fs::create_dir_all(&project).unwrap();
+        let root = Root::new(&project).expect("create a registered root");
+        let path = root.path().to_path_buf();
+        let _ = fs::remove_dir_all(&base);
+        assert!(
+            path.exists(),
+            "a scratch fixture removed another live root: {}",
+            path.display()
+        );
+        drop(root);
     }
 
     #[cfg(windows)]
