@@ -159,6 +159,44 @@ or the subsequent real publish will succeed.
 stops at `check-tag` before a single publish. To bump: edit the workspace
 version, run `pnpm version:sync`, update `Cargo.lock`, run `pnpm version:check`.
 
+## Release drift gate (npm, tag and repository version)
+
+The `publish` job runs in the `release` environment, and that environment
+carries a required reviewer. The gate fails silently: the tag push is green,
+`ci` is green, and the package was never published. Version 1.2.1
+([run 45031367826](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45031367826),
+publish job cancelled) never existed on the registry, and nobody noticed for
+two days.
+
+`scripts/release-drift.mjs` compares three facts and fails loudly when they
+disagree:
+
+- npm `dist-tags.latest` for the main package `dsh-uml-viewer` and the
+  platform package `@dsh-uml-viewer/win32-x64`;
+- the `version` in the repository `package.json`;
+- the newest `v*` git tag.
+
+The report prints each value and every difference. Comparing `latest` alone is
+not enough: the check also requires the tag's version to exist in the npm
+version list, so a tag whose package was never published is reported even when
+`latest` happens to match.
+
+The check reads the public registry only: it needs no npm credential and adds
+no npm dependency. When the registry cannot be reached it fails with a clear
+message instead of a stack trace, and it says that the published versions are
+unknown.
+
+Grace window: after a publish the platform package became visible at
+16:37:06Z and the main package at 16:38:13Z, 67 seconds apart, and npm itself
+warns that a package "may take a few minutes to become available". The check
+therefore retries with backoff inside a bounded window (5 minutes by default,
+`--grace-ms` to change it), re-reading all three facts on every attempt, and
+only reports drift once the window is exhausted.
+
+CI runs the check in the `release-drift` job of `ci.yml`, on pushes to main
+only, with `fetch-depth: 0` so the full tag list is present. It needs no
+credentials and no install step, so it stays a few seconds of runner time.
+
 ## One-time maintainer setup (owner only, not automated)
 
 None of this is in the repository and none of it ran here.
@@ -222,6 +260,7 @@ Node only, no network, no archive mocking beyond the controlled fixtures:
 ```sh
 pnpm test:package                              # contract, stale payload, release guards
 node scripts/release.mjs check-tag v1.2.0      # tag/version guard
+node scripts/release-drift.mjs                 # npm, tag and repository version agree
 ```
 
 `scripts/release.test.mjs` drives the real `stage`, `verify` and `plan` commands
