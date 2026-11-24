@@ -2,6 +2,11 @@
 
 **Status**: accepted
 
+状态补记（2026-11-24）：本 ADR 的构建号下限移除决定继续有效；文末验收段中
+「三个交付 OS」「本机是交付平台」是历史测试表述，已由
+[qinyuanj/home-uml-viewer ADR 0002](https://github.com/qinyuanj/home-uml-viewer/blob/main/docs/adr/0002-macos-is-not-a-supported-host.md)
+取代。交付宿主现在只有原生 Windows x64，`crates/platform` 的测试也按这一条断言。
+
 本 ADR 修订 [ADR 0010](0010-native-windows-delivery-platform.md) 中"原生 Windows 从
 Windows 10 22H2（build 19045）起交付"的版本下限条款：**取消构建号下限**，只保留操作
 系统判断。ADR 0010 的其余条款（adapter 边界、mutator 隔离约定、快照跨平台一致）继续

@@ -2,6 +2,11 @@
 
 **Status**: accepted；"停止 Windows 原生支持"部分被 [ADR 0010](0010-native-windows-delivery-platform.md) 取代
 
+状态补记（2026-11-24）：下文 WSL2 / macOS 的宿主清单是历史决定，已由
+[qinyuanj/home-uml-viewer ADR 0002](https://github.com/qinyuanj/home-uml-viewer/blob/main/docs/adr/0002-macos-is-not-a-supported-host.md)
+与本仓 ADR 0010、ADR 0018 的后续状态取代；交付宿主现在只有原生 Windows x64。
+本 ADR 的 adapter 边界与实现历史按原文保留，不改写旧决定。
+
 增补（2026-10-27，维护者决定）：macOS（Apple Silicon 与 Intel）恢复为交付平台，与
 WSL2 + Ubuntu 24.04 + WSLg 并列；下文「macOS 当前不承诺」一句由本段取代，其余条款不变。
 平台差异仍只出现在 adapter 层，按编译目标一次选定：

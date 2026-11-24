@@ -1,9 +1,16 @@
 # Release packaging and publishing
 
-Status (2026-11-22): `v1.2.0` is **published**. [Run 45017205734](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45017205734)
+Status (2026-11-24): `v1.2.0` is the last verified **published** release.
+[Run 45017205734](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45017205734)
 assembled the native Windows x64 platform archive and the main archive, verified
 the inventory and published both with SLSA provenance. This is the first
 tag-driven release after the one-host decision (ADR 0002, #5, #12).
+
+The tree and tag `v1.2.1` now carry version 1.2.1, but
+[run 45031367826](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45031367826)
+for that tag was `cancelled` on 2026-11-22; no `1.2.1` publication is claimed.
+The npm registry listed 1.2.0 as the highest published main and platform package
+version when checked on 2026-11-24.
 
 The previous `v1.1.0` release (2026-11-16) assembled all four platforms and
 published all five archives; it predates that decision and is history. Its first
