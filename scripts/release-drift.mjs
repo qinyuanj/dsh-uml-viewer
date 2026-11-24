@@ -95,30 +95,45 @@ export async function readRegistryPackage(name, { fetchImpl = fetch, registry = 
   return { name, latest, versions: Object.keys(document?.versions ?? {}), missing: false }
 }
 
+// Three states, decided by the repository version against the newest tag:
+//   in-progress  the version was bumped and main was pushed before the tag;
+//                nothing is tagged or released yet, so this never fails.
+//   tagged       repository version == newest tag: the strict comparison runs.
+//   behind       the tag exists but the tree does not carry its version: drift.
+export function releaseState({ repoVersion, tag }) {
+  const order = compareVersions(repoVersion, tag.version)
+  if (order > 0) return 'in-progress'
+  if (order < 0) return 'behind'
+  return 'tagged'
+}
+
 export function compareReleaseFacts({ repoVersion, tag, packages }) {
+  const state = releaseState({ repoVersion, tag })
   const problems = []
-  if (repoVersion !== tag.version) {
-    problems.push(`repository package.json version ${repoVersion} != newest release tag ${tag.tag} (${tag.version})`)
+  const warnings = []
+  if (state === 'behind') {
+    problems.push(`repository package.json version ${repoVersion} is older than the newest release tag ${tag.tag} (${tag.version}): the tree does not carry the tagged version`)
   }
+  // The registry is always compared with the newest tag's version. In the
+  // pre-tag window that comparison is advisory only: a release in progress is
+  // not drift, so it can never redden main.
+  const sink = state === 'in-progress' ? warnings : problems
   for (const entry of packages) {
     if (entry.missing) {
-      problems.push(`npm has no package ${entry.name}: it was never published`)
+      sink.push(`npm has no package ${entry.name}: it was never published`)
       continue
     }
     if (entry.latest !== tag.version) {
       const direction = compareVersions(entry.latest, tag.version) < 0
         ? 'the registry is behind the tag'
         : 'the registry is ahead of the tag'
-      problems.push(`npm latest for ${entry.name} is ${entry.latest}, not the tag version ${tag.version} (${direction})`)
+      sink.push(`npm latest for ${entry.name} is ${entry.latest}, not the tag version ${tag.version} (${direction})`)
     }
     if (!entry.versions.includes(tag.version)) {
-      problems.push(`npm has no version ${tag.version} for ${entry.name}: the tag's version was never published`)
-    }
-    if (!entry.versions.includes(repoVersion)) {
-      problems.push(`npm has no version ${repoVersion} for ${entry.name}: the repository version was never published`)
+      sink.push(`npm has no version ${tag.version} for ${entry.name}: the tag's version was never published`)
     }
   }
-  return { ok: problems.length === 0, problems }
+  return { ok: problems.length === 0, state, problems, warnings }
 }
 
 export async function collectFacts({
@@ -206,6 +221,19 @@ export function formatDrift(result) {
   return lines.join('\n')
 }
 
+export function formatInProgress(result) {
+  const { facts } = result
+  const lines = [
+    `release in progress: repository package.json version ${facts.repoVersion} is newer than the newest release tag ${facts.tag.tag} (${facts.tag.version}); nothing is tagged yet, so there is no release to check against npm.`,
+    formatFacts(facts),
+  ]
+  if (result.warnings?.length) {
+    lines.push('warnings about the newest tag (advisory, not a failure):')
+    for (const warning of result.warnings) lines.push(`  - ${warning}`)
+  }
+  return lines.join('\n')
+}
+
 export function formatUnreachable(result) {
   return [
     `release drift check could not read the npm registry after ${result.attempts} attempt(s) over ${Math.round((result.elapsedMs ?? 0) / 1000)}s:`,
@@ -235,6 +263,10 @@ async function main(args) {
     collect: options => collectFacts({ ...options, registry, tag, repoVersion }),
   })
   if (result.ok) {
+    if (result.state === 'in-progress') {
+      console.log(formatInProgress(result))
+      return 0
+    }
     const published = result.facts.packages.map(entry => `${entry.name}@${entry.latest}`).join(', ')
     console.log(`release facts agree: ${result.facts.repoVersion} = ${result.facts.tag.tag} (${published})`)
     return 0

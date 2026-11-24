@@ -9,10 +9,12 @@ import {
   collectFacts,
   compareReleaseFacts,
   formatDrift,
+  formatInProgress,
   newestReleaseTag,
   packageNames,
   readRegistryPackage,
   registryUrlFor,
+  releaseState,
 } from './release-drift.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -93,15 +95,40 @@ function registryServer(documents) {
   })
 }
 
-test('the registry is missing the version the tag names', () => {
-  const observed = facts({ repoVersion: '1.2.3', tag: 'v1.2.3', latest: '1.2.2', versions: ['1.2.0', '1.2.2'] })
-  const comparison = compareReleaseFacts(observed)
-  assert.equal(comparison.ok, false)
-  assert.ok(comparison.problems.some(problem => /npm has no version 1\.2\.3 for dsh-uml-viewer: the tag's version was never published/.test(problem)))
-  assert.ok(comparison.problems.some(problem => /npm has no version 1\.2\.3 for @dsh-uml-viewer\/win32-x64/.test(problem)))
+test('the three states follow the repository version against the newest tag', () => {
+  assert.equal(releaseState({ repoVersion: '1.2.3', tag: { tag: 'v1.2.2', version: '1.2.2' } }), 'in-progress')
+  assert.equal(releaseState({ repoVersion: '1.2.2', tag: { tag: 'v1.2.2', version: '1.2.2' } }), 'tagged')
+  assert.equal(releaseState({ repoVersion: '1.2.1', tag: { tag: 'v1.2.2', version: '1.2.2' } }), 'behind')
 })
 
-test('the registry is behind the newest tag', () => {
+test('(a) a repository version newer than the newest tag is a release in progress, not drift', () => {
+  const observed = facts({ repoVersion: '1.2.3', tag: 'v1.2.2', latest: '1.2.2', versions: ['1.2.0', '1.2.2'] })
+  const comparison = compareReleaseFacts(observed)
+  assert.equal(comparison.state, 'in-progress')
+  assert.equal(comparison.ok, true)
+  assert.deepEqual(comparison.problems, [])
+  const message = formatInProgress({ facts: observed, warnings: comparison.warnings })
+  assert.match(message, /release in progress: repository package\.json version 1\.2\.3 is newer than the newest release tag v1\.2\.2 \(1\.2\.2\)/)
+})
+
+test('(b) a repository version older than the newest tag is drift and fails', () => {
+  const observed = facts({ repoVersion: '1.2.1', tag: 'v1.2.2', latest: '1.2.2', versions: ['1.2.0', '1.2.2'] })
+  const comparison = compareReleaseFacts(observed)
+  assert.equal(comparison.state, 'behind')
+  assert.equal(comparison.ok, false)
+  assert.ok(comparison.problems.some(problem => /repository package\.json version 1\.2\.1 is older than the newest release tag v1\.2\.2 \(1\.2\.2\): the tree does not carry the tagged version/.test(problem)))
+})
+
+test('(c) the tagged state fails when the tag version is missing from the registry', () => {
+  const observed = facts({ repoVersion: '1.2.3', tag: 'v1.2.3', latest: '1.2.2', versions: ['1.2.0', '1.2.2'] })
+  const comparison = compareReleaseFacts(observed)
+  assert.equal(comparison.state, 'tagged')
+  assert.equal(comparison.ok, false)
+  assert.ok(comparison.problems.some(problem => /npm has no version 1\.2\.3 for dsh-uml-viewer: the tag's version was never published/.test(problem)))
+  assert.ok(comparison.problems.some(problem => /npm has no version 1\.2\.3 for @dsh-uml-viewer\/win32-x64: the tag's version was never published/.test(problem)))
+})
+
+test('the tagged state fails when the registry is behind the tag', () => {
   const observed = facts({ repoVersion: '1.2.2', tag: 'v1.2.2', latest: '1.2.1', versions: ['1.2.0', '1.2.1'] })
   const comparison = compareReleaseFacts(observed)
   assert.equal(comparison.ok, false)
@@ -109,17 +136,10 @@ test('the registry is behind the newest tag', () => {
   assert.ok(comparison.problems.some(problem => /npm has no version 1\.2\.2 for dsh-uml-viewer: the tag's version was never published/.test(problem)))
 })
 
-test('the repository version that npm never published is reported', () => {
-  const observed = facts({ repoVersion: '9.9.9', tag: 'v1.2.2', latest: '1.2.2', versions: ['1.2.2'] })
-  const comparison = compareReleaseFacts(observed)
-  assert.equal(comparison.ok, false)
-  assert.ok(comparison.problems.some(problem => /repository package\.json version 9\.9\.9 != newest release tag v1\.2\.2/.test(problem)))
-  assert.ok(comparison.problems.some(problem => /npm has no version 9\.9\.9 for dsh-uml-viewer: the repository version was never published/.test(problem)))
-})
-
-test('the three facts agree', () => {
+test('the three facts agree in the tagged state', () => {
   const observed = facts({ repoVersion: '1.2.2', tag: 'v1.2.2', latest: '1.2.2', versions: ['1.2.0', '1.2.2'] })
   const comparison = compareReleaseFacts(observed)
+  assert.equal(comparison.state, 'tagged')
   assert.deepEqual(comparison.problems, [])
   assert.equal(comparison.ok, true)
 })
@@ -223,7 +243,7 @@ test('the check gives up after the grace window and reports the last difference'
   assert.ok(result.problems.some(problem => /the registry is behind the tag/.test(problem)))
 })
 
-test('the command exits non-zero and prints the drift when the registry lags', async () => {
+test('the command exits non-zero and prints the three values when the registry lags', async () => {
   const { server, url } = await registryServer({
     [main]: packument('1.2.2', ['1.2.0', '1.2.2']),
     [platform]: packument('1.2.2', ['1.2.0', '1.2.2']),
@@ -236,6 +256,21 @@ test('the command exits non-zero and prints the drift when the registry lags', a
     assert.match(result.stderr, /repository package\.json version\s+= 1\.2\.3/)
     assert.match(result.stderr, /newest release tag\s+= v1\.2\.3 \(1\.2\.3\)/)
     assert.match(result.stderr, /the tag's version was never published/)
+  } finally {
+    server.close()
+  }
+})
+
+test('(a) the command exits zero with the in-progress message in the pre-tag window', async () => {
+  const { server, url } = await registryServer({
+    [main]: packument('1.2.2', ['1.2.0', '1.2.2']),
+    [platform]: packument('1.2.2', ['1.2.0', '1.2.2']),
+  })
+  try {
+    const result = await runCommand(['scripts/release-drift.mjs', '--registry', url, '--grace-ms', '0', '--tag', 'v1.2.2', '--repo-version', '1.2.3'])
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    assert.match(result.stdout, /release in progress: repository package\.json version 1\.2\.3 is newer than the newest release tag v1\.2\.2/)
+    assert.doesNotMatch(result.stderr, /drift/)
   } finally {
     server.close()
   }

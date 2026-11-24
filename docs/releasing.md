@@ -195,7 +195,18 @@ not enough: the check also requires the tag's version to exist in the npm
 version list, so a tag whose package was never published is reported even when
 `latest` happens to match.
 
+The comparison is three-state, decided by the repository version against the
+newest tag, so the legitimate pre-tag window cannot redden main:
 
+- repository version **newer** than the newest tag: a release is in progress —
+  main was bumped before the tag was pushed, so nothing is tagged or released
+  yet. The check prints that and exits 0. Registry mismatches in this window
+  are advisory warnings, never failures.
+- repository version **equal** to the newest tag: the tagged state, and the
+  strict comparison runs — npm `latest` must equal it and that version must
+  exist in both packages' version lists.
+- repository version **older** than the newest tag: the tag exists but the tree
+  does not carry its version; that is real drift and fails.
 
 The check reads the public registry only: it needs no npm credential and adds
 no npm dependency. When the registry cannot be reached it fails with a clear
