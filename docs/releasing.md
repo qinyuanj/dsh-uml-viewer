@@ -1,30 +1,18 @@
 # Release packaging and publishing
 
-Status (npm registry time 2026-11-24T16:38:13Z): `v1.2.2` is the last verified
-**published** release, and
-`v1.2.1` is still the one that never was.
-
+Status (2026-11-25): `v1.2.2` is the latest verified **published** release.
 [Run 45421102962](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45421102962)
-for tag `v1.2.2` (`ec032adc`) assembled the native Windows x64 platform archive
-and the main archive, verified the inventory and published both with signed SLSA
-provenance. The `publish` job waited on the `release` environment's manual
-approval from 2026-11-24T15:07:05Z; the lead approved the deployment at
-16:35:00Z and the job succeeded at 16:35:37Z. `dsh-uml-viewer@1.2.2` and
-`@dsh-uml-viewer/win32-x64@1.2.2` are both on npm with signed provenance
-(sigstore logIndex 4082439086 and 4082439869), registry `time.modified`
-2026-11-24T16:38:13.657Z, and `dist-tags.latest` is 1.2.2 for both packages.
+assembled the native Windows x64 platform archive and the main archive, verified
+the inventory, dry-ran both archives and published both with SLSA provenance
+after the `release` environment approval. `v1.2.0` was the first tag-driven
+release after the one-host decision (ADR 0002, #5, #12).
 
-`v1.2.1` was never published. Tag `v1.2.1` (`8168004a`) ran
-[45031367826](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45031367826),
-whose `publish` job was `cancelled` on 2026-11-22T14:16:01Z, and npm never
-carried a 1.2.1 on either package.
-
-This header is worth watching: #141 already corrected it once, and it then
-drifted one version behind again, still naming v1.2.0 as the last published
-release after v1.2.2 shipped and reached the registry at 16:38:13Z. A release
-record that lags the registry is the same defect class twice over, which is why
-the drift gate below (`scripts/release-drift.mjs`) compares the registry, the
-repository version and the newest tag instead of trusting a green `ci` run.
+`v1.2.1` was tagged but never published:
+[run 45031367826](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45031367826)
+for that tag was `cancelled` on 2026-11-22 while its `publish` job waited at that
+same approval, so no `1.2.1` publication is claimed. `1.2.2` supersedes it and
+carries the fixes merged after that tag. The npm registry listed 1.2.2 as the
+latest published main and platform package version when checked on 2026-11-25.
 
 The previous `v1.1.0` release (2026-11-16) assembled all four platforms and
 published all five archives; it predates that decision and is history. Its first
@@ -175,54 +163,47 @@ version, run `pnpm version:sync`, update `Cargo.lock`, run `pnpm version:check`.
 
 ## Release drift gate (npm, tag and repository version)
 
-The `publish` job runs in the `release` environment, and that environment
-carries a required reviewer. The gate fails silently: the tag push is green,
-`ci` is green, and the package was never published. Version 1.2.1
+The `publish` job runs in the `release` environment, and that environment carries a
+required reviewer. The gate fails silently: the tag push is green, `ci` is green, and
+the package was never published. Version 1.2.1
 ([run 45031367826](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45031367826),
-publish job cancelled) never existed on the registry, and nobody noticed for
-two days.
+publish job cancelled) never existed on the registry, and nobody noticed for two days.
 
-`scripts/release-drift.mjs` compares three facts and fails loudly when they
-disagree:
+`scripts/release-drift.mjs` compares three facts and fails loudly when they disagree:
 
-- npm `dist-tags.latest` for the main package `dsh-uml-viewer` and the
-  platform package `@dsh-uml-viewer/win32-x64`;
+- npm `dist-tags.latest` for the main package `dsh-uml-viewer` and the platform package
+  `@dsh-uml-viewer/win32-x64`;
 - the `version` in the repository `package.json`;
 - the newest `v*` git tag.
 
-The report prints each value and every difference. Comparing `latest` alone is
-not enough: the check also requires the tag's version to exist in the npm
-version list, so a tag whose package was never published is reported even when
-`latest` happens to match.
+The report prints each value and every difference. Comparing `latest` alone is not
+enough: the check also requires the tag's version to exist in the npm version list, so a
+tag whose package was never published is reported even when `latest` happens to match.
 
-The comparison is three-state, decided by the repository version against the
-newest tag, so the legitimate pre-tag window cannot redden main:
+The comparison is three-state, decided by the repository version against the newest tag,
+so the legitimate pre-tag window cannot redden main:
 
-- repository version **newer** than the newest tag: a release is in progress —
-  main was bumped before the tag was pushed, so nothing is tagged or released
-  yet. The check prints that and exits 0. Registry mismatches in this window
-  are advisory warnings, never failures.
-- repository version **equal** to the newest tag: the tagged state, and the
-  strict comparison runs — npm `latest` must equal it and that version must
-  exist in both packages' version lists.
-- repository version **older** than the newest tag: the tag exists but the tree
-  does not carry its version; that is real drift and fails.
+- repository version **newer** than the newest tag: a release is in progress — main was
+  bumped before the tag was pushed, so nothing is tagged or released yet. The check prints
+  that and exits 0. Registry mismatches in this window are advisory warnings, never failures.
+- repository version **equal** to the newest tag: the tagged state; the strict comparison
+  runs — npm `latest` must equal it and that version must exist in both packages' version lists.
+- repository version **older** than the newest tag: the tag exists but the tree does not
+  carry its version; that is real drift and fails.
 
-The check reads the public registry only: it needs no npm credential and adds
-no npm dependency. When the registry cannot be reached it fails with a clear
-message instead of a stack trace, and it says that the published versions are
-unknown.
+The check reads the public registry only: it needs no npm credential and adds no npm
+dependency. When the registry cannot be reached it fails with a clear message instead of
+a stack trace, and it says that the published versions are unknown.
 
-Grace window: after a publish the platform package became visible at
-16:37:06Z and the main package at 16:38:13Z, 67 seconds apart, and npm itself
-warns that a package "may take a few minutes to become available". The check
-therefore retries with backoff inside a bounded window (5 minutes by default,
-`--grace-ms` to change it), re-reading all three facts on every attempt, and
-only reports drift once the window is exhausted.
+Grace window: after a publish the platform package became visible at 16:37:06Z and the
+main package at 16:38:13Z, 67 seconds apart, and npm itself warns that a package "may
+take a few minutes to become available". The check therefore retries with backoff inside a
+bounded window (5 minutes by default, `--grace-ms` to change it), re-reading all three
+facts on every attempt, and only reports drift once the window is exhausted.
 
-CI runs the check in the `release-drift` job of `ci.yml`, on pushes to main
-only, with `fetch-depth: 0` so the full tag list is present. It needs no
-credentials and no install step, so it stays a few seconds of runner time.
+CI runs the check in the `release-drift` job of `ci.yml`, on pushes to main only, with
+`fetch-depth: 0` so the full tag list is present. It needs no credentials and no install
+step, so it stays a few seconds of runner time.
 
 ## One-time maintainer setup (owner only, not automated)
 
