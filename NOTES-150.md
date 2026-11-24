@@ -151,6 +151,42 @@ $ python -I scripts/test_line_endings.py     # OK
 $ python -I scripts/test_process_boundary.py  # OK (4 tests)
 ```
 
+## 提交后的复验（两个 commit 之后，`git status` 干净）
+
+```
+$ python -c "import yaml;d=yaml.safe_load(open('.github/workflows/ci.yml',encoding='utf-8'));print(sorted(d['jobs']))"
+['panel-e2e', 'release-drift', 'typescript', 'windows-crap', 'windows-mutate', 'windows-quality']
+release-drift 的 if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+$ node --test --test-reporter=tap scripts/release-drift.test.mjs
+# tests 13 / # pass 13 / # fail 0        EXIT=0
+
+$ pnpm version:check
+Release version 1.2.2: Cargo/npm manifests consistent        EXIT=0
+
+$ pnpm test:package
+ℹ tests 101 / ℹ pass 101 / ℹ fail 0                         EXIT=0
+
+$ node scripts/release-drift.mjs
+release facts agree: 1.2.2 = v1.2.2 (dsh-uml-viewer@1.2.2, @dsh-uml-viewer/win32-x64@1.2.2)
+EXIT=0
+
+$ node scripts/release-drift.mjs --grace-ms 0 --tag v9.9.9 --repo-version 9.9.9
+release drift detected after 1 attempt(s) over 2s:
+  npm latest dsh-uml-viewer                 = 1.2.2
+  npm latest @dsh-uml-viewer/win32-x64      = 1.2.2
+  repository package.json version     = 9.9.9
+  newest release tag                  = v9.9.9 (9.9.9)
+differences:
+  - npm latest for dsh-uml-viewer is 1.2.2, not the tag version 9.9.9 (the registry is behind the tag)
+  - npm has no version 9.9.9 for dsh-uml-viewer: the tag's version was never published
+  - npm has no version 9.9.9 for dsh-uml-viewer: the repository version was never published
+  - npm latest for @dsh-uml-viewer/win32-x64 is 1.2.2, not the tag version 9.9.9 (the registry is behind the tag)
+  - npm has no version 9.9.9 for @dsh-uml-viewer/win32-x64: the tag's version was never published
+  - npm has no version 9.9.9 for @dsh-uml-viewer/win32-x64: the repository version was never published
+EXIT=1
+```
+
 ## 已知边界 / 备注
 
 - `scripts/check.py` 在这个 worktree 里跑不了完整形态：它要 `cargo build --release --locked`
