@@ -757,7 +757,7 @@ test('test:package runs the stale-payload guard and the release guards', async (
   assert.equal(manifest.scripts['test:package'], 'node scripts/test-package.mjs')
   assert.equal(manifest.private, true)
   const runner = await readFile(path.join(root, 'scripts/test-package.mjs'), 'utf8')
-  for (const suite of ['scripts/package.test.mjs', 'scripts/package-version.test.mjs', 'scripts/release.test.mjs']) {
+  for (const suite of ['scripts/package.test.mjs', 'scripts/package-version.test.mjs', 'scripts/release.test.mjs', 'scripts/release-drift.test.mjs']) {
     assert.ok(runner.includes(suite), `${suite} must run in test:package`)
   }
   assert.match(runner, /UML_VIEWER_PACKAGE_TEST_SCRATCH/)
@@ -770,4 +770,11 @@ test('the existing CI keeps the package contract step and its jobs', async () =>
   }
   assert.match(text, /pnpm test:package/)
   assert.match(text, /pnpm version:check/)
+})
+
+test('the CI runs the release drift gate on main', async () => {
+  const text = await readFile(path.join(root, '.github/workflows/ci.yml'), 'utf8')
+  assert.match(text, /^  release-drift:/m, 'ci.yml job release-drift')
+  assert.match(text, /node scripts\/release-drift\.mjs/)
+  assert.match(text, /github\.ref == 'refs\/heads\/main'/)
 })

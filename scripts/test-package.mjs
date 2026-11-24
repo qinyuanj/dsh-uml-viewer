@@ -3,7 +3,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 
 const root = path.resolve(import.meta.dirname, '..')
-const suites = ['scripts/package.test.mjs', 'scripts/package-version.test.mjs', 'scripts/release.test.mjs']
+const suites = ['scripts/package.test.mjs', 'scripts/package-version.test.mjs', 'scripts/release.test.mjs', 'scripts/release-drift.test.mjs']
 const explicit = process.env.UML_VIEWER_PACKAGE_TEST_SCRATCH
 let owned
 if (!explicit) {
