@@ -71,6 +71,11 @@ export interface MoreMenu {
 
 let counter = 0
 
+// The popover is anchored to its trigger inside the top bar, so it can never
+// reach the host's tab strip above the panel (#140).
+const MENU_GAP = 4
+const MENU_EDGE = 4
+
 export function mountMoreMenu(host: HTMLElement, trigger: HTMLButtonElement, options: MoreMenuOptions): MoreMenu {
   const text = options.text ?? ENGLISH_TEXT
   const doc = host.ownerDocument
@@ -84,7 +89,42 @@ export function mountMoreMenu(host: HTMLElement, trigger: HTMLButtonElement, opt
   trigger.setAttribute('aria-haspopup', 'menu')
   trigger.setAttribute('aria-expanded', 'false')
 
+  const bounds = (element: Element | null): DOMRect | null =>
+    element !== null && typeof (element as HTMLElement).getBoundingClientRect === 'function'
+      ? (element as HTMLElement).getBoundingClientRect()
+      : null
+  // Hang the menu off the trigger: below it when the panel has room, above it
+  // otherwise, with the right edge following the trigger and the whole box kept
+  // inside the bar. Without this the menu's static position is the bar's
+  // centred flex line, which lifts it over the host tab strip (#140).
+  const place = (): void => {
+    const anchor = bounds(trigger)
+    const bar = bounds(host)
+    if (anchor === null || bar === null) return
+    const width = menu.offsetWidth ?? 0
+    const height = menu.offsetHeight ?? 0
+    const below = anchor.bottom - bar.top + MENU_GAP
+    const panel = bounds(host.parentElement)
+    const room = panel === null ? Number.POSITIVE_INFINITY : panel.bottom - bar.top - below
+    const top = height > room ? Math.max(0, anchor.top - bar.top - MENU_GAP - height) : below
+    const rightAligned = anchor.right - bar.left - width
+    const left = Math.max(MENU_EDGE, Math.min(rightAligned, bar.width - width - MENU_EDGE))
+    menu.style.top = `${top}px`
+    menu.style.left = `${left}px`
+  }
+
+  // The panel stub used by the unit tests has no view; a browser always has one.
+  const watchResize = (listen: boolean): void => {
+    const view = doc.defaultView as unknown as {
+      addEventListener?: (type: string, handler: () => void) => void
+      removeEventListener?: (type: string, handler: () => void) => void
+    } | null
+    if (listen) view?.addEventListener?.('resize', place)
+    else view?.removeEventListener?.('resize', place)
+  }
+
   const close = (): void => {
+    watchResize(false)
     if (!open) return
     open = false
     menu.hidden = true
@@ -138,6 +178,8 @@ export function mountMoreMenu(host: HTMLElement, trigger: HTMLButtonElement, opt
     build()
     open = true
     menu.hidden = false
+    place()
+    watchResize(true)
     menu.setAttribute('role', 'menu')
     trigger.setAttribute('aria-expanded', 'true')
     trigger.setAttribute('aria-controls', menuId)
