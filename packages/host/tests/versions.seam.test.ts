@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { closeSync, existsSync, openSync } from 'node:fs'
 import { copyFile, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -68,18 +68,19 @@ function localSubprocess(spec: SpawnSpec, wrappers: Map<string, string>) {
   const chunks: Buffer[] = []
   child.stderr.on('data', (chunk: Buffer) => chunks.push(chunk))
   const reader = { readFrom: () => ({ text: Buffer.concat(chunks).toString(), lossy: false }) }
+  const done = new Promise<{ exitCode: number | null; signal: string | null }>((resolve, reject) => {
+    child.on('error', reject)
+    child.on('close', (exitCode, signal) => resolve({ exitCode, signal }))
+  })
   return {
     stdin: child.stdin,
     stdout: child.stdout,
     stderr: child.stderr,
     collected: { stdout: reader, stderr: reader },
-    done: new Promise<{ exitCode: number | null; signal: string | null }>((resolve, reject) => {
-      child.on('error', reject)
-      child.on('close', (exitCode, signal) => resolve({ exitCode, signal }))
-    }),
+    done,
     terminate: () => child.kill(),
     alive: () => child.exitCode === null && child.signalCode === null,
-    waitForExit: async () => true,
+    waitForExit: () => done.then(() => true),
   }
 }
 
@@ -149,7 +150,11 @@ async function host(dshHome: string, packageRoot: string, wrappers = new Map<str
       },
     }
   }
-  return { ctx, projects, children, fiber, panel, preparePanel, unload: () => fiber.dispose(), dispose: () => ctx.fiber.dispose() }
+  const dispose = async () => {
+    await ctx.fiber.dispose()
+    await Promise.allSettled(children.map(child => child.waitForExit()))
+  }
+  return { ctx, projects, children, fiber, panel, preparePanel, unload: () => fiber.dispose(), dispose }
 }
 
 type CloseHandler = (sessionId: string, tab: { id: string; kind: string }) => void
@@ -552,8 +557,12 @@ it('publishes one intact copy when several hosts load the same version at once',
   const expected = createHash('sha256').update(bytes).digest('hex')
   const bundle = path.join(await scratch('bundle'), 'versions.mjs')
   const esbuild = await import('esbuild')
-  await esbuild.build({ entryPoints: [fileURLToPath(new URL('../src/versions.ts', import.meta.url))], bundle: true,
-    platform: 'node', format: 'esm', outfile: bundle, logLevel: 'silent' })
+  // esbuild's service process can intermittently fail to write into %TEMP%; Node writes the emitted bytes.
+  const built = await esbuild.build({ entryPoints: [fileURLToPath(new URL('../src/versions.ts', import.meta.url))], bundle: true,
+    platform: 'node', format: 'esm', outfile: bundle, write: false, logLevel: 'silent' })
+  const emitted = built.outputFiles?.find(file => file.path.endsWith('versions.mjs')) ?? built.outputFiles?.[0]
+  if (!emitted) throw new Error('esbuild produced no bundle')
+  await writeFile(bundle, emitted.contents)
   const script = `const { pinVersion } = await import(${JSON.stringify(pathToFileURL(bundle).href)})
 const pinned = pinVersion(process.argv[1], '1.0.0', process.argv[2], ${JSON.stringify(exe)})
 process.stdout.write(pinned.binary)
@@ -617,17 +626,25 @@ it.runIf(process.platform === 'win32')('retries removal of a version whose exe w
   await mkdir(path.dirname(nativeExe), { recursive: true })
   await copyFile(source, nativeExe)
   const running = spawn(nativeExe, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' })
+  let heldDirectory: string | undefined
   try {
     await new Promise(resolve => setTimeout(resolve, 300))
     cleanupVersions(home)
     const remaining = await readdir(home)
     const holds = remaining.filter(name => name.startsWith('.trash-') || name === '1.0.0')
     expect(holds).toHaveLength(1)
-    expect(await readdir(holds[0] === '1.0.0' ? path.join(home, '1.0.0') : path.join(home, holds[0]!))).toEqual([exe])
+    heldDirectory = holds[0] === '1.0.0' ? path.join(home, '1.0.0') : path.join(home, holds[0]!)
+    expect(await readdir(heldDirectory)).toEqual([exe])
   } finally {
+    const closed = new Promise(resolve => running.once('close', resolve))
     running.kill()
-    await new Promise(resolve => running.once('exit', resolve))
+    await closed
   }
+  // Windows unmaps the executable image at 'close', not at 'exit'; cleanup must not race that handle.
+  expect(() => {
+    const descriptor = openSync(path.join(heldDirectory!, exe), 'r+')
+    closeSync(descriptor)
+  }).not.toThrow()
   cleanupVersions(home)
   expect((await readdir(home)).filter(name => name === '1.0.0' || name.startsWith('.trash-'))).toEqual([])
 }, 60_000)
