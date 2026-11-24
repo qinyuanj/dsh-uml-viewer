@@ -68,7 +68,8 @@ def hunk_lines(header):
     old_count = 1 if match.group(2) is None else int(match.group(2))
     new_start = int(match.group(3))
     new_count = 1 if match.group(4) is None else int(match.group(4))
-    require(new_start >= 1, f'mutate: invalid new-side line: {header!r}')
+    require(new_start >= 1 or (new_start == 0 and new_count == 0),
+            f'mutate: invalid new-side line: {header!r}')
     return old_count, new_start, new_count
 
 
