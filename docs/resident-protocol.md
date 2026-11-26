@@ -87,7 +87,7 @@ An `error` changes nothing; the session keeps running.
 | `search` | `query` | `search` | search class names and namespaces (ASCII case-insensitive substring); a blank query has no results. The view does not change. |
 | `locate` | `id` (EDN) | `frame` | go to a search result: enter its namespace or proposal layer, select it, open its card and centre it |
 | `context` | `proposalId` (EDN, or `null` for the source diagram) | `context`, then `frame` | the user chose the 讨论上下文; the view switches to that diagram. The host turns the `context` event into the panel request. |
-| `declutter` | `mode?` | `frame` | the arrow mode: `full`, `arrows`, `triangles`, `elements` or `classes`. A named mode is set (the panel's 「更多」 menu names any of the five directly, #46 and #154); without one the resident cycles the modes. A `mode` that is not a JSON string, or a name outside that list, is an `error` that changes nothing and names the modes this version knows (#84) |
+| `declutter` | `mode?` | `frame` | the declutter mode: `full`, `arrows`, `triangles`, `elements` or `classes`. A named mode is set (the panel's 「更多」 menu names any of the five directly, #46 and #154); without one the resident cycles the modes. A `mode` that is not a JSON string, or a name outside that list, is an `error` that changes nothing and names the modes this version knows (#84) |
 | `save` | — | `state` | the session state to persist |
 | `quit` | — | `ack` | end the session (exit 0), like closing stdin |
 | `card` | `width?`, `viewHeight?` (points) | `card` | the open class card's paint plan; `width` is the card content width (native default 624, floor 560), `viewHeight` the card viewport its scroll clamps against (default 700). With no class card open the answer is `card: null`, which changes nothing (#47). |
@@ -397,7 +397,7 @@ the host also compares `loadedDiagram` with the current file bytes.
 | `focus` | string[] | the namespace path drilled into (EDN keywords) |
 | `proposalId` | string \| null | the proposal shown (EDN): set exactly while the canvas shows a proposal layer and dropped when the view returns to the source tree (`namespace-tree`). The panel reads it as the view summary's flag (#46), so a proposal that is displayed from a source discussion reads as a proposal view until **P**. |
 | `openLayer` | string \| null | the open proposal layer (EDN) |
-| `declutter` | string \| null | the arrow mode (EDN keyword) |
+| `declutter` | string \| null | the declutter mode (EDN keyword) |
 | `camera` | `{x, y, zoom}` | as in the scene frame |
 | `selected` | string \| null | the selected hit (EDN map) |
 | `detail` | string \| null | the class whose card is open (EDN) |
