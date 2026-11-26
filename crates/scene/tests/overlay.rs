@@ -97,6 +97,31 @@ fn newer_mutation_snapshot_wins_over_older_explicit_or_derived() {
 }
 
 #[test]
+fn a_sec_nsec_size_stamp_orders_records_by_time_not_by_path() {
+    // The discovery sites encode a file as "sec:nsec:size" (#163). The newer
+    // stamp sorts first by path, so a parser that drops the stamp picks the
+    // older record and this test fails.
+    let doc = parse(r#"{:hierarchical true :classes [{:id :config :ns "demo.config"}]}"#).unwrap();
+    let cs = overlaid(
+        &doc,
+        &[
+            snap(
+                ".metrics/mutate/a.edn",
+                r#"{:namespace "demo.config" :forms [{:id "defn/new" :killed 7}]}"#,
+                Value::String("1700000200:0:42".into()),
+            ),
+            snap(
+                ".metrics/mutate/z.edn",
+                r#"{:namespace "demo.config" :forms [{:id "defn/old" :killed 1}]}"#,
+                Value::String("1700000100:999999999:42".into()),
+            ),
+        ],
+    );
+    assert_eq!(Some(7.0), num(get(&cs[0], "killed").unwrap()));
+    assert_eq!(vec!["new"], names(&cs[0]));
+}
+
+#[test]
 fn derives_a_lua_namespace_with_underscores_from_its_source_path() {
     let doc =
         parse(r#"{:hierarchical true :classes [{:id :config :ns "demo.my_config"}]}"#).unwrap();

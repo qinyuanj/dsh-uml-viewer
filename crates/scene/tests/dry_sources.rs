@@ -15,6 +15,12 @@ fn the_cli_adapter_collects_the_duplicate_structure_snapshot() {
         "{:namespace \"a\" :forms []}\n",
     )
     .unwrap();
+    std::fs::create_dir_all(root.join(".metrics/mutate/crate")).unwrap();
+    std::fs::write(
+        root.join(".metrics/mutate/crate/b.edn"),
+        "{:namespace \"b\" :forms []}\n",
+    )
+    .unwrap();
     let paths: Vec<String> = scene::cli::load_snapshots(&root)
         .into_iter()
         .map(|s| s.path)
@@ -23,7 +29,8 @@ fn the_cli_adapter_collects_the_duplicate_structure_snapshot() {
         vec![
             ".metrics/crap.edn",
             ".metrics/dry.edn",
-            ".metrics/mutate/a.edn"
+            ".metrics/mutate/a.edn",
+            ".metrics/mutate/crate/b.edn"
         ],
         paths
     );
