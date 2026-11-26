@@ -159,7 +159,9 @@ jobs:
       - name: LLVM tools for cargo-llvm-cov
         run: rustup component add llvm-tools
       - name: cargo-llvm-cov for the coverage goldens
-        run: cargo install cargo-llvm-cov --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
       - name: cargo-nextest for the fail-fast Rust suite
         uses: taiki-e/install-action@v2
         with:
@@ -182,8 +184,9 @@ jobs:
           java-version: '17'
       - name: Maven and Clojure fixture toolchain
         run: ./scripts/setup-windows-maven-clojure.ps1
-      - name: Mutation native Windows tests
-        run: cargo test -p mutator --locked
+      # The mutator suite is not repeated here: windows-quality runs it with
+      # REQUIRE_TOOLCHAINS=1, and the CRAP refresh below runs the whole workspace
+      # suite under instrumentation, so a break still fails this job.
       - name: Mutation integration tests
         run: cargo test -p uml-viewer --test integration mutate --locked
       - name: Build the Windows refresh binary
@@ -267,7 +270,50 @@ jobs:
         env:
           MUTATOR_REQUIRE_TOOLCHAINS: '1'
         run: cargo test -p mutator --test python_ts --test python_ts_sites --locked -- --test-threads=1
-      - name: scripts/check.py (source rules + cargo test --workspace --locked)
+
+  windows-check:
+    # check.py's release build and workspace suite used to trail windows-quality's
+    # 13-minute strict lane; its own lane lets both start together.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain pinned by rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      # The mutator's Rust cases run `cargo nextest` inside their fixtures.
+      - name: cargo-nextest for the fail-fast Rust suite
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Python fixture toolchain
+        run: python -m pip install coverage pytest
+      - name: Lua 5.4 fixture toolchain
+        run: ./scripts/setup-windows-lua.ps1
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.3'
+          cache: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Maven and Clojure fixture toolchain
+        run: ./scripts/setup-windows-maven-clojure.ps1
+      - name: Java fixture JaCoCo report
+        run: mvn -q -f fixtures/crap/java/pom.xml test
+      - name: Clojure fixture Cloverage report
+        working-directory: fixtures/crap/clojure
+        run: clj -M:cov --lcov
+      - name: scripts/check.py (source rules + release build + workspace suite)
         run: python -I scripts/check.py
 
   release-drift:
