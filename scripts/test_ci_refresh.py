@@ -266,6 +266,24 @@ class WorkflowContract(unittest.TestCase):
         self.assertIsNotNone(budget)
         self.assertGreaterEqual(int(budget.group(1)), 45)
 
+    def test_windows_mutate_step_budgets_fit_the_job_budget(self):
+        # The distribution behind these numbers is in docs/quality-dispatch.md:
+        # the CRAP refresh took 664-1080 s over ten main runs and is 77% one test
+        # binary, so it needs headroom over that tail. Setup, toolchain and build
+        # steps measured 168-462 s (2.8-7.7 min) on the same runs.
+        workflow = (Path(__file__).resolve().parents[1] /
+                    '.github/workflows/ci.yml').read_text(encoding='utf-8')
+        job = workflow.split('  windows-mutate:', 1)[1].split('\n  windows-quality:', 1)[0]
+        budget = int(re.search(r'^    timeout-minutes:\s*(\d+)$', job, re.MULTILINE).group(1))
+        caps = [int(cap) for cap in
+                re.findall(r'^        timeout-minutes:\s*(\d+)$', job, re.MULTILINE)]
+        self.assertEqual(len(caps), 3, 'expected the CRAP, mutation and IR step budgets')
+        crap, mutate, ir = caps
+        self.assertGreaterEqual(crap, 28, 'the CRAP refresh needs headroom over its 1080 s tail')
+        # Even every refresh step hanging at once must leave the job two minutes:
+        # a step that hits its own cap fails the job, so this bound is conservative.
+        self.assertLessEqual(crap + mutate + ir + 8, budget - 2)
+
 
 if __name__ == '__main__':
     unittest.main()

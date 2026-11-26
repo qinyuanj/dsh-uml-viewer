@@ -270,8 +270,13 @@ jobs:
         run: cargo build --locked -p uml-viewer
       - name: Build the host package for quality collection
         run: pnpm build
+      # 77% of this step is one test binary: crates/mutator/tests/go_java_clojure.rs
+      # runs twelve whole-project mutation runs (577-840 s of the step). Over the
+      # last ten main runs the step took 664-1080 s and hit the former 21-minute
+      # cap once (45416320929); 28 minutes covers the slowest completed run by
+      # 1.55x, and 28/6/1 plus the measured setup stays inside the 45-minute job.
       - name: Maintainer refresh - CRAP (Windows)
-        timeout-minutes: 21
+        timeout-minutes: 28
         run: python -I scripts/ci-refresh.py target/debug/uml-viewer.exe crap
       - name: Maintainer refresh - differential mutation (Windows)
         timeout-minutes: 6
