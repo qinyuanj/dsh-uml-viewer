@@ -283,6 +283,11 @@ jobs:
       - name: Rust toolchain pinned by rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+      # The mutator's Rust cases run `cargo nextest` inside their fixtures.
+      - name: cargo-nextest for the fail-fast Rust suite
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
