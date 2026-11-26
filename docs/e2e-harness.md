@@ -125,6 +125,33 @@ optional frame field (`docs/scene-frame.md`), so an older binary degrades to
 endpoint-only hover; raw child-row hover still lacks a separate hit record (see
 ADR 0013 #26 appendix).
 
+## Committed snapshot acceptance (#153)
+
+`real-snapshot.spec.mjs` is the first browser case painted from the
+repository's own committed `.metrics` snapshot instead of a fixture.
+`prepareProjects` copies `crates/` and the plugin `src` trees from this
+checkout into the lane's scratch home, writes the policy with
+`:out "diagram.edn"`, and copies `.metrics` verbatim, so the resident reads
+the same CRAP, duplicate-structure and mutation records a maintainer refresh
+commits. The panel generates the IR with the real binary; no frame is injected.
+
+The card assertions are derived from that snapshot at run time
+(`readSnapshot`): as many classes paint CRAP-derived quality as the snapshot
+measures in the `ir` view, no measured class falls back to the no-data state,
+and `ir.graph` — pinned by name because it is long stable — shows its own
+pooled mean CRAP, coverage, and per-member killed/survived counts. A duplicate
+candidate from `dry.edn` is followed from the card of the class its namespace
+names. A second case runs the same project with an empty `.metrics` and asserts
+the empty state, so the positive assertions are not always true.
+
+Boxes are located with `locatorFrame`, which hands `scene --frame` a flattened
+copy of the same snapshot. `load_snapshots` in `crates/scene/src/cli.rs` reads
+only `.metrics/mutate/*.edn` one level deep, while
+`crates/viewer-session/src/metrics.rs` walks the whole tree, so a frame read
+straight from the project lays the diagram out with a different no-data set than
+the panel draws, and its coordinates miss the box. Only the locator's geometry is
+used; every assertion reads the panel or the untouched `.metrics`.
+
 ## Packaged install/remove acceptance (#31)
 
 The same bootstrap also accepts a local main tarball and the matching local
