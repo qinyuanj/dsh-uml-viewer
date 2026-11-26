@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import type { PanelAction, PanelEvent, SceneFrame, SessionState } from '@dsh-uml-viewer/contracts'
+import { DECLUTTER_MODES, type PanelAction, type PanelEvent, type SceneFrame, type SessionState } from '@dsh-uml-viewer/contracts'
 import { mountMoreMenu, moreMenuEntries } from '../src/more-menu.js'
 import { PanelController, type PanelStream } from '../src/panel.js'
-import { ENGLISH_TEXT } from '../src/locale.js'
+import { ENGLISH_TEXT, translate, type PanelText } from '../src/locale.js'
 import { Element, makeDocument } from './dom.js'
 import { fakeCanvas } from './fakes.js'
 
@@ -28,7 +28,22 @@ async function flush(): Promise<void> {
   await new Promise<void>(resolve => setImmediate(resolve))
 }
 
-async function harness(options: { declutter?: string | null; rejectSave?: boolean } = {}) {
+function visibleText(element: Element): string {
+  return element.descendants().map(child => child.textContent).join('')
+}
+
+function accessibleText(element: Element): string {
+  return element.descendants().filter(child => child.getAttribute('aria-hidden') !== 'true')
+    .map(child => child.textContent).join('')
+}
+
+const CHINESE_TEXT: PanelText = {
+  language: 'zh',
+  t: (key, params) => translate('zh', key, params),
+  subscribe: () => () => {},
+}
+
+async function harness(options: { declutter?: string | null; rejectSave?: boolean; text?: PanelText } = {}) {
   const ack = deferred<unknown>()
   let mounted = false
   const actions: { sessionId: string; action: PanelAction }[] = []
@@ -73,9 +88,10 @@ async function harness(options: { declutter?: string | null; rejectSave?: boolea
   emit({ kind: 'frame', seq: 1, frame })
   emit({ kind: 'state', state: stateWith(options.declutter ?? null), breadcrumbs: [{ id: null, name: 'Shop' }], status: null, proposals: [] })
   await flush()
+  const text = options.text ?? ENGLISH_TEXT
   const menu = mountMoreMenu(host as unknown as HTMLElement, trigger as unknown as HTMLButtonElement, {
-    text: ENGLISH_TEXT,
-    entries: () => moreMenuEntries(controller, ENGLISH_TEXT),
+    text,
+    entries: () => moreMenuEntries(controller, text),
   })
   actions.length = 0
   mounted = true
@@ -101,18 +117,26 @@ describe('the top bar More menu (#46)', () => {
     h.controller.close()
   })
 
-  it('offers Fit view with its shortcut and Remove arrows as an unchecked toggle', async () => {
+  it('offers Fit view and all five declutter modes in one labeled radio group', async () => {
     const h = await harness()
     h.menu.open()
     const fit = h.item('fit')
-    const arrows = h.item('remove-arrows')
-    const text = (element: Element): string => element.descendants().map(child => child.textContent).join('')
-    expect(text(fit)).toContain('Fit view')
+    expect(visibleText(fit)).toContain('Fit view')
     expect(fit.getAttribute('aria-keyshortcuts')).toBe('Ctrl+0')
-    expect(text(fit)).toContain('Ctrl+0')
-    expect(text(arrows)).toContain('Remove arrows')
-    expect(arrows.getAttribute('role')).toBe('menuitemcheckbox')
-    expect(arrows.getAttribute('aria-checked')).toBe('false')
+    expect(visibleText(fit)).toContain('Ctrl+0')
+
+    const groups = h.menuElement.descendants().filter(child => child.getAttribute('role') === 'group')
+    expect(groups).toHaveLength(1)
+    const group = groups[0]!
+    expect(group.getAttribute('aria-label')).toBe('Declutter')
+    const radios = group.descendants().filter(child => child.tagName === 'button')
+    expect(radios.map(radio => radio.dataset.entry)).toEqual([
+      'declutter-full', 'declutter-arrows', 'declutter-triangles', 'declutter-elements', 'declutter-classes',
+    ])
+    expect(radios.map(radio => radio.getAttribute('role'))).toEqual(Array(5).fill('menuitemradio'))
+    expect(radios.map(accessibleText)).toEqual(['Full', 'Arrows', 'Remove arrows', 'Elements', 'Classes'])
+    expect(radios.map(radio => radio.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false', 'false', 'false'])
+    expect(h.menuElement.descendants().filter(child => child.getAttribute('role') === 'menuitemcheckbox')).toHaveLength(0)
     h.menu.dispose()
     h.controller.close()
   })
@@ -131,19 +155,20 @@ describe('the top bar More menu (#46)', () => {
     h.controller.close()
   })
 
-  it('writes an accepted toggle back before the next state event', async () => {
+  it('writes an accepted selection back before the next state event', async () => {
     const h = await harness()
     h.menu.open()
-    h.item('remove-arrows').fire('click')
+    h.item('declutter-triangles').fire('click')
     h.ack.resolve({ ok: true, value: { accepted: true, reason: null } })
     await flush()
     h.menu.open()
-    expect(h.item('remove-arrows').getAttribute('aria-checked')).toBe('true')
-    h.emit({ kind: 'state', state: stateWith(':triangles'), breadcrumbs: [{ id: null, name: 'Shop' }], status: null, proposals: [] })
+    expect(h.item('declutter-triangles').getAttribute('aria-checked')).toBe('true')
+    h.emit({ kind: 'state', state: stateWith(':elements'), breadcrumbs: [{ id: null, name: 'Shop' }], status: null, proposals: [] })
     await flush()
     h.menu.close()
     h.menu.open()
-    expect(h.item('remove-arrows').getAttribute('aria-checked')).toBe('true')
+    expect(h.item('declutter-triangles').getAttribute('aria-checked')).toBe('false')
+    expect(h.item('declutter-elements').getAttribute('aria-checked')).toBe('true')
     h.menu.dispose()
     h.controller.close()
   })
@@ -151,7 +176,7 @@ describe('the top bar More menu (#46)', () => {
   it('saves exactly once after Remove arrows is accepted, naming the mode', async () => {
     const h = await harness()
     h.menu.open()
-    h.item('remove-arrows').fire('click')
+    h.item('declutter-triangles').fire('click')
     expect(h.menu.isOpen()).toBe(false)
     expect(h.actions.map(entry => entry.action.action)).toEqual(['declutter'])
     expect(h.actions[0]!.action).toEqual({ action: 'declutter', mode: 'triangles' })
@@ -172,10 +197,13 @@ describe('the top bar More menu (#46)', () => {
   ])('does not save after a non-success acknowledgement (%j)', async result => {
     const h = await harness()
     h.menu.open()
-    h.item('remove-arrows').fire('click')
+    h.item('declutter-triangles').fire('click')
     h.ack.resolve(result)
     await flush()
     expect(h.actions.map(entry => entry.action.action)).toEqual(['declutter'])
+    h.menu.open()
+    expect(h.item('declutter-full').getAttribute('aria-checked')).toBe('true')
+    expect(h.item('declutter-triangles').getAttribute('aria-checked')).toBe('false')
     h.menu.dispose()
     h.controller.close()
   })
@@ -183,10 +211,13 @@ describe('the top bar More menu (#46)', () => {
   it('handles a rejected declutter promise without saving', async () => {
     const h = await harness()
     h.menu.open()
-    h.item('remove-arrows').fire('click')
+    h.item('declutter-triangles').fire('click')
     h.ack.reject(new Error('declutter unavailable'))
     await flush()
     expect(h.actions.map(entry => entry.action.action)).toEqual(['declutter'])
+    h.menu.open()
+    expect(h.item('declutter-full').getAttribute('aria-checked')).toBe('true')
+    expect(h.item('declutter-triangles').getAttribute('aria-checked')).toBe('false')
     h.menu.dispose()
     h.controller.close()
   })
@@ -194,7 +225,7 @@ describe('the top bar More menu (#46)', () => {
   it('handles a rejected follow-up save without leaving the panel stuck', async () => {
     const h = await harness({ rejectSave: true })
     h.menu.open()
-    h.item('remove-arrows').fire('click')
+    h.item('declutter-triangles').fire('click')
     h.ack.resolve({ ok: true, value: { accepted: true, reason: null } })
     await flush()
     expect(h.actions.map(entry => entry.action.action)).toEqual(['declutter', 'save'])
@@ -202,21 +233,40 @@ describe('the top bar More menu (#46)', () => {
     h.controller.close()
   })
 
-  it('clears to 移除箭头 from any other mode, and returns to full from it', async () => {
+  it('sets a non-adjacent mode directly instead of toggling from restored state', async () => {
     const restored = await harness({ declutter: ':classes' })
     restored.menu.open()
-    restored.item('remove-arrows').fire('click')
-    expect(restored.actions.at(-1)!.action).toEqual({ action: 'declutter', mode: 'triangles' })
+    restored.item('declutter-arrows').fire('click')
+    expect(restored.actions.at(-1)!.action).toEqual({ action: 'declutter', mode: 'arrows' })
     restored.menu.dispose()
     restored.controller.close()
 
-    const arrowsOff = await harness({ declutter: ':triangles' })
-    arrowsOff.menu.open()
-    expect(arrowsOff.item('remove-arrows').getAttribute('aria-checked')).toBe('true')
-    arrowsOff.item('remove-arrows').fire('click')
-    expect(arrowsOff.actions.at(-1)!.action).toEqual({ action: 'declutter', mode: 'full' })
-    arrowsOff.menu.dispose()
-    arrowsOff.controller.close()
+    const triangles = await harness({ declutter: ':triangles' })
+    triangles.menu.open()
+    triangles.item('declutter-full').fire('click')
+    expect(triangles.actions.at(-1)!.action).toEqual({ action: 'declutter', mode: 'full' })
+    triangles.menu.dispose()
+    triangles.controller.close()
+  })
+
+  it.each(DECLUTTER_MODES)('marks restored %s mode as the only checked choice', async mode => {
+    const h = await harness({ declutter: `:${mode}` })
+    h.menu.open()
+    expect(DECLUTTER_MODES.map(candidate => h.item(`declutter-${candidate}`).getAttribute('aria-checked')))
+      .toEqual(DECLUTTER_MODES.map(candidate => String(candidate === mode)))
+    h.menu.dispose()
+    h.controller.close()
+  })
+
+  it('localizes the group label and every mode choice', async () => {
+    const h = await harness({ text: CHINESE_TEXT })
+    h.menu.open()
+    const group = h.menuElement.descendants().find(child => child.getAttribute('role') === 'group')!
+    expect(group.getAttribute('aria-label')).toBe('精简模式')
+    const radios = group.descendants().filter(child => child.tagName === 'button')
+    expect(radios.map(accessibleText)).toEqual(['完整', '箭头', '移除箭头', '元素', '类'])
+    h.menu.dispose()
+    h.controller.close()
   })
 
   it('rebuilds its items on every open, so no stale copy accumulates', async () => {
@@ -227,7 +277,9 @@ describe('the top bar More menu (#46)', () => {
     }
     h.menu.open()
     const items = h.menuElement.descendants().filter(child => child.tagName === 'button')
-    expect(items.map(item => item.dataset.entry)).toEqual(['fit', 'remove-arrows'])
+    expect(items.map(item => item.dataset.entry)).toEqual([
+      'fit', 'declutter-full', 'declutter-arrows', 'declutter-triangles', 'declutter-elements', 'declutter-classes',
+    ])
     h.menu.dispose()
     h.controller.close()
   })

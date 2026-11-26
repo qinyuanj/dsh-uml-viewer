@@ -189,7 +189,7 @@ test('triangles mode paints incoming/outgoing indicators and preserves violating
     const panel = await lane.openPanel('nexus')
     const more = panel.panel.getByRole('button', { name: 'More actions', exact: true })
     const arrows = () => panel.panel.locator('.dsh-uml-viewer-more-menu')
-      .getByRole('menuitemcheckbox', { name: 'Remove arrows', exact: true })
+      .getByRole('menuitemradio', { name: 'Remove arrows', exact: true })
     await more.click()
     await expect(arrows()).toHaveAttribute('aria-checked', 'false')
     await arrows().click()

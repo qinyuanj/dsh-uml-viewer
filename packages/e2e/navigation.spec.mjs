@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
 import { panDeltaBounds } from './canvas-probes.mjs'
@@ -178,10 +180,10 @@ function blankPoint(frame) {
 
 const world = (camera, [x, y]) => [camera.x + x / camera.zoom, camera.y + y / camera.zoom]
 
-test('anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and toggles 移除箭头 in place', async ({ browser }) => {
+test('anchors Ctrl+wheel zoom, pans, fits, and selects every declutter mode in place', async ({ browser }) => {
   const lane = await launchViewerLane(browser)
   try {
-    const deep = await lane.openPanel('deep')
+    let deep = await lane.openPanel('deep')
     const fitted = await panelCamera(deep)
     const box = await deep.canvas.boundingBox()
 
@@ -224,26 +226,38 @@ test('anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and togg
 
     const view = await deep.summary.innerText()
     const selected = await deep.summary.getAttribute('data-selected')
-    const more = deep.panel.getByRole('button', { name: 'More actions', exact: true })
-    const menu = deep.panel.locator('.dsh-uml-viewer-more-menu')
-    const arrows = () => menu.getByRole('menuitemcheckbox', { name: 'Remove arrows', exact: true })
-    const toggleArrows = async () => {
-      await more.click()
-      await arrows().click()
+    const more = () => deep.panel.getByRole('button', { name: 'More actions', exact: true })
+    const menu = () => deep.panel.locator('.dsh-uml-viewer-more-menu')
+    const choice = name => menu().getByRole('menuitemradio', { name, exact: true })
+    const savedMode = async expected => {
+      const file = path.join(lane.home, 'plugin-state', 'sessions', `${deep.sessionId}.json`)
+      await expect.poll(async () => JSON.parse(await fs.readFile(file, 'utf8')).declutter).toBe(expected)
     }
-    await toggleArrows()
-    await more.click()
-    await expect(arrows()).toHaveAttribute('aria-checked', 'true')
-    await deep.page.keyboard.press('Escape')
+    const choose = async (name, expected) => {
+      await more().click()
+      await choice(name).click()
+      await savedMode(expected)
+      await more().click()
+      await expect(menu().getByRole('menuitemradio')).toHaveCount(5)
+      await expect(choice(name)).toHaveAttribute('aria-checked', 'true')
+      await expect(menu().locator('[role="menuitemradio"][aria-checked="true"]')).toHaveCount(1)
+      await deep.page.keyboard.press('Escape')
+    }
+    await choose('Arrows', ':arrows')
+    await choose('Elements', ':elements')
+    await choose('Remove arrows', ':triangles')
     const arrowsRemoved = await producerFrame(deep, {
       root: lane.projects.deep, home: lane.home, extra: '{:declutter :triangles}',
     })
     expect(arrowsRemoved.edges.length).toBeGreaterThan(0)
     expect(arrowsRemoved.edges.every(edge => edge.kind === 'indicator')).toBe(true)
-    await toggleArrows()
-    await more.click()
-    await expect(arrows()).toHaveAttribute('aria-checked', 'false')
+    await choose('Classes', ':classes')
+    deep = await lane.reopenPanel(deep)
+    await more().click()
+    await expect(choice('Classes')).toHaveAttribute('aria-checked', 'true')
+    await expect(menu().locator('[role="menuitemradio"][aria-checked="true"]')).toHaveCount(1)
     await deep.page.keyboard.press('Escape')
+    await choose('Full', ':full')
     await expect(deep.summary).toHaveText(view)
     await expect(deep.summary).toHaveAttribute('data-selected', selected ?? '')
     await expect(deep.summary).toHaveAttribute('data-depth', 'root')
