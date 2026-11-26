@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { execFileSync, spawn } from 'node:child_process'
 import { createServer } from 'node:http'
 import path from 'node:path'
@@ -12,9 +12,12 @@ import {
   formatInProgress,
   newestReleaseTag,
   packageNames,
+  parseStatusHeader,
   readRegistryPackage,
+  readReleasingStatus,
   registryUrlFor,
   releaseState,
+  releasingDocPath,
 } from './release-drift.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -39,11 +42,14 @@ function registryDouble(documents) {
   }
 }
 
-function facts({ repoVersion, tag, latest, versions }) {
+// The Status header restates the published version, so every fixture carries
+// one unless the case is about the header itself.
+function facts({ repoVersion, tag, latest, versions, docs }) {
   return {
     repoVersion,
     tag: { tag, version: tag.replace(/^v/, '') },
     packages: packageNames.map(name => ({ name, latest, versions, missing: false })),
+    docs: docs ?? { checked: '2026-11-26', tag: `v${latest}`, version: latest },
   }
 }
 
@@ -55,6 +61,8 @@ function fakeClock() {
 async function scratchRepo(version) {
   const directory = await mkdtemp(path.join(root, '.scratch-drift-test-'))
   await writeFile(path.join(directory, 'package.json'), `${JSON.stringify({ name: 'dsh-uml-viewer', version }, null, 2)}\n`)
+  await mkdir(path.join(directory, 'docs'), { recursive: true })
+  await writeFile(path.join(directory, 'docs/releasing.md'), `# Release packaging and publishing\n\nStatus (2026-11-26): \`v${version}\` is the latest verified **published** release.\n`)
   const identity = ['-c', 'user.email=fixture@example.com', '-c', 'user.name=fixture']
   const git = (...args) => execFileSync('git', [...identity, ...args], { cwd: directory, stdio: 'ignore' })
   git('init', '-q')
@@ -62,6 +70,15 @@ async function scratchRepo(version) {
   git('commit', '-q', '-m', 'fixture')
   git('tag', '-a', `v${version}`, '-m', `v${version}`)
   return directory
+}
+
+// A fixture Status header for the command tests, so the failure path never
+// depends on the network or on the real document.
+async function scratchDoc(version, { checked = '2026-11-26' } = {}) {
+  const directory = await mkdtemp(path.join(root, '.scratch-drift-doc-'))
+  const file = path.join(directory, 'releasing.md')
+  await writeFile(file, `# Release packaging and publishing\n\nStatus (${checked}): \`v${version}\` is the latest verified **published** release.\n`)
+  return { directory, file }
 }
 
 // The command runs as a child process, so the parent event loop must stay
@@ -136,7 +153,7 @@ test('the tagged state fails when the registry is behind the tag', () => {
   assert.ok(comparison.problems.some(problem => /npm has no version 1\.2\.2 for dsh-uml-viewer: the tag's version was never published/.test(problem)))
 })
 
-test('the three facts agree in the tagged state', () => {
+test('the four facts agree in the tagged state', () => {
   const observed = facts({ repoVersion: '1.2.2', tag: 'v1.2.2', latest: '1.2.2', versions: ['1.2.0', '1.2.2'] })
   const comparison = compareReleaseFacts(observed)
   assert.equal(comparison.state, 'tagged')
@@ -144,7 +161,7 @@ test('the three facts agree in the tagged state', () => {
   assert.equal(comparison.ok, true)
 })
 
-test('the drift report prints the three values and every difference', () => {
+test('the drift report prints every value and every difference', () => {
   const observed = facts({ repoVersion: '1.2.3', tag: 'v1.2.3', latest: '1.2.2', versions: ['1.2.2'] })
   const report = formatDrift({ attempts: 2, elapsedMs: 15_000, facts: observed, problems: compareReleaseFacts(observed).problems })
   assert.match(report, /release drift detected after 2 attempt/)
@@ -152,6 +169,7 @@ test('the drift report prints the three values and every difference', () => {
   assert.match(report, /npm latest @dsh-uml-viewer\/win32-x64\s+= 1\.2\.2/)
   assert.match(report, /repository package\.json version\s+= 1\.2\.3/)
   assert.match(report, /newest release tag\s+= v1\.2\.3 \(1\.2\.3\)/)
+  assert.match(report, /docs\/releasing\.md Status header\s+= v1\.2\.2 \(checked 2026-11-26\)/)
   assert.match(report, /differences:/)
   assert.match(report, /the tag's version was never published/)
 })
@@ -175,7 +193,7 @@ test('the registry double answers both lockstep packages', async () => {
   assert.equal(absent.missing, true)
 })
 
-test('the collected facts read the manifest, the newest tag and both packages', async () => {
+test('the collected facts read the manifest, the newest tag, both packages and the Status header', async () => {
   const directory = await scratchRepo('1.2.2')
   try {
     const fetchImpl = registryDouble({
@@ -186,6 +204,7 @@ test('the collected facts read the manifest, the newest tag and both packages', 
     assert.equal(observed.repoVersion, '1.2.2')
     assert.deepEqual(observed.tag, { tag: 'v1.2.2', version: '1.2.2' })
     assert.deepEqual(observed.packages.map(entry => entry.name), packageNames)
+    assert.deepEqual(observed.docs, { checked: '2026-11-26', tag: 'v1.2.2', version: '1.2.2' })
     assert.equal(compareReleaseFacts(observed).ok, true)
   } finally {
     await rm(directory, { recursive: true, force: true })
@@ -243,13 +262,14 @@ test('the check gives up after the grace window and reports the last difference'
   assert.ok(result.problems.some(problem => /the registry is behind the tag/.test(problem)))
 })
 
-test('the command exits non-zero and prints the three values when the registry lags', async () => {
+test('the command exits non-zero and prints every value when the registry lags', async () => {
   const { server, url } = await registryServer({
     [main]: packument('1.2.2', ['1.2.0', '1.2.2']),
     [platform]: packument('1.2.2', ['1.2.0', '1.2.2']),
   })
+  const doc = await scratchDoc('1.2.3')
   try {
-    const result = await runCommand(['scripts/release-drift.mjs', '--registry', url, '--grace-ms', '0', '--tag', 'v1.2.3', '--repo-version', '1.2.3'])
+    const result = await runCommand(['scripts/release-drift.mjs', '--registry', url, '--grace-ms', '0', '--tag', 'v1.2.3', '--repo-version', '1.2.3', '--releasing-doc', doc.file])
     assert.equal(result.status, 1, result.stdout + result.stderr)
     assert.match(result.stderr, /release drift detected/)
     assert.match(result.stderr, /npm latest dsh-uml-viewer\s+= 1\.2\.2/)
@@ -258,6 +278,7 @@ test('the command exits non-zero and prints the three values when the registry l
     assert.match(result.stderr, /the tag's version was never published/)
   } finally {
     server.close()
+    await rm(doc.directory, { recursive: true, force: true })
   }
 })
 
@@ -266,26 +287,88 @@ test('(a) the command exits zero with the in-progress message in the pre-tag win
     [main]: packument('1.2.2', ['1.2.0', '1.2.2']),
     [platform]: packument('1.2.2', ['1.2.0', '1.2.2']),
   })
+  const doc = await scratchDoc('1.2.2')
   try {
-    const result = await runCommand(['scripts/release-drift.mjs', '--registry', url, '--grace-ms', '0', '--tag', 'v1.2.2', '--repo-version', '1.2.3'])
+    const result = await runCommand(['scripts/release-drift.mjs', '--registry', url, '--grace-ms', '0', '--tag', 'v1.2.2', '--repo-version', '1.2.3', '--releasing-doc', doc.file])
     assert.equal(result.status, 0, result.stdout + result.stderr)
     assert.match(result.stdout, /release in progress: repository package\.json version 1\.2\.3 is newer than the newest release tag v1\.2\.2/)
     assert.doesNotMatch(result.stderr, /drift/)
   } finally {
     server.close()
+    await rm(doc.directory, { recursive: true, force: true })
   }
 })
 
-test('the command exits zero when the three facts agree', async () => {
+test('the command exits zero when the four facts agree', async () => {
   const { server, url } = await registryServer({
     [main]: packument('1.2.3', ['1.2.0', '1.2.3']),
     [platform]: packument('1.2.3', ['1.2.0', '1.2.3']),
   })
+  const doc = await scratchDoc('1.2.3')
   try {
-    const result = await runCommand(['scripts/release-drift.mjs', '--registry', url, '--grace-ms', '0', '--tag', 'v1.2.3', '--repo-version', '1.2.3'])
+    const result = await runCommand(['scripts/release-drift.mjs', '--registry', url, '--grace-ms', '0', '--tag', 'v1.2.3', '--repo-version', '1.2.3', '--releasing-doc', doc.file])
     assert.equal(result.status, 0, result.stdout + result.stderr)
     assert.match(result.stdout, /release facts agree: 1\.2\.3 = v1\.2\.3/)
+    assert.match(result.stdout, /docs\/releasing\.md Status header agrees/)
   } finally {
     server.close()
+    await rm(doc.directory, { recursive: true, force: true })
   }
+})
+
+test('the Status header names one version and one check date', () => {
+  const status = parseStatusHeader('# Release packaging and publishing\n\nStatus (2026-11-26): `v1.2.2` is the latest verified **published** release.\n')
+  assert.deepEqual(status, { checked: '2026-11-26', tag: 'v1.2.2', version: '1.2.2' })
+  assert.throws(() => parseStatusHeader('Status (2026-11-26): `v1.2.2` shipped.\n'), /has no machine-readable Status header/)
+  assert.throws(() => parseStatusHeader('# nothing here\n'), /has no machine-readable Status header/)
+})
+
+test('a Status header naming another version fails with both sides named', () => {
+  const observed = facts({ repoVersion: '1.2.2', tag: 'v1.2.2', latest: '1.2.2', versions: ['1.2.0', '1.2.2'], docs: { checked: '2026-11-26', tag: 'v1.2.1', version: '1.2.1' } })
+  const comparison = compareReleaseFacts(observed)
+  assert.equal(comparison.ok, false)
+  assert.ok(comparison.problems.includes('docs say v1.2.1, registry is 1.2.2 for dsh-uml-viewer: the Status header is not npm dist-tags.latest'))
+  assert.ok(comparison.problems.includes('docs say v1.2.1, newest release tag is v1.2.2: the Status header is not the newest release tag'))
+})
+
+test('a stale Status header is advisory in the pre-tag window, like the registry', () => {
+  const observed = facts({ repoVersion: '1.2.3', tag: 'v1.2.2', latest: '1.2.2', versions: ['1.2.0', '1.2.2'], docs: { checked: '2026-11-26', tag: 'v1.2.1', version: '1.2.1' } })
+  const comparison = compareReleaseFacts(observed)
+  assert.equal(comparison.state, 'in-progress')
+  assert.equal(comparison.ok, true)
+  assert.deepEqual(comparison.problems, [])
+  assert.ok(comparison.warnings.includes('docs say v1.2.1, registry is 1.2.2 for dsh-uml-viewer: the Status header is not npm dist-tags.latest'))
+})
+
+test('facts without a Status header cannot claim agreement', () => {
+  const observed = { ...facts({ repoVersion: '1.2.2', tag: 'v1.2.2', latest: '1.2.2', versions: ['1.2.0', '1.2.2'] }), docs: undefined }
+  const comparison = compareReleaseFacts(observed)
+  assert.equal(comparison.ok, false)
+  assert.ok(comparison.problems.some(problem => /docs\/releasing\.md Status header was not read/.test(problem)))
+})
+
+test('the command fails offline when the Status header names the wrong version', async () => {
+  const { server, url } = await registryServer({
+    [main]: packument('1.2.2', ['1.2.0', '1.2.2']),
+    [platform]: packument('1.2.2', ['1.2.0', '1.2.2']),
+  })
+  const doc = await scratchDoc('1.2.1')
+  try {
+    const result = await runCommand(['scripts/release-drift.mjs', '--registry', url, '--grace-ms', '0', '--tag', 'v1.2.2', '--repo-version', '1.2.2', '--releasing-doc', doc.file])
+    assert.equal(result.status, 1, result.stdout + result.stderr)
+    assert.match(result.stderr, /docs\/releasing\.md Status header\s+= v1\.2\.1 \(checked 2026-11-26\)/)
+    assert.match(result.stderr, /docs say v1\.2\.1, registry is 1\.2\.2 for dsh-uml-viewer/)
+    assert.match(result.stderr, /docs say v1\.2\.1, newest release tag is v1\.2\.2/)
+  } finally {
+    server.close()
+    await rm(doc.directory, { recursive: true, force: true })
+  }
+})
+
+test('the repository docs/releasing.md carries a machine-readable Status header', async () => {
+  const status = await readReleasingStatus()
+  assert.equal(releasingDocPath, 'docs/releasing.md')
+  assert.equal(status.tag, `v${status.version}`)
+  assert.match(status.version, /^\d+\.\d+\.\d+/)
+  assert.match(status.checked, /^\d{4}-\d{2}-\d{2}$/)
 })
