@@ -3,7 +3,7 @@
   "manifestVersion": "0.15",
   "id": "dsh-uml-viewer",
   "name": "dsh-uml-viewer",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "license": "UNLICENSED",
   "facets": {
     "host": {
