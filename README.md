@@ -270,13 +270,13 @@ reason.
   (--mutate-all) and Hide in English — are panel requests to the session's
   agent ([docs/companion-rules.md](docs/companion-rules.md)).
   CRAP runs on that class or the files under that component. Differential
-  mutation runs on those src files; Full mutation passes `--mutate-all`. Omit
+  mutation runs on those src files; Full mutation passes `--mutate-all`. Hide
   adds the id to the current proposal's `:omit`, or to policy `:omit` on the
-  real diagram.
+  source diagram.
 - Component titles paint **on top of** crossing arrows.
 - Panel DOM text is Chinese or English from `locale/*.json`; resident-laid
   rows come from `crates/frame/src/strings.rs`. Metric and tool names stay
-  English. The top bar's discussion-context switcher lists the **real
+  English. The top bar's discussion-context switcher lists the **source
   diagram** (源码图, the namespace tree) and then each **Proposal**; pick a
   row to show it and make it the discussion context (the panel tells the
   agent in the conversation). Its last row, **新建提案**, is a request to the
@@ -416,7 +416,7 @@ tree's namespace root. `src/model.ts` becomes `bookwriter.model`
 | `:hierarchical` | Namespace tree (default when `:packages` is omitted) |
 | `:order` | Order of **existing** top-level ns segments, not new component names |
 | `:levels` | Groups of those segments, **inner (higher-level) first**. Same group = same rank |
-| `:proposals` | Named groupings of real segments; **not** instantiated in source. The switcher's **源码图** (real diagram) row returns to the ns tree; **P** does the same |
+| `:proposals` | Named groupings of real segments; **not** instantiated in source. The switcher's **源码图** (source diagram) row returns to the ns tree; **P** does the same |
 | `:omit` | On a proposal or the policy: nses (and their children) left off the diagram |
 | `:edge-kinds` | Override parser kind for `[from to]` (usually `:association`) |
 | `:omit-edges` | Drop `[from to]` |
@@ -487,7 +487,7 @@ and `:proposals` is set, rank follows the first proposal's component order.
 Those names are not namespaces. Each item is `{:id :name :layers [...] :omit [...]}`
 (`:layers` here are named components; `:omit` keeps listed nses off
 **Unassigned**). The as-is diagram stays the ns tree.
-The top bar's discussion-context switcher lists the real diagram (the
+The top bar's discussion-context switcher lists the source diagram (the
 namespace tree) and then **Proposals**; pick the source diagram to return to
 the tree (**P** does the same), or a proposal to show it. Either pick makes
 that diagram the context of discussion (in the panel the agent is told); the
@@ -506,7 +506,7 @@ box and on nested classes instead of lines, hover lists dependencies, and red
 marks a violating pair.
 
 When a proposal is shown, rank follows **that** proposal's component order
-and violating arrows are re-evaluated. The real diagram uses `:levels`.
+and violating arrows are re-evaluated. The source diagram uses `:levels`.
 A component inherits the **max** level of its elements.
 Class boxes show the current view's rank (innermost **0**)
 at the upper left; the class card repeats **Level n**. The viewer lays the
