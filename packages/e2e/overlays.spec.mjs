@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { launchViewerLane } from './lane.mjs'
-import { producerFrame, screenRect, toScreen } from './canvas.mjs'
+import { holdRenderer, producerFrame, screenRect, settleCanvas, toScreen } from './canvas.mjs'
 import { TARGET_LINE, TARGET_TEXT } from './inspector-project.mjs'
 import { chooseContext, switcherButton } from './switcher.mjs'
 import { toggleFullscreen } from './lifecycle.mjs'
@@ -61,6 +61,13 @@ async function narrowSidebar(panel, width = 400) {
     const viewport = panel.page.viewportSize()
     await panel.page.setViewportSize({ width: Math.max(800, Math.round(viewport.width - (box.width - width) * 2)), height: viewport.height })
   }
+  // The sidebar drag and the page resize both shrink the canvas box under the
+  // panel; the panel paints the new box one resident round trip later, and a
+  // pointer aimed from the producer oracle before that repaint resolves to a
+  // different world point and opens no class card (#148). Hold the renderer so
+  // the repaint cannot have happened yet, then wait for it like a user would.
+  await holdRenderer(panel)
+  await settleCanvas(panel)
   return panel.panel.evaluate(element => element.clientWidth)
 }
 
