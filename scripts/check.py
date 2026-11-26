@@ -8,7 +8,7 @@ import sys
 
 REPO = Path(__file__).resolve().parents[1]
 FAST_SUITES = ['test_process_boundary.py', 'test_line_endings.py',
-              'test_mutate_goldens_help.py']
+              'test_mutate_goldens_help.py', 'test_ci_changes.py']
 
 
 def interpreter(command):
@@ -42,9 +42,11 @@ def python_checks(names):
             for name in names]
 
 
-def selected_checks():
+def selected_checks(fast=False):
     checks = python_checks(FAST_SUITES)
-    checks += [('cargo build --release --locked + cargo test --workspace --locked', cargo_suite)]
+    if not fast:
+        checks += [('cargo build --release --locked + cargo test --workspace --locked',
+                   cargo_suite)]
     return checks
 
 
@@ -59,8 +61,12 @@ def run_checks(checks):
 
 
 def main():
-    argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args()
-    return summarize(run_checks(selected_checks()))
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument('--fast', action='store_true',
+                        help='run only the fast guard suites, not the release build '
+                             'and the workspace suite')
+    arguments = parser.parse_args()
+    return summarize(run_checks(selected_checks(fast=arguments.fast)))
 
 
 def summarize(results):

@@ -157,3 +157,17 @@ _Avoid_: business scope, 业务范围
 **release（发行版本）**: 由单一 SemVer 版本号标识的一次完整对外发布；发布流程见 [releasing](docs/releasing.md)。
 
 **automatic update（自动更新）**: 插件管理取得新发行版本后，在下一次全新启动时生效的更新机制；运行中的会话继续使用原版本。
+## CI 与变更路由
+
+**change classifier（变更分类器）**: `scripts/ci-changes.py`，把一次运行的变更路径映射为各通道标记的唯一场所；两份 workflow 都只读它写出的标记。
+_Avoid_: 路径过滤器, 触发器规则
+
+**domain（变更域）**: 分类器对一个变更路径的归类，例如 Rust 源码、插件源码、夹具或文档；一条通道按它声明自己能被打断的变更域。
+
+**lane（通道）**: 一份 workflow 中按变更域触发的一个 job，例如 `panel-e2e` 或 `windows-quality`；标记为真时运行，否则跳过。
+_Avoid_: 阶段, 流水线
+
+**tier（分层）**: 通道按反馈成本的归类：Tier 0 只有分类器，Tier 1 是快速门禁，Tier 2 是按域的重型通道，Tier 3 是全量兜底。见 [ci-routing](docs/ci-routing.md)。
+
+**coupled document（耦合文档）**: 内容被构建或打包直接读取的文档，因而按变更域路由而不算纯文档；当前是 `docs/companion-rules.md`、`docs/plugin-development.md` 与 `README.md`。
+

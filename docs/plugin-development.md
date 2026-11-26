@@ -29,8 +29,9 @@ own host route because the `/plugins/<pkg>/assets/*` route only serves images.
 The build runs without dependency lifecycle scripts; esbuild uses its platform
 optional dependency. CI runs tsc, unit tests, the Cordis seam tests and the host
 build on Windows (`windows-latest`) alongside the existing Rust checks; every
-job of `.github/workflows/ci.yml` uses that runner, so Linux and macOS are not
-covered (#86).
+job that builds or tests the plugin uses that runner, so Linux and macOS are not
+covered (#86). The one `ubuntu-latest` job is the `changes` classifier that
+decides which lanes run ([ci-routing](ci-routing.md)).
 
 ## Binary convention
 
