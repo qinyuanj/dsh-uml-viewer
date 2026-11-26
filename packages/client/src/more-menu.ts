@@ -1,3 +1,4 @@
+import { DECLUTTER_MODES } from '@dsh-uml-viewer/contracts'
 import type { PanelController } from './panel.js'
 import { ENGLISH_TEXT, type PanelText } from './locale.js'
 
@@ -5,6 +6,8 @@ export interface MoreMenuEntry {
   readonly id: string
   label(): string
   readonly shortcut?: string
+  readonly role?: 'menuitemradio'
+  readonly group?: 'declutter'
   checked?(): boolean
   disabled?(): boolean
   run(): void
@@ -42,16 +45,16 @@ export function moreMenuEntries(controller: PanelController, text: PanelText): M
       disabled: () => controller.current.frame === null,
       run: () => controller.fit(),
     },
-    {
-      id: 'remove-arrows',
-      label: () => text.t('more.removeArrows'),
-      checked: () => controller.declutterMode === 'triangles',
+    ...DECLUTTER_MODES.map((mode): MoreMenuEntry => ({
+      id: `declutter-${mode}`,
+      label: () => text.t(mode === 'triangles' ? 'more.removeArrows' : `more.declutter.${mode}`),
+      role: 'menuitemradio',
+      group: 'declutter',
+      checked: () => controller.declutterMode === mode,
       run: () => {
-        void controller
-          .setDeclutter(controller.declutterMode === 'triangles' ? 'full' : 'triangles')
-          .catch(() => {})
+        void controller.setDeclutter(mode).catch(() => {})
       },
-    },
+    })),
   ]
 }
 
@@ -143,12 +146,24 @@ export function mountMoreMenu(host: HTMLElement, trigger: HTMLButtonElement, opt
     menu.setAttribute('aria-label', text.t('more.label'))
     menu.replaceChildren()
     const entries = options.entries()
+    let currentGroup: MoreMenuEntry['group']
+    let container = menu
     items = entries.map(entry => {
+      if (entry.group !== currentGroup) {
+        currentGroup = entry.group
+        container = menu
+        if (entry.group) {
+          container = doc.createElement('div')
+          container.setAttribute('role', 'group')
+          container.setAttribute('aria-label', text.t('more.declutter.label'))
+          menu.appendChild(container)
+        }
+      }
       const button = doc.createElement('button')
       button.type = 'button'
       button.dataset.entry = entry.id
       const checked = entry.checked?.() ?? false
-      button.setAttribute('role', entry.checked ? 'menuitemcheckbox' : 'menuitem')
+      button.setAttribute('role', entry.role ?? (entry.checked ? 'menuitemcheckbox' : 'menuitem'))
       if (entry.checked) button.setAttribute('aria-checked', String(checked))
       button.disabled = entry.disabled?.() ?? false
       const check = doc.createElement('span')
@@ -165,7 +180,7 @@ export function mountMoreMenu(host: HTMLElement, trigger: HTMLButtonElement, opt
       button.append(check, label, shortcut)
       if (entry.shortcut) button.setAttribute('aria-keyshortcuts', entry.shortcut)
       button.addEventListener('click', () => run(entry))
-      menu.appendChild(button)
+      container.appendChild(button)
       return button
     })
   }

@@ -98,8 +98,8 @@ in `requests.spec.mjs`.
 follows it without reopening the tab: the search button and its searchbox, the
 canvas label, the discussion-context switcher's trigger and its 源码图,
 proposal and 新建提案 rows, the element menu's four rows in both languages, the
-More menu's 移除箭头 checkbox and its `Ctrl+0` shortcut, and the breadcrumb
-navigation's name (#45). Its status-bar case reads the `waiting-display` code's
+More menu's `Ctrl+0` shortcut and its localized Declutter radio group, and
+the breadcrumb navigation's name (#45). Its status-bar case reads the `waiting-display` code's
 text and its 面板状态 name before and after the switch (#46), and its resident
 case shows the `inspector` sample's class card rows (#44) switching in place,
 with no Chinese left in the English card.
@@ -390,9 +390,12 @@ default twice.
   behind them nor smaller than the diagram needs; the bar holds the breadcrumb
   path, the discussion context's name, the search button and 「更多」; **Tab**
   reaches the search button and then 「更多」 from the canvas; 「更多」 lists
-  Fit view with `Ctrl+0` and the Remove arrows toggle, keeps `role="menu"`
-  only while open (a hidden one would be read as a modal by the host's
-  shortcut service, #43) and closes on **Esc**.
+  Fit view with `Ctrl+0` and a labeled Declutter group with five radio choices
+  in contract order. Only one choice is checked, all five remain visible in the
+  narrow sidebar, and **ArrowDown** and **ArrowUp** move focus across Fit view
+  and the group. The menu keeps `role="menu"` only while open (a hidden one
+  would be read as a modal by the host's shortcut service, #43) and closes on
+  **Esc**.
 - A panel opened before any display (`openPanel(name, { display: false })`,
   lane option) shows the waiting canvas and puts the localized
   `waiting-display` text in the status bar, with `data-status` on the
@@ -451,6 +454,11 @@ check that the level's box is what is drawn), then the same in a proposal,
 where the path starts at the proposal and its root returns to the proposal
 rather than to the source diagram.
 
+The camera and declutter case chooses every radio in the **More** menu's
+**Declutter** group. It reads the saved session state after each accepted
+choice and reloads the panel to verify that **Classes** remains checked. The
+triangles oracle still comes from the independent frame producer.
+
 `lifecycle.spec.mjs` (#43) drives the host tab lifecycle through the host's
 own controls: the tab refresh command and **R** each send `reload`; collapsing
 the right sidebar and toggling fullscreen keep the same resident process and
@@ -492,7 +500,7 @@ must mask the shaft with opaque canvas/ink fill, including when the relation
 is dimmed and at the native mesh scale below 0.6. Triangles mode must paint
 both incoming and outgoing dependency indicators, retaining red for violations.
 The test clicks the isolated Observer class to dim relations, then uses the
-「更多」 menu's Remove arrows toggle to reach triangles mode (it names
+「更多」 menu's Remove arrows radio to reach triangles mode (it names
 `:triangles` instead of cycling, #46); no frame is injected.
 The Ledger proposal case checks that the frame carries no proposal banner (the
 proposal's name is the top bar's discussion context and the path's root, #46),
@@ -519,7 +527,7 @@ behavior. "Retired" marks window-only behavior with no panel counterpart.
 | `inspector.edn` | `overlays.spec.mjs` › no inspector: the switcher changes the discussion, P returns to the source tree root (#47); `navigation.spec.mjs` › the switcher's source-diagram row equals P; `session.spec.mjs` › restores the proposal discussion context after a DSH restart | proposal rename, its Chinese text input and policy/IR write-back: retired, the companion edits the policy in place (`docs/companion-rules.md`) |
 | `lod_shots.edn` | `primitives.spec.mjs` (full → frames tier); `edges.spec.mjs` › proposal relation stays solid in full and frames tiers and disappears in blocks | — |
 | `metrics.edn` | `reload.spec.mjs` › a metric-only snapshot edit reloads quality without rewriting the IR | — |
-| `navigation.edn` | `navigation.spec.mjs` › drills in and back, selects a dependency chain, searches and returns with P; › anchors Ctrl+wheel zoom, pans by drag and wheel, fits with Ctrl+0 and toggles 移除箭头 from the 「更多」 menu in place | — |
+| `navigation.edn` | `navigation.spec.mjs` › drills in and back, selects a dependency chain, searches and returns with P; › anchors Ctrl+wheel zoom, pans, fits, and selects every declutter mode in place | — |
 | `review_fixes.edn` | `overlays.spec.mjs` › a member source replaces the card in the same drawer at its line; back returns to the card | per-window retained selections after copying from another widget: the browser owns one document selection |
 | `route_library.edn`, `route_proposal.edn`, `route_shots.edn` | `edges.spec.mjs` (all four cases) | before/after screenshots only; they asserted nothing |
 | `search.edn` | `navigation.spec.mjs` › drills in and back, selects a dependency chain, searches and returns with P | — |
