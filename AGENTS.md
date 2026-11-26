@@ -50,6 +50,10 @@
 - Plugin development and isolated DSH testing: read
   `docs/plugin-development.md` for workspace checks and `UML_VIEWER_BIN`.
   Use a scratch DSH home; keep the user's live profile untouched.
+- CI routing (#157): `docs/ci-routing.md` describes the four tiers. The only
+  place a repository path becomes a lane is `scripts/ci-changes.py`;
+  `python -I scripts/test_ci_changes.py` pins the workflow contract. A path
+  that table does not recognise forces the whole matrix.
 - Prerequisites are the Rust toolchain pinned by `rust-toolchain.toml`,
   git, Node 24 and pnpm (the plugin packages), Python 3.11+ for
   `scripts/check.py`, and stable `cargo-nextest` for the Rust mutation

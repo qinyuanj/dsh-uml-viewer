@@ -3,7 +3,13 @@ name: ci
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
+  workflow_dispatch:
+  schedule:
+    # A nightly full matrix catches toolchain and upstream drift that the
+    # path routing would otherwise never reach.
+    - cron: '17 19 * * *'
 
 permissions:
   contents: read
@@ -11,8 +17,73 @@ permissions:
 env:
   CARGO_BUILD_JOBS: 4
 
+concurrency:
+  # A pull request keeps only its newest run. Main, a release tag and the nightly
+  # run never cancel each other, so the event name is part of the group.
+  group: ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  changes:
+    # Tier 0 and Tier 3 live here: one ubuntu runner classifies the diff, so a
+    # documentation-only change never takes a Windows runner.
+    name: route
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.route.outputs.docs_only }}
+      full: ${{ steps.route.outputs.full }}
+      fast: ${{ steps.route.outputs.fast }}
+      typescript: ${{ steps.route.outputs.typescript }}
+      panel_e2e: ${{ steps.route.outputs.panel_e2e }}
+      crap: ${{ steps.route.outputs.crap }}
+      mutate: ${{ steps.route.outputs.mutate }}
+      quality: ${{ steps.route.outputs.quality }}
+      check: ${{ steps.route.outputs.check }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The classifier diffs the merge base against the head commit.
+          fetch-depth: 0
+      - name: Classify the changed files
+        id: route
+        env:
+          UML_CI_EVENT: ${{ github.event_name }}
+          UML_CI_REF: ${{ github.ref }}
+          UML_CI_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          UML_CI_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 -I scripts/ci-changes.py
+
+  windows-fast:
+    # Tier 1: formatting, lint and the fast guard suites, split out of
+    # windows-quality so style feedback never waits for the Java, Clojure, Go
+    # and Lua fixture toolchains.
+    needs: changes
+    if: needs.changes.outputs.fast == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain pinned by rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # GitHub's default pwsh shell exits with the LAST command's code only, so
+      # a multiline step can hide a failed first native command: one per step.
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+      - name: cargo clippy -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Fast repository guards
+        run: python -I scripts/check.py --fast
+
   typescript:
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true'
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
@@ -37,6 +108,8 @@ jobs:
         run: pnpm validate:manifest
 
   panel-e2e:
+    needs: changes
+    if: needs.changes.outputs.panel_e2e == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
     env:
@@ -115,6 +188,8 @@ jobs:
           retention-days: 7
 
   windows-crap:
+    needs: changes
+    if: needs.changes.outputs.crap == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
     env:
@@ -132,6 +207,8 @@ jobs:
         run: cargo test -p uml-viewer --test integration crap_ --locked
 
   windows-mutate:
+    needs: changes
+    if: needs.changes.outputs.mutate == 'true'
     runs-on: windows-latest
     timeout-minutes: 45
     env:
@@ -204,6 +281,8 @@ jobs:
         run: python -I scripts/ci-refresh.py target/debug/uml-viewer.exe ir
 
   windows-quality:
+    needs: changes
+    if: needs.changes.outputs.quality == 'true'
     runs-on: windows-latest
     timeout-minutes: 90
     env:
@@ -248,12 +327,8 @@ jobs:
       - name: Clojure fixture Cloverage report
         working-directory: fixtures/crap/clojure
         run: clj -M:cov --lcov
-      # GitHub's default pwsh shell exits with the LAST command's code only, so
-      # a multiline step can hide a failed first native command: one per step.
-      - name: cargo fmt --check
-        run: cargo fmt --all -- --check
-      - name: cargo clippy -D warnings
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # Formatting and lint moved to windows-fast, so this lane only builds
+      # the fixture toolchains and runs the language integration suites.
       - name: Real Python, TypeScript and Lua coverage integration tests
         env:
           CRAPPER_REQUIRE_TOOLCHAINS: '1'
@@ -272,6 +347,8 @@ jobs:
         run: cargo test -p mutator --test python_ts --test python_ts_sites --locked -- --test-threads=1
 
   windows-check:
+    needs: changes
+    if: needs.changes.outputs.check == 'true'
     # check.py's release build and workspace suite used to trail windows-quality's
     # 13-minute strict lane; its own lane lets both start together.
     runs-on: windows-latest

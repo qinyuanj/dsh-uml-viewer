@@ -17,7 +17,32 @@ env:
   CARGO_BUILD_JOBS: 4
 
 jobs:
+  changes:
+    # A pull request assembles the archives only when a build, packaging,
+    # version, manifest or bundled-document input changed; a release tag always
+    # does.
+    name: route
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      release: ${{ steps.route.outputs.release }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          # The classifier diffs the merge base against the head commit.
+          fetch-depth: 0
+      - name: Classify the changed files
+        id: route
+        env:
+          UML_CI_EVENT: ${{ github.event_name }}
+          UML_CI_REF: ${{ github.ref }}
+          UML_CI_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          UML_CI_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 -I scripts/ci-changes.py
+
   assemble:
+    needs: changes
+    if: needs.changes.outputs.release == 'true'
     name: assemble (${{ matrix.platform }})
     strategy:
       fail-fast: false
