@@ -207,9 +207,15 @@ The script still runs one native command per step, checks the single version-1
 stdout record against the actual exit (including valid CRAP 2 and mutation 3),
 and requires both valid records before IR. Reports stay on stderr. The
 disposable checkout may acquire `.metrics/`; records and nonempty IR go under
-`RUNNER_TEMP`, and neither lane uploads them. Steps are bounded to 21/6/1
+`RUNNER_TEMP`, and neither lane uploads them. Steps are bounded to 28/6/1
 minutes within `windows-mutate`'s 45-minute job limit (`windows-quality`'s is
-90). Adding this gate is not evidence that the refresh passed: criterion 6 needs
+90). The CRAP budget comes from that step's own distribution: over the ten `ci`
+runs on main between 2026-11-24 and 2026-11-26 it took 664-1080 s and hit the
+former 21-minute cap once (run 45416320929), because one test binary,
+`crates/mutator/tests/go_java_clojure.rs` — twelve whole-project mutation runs —
+is 77% of the step at 577-840 s. 28 minutes covers the slowest completed run by
+1.55x, and the three step budgets plus the measured eight minutes of setup and
+toolchain steps stay under the job limit. Adding this gate is not evidence that the refresh passed: criterion 6 needs
 a successful CI execution on the one host.
 
 ## Samples

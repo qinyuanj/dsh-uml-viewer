@@ -8,7 +8,8 @@ import sys
 
 REPO = Path(__file__).resolve().parents[1]
 FAST_SUITES = ['test_process_boundary.py', 'test_line_endings.py',
-              'test_mutate_goldens_help.py', 'test_ci_changes.py']
+              'test_mutate_goldens_help.py', 'test_ci_changes.py',
+              'test_ci_refresh.py']
 
 
 def interpreter(command):
