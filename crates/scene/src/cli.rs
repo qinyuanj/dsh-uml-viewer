@@ -7,8 +7,9 @@
 //! ```
 //!
 //! `--focus` may repeat; `[]` (the default) is the root view. `--metrics-root`
-//! loads `<root>/.metrics/crap.edn` and `<root>/.metrics/mutate/*.edn`;
-//! without it the scene has no quality overlay, exactly like the parity specs.
+//! loads `<root>/.metrics/crap.edn`, `<root>/.metrics/dry.edn` and
+//! `<root>/.metrics/mutate/**/*.edn`; without it the scene has no quality
+//! overlay, exactly like the parity specs.
 //! `--wide` compiles the views in the viewer's wide layout (#191), fitting
 //! `--aspect` (default the viewer canvas); without it the views keep the
 //! default top-to-bottom geometry of the goldens.
@@ -244,58 +245,15 @@ fn parse_args(args: &[OsString]) -> Result<Options, String> {
     Ok(opts)
 }
 
-/// Load quality snapshots from `<root>/.metrics`, mirroring the adapter's
-/// file discovery (CRAP snapshot, duplicate-structure snapshot, and every
-/// mutation snapshot). The two discovery sites must agree, or the terminal
-/// and the panel disagree about the same project.
+/// Load quality snapshots from `<root>/.metrics`: the CRAP snapshot, the
+/// duplicate-structure snapshot, and every mutation snapshot at any depth under
+/// `.metrics/mutate`, sorted by path.
+///
+/// The traversal is [`crate::snapshots::load_snapshots`], which the resident
+/// reads too, so the terminal and the panel cannot disagree about the same
+/// project (#163).
 pub fn load_snapshots(root: &Path) -> Vec<Snapshot> {
-    let mut files = Vec::new();
-    let crap = root.join(".metrics/crap.edn");
-    if let Ok(text) = std::fs::read_to_string(&crap) {
-        files.push(Snapshot::new(
-            ".metrics/crap.edn",
-            &text,
-            mtime(".metrics/crap.edn", &crap),
-        ));
-    }
-    let dry = root.join(".metrics/dry.edn");
-    if let Ok(text) = std::fs::read_to_string(&dry) {
-        files.push(Snapshot::new(
-            ".metrics/dry.edn",
-            &text,
-            mtime(".metrics/dry.edn", &dry),
-        ));
-    }
-    let mutate = root.join(".metrics/mutate");
-    let mut entries: Vec<PathBuf> = std::fs::read_dir(&mutate)
-        .map(|dir| {
-            dir.flatten()
-                .map(|e| e.path())
-                .filter(|p| p.is_file())
-                .collect()
-        })
-        .unwrap_or_default();
-    entries.sort();
-    for path in entries {
-        if let Ok(text) = std::fs::read_to_string(&path) {
-            let rel = format!(
-                ".metrics/mutate/{}",
-                path.file_name().unwrap().to_string_lossy()
-            );
-            files.push(Snapshot::new(&rel, &text, mtime(&rel, &path)));
-        }
-    }
-    files
-}
-
-fn mtime(_rel: &str, path: &Path) -> Value {
-    match std::fs::metadata(path).and_then(|m| m.modified()) {
-        Ok(time) => match time.duration_since(std::time::UNIX_EPOCH) {
-            Ok(d) => Value::Integer(d.as_secs() as i64),
-            Err(_) => Value::Integer(0),
-        },
-        Err(_) => Value::Integer(0),
-    }
+    crate::snapshots::load_snapshots(root)
 }
 
 pub fn run(args: &[OsString]) -> ExitCode {

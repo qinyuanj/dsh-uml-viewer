@@ -1,16 +1,11 @@
 use std::io;
 use std::path::Path;
-use std::time::UNIX_EPOCH;
 
 /// `"sec:nsec:size"` for the file, or an error when it cannot be stat'ed.
+///
+/// The encoding is [`scene::snapshots::stamp`]'s, so the diagram's change
+/// detection and a quality snapshot's record carry one stamp shape.
 pub fn mtime(path: &Path) -> io::Result<String> {
-    let meta = std::fs::metadata(path)?;
-    let modified = meta.modified()?;
-    let since = modified.duration_since(UNIX_EPOCH).unwrap_or_default();
-    Ok(format!(
-        "{}:{}:{}",
-        since.as_secs(),
-        since.subsec_nanos(),
-        meta.len()
-    ))
+    scene::snapshots::stamp(path)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "the file cannot be stat'ed"))
 }

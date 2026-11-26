@@ -50,20 +50,22 @@ fn kind(path: &str) -> Kind {
     }
 }
 
+/// A snapshot's order key: `(seconds, nanoseconds)`.
+///
+/// The discovery sites encode a file as `"sec:nsec:size"`
+/// ([`crate::snapshots::stamp`]); a bare number is seconds. Only the first two
+/// fields are the key, so the size never orders anything. Anything unparseable
+/// sorts first, so a record with no usable stamp never outranks one that has
+/// one (#163).
 fn time_key(mtime: &Value) -> (u64, u64) {
     match mtime {
         Value::Integer(n) => (*n as u64, 0),
         Value::Float(x) => (*x as u64, 0),
         Value::String(s) => {
-            if let Some((low, high)) = s.split_once(':')
-                && !low.is_empty()
-                && !high.is_empty()
-                && low.bytes().all(|b| b.is_ascii_digit())
-                && high.bytes().all(|b| b.is_ascii_digit())
-            {
-                return (high.parse().unwrap_or(0), low.parse().unwrap_or(0));
-            }
-            (s.parse().unwrap_or(0), 0)
+            let mut parts = s.split(':');
+            let secs = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+            let nanos = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+            (secs, nanos)
         }
         _ => (0, 0),
     }

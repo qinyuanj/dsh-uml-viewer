@@ -52,6 +52,7 @@ pub mod highlight;
 pub mod hit;
 pub mod ir;
 pub mod search;
+pub mod snapshots;
 pub mod targets;
 
 mod card;
