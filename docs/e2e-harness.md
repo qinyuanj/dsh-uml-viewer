@@ -307,6 +307,47 @@ No real model is called. Each DSH session gets its own browser context, so
 cookies and page storage cannot make two sessions share a client-side panel
 state.
 
+## A resize and the panel's repaint (#148)
+
+The panel answers a resize off the renderer's thread. The canvas CSS box takes
+the new size at once, but the panel keeps painting the previous box until the
+resident returns a frame for the new one, and the browser stretches that bitmap
+into the new box. The panel maps pointer coordinates through the frame's own
+viewport (`cssToWorld`), so the stretch is invisible to a user: a double-click
+lands where the pixels are. The producer oracle is not stretch-aware -- it
+assumes a canvas painted 1:1 -- so a point aimed from it during the stretch
+resolves to a different world point.
+
+That is how `overlays.spec.mjs:238` failed on run 45416320929: the
+double-click reached the canvas while the panel was still painting the
+pre-resize 647 px frame (the same action logged `<canvas width="647">`) in a
+489 px box, so the panel mapped the CSS point to world (390.5, 141.1) instead of
+(109.1, 141.1). That point is inside the `view` package and outside the
+`catalog` class: the panel selected `view` and no `Class card Catalog` dialog
+ever existed. The panel repaints a resize in about 25 ms on this workstation and
+needed more than 445 ms on the CI runner, which is why the case only lost the
+race there.
+
+`producerFrame` now waits for the panel's own signal -- the canvas backing store
+matching its CSS box (`settleCanvas`) -- before it reads the camera, and
+re-measures when the box moves while the oracle runs. `narrowSidebar` waits for
+the same repaint after it resizes, and holds the renderer for 1.5 s
+(`holdRenderer`) so the case starts inside that window on every run instead of
+only on a busy runner. The wait that follows is the fix under test.
+
+Load the host the way CI does with CPU burners alongside the lane:
+
+```sh
+for i in $(seq 1 10); do node -e 'for(;;){}' & done
+UML_VIEWER_E2E_SCRATCH=D:/…/.scratch/e2e UML_VIEWER_BIN=D:/…/target/debug/uml-viewer.exe \
+  corepack pnpm --filter @dsh-uml-viewer/e2e exec playwright test overlays.spec.mjs
+```
+
+On a many-core workstation that alone does not reproduce the miss: the resident
+still answers a resize in tens of milliseconds. `Emulation.setCPUThrottlingRate`
+does not either -- it slows the lane's own measurements by the same factor as
+the repaint. The deterministic hold is what keeps the case honest locally.
+
 ## CI failure diagnostics
 
 The `panel-e2e` job always uploads `panel-e2e-diagnostics` (seven-day

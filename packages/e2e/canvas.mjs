@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { expect } from '@playwright/test'
 import { viewerBinary } from './dsh-web.mjs'
 
 export async function panelCamera(panel) {
@@ -17,26 +18,68 @@ export async function panelViewport(panel) {
   })
 }
 
+/**
+ * A resize reaches the canvas CSS box at once, but the panel paints the new box
+ * only once the resident answers the resize with a frame for it. Until then
+ * `frame.viewport` -- the backing store, and the viewport the panel maps pointer
+ * coordinates through in `cssToWorld` -- is the old one, and the browser
+ * stretches the old bitmap into the new box. A point aimed from the producer
+ * oracle assumes a canvas painted 1:1, so during the stretch it resolves to a
+ * different world point: the click selects another class or none, and the class
+ * card never opens (#148). Wait for the panel's own signal -- the backing store
+ * matching the box -- instead of for a delay. A panel with no frame yet has
+ * nothing to settle.
+ */
+export async function settleCanvas(panel) {
+  if (await panel.summary?.getAttribute?.('data-kind') !== 'frame') return
+  await expect.poll(async () => panel.canvas.evaluate(canvas => {
+    const dpr = window.devicePixelRatio || 1
+    const box = canvas.getBoundingClientRect()
+    if (!(box.width > 0) || !(box.height > 0)) return false
+    return Math.abs(canvas.width / dpr - box.width) <= 1 && Math.abs(canvas.height / dpr - box.height) <= 1
+  }), { message: 'the panel painted its canvas at the current box' }).toBe(true)
+}
+
+/**
+ * Hold the renderer so a resize just dispatched cannot have been painted yet.
+ * That is the loaded-host window #148 failed in, made deterministic: the canvas
+ * box is already the new one while `frame.viewport` is still the old one. A
+ * regression case that resizes and then aims through the oracle runs through it
+ * every time instead of only on a busy runner.
+ */
+export async function holdRenderer(panel, ms = 1500) {
+  await panel.page.evaluate(budget => {
+    const end = performance.now() + budget
+    while (performance.now() < end) continue
+  }, ms)
+}
+
 export async function producerFrame(panel, { root, home, focus = null, extra = '{}', select = null, hover = null, pointer = null, hoverMetadata = false }) {
-  const camera = await panelCamera(panel)
-  const viewport = await panelViewport(panel)
-  const output = path.join(home, `oracle-${Date.now()}.frame.json`)
-  execFileSync(viewerBinary(), [
-    'scene', '--frame',
-    '--ir', path.join(root, 'diagram.edn'),
-    '--metrics-root', root,
-    '--wide',
-    ...(focus ? ['--focus', `[${focus}]`] : []),
-    '--width', String(viewport.width), '--height', String(viewport.height),
-    '--zoom', String(camera.zoom), '--camera', `${camera.x},${camera.y}`,
-    '--extra', extra,
-    ...(select ? ['--select', select] : []),
-    ...(hover ? ['--hover', hover] : []),
-    ...(pointer ? ['--pointer', pointer.join(',')] : []),
-    ...(hoverMetadata ? ['--hover-metadata'] : []),
-    '--output', output,
-  ], { stdio: ['ignore', 'pipe', 'pipe'] })
-  return JSON.parse(fs.readFileSync(output, 'utf8'))
+  for (let attempt = 1; ; attempt++) {
+    await settleCanvas(panel)
+    const camera = await panelCamera(panel)
+    const viewport = await panelViewport(panel)
+    const output = path.join(home, `oracle-${Date.now()}-${attempt}.frame.json`)
+    execFileSync(viewerBinary(), [
+      'scene', '--frame',
+      '--ir', path.join(root, 'diagram.edn'),
+      '--metrics-root', root,
+      '--wide',
+      ...(focus ? ['--focus', `[${focus}]`] : []),
+      '--width', String(viewport.width), '--height', String(viewport.height),
+      '--zoom', String(camera.zoom), '--camera', `${camera.x},${camera.y}`,
+      '--extra', extra,
+      ...(select ? ['--select', select] : []),
+      ...(hover ? ['--hover', hover] : []),
+      ...(pointer ? ['--pointer', pointer.join(',')] : []),
+      ...(hoverMetadata ? ['--hover-metadata'] : []),
+      '--output', output,
+    ], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const frame = JSON.parse(fs.readFileSync(output, 'utf8'))
+    const after = await panelViewport(panel)
+    if (after.width === viewport.width && after.height === viewport.height) return frame
+    if (attempt >= 3) throw new Error(`the panel resized while the producer oracle measured it: ${viewport.width}x${viewport.height} -> ${after.width}x${after.height}`)
+  }
 }
 
 export function toScreen(frame, x, y) {
