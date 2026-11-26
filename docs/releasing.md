@@ -1,18 +1,32 @@
 # Release packaging and publishing
 
-Status (2026-11-25): `v1.2.2` is the latest verified **published** release.
+Status (2026-11-26): `v1.2.2` is the latest verified **published** release.
 [Run 45421102962](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45421102962)
 assembled the native Windows x64 platform archive and the main archive, verified
 the inventory, dry-ran both archives and published both with SLSA provenance
 after the `release` environment approval. `v1.2.0` was the first tag-driven
 release after the one-host decision (ADR 0002, #5, #12).
 
+The Status line at the top of this page is machine-checked, because a hand-synced
+restatement of the registry is
+a claim that drifts. `node scripts/release-drift.mjs` reads the version it names and
+compares it with npm `dist-tags.latest` and the newest `v*` tag; a mismatch fails with
+both sides named — `docs say v1.2.1, registry is 1.2.2` — and a Status line the parser
+cannot read fails as well, so a rewording cannot quietly retire the gate. The parser
+accepts exactly one grammar, and this line must keep it:
+
+    Status (YYYY-MM-DD): `vX.Y.Z` is the latest verified **published** release.
+
+To update it, change `vX.Y.Z` in the same commit that records a release as published,
+and change the date whenever you re-verify by hand. Never write a version here that the
+registry does not serve.
+
 `v1.2.1` was tagged but never published:
 [run 45031367826](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45031367826)
 for that tag was `cancelled` on 2026-11-22 while its `publish` job waited at that
 same approval, so no `1.2.1` publication is claimed. `1.2.2` supersedes it and
 carries the fixes merged after that tag. The npm registry listed 1.2.2 as the
-latest published main and platform package version when checked on 2026-11-25.
+latest published main and platform package version when checked on 2026-11-26.
 
 The previous `v1.1.0` release (2026-11-16) assembled all four platforms and
 published all five archives; it predates that decision and is history. Its first
@@ -161,7 +175,7 @@ or the subsequent real publish will succeed.
 stops at `check-tag` before a single publish. To bump: edit the workspace
 version, run `pnpm version:sync`, update `Cargo.lock`, run `pnpm version:check`.
 
-## Release drift gate (npm, tag and repository version)
+## Release drift gate (npm, tag, repository version and docs Status header)
 
 The `publish` job runs in the `release` environment, and that environment carries a
 required reviewer. The gate fails silently: the tag push is green, `ci` is green, and
@@ -169,12 +183,13 @@ the package was never published. Version 1.2.1
 ([run 45031367826](https://github.com/qinyuanj/dsh-uml-viewer/actions/runs/45031367826),
 publish job cancelled) never existed on the registry, and nobody noticed for two days.
 
-`scripts/release-drift.mjs` compares three facts and fails loudly when they disagree:
+`scripts/release-drift.mjs` compares four facts and fails loudly when they disagree:
 
 - npm `dist-tags.latest` for the main package `dsh-uml-viewer` and the platform package
   `@dsh-uml-viewer/win32-x64`;
 - the `version` in the repository `package.json`;
-- the newest `v*` git tag.
+- the newest `v*` git tag;
+- the version named in this document's Status header.
 
 The report prints each value and every difference. Comparing `latest` alone is not
 enough: the check also requires the tag's version to exist in the npm version list, so a
@@ -190,6 +205,15 @@ so the legitimate pre-tag window cannot redden main:
   runs — npm `latest` must equal it and that version must exist in both packages' version lists.
 - repository version **older** than the newest tag: the tag exists but the tree does not
   carry its version; that is real drift and fails.
+
+The Status header is a claim about the published version, so the same command holds it
+to the same two authorities: the version it names must be npm `dist-tags.latest` for the
+main package and the newest `v*` tag's version, or the check fails with
+`docs say X, registry is Y`. In the pre-tag window the header comparison is advisory,
+exactly like the registry comparison. The grammar is fixed and a header the parser
+cannot read is a failure rather than a silent skip, so the gate cannot be lost to a
+rewording of the line. `scripts/release-drift.test.mjs` covers the failure path with a
+fixture document, so it needs no network.
 
 The check reads the public registry only: it needs no npm credential and adds no npm
 dependency. When the registry cannot be reached it fails with a clear message instead of
@@ -268,7 +292,7 @@ Node only, no network, no archive mocking beyond the controlled fixtures:
 ```sh
 pnpm test:package                              # contract, stale payload, release guards
 node scripts/release.mjs check-tag v1.2.0      # tag/version guard
-node scripts/release-drift.mjs                 # npm, tag and repository version agree
+node scripts/release-drift.mjs                 # npm, tag, repository version and Status header agree
 ```
 
 `scripts/release.test.mjs` drives the real `stage`, `verify` and `plan` commands
@@ -311,6 +335,9 @@ binary, real font or plugin bundle.
   real publish. Publish the remaining archives manually in plan order
   (`npm publish <tgz> --provenance --access public`) or release a new patch
   version. The workflow never un-publishes or re-tags.
+- **The Status header names a version the registry does not.** `release-drift` fails
+  with `docs say X, registry is Y`. Correct the header to the published version; never
+  publish a package to match a stale document.
 
 ## Remaining acceptance gaps
 

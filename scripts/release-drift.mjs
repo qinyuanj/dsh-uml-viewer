@@ -14,6 +14,14 @@ export const platformPackageNames = platforms.map(entry => `@dsh-uml-viewer/${en
 export const packageNames = [mainPackageName, ...platformPackageNames]
 export const registryUrl = 'https://registry.npmjs.org'
 
+// docs/releasing.md opens with a Status header that restates the published
+// version. That is a claim about an external fact, so the command that checks
+// the package checks the header too, against the same two authorities.
+// The grammar is fixed so the parser reads it deterministically: a header the
+// parser cannot read fails the check instead of silently dropping the claim.
+export const releasingDocPath = 'docs/releasing.md'
+export const statusHeaderPattern = /^Status \((\d{4}-\d{2}-\d{2})\): `(v[^`\s]+)` is the latest verified \*\*published\*\* release\.$/m
+
 // The measured propagation window between the two packages was 67 seconds and
 // npm itself warns that a publication may take a few minutes to become
 // visible, so a check that runs right after a release must wait a little.
@@ -34,6 +42,31 @@ export async function manifestVersion(directory = root) {
   const json = JSON.parse(await readFile(file, 'utf8'))
   if (typeof json.version !== 'string' || json.version === '') throw new Error(`${file} has no version field`)
   return json.version
+}
+
+export function parseStatusHeader(text, file = releasingDocPath) {
+  const match = statusHeaderPattern.exec(text ?? '')
+  if (!match) {
+    throw new Error(file + ' has no machine-readable Status header: expected one line "Status (YYYY-MM-DD): `vX.Y.Z` is the latest verified **published** release."')
+  }
+  const [, checked, tag] = match
+  let version
+  try {
+    version = tagVersion(tag)
+  } catch {
+    throw new Error(file + ' Status header names ' + tag + ', which is not a v<semver> release tag')
+  }
+  return { checked, tag, version }
+}
+
+export async function readReleasingStatus(file = path.join(root, releasingDocPath)) {
+  let text
+  try {
+    text = await readFile(file, 'utf8')
+  } catch (error) {
+    throw new Error(file + ' cannot be read, so its Status header cannot be checked: ' + (error?.message ?? error))
+  }
+  return parseStatusHeader(text, file)
 }
 
 export async function listReleaseTags(directory = root) {
@@ -107,7 +140,7 @@ export function releaseState({ repoVersion, tag }) {
   return 'tagged'
 }
 
-export function compareReleaseFacts({ repoVersion, tag, packages }) {
+export function compareReleaseFacts({ repoVersion, tag, packages, docs }) {
   const state = releaseState({ repoVersion, tag })
   const problems = []
   const warnings = []
@@ -133,6 +166,20 @@ export function compareReleaseFacts({ repoVersion, tag, packages }) {
       sink.push(`npm has no version ${tag.version} for ${entry.name}: the tag's version was never published`)
     }
   }
+  // The Status header restates the published version, so it is compared with
+  // the same two authorities as the package. A header that was never read is a
+  // problem in every state: the claim is then unchecked, not true.
+  if (!docs) {
+    problems.push(`${releasingDocPath} Status header was not read, so its published-version claim is unchecked`)
+  } else {
+    const latest = packages.find(entry => entry.name === mainPackageName)?.latest
+    if (latest && docs.version !== latest) {
+      sink.push(`docs say ${docs.tag}, registry is ${latest} for ${mainPackageName}: the Status header is not npm dist-tags.latest`)
+    }
+    if (docs.version !== tag.version) {
+      sink.push(`docs say ${docs.tag}, newest release tag is ${tag.tag}: the Status header is not the newest release tag`)
+    }
+  }
   return { ok: problems.length === 0, state, problems, warnings }
 }
 
@@ -142,16 +189,20 @@ export async function collectFacts({
   registry = registryUrl,
   tag,
   repoVersion,
+  releasingDoc,
 } = {}) {
   const resolvedTag = tag
     ? { tag, version: tagVersion(tag) }
     : newestReleaseTag(await listReleaseTags(directory))
   const resolvedRepoVersion = repoVersion ?? await manifestVersion(directory)
+  // The header is local and cheap, so it is read before the registry: a header
+  // that cannot be read fails at once, not after the grace window.
+  const docs = await readReleasingStatus(releasingDoc ?? path.join(directory, releasingDocPath))
   const packages = []
   for (const name of packageNames) {
     packages.push(await readRegistryPackage(name, { fetchImpl, registry }))
   }
-  return { repoVersion: resolvedRepoVersion, tag: resolvedTag, packages }
+  return { repoVersion: resolvedRepoVersion, tag: resolvedTag, packages, docs }
 }
 
 async function refreshReleaseTags(directory) {
@@ -207,6 +258,8 @@ export function formatFacts(facts) {
   }
   lines.push(`  repository package.json version     = ${facts.repoVersion}`)
   lines.push(`  newest release tag                  = ${facts.tag.tag} (${facts.tag.version})`)
+  const header = facts.docs ? `${facts.docs.tag} (checked ${facts.docs.checked})` : '(not read)'
+  lines.push('  ' + `${releasingDocPath} Status header`.padEnd(41) + ' = ' + header)
   return lines.join('\n')
 }
 
@@ -257,18 +310,27 @@ async function main(args) {
   const registry = option(args, '--registry') ?? registryUrl
   const tag = option(args, '--tag')
   const repoVersion = option(args, '--repo-version')
-  const result = await checkReleaseDrift({
-    graceMs,
-    registry,
-    collect: options => collectFacts({ ...options, registry, tag, repoVersion }),
-  })
+  const releasingDoc = option(args, '--releasing-doc')
+  let result
+  try {
+    result = await checkReleaseDrift({
+      graceMs,
+      registry,
+      collect: options => collectFacts({ ...options, registry, tag, repoVersion, releasingDoc }),
+    })
+  } catch (error) {
+    // A header the parser cannot read is neither drift nor a network failure:
+    // the claim is unchecked, so the command fails and says why.
+    console.error(`release drift check cannot read its inputs: ${error?.message ?? error}`)
+    return 1
+  }
   if (result.ok) {
     if (result.state === 'in-progress') {
       console.log(formatInProgress(result))
       return 0
     }
     const published = result.facts.packages.map(entry => `${entry.name}@${entry.latest}`).join(', ')
-    console.log(`release facts agree: ${result.facts.repoVersion} = ${result.facts.tag.tag} (${published})`)
+    console.log(`release facts agree: ${result.facts.repoVersion} = ${result.facts.tag.tag} (${published}); ${releasingDocPath} Status header agrees`)
     return 0
   }
   if (result.error) {
