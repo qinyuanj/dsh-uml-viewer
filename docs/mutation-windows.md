@@ -483,8 +483,12 @@ improvement, not parity. `crap` and `dry` are unchanged.
 and `cargo-llvm-cov`, sets `MUTATOR_REQUIRE_TOOLCHAINS=1` so a missing
 toolchain fails instead of skipping, installs `coverage.py` for the Python
 coverage test and the whole Lua 5.4 toolchain for the Lua suite (the same rule:
-a missing tool fails), and runs the mutator suite plus the `uml-viewer` mutate
-tests, including the Lua cases that prove the suite is really entered.
+a missing tool fails), and runs the `uml-viewer` mutate tests. The mutator's own
+suite, the Lua cases that prove the suite is really entered included, runs here
+only through the CRAP refresh's instrumented workspace suite, where the same
+`MUTATOR_REQUIRE_TOOLCHAINS=1` makes a missing toolchain fail; the strict serial
+lanes for the Go, Java, Clojure, Python and TypeScript cases live in
+`windows-quality`.
 
 No lane asserts the macOS refusal's CLI level any more: `macos-quality`
 (macos-latest) was deleted with the host, and `crates/uml-viewer/tests/mutate.rs`
