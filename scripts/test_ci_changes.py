@@ -58,48 +58,96 @@ def job_block(text, name):
     return '\n'.join(lines[start:end])
 
 
-class DocumentationRouting(unittest.TestCase):
+class PresubmitAndPostsubmitRouting(unittest.TestCase):
     def test_a_pure_documentation_change_runs_no_windows_lane(self):
         self.assertEqual({'docs_only'}, lanes([DOC, 'GLOSSARY.md',
                                                'acceptance-evidence/106-wsl/log.md']))
 
     def test_the_prompt_section_routes_the_plugin_and_panel_lanes(self):
-        self.assertEqual({'fast', 'typescript', 'panel_e2e', 'check', 'release'},
+        self.assertEqual({'fast', 'typescript', 'panel_e2e', 'mutate_refresh', 'release'},
                          lanes(['docs/companion-rules.md']))
 
-    def test_a_bundled_document_routes_the_package_lanes(self):
+    def test_a_bundled_document_routes_the_package_and_upgrade_lanes(self):
         for document in ('docs/plugin-development.md', 'README.md'):
             with self.subTest(document=document):
-                self.assertEqual({'fast', 'typescript', 'panel_e2e', 'release'},
+                self.assertEqual({'fast', 'typescript', 'panel_e2e', 'upgrade_e2e', 'release'},
                                  lanes([document]))
 
-    def test_a_typescript_change_skips_the_rust_quality_lanes(self):
-        self.assertEqual({'fast', 'typescript', 'panel_e2e', 'mutate', 'release'},
+    def test_a_typescript_change_skips_rust_and_external_toolchain_lanes(self):
+        self.assertEqual({'fast', 'typescript', 'panel_e2e', 'mutate_refresh', 'release'},
                          lanes(['packages/host/src/prompt.ts']))
 
-    def test_a_viewer_runtime_change_routes_every_rust_lane(self):
-        self.assertEqual({'fast', 'crap', 'mutate', 'quality', 'check',
-                          'panel_e2e', 'release'},
+    def test_a_viewer_runtime_change_skips_heavy_toolchain_contracts_in_presubmit(self):
+        self.assertEqual({'fast', 'rust_hermetic', 'panel_e2e', 'mutate_refresh', 'release'},
                          lanes(['crates/uml-viewer/src/main.rs']))
 
-    def test_a_standalone_quality_tool_change_skips_the_panel_lane(self):
-        self.assertEqual({'fast', 'crap', 'mutate', 'quality', 'check', 'release'},
+    def test_a_standalone_quality_tool_change_skips_panel_e2e(self):
+        self.assertEqual({'fast', 'rust_hermetic', 'mutate_refresh',
+                          'toolchain_crapper', 'release'},
                          lanes(['crates/crapper/src/lib.rs']))
 
-    def test_a_fixture_change_skips_the_panel_and_release_lanes(self):
-        self.assertEqual({'fast', 'crap', 'mutate', 'quality', 'check'},
-                         lanes(['fixtures/crap/python/sample.py']))
+    def test_a_mutator_adapter_change_triggers_toolchain_mutator_directly(self):
+        self.assertEqual({'fast', 'rust_hermetic', 'mutate_refresh',
+                          'toolchain_mutator', 'release'},
+                         lanes(['crates/mutator/src/golang.rs']))
 
-    def test_a_quality_guard_script_routes_the_lanes_that_run_it(self):
-        self.assertEqual({'fast', 'mutate', 'quality', 'check'},
-                         lanes(['scripts/check.py']))
+    def test_a_mutator_non_adapter_change_skips_panel_e2e_and_crapper_contract(self):
+        self.assertEqual({'fast', 'rust_hermetic', 'mutate_refresh', 'release'},
+                         lanes(['crates/mutator/src/metrics.rs']))
 
-    def test_a_packaging_script_routes_the_package_lanes(self):
-        self.assertEqual({'fast', 'typescript', 'panel_e2e', 'release'},
+    def test_a_packaging_script_routes_panel_and_upgrade_e2e(self):
+        self.assertEqual({'fast', 'typescript', 'panel_e2e', 'upgrade_e2e', 'release'},
                          lanes(['scripts/package.mjs']))
 
-    def test_an_edn_snapshot_routes_the_guarded_lanes(self):
-        self.assertEqual({'fast', 'quality', 'check'}, lanes(['examples/uml-viewer.edn']))
+    def test_real_snapshot_metrics_and_policy_route_panel_e2e(self):
+        for path in ('.metrics/crap.edn', 'examples/uml-viewer.policy.edn'):
+            with self.subTest(path=path):
+                self.assertIn('panel_e2e', lanes([path]))
+                self.assertIn('rust_hermetic', lanes([path]))
+
+    def test_post_submit_main_push_promotes_toolchain_contracts_and_upgrade_e2e(self):
+        main_lanes = lanes(['crates/uml-viewer/src/main.rs'],
+                           event='push', ref='refs/heads/main')
+        self.assertIn('toolchain_crapper', main_lanes)
+        self.assertIn('toolchain_mutator', main_lanes)
+        self.assertIn('upgrade_e2e', main_lanes)
+
+    def test_post_submit_main_docs_only_still_skips_windows_lanes(self):
+        self.assertEqual({'docs_only'}, lanes([DOC], event='push', ref='refs/heads/main'))
+
+
+class DependencyGraphProperties(unittest.TestCase):
+    def test_every_tracked_file_in_git_ls_files_is_classified(self):
+        module = classifier()
+        completed = subprocess.run(['git', '-C', str(REPO), 'ls-files', '-z'],
+                                   capture_output=True, text=True, check=True)
+        tracked = [p for p in completed.stdout.split('\0') if p]
+        self.assertTrue(tracked)
+        unknown = [p for p in tracked if module.classify_node(p) == 'unknown']
+        self.assertEqual([], unknown, f'unmapped tracked paths: {unknown[:10]}')
+
+    def test_rdeps_closure_is_monotonic(self):
+        module = classifier()
+        a = ['crates/edn/src/lib.rs']
+        b = ['packages/contracts/src/index.ts']
+        plan_a = module.analyze_changes(a, repository=REPO)
+        plan_b = module.analyze_changes(b, repository=REPO)
+        plan_ab = module.analyze_changes(a + b, repository=REPO)
+        self.assertTrue(set(plan_a['rust_crates']) <= set(plan_ab['rust_crates']))
+        self.assertTrue(set(plan_b['pnpm_packages']) <= set(plan_ab['pnpm_packages']))
+        self.assertIn('uml-viewer', plan_a['rust_crates'])
+        self.assertIn('host', plan_b['pnpm_packages'])
+        self.assertIn('client', plan_b['pnpm_packages'])
+        self.assertTrue(plan_b['lanes']['panel_e2e'])
+
+    def test_leaf_crate_edit_prunes_unrelated_crates(self):
+        module = classifier()
+        plan = module.analyze_changes(['crates/dryer/src/lib.rs'], repository=REPO)
+        self.assertIn('dryer', plan['rust_crates'])
+        self.assertIn('uml-viewer', plan['rust_crates'])
+        self.assertNotIn('edn', plan['rust_crates'])
+        self.assertNotIn('scene', plan['rust_crates'])
+        self.assertFalse(plan['lanes']['panel_e2e'])
 
 
 class FullMatrixFallback(unittest.TestCase):
@@ -134,7 +182,7 @@ class FullMatrixFallback(unittest.TestCase):
                 flags = flags_for(['--event', 'pull_request', '--ref', 'refs/pull/7/merge',
                                    '--base', base, '--head', HEAD])
                 self.assertEqual('true', flags['full'])
-                self.assertEqual('true', flags['quality'])
+                self.assertEqual('true', flags['toolchain_mutator'])
 
 
 class GitRangeRouting(unittest.TestCase):
@@ -168,7 +216,8 @@ class GitRangeRouting(unittest.TestCase):
         head = self.commit('crates/crapper/src/lib.rs', 'fn f() {}\n')
         flags = self.range_flags(base, head)
         self.assertEqual('false', flags['docs_only'])
-        self.assertEqual('true', flags['crap'])
+        self.assertEqual('true', flags['rust_hermetic'])
+        self.assertEqual('true', flags['toolchain_crapper'])
         self.assertEqual('false', flags['typescript'])
 
     def test_a_documentation_only_range_skips_the_windows_lanes(self):
@@ -192,28 +241,25 @@ class WorkflowContract(unittest.TestCase):
     def test_the_classifier_writes_every_declared_output(self):
         self.assertEqual(set(classifier().OUTPUT_KEYS), set(routed([DOC])))
 
-    def test_every_lane_owner_is_a_declared_domain(self):
-        module = classifier()
-        owners = {owner for names in module.LANES.values() for owner in names}
-        self.assertEqual(set(), owners - set(module.DOMAIN_NAMES))
+    def test_ci_workflow_exposes_a_single_summary_gate_job(self):
+        text = (WORKFLOWS / 'ci.yml').read_text(encoding='utf-8')
+        gate = job_block(text, 'ci-gate')
+        self.assertIn('if: always()', gate)
+        for lane in ('changes', 'windows-fast', 'typescript', 'windows-hermetic',
+                     'panel-e2e', 'windows-mutate', 'toolchain-crapper',
+                     'toolchain-mutator'):
+            self.assertIn(f'- {lane}', gate)
 
-    def test_the_classifier_only_emits_declared_domains(self):
-        module = classifier()
-        for path in (DOC, 'README.md', 'docs/companion-rules.md',
-                     'packages/host/src/prompt.ts', 'crates/crapper/src/lib.rs',
-                     'crates/uml-viewer/src/main.rs',
-                     'fixtures/crap/python/sample.py', 'scripts/check.py',
-                     'scripts/package.mjs', 'examples/uml-viewer.edn',
-                     '.github/workflows/ci.yml', 'scripts/ci-changes.py',
-                     'uml-quality.json', '.gitattributes', 'tools/new-tool.ps1'):
-            with self.subTest(path=path):
-                self.assertTrue(module.domains_for(path) <= set(module.DOMAIN_NAMES), path)
+    def test_ci_clippy_checks_all_features_including_toolchain_contracts(self):
+        text = (WORKFLOWS / 'ci.yml').read_text(encoding='utf-8')
+        fast = job_block(text, 'windows-fast')
+        self.assertIn('--all-targets --all-features', fast)
 
     def test_the_release_workflow_gates_assembly_on_the_classifier(self):
         text = (WORKFLOWS / 'package-release.yml').read_text(encoding='utf-8')
         assembly = job_block(text, 'assemble')
         self.assertIn('needs: changes', assembly)
-        self.assertIn('needs.changes.outputs.release == \'true\'', assembly)
+        self.assertIn("needs.changes.outputs.release == 'true'", assembly)
 
 
 if __name__ == '__main__':

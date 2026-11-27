@@ -1,6 +1,6 @@
 # 0019 CI 分层与按变更域路由
 
-**Status**: accepted
+**Status**: superseded by [ADR 0020](0020-test-tiering-and-unified-ci-graph.md)
 
 本 ADR 记录 [issue #157](https://github.com/qinyuanj/dsh-uml-viewer/issues/157) 的 CI 结构：把
 「每次推送都跑全部 Windows 通道」改为按变更影响面路由的四层结构，并在 pull request 维度开启

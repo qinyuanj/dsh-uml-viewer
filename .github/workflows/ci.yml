@@ -7,8 +7,8 @@ on:
   pull_request:
   workflow_dispatch:
   schedule:
-    # A nightly full matrix catches toolchain and upstream drift that the
-    # path routing would otherwise never reach.
+    # A nightly full matrix catches toolchain and upstream drift that
+    # presubmit path routing would otherwise skip.
     - cron: '17 19 * * *'
 
 permissions:
@@ -25,8 +25,8 @@ concurrency:
 
 jobs:
   changes:
-    # Tier 0 and Tier 3 live here: one ubuntu runner classifies the diff, so a
-    # documentation-only change never takes a Windows runner.
+    # Tier 0: one ubuntu runner classifies the diff using the live Cargo/pnpm
+    # dependency graph, so a documentation-only change never takes a Windows runner.
     name: route
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -35,15 +35,15 @@ jobs:
       full: ${{ steps.route.outputs.full }}
       fast: ${{ steps.route.outputs.fast }}
       typescript: ${{ steps.route.outputs.typescript }}
+      rust_hermetic: ${{ steps.route.outputs.rust_hermetic }}
       panel_e2e: ${{ steps.route.outputs.panel_e2e }}
-      crap: ${{ steps.route.outputs.crap }}
-      mutate: ${{ steps.route.outputs.mutate }}
-      quality: ${{ steps.route.outputs.quality }}
-      check: ${{ steps.route.outputs.check }}
+      upgrade_e2e: ${{ steps.route.outputs.upgrade_e2e }}
+      mutate_refresh: ${{ steps.route.outputs.mutate_refresh }}
+      toolchain_crapper: ${{ steps.route.outputs.toolchain_crapper }}
+      toolchain_mutator: ${{ steps.route.outputs.toolchain_mutator }}
     steps:
       - uses: actions/checkout@v4
         with:
-          # The classifier diffs the merge base against the head commit.
           fetch-depth: 0
       - name: Classify the changed files
         id: route
@@ -55,9 +55,8 @@ jobs:
         run: python3 -I scripts/ci-changes.py
 
   windows-fast:
-    # Tier 1: formatting, lint and the fast guard suites, split out of
-    # windows-quality so style feedback never waits for the Java, Clojure, Go
-    # and Lua fixture toolchains.
+    # Tier 1: formatting, lint (including toolchain-contract feature targets),
+    # and the fast Python guard suites.
     needs: changes
     if: needs.changes.outputs.fast == 'true'
     runs-on: windows-latest
@@ -69,6 +68,8 @@ jobs:
       - name: Rust toolchain pinned by rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-rust
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -76,8 +77,8 @@ jobs:
       # a multiline step can hide a failed first native command: one per step.
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
-      - name: cargo clippy -D warnings
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: cargo clippy -D warnings (all targets and features)
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - name: Fast repository guards
         run: python -I scripts/check.py --fast
 
@@ -107,11 +108,41 @@ jobs:
       - name: Validate dsh-std manifest and resources
         run: pnpm validate:manifest
 
+  windows-hermetic:
+    # Tier 2 (Hermetic Rust): consolidated release build + full hermetic
+    # workspace test suite via cargo-nextest + doctests, with zero external
+    # Go/Java/Clojure/Lua toolchain installation.
+    needs: changes
+    if: needs.changes.outputs.rust_hermetic == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain pinned by rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-rust
+      - name: cargo-nextest for the hermetic workspace suite
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: scripts/check.py (source rules + release build + hermetic suite)
+        run: python -I scripts/check.py
+
   panel-e2e:
     needs: changes
     if: needs.changes.outputs.panel_e2e == 'true'
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
       DSH_CLI: ${{ github.workspace }}\.scratch\dsh-cli\node_modules\.bin\dsh.cmd
@@ -126,9 +157,9 @@ jobs:
       - name: Rust toolchain pinned by rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-rust
       - run: pnpm install --frozen-lockfile
-      # GitHub's default pwsh shell exits with the LAST command's code only, so a
-      # multiline step can hide a failed first native command: one per step.
       - name: Build the plugin
         run: pnpm build
       - name: Build the resident binary
@@ -154,11 +185,11 @@ jobs:
         run: pnpm --filter @dsh-uml-viewer/e2e exec playwright test package.spec.mjs --output ../../.scratch/e2e/package-results
       - name: Build and assemble disposable next-patch upgrade packages
         id: upgrade-packages
-        if: ${{ !cancelled() && steps.packaged-acceptance.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.packaged-acceptance.outcome == 'success' && needs.changes.outputs.upgrade_e2e == 'true' }}
         timeout-minutes: 12
         run: node scripts/ci-upgrade-package.mjs
       - name: Installed live upgrade acceptance
-        if: ${{ !cancelled() && steps.upgrade-packages.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.upgrade-packages.outcome == 'success' && needs.changes.outputs.upgrade_e2e == 'true' }}
         timeout-minutes: 5
         env:
           UML_VIEWER_PACKAGE_MAIN: ${{ github.workspace }}/.scratch/panel-packages/dsh-uml-viewer-${{ steps.panel-version.outputs.version }}.tgz
@@ -187,33 +218,16 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  windows-crap:
-    needs: changes
-    if: needs.changes.outputs.crap == 'true'
-    runs-on: windows-latest
-    timeout-minutes: 30
-    env:
-      CARGO_TERM_COLOR: always
-    steps:
-      - uses: actions/checkout@v4
-      - name: Rust toolchain pinned by rust-toolchain.toml
-        run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-      # GitHub's default pwsh shell exits with the LAST command's code only, so a
-      # multiline step can hide a failed first native command: one per step.
-      - name: CRAP native Windows tests
-        run: cargo test -p crapper --locked
-      - name: CRAP integration tests and goldens
-        run: cargo test -p uml-viewer --test integration crap_ --locked
-
   windows-mutate:
+    # Tier 2 (Self-Hosting Quality Refresh): runs CRAP, differential mutation,
+    # and gated IR over the hermetic suite. External 7-language contract tests
+    # live in toolchain-crapper / toolchain-mutator and never inflate llvm-cov.
     needs: changes
-    if: needs.changes.outputs.mutate == 'true'
+    if: needs.changes.outputs.mutate_refresh == 'true'
     runs-on: windows-latest
     timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
-      MUTATOR_REQUIRE_TOOLCHAINS: '1'
       UML_REFRESH_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
     steps:
       - uses: actions/checkout@v4
@@ -235,7 +249,7 @@ jobs:
         run: rustup toolchain install
       - name: LLVM tools for cargo-llvm-cov
         run: rustup component add llvm-tools
-      - name: cargo-llvm-cov for the coverage goldens
+      - name: cargo-llvm-cov for self-hosting CRAP
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
@@ -244,37 +258,15 @@ jobs:
         with:
           tool: cargo-nextest
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-rust
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Python coverage fixture toolchain
-        run: python -m pip install coverage pytest
-      - name: Lua 5.4 fixture toolchain
-        run: ./scripts/setup-windows-lua.ps1
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.25.3'
-          cache: false
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - name: Maven and Clojure fixture toolchain
-        run: ./scripts/setup-windows-maven-clojure.ps1
-      # The mutator suite is not repeated here: windows-quality runs it with
-      # REQUIRE_TOOLCHAINS=1, and the CRAP refresh below runs the whole workspace
-      # suite under instrumentation, so a break still fails this job.
-      - name: Mutation integration tests
-        run: cargo test -p uml-viewer --test integration mutate --locked
       - name: Build the Windows refresh binary
         run: cargo build --locked -p uml-viewer
       - name: Build the host package for quality collection
         run: pnpm build
-      # 77% of this step is one test binary: crates/mutator/tests/go_java_clojure.rs
-      # runs twelve whole-project mutation runs (577-840 s of the step). Over the
-      # last ten main runs the step took 664-1080 s and hit the former 21-minute
-      # cap once (45416320929); 28 minutes covers the slowest completed run by
-      # 1.55x, and 28/6/1 plus the measured setup stays inside the 45-minute job.
       - name: Maintainer refresh - CRAP (Windows)
         timeout-minutes: 28
         run: python -I scripts/ci-refresh.py target/debug/uml-viewer.exe crap
@@ -285,19 +277,26 @@ jobs:
         timeout-minutes: 1
         run: python -I scripts/ci-refresh.py target/debug/uml-viewer.exe ir
 
-  windows-quality:
+  toolchain-crapper:
+    # Tier 3 (Large Toolchain Contract - Coverage): runs once on direct touch
+    # in Presubmit and always on non-docs main push / nightly. Uses nextest
+    # test-groups instead of --test-threads=1 and never mutates fixtures/ in-tree.
     needs: changes
-    if: needs.changes.outputs.quality == 'true'
+    if: needs.changes.outputs.toolchain_crapper == 'true'
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 35
     env:
       CARGO_TERM_COLOR: always
+      CRAPPER_REQUIRE_TOOLCHAINS: '1'
+      MUTATOR_REQUIRE_TOOLCHAINS: '1'
     steps:
       - uses: actions/checkout@v4
       - name: Rust toolchain pinned by rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      - name: cargo-nextest for the fail-fast Rust suite
+        with:
+          shared-key: windows-rust
+      - name: cargo-nextest for test-group throttled contracts
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
@@ -306,8 +305,6 @@ jobs:
           python-version: '3.12'
       - uses: actions/setup-node@v4
         with:
-          # The oracle snapshots in fixtures/crap/live were generated with
-          # Node 24 (fixtures/crap/live/README.md); type stripping needs 22.6+.
           node-version: '24'
       - name: Python fixture toolchain
         run: python -m pip install coverage pytest
@@ -321,52 +318,30 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      # Clojure's official Windows distribution is the ClojureTools PowerShell
-      # module, not an executable: this script installs Maven and that module,
-      # writes the `clj` launcher and puts both on PATH, so crapper, mutator and
-      # the tests can start `clj` through cmd.exe.
       - name: Maven and Clojure fixture toolchain
         run: ./scripts/setup-windows-maven-clojure.ps1
-      - name: Java fixture JaCoCo report
-        run: mvn -q -f fixtures/crap/java/pom.xml test
-      - name: Clojure fixture Cloverage report
-        working-directory: fixtures/crap/clojure
-        run: clj -M:cov --lcov
-      # Formatting and lint moved to windows-fast, so this lane only builds
-      # the fixture toolchains and runs the language integration suites.
-      - name: Real Python, TypeScript and Lua coverage integration tests
-        env:
-          CRAPPER_REQUIRE_TOOLCHAINS: '1'
-        run: cargo test -p uml-viewer --test integration crap_languages -- --test-threads=1
-      - name: Go, Java and Clojure coverage runners execute, never skip
-        env:
-          CRAPPER_REQUIRE_TOOLCHAINS: '1'
-        run: cargo test -p uml-viewer --test integration crap_runner_smoke --locked -- --test-threads=1
-      - name: Go, Java and Clojure mutation cases execute, never skip
-        env:
-          MUTATOR_REQUIRE_TOOLCHAINS: '1'
-        run: cargo test -p mutator --test go_java_clojure --locked -- --test-threads=1
-      - name: Python and TypeScript mutation run on the one host
-        env:
-          MUTATOR_REQUIRE_TOOLCHAINS: '1'
-        run: cargo test -p mutator --test python_ts --test python_ts_sites --locked -- --test-threads=1
+      - name: External 7-language coverage and Lua mutation contracts
+        run: cargo nextest run -p uml-viewer --features toolchain-contract --test toolchain_contract --locked
 
-  windows-check:
+  toolchain-mutator:
+    # Tier 3 (Large Toolchain Contract - Mutation): runs once on direct touch
+    # in Presubmit and always on non-docs main push / nightly. Uses nextest
+    # test-groups instead of --test-threads=1.
     needs: changes
-    if: needs.changes.outputs.check == 'true'
-    # check.py's release build and workspace suite used to trail windows-quality's
-    # 13-minute strict lane; its own lane lets both start together.
+    if: needs.changes.outputs.toolchain_mutator == 'true'
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
+      MUTATOR_REQUIRE_TOOLCHAINS: '1'
     steps:
       - uses: actions/checkout@v4
       - name: Rust toolchain pinned by rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      # The mutator's Rust cases run `cargo nextest` inside their fixtures.
-      - name: cargo-nextest for the fail-fast Rust suite
+        with:
+          shared-key: windows-rust
+      - name: cargo-nextest for test-group throttled contracts
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
@@ -390,20 +365,13 @@ jobs:
           java-version: '17'
       - name: Maven and Clojure fixture toolchain
         run: ./scripts/setup-windows-maven-clojure.ps1
-      - name: Java fixture JaCoCo report
-        run: mvn -q -f fixtures/crap/java/pom.xml test
-      - name: Clojure fixture Cloverage report
-        working-directory: fixtures/crap/clojure
-        run: clj -M:cov --lcov
-      - name: scripts/check.py (source rules + release build + workspace suite)
-        run: python -I scripts/check.py
+      - name: External 7-language mutation contracts
+        run: cargo nextest run -p mutator --features toolchain-contract --test toolchain_contract --locked
+      - name: Strict coverage reuse contracts with real Python and Node
+        run: cargo nextest run -p mutator --test integration -E 'test(/^coverage_reuse::/)' --locked
 
   release-drift:
     name: npm registry, release tag and repository version agree
-    # The publish job waits for a manual approval on the `release`
-    # environment, so a green tag push does not mean the package reached npm.
-    # This job compares npm dist-tags.latest, the repository version and the
-    # newest v* tag, and tolerates the publication propagation window.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -416,3 +384,67 @@ jobs:
           node-version: 24
       - name: npm, release tag and repository versions agree
         run: node scripts/release-drift.mjs
+
+  ci-gate:
+    # Single deterministic summary gate for GitHub branch protection (ADR 0020).
+    # Succeeds when every triggered lane succeeded and skipped lanes were routed out.
+    name: ci-gate
+    needs:
+      - changes
+      - windows-fast
+      - typescript
+      - windows-hermetic
+      - panel-e2e
+      - windows-mutate
+      - toolchain-crapper
+      - toolchain-mutator
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify all triggered lanes passed
+        env:
+          RESULTS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          results = json.loads(os.environ['RESULTS_JSON'])
+          failed = []
+          for name, info in sorted(results.items()):
+              outcome = info.get('result')
+              print(f'ci-gate: {name}={outcome}')
+              if outcome not in ('success', 'skipped'):
+                  failed.append(f'{name}:{outcome}')
+          if failed:
+              print('ci-gate: FAILED -> ' + ', '.join(failed), file=sys.stderr)
+              sys.exit(1)
+          print('ci-gate: PASS')
+          PY
+
+  post-submit-alert:
+    # Stop-the-bleeding alert for main push / nightly regressions (ADR 0020):
+    # opens or updates a single tracked regression issue with triage labels.
+    name: post-submit regression alert
+    needs:
+      - ci-gate
+    if: failure() && (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update regression issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          TITLE="[CI] Post-submit / Nightly regression"
+          BODY="Workflow \`ci\` failed on \`$EVENT_NAME\` (\`$HEAD_SHA\`).\n\nRun: $RUN_URL"
+          EXISTING=$(gh issue list --repo "${{ github.repository }}" --state open --search "\"$TITLE\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "${{ github.repository }}" --body "$BODY"
+          else
+            gh issue create --repo "${{ github.repository }}" --title "$TITLE" --body "$BODY" --label "bug" --label "ci"
+          fi

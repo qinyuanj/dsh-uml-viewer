@@ -4,6 +4,19 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+autotests = false
+
+[features]
+toolchain-contract = []
 
 [dependencies]
 quality-core = { path = "../quality-core" }
+
+[[test]]
+name = "integration"
+path = "tests/main.rs"
+
+[[test]]
+name = "toolchain_contract"
+path = "tests/toolchain_contract.rs"
+required-features = ["toolchain-contract"]

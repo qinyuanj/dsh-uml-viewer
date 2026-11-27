@@ -4,8 +4,12 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-# tests/main.rs is the one test binary.
+# tests/main.rs is the hermetic test binary; tests/toolchain_contract.rs holds
+# the opt-in external toolchain contract suite.
 autotests = false
+
+[features]
+toolchain-contract = []
 
 [[bin]]
 name = "uml-viewer"
@@ -14,6 +18,11 @@ path = "src/main.rs"
 [[test]]
 name = "integration"
 path = "tests/main.rs"
+
+[[test]]
+name = "toolchain_contract"
+path = "tests/toolchain_contract.rs"
+required-features = ["toolchain-contract"]
 
 [dependencies]
 crapper = { path = "../crapper" }
