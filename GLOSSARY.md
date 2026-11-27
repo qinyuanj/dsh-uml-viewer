@@ -171,3 +171,11 @@ _Avoid_: 阶段, 流水线
 
 **coupled document（耦合文档）**: 内容被构建或打包直接读取的文档，因而按变更域路由而不算纯文档；当前是 `docs/companion-rules.md`、`docs/plugin-development.md` 与 `README.md`。
 
+**hermetic suite（密闭测试集）**: 不依赖外部 7 语言工具链（Go/Java/Clojure/Lua 等）、默认参与 `cargo test`、`cargo nextest` 与 `cargo llvm-cov` 的 Small/Medium 测试集合（各 crate 的 unit 测试与 `tests/main.rs` 集成测试）。
+
+**toolchain contract（工具链契约测试）**: 依赖真实外部工具链的 Large 契约测试（`[[test]] name = "toolchain_contract"`，`required-features = ["toolchain-contract"]`），仅在 Presubmit 直接触达适配器/夹具、非纯文档 `main` push、Nightly 或显式 `--toolchain-contract` 时执行。
+
+**affected graph（受影响依赖图）**: `scripts/ci-changes.py` 从 `crates/*/Cargo.toml`、`packages/*/package.json` 及跨语言耦合边实时求解出的角色感知反向依赖闭包，同时驱动 CI 通道路由与本地 `scripts/check.py --affected`。
+
+**summary gate（汇总门禁）**: `ci.yml` 中的单一确定性汇聚 job（`ci-gate`，`if: always()`），在所有被触发通道成功且未触发通道合法跳过时通过，作为分支保护的唯一必检状态项。
+

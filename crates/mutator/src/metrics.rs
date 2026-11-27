@@ -1669,4 +1669,33 @@ mod tests {
         );
         assert!(carry_forward(&sites, &covered, &loaded, &forms, None, Some(&global),).is_empty());
     }
+
+    #[test]
+    fn decide_executes_when_prior_form_matches_but_site_id_is_new() {
+        let mut s = site();
+        s.mutation_id = "m-new".into();
+        let forms = [form()];
+        let covered = BTreeMap::from([(s.mutation_id.clone(), true)]);
+        let mut history = History::default();
+        history.forms.insert(
+            (forms[0].namespace.clone(), forms[0].id.clone()),
+            PriorForm {
+                digest: forms[0].digest.clone(),
+            },
+        );
+        let decisions = decide(
+            &[s],
+            &covered,
+            &history,
+            &forms,
+            DecideContext {
+                mutate_all: false,
+                lines: None,
+                test_input: None,
+                scope: None,
+            },
+        );
+        assert_eq!(decisions["m-new"].action, "executed");
+        assert_eq!(decisions["m-new"].reason, "id-changed");
+    }
 }

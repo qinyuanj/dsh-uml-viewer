@@ -1,13 +1,12 @@
 #![cfg(any(target_os = "linux", windows))]
 #![allow(clippy::disallowed_methods)]
-mod support;
+use crate::support::child;
 use std::{
     fs,
     path::{Path, PathBuf},
     process::ExitCode,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use support::child;
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 const CLOCK: &str = "2026-11-07T12:00:00+00:00";
@@ -70,6 +69,7 @@ impl Fixture {
         fs::write(path, text).unwrap();
     }
     fn run(&self, extra: &[&str]) -> ExitCode {
+        let _serial = crate::support::serial();
         let mut args = vec![
             "--root".to_string(),
             self.root().to_string_lossy().into_owned(),

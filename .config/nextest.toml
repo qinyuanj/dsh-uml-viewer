@@ -1,0 +1,34 @@
+# Nextest concurrency policy for dsh-uml-viewer (ADR 0020).
+# Hermetic unit and integration tests run at full nextest parallelism.
+# External toolchain contract tests are throttled by resource class so
+# --test-threads=1 is never required and fixtures/ stays clean.
+
+[test-groups.jvm-toolchain]
+# Maven (~/.m2 cache) and Clojure (JVM startup + heap) serialize cleanly.
+max-threads = 1
+
+[test-groups.heavy-toolchain]
+# Go / Python / TypeScript / npm-c8 contract tests spawn inner worker pools.
+max-threads = 2
+
+[profile.default]
+fail-fast = false
+retries = 0
+status-level = "pass"
+final-status-level = "flaky"
+
+[[profile.default.overrides]]
+filter = 'binary(toolchain_contract) & (test(/java/) | test(/clojure/))'
+test-group = "jvm-toolchain"
+slow-timeout = { period = "120s", terminate-after = 4 }
+
+[[profile.default.overrides]]
+filter = 'binary(toolchain_contract) & (test(/go_/) | test(/python/) | test(/typescript/) | test(/crap_languages/) | test(/crap_runner_smoke/))'
+test-group = "heavy-toolchain"
+slow-timeout = { period = "120s", terminate-after = 4 }
+
+[[profile.default.overrides]]
+# This Windows pipe-drain test has a 15s internal timeout and starves under
+# 12-way parallel Cargo/Node spawns; give it exclusive slots (~0.7s wall time).
+filter = 'binary(process_tree) & test(windows_capture_drains_large_stdout_and_stderr_before_waiting)'
+threads-required = "num-cpus"

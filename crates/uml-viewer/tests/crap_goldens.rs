@@ -12,7 +12,7 @@ fn copy_tree(from: &Path, to: &Path) {
     for entry in fs::read_dir(from).unwrap() {
         let entry = entry.unwrap();
         let name = entry.file_name();
-        if name == "target" || name == "Cargo.lock" {
+        if matches!(name.to_str(), Some("target" | "Cargo.lock" | ".cpcache")) {
             continue;
         }
         let path = entry.path();

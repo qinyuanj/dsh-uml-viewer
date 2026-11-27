@@ -1,6 +1,6 @@
 #![cfg(windows)]
 #![allow(clippy::disallowed_methods)]
-mod support;
+use crate::support::{child, serial};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -8,14 +8,8 @@ use std::{
     process::ExitCode,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use support::child;
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
-
-fn serial() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-}
 
 fn without_test_input(bytes: &[u8]) -> Vec<u8> {
     let text = String::from_utf8_lossy(bytes);
@@ -835,7 +829,7 @@ fn an_outside_path_deleted_between_commands_exits_one_and_names_it() {
     fs::write(contracts.join("value.txt"), "copy-value\n").unwrap();
     let exe = std::env::current_exe().unwrap();
     let remove = format!(
-        "set MUTATOR_REMOVE_DIRECTORY={} && {} --exact remove_directory_driver --nocapture",
+        "set MUTATOR_REMOVE_DIRECTORY={} && {} --exact windows::remove_directory_driver --nocapture",
         contracts.display(),
         quoted(&exe)
     );
