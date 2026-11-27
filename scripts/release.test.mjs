@@ -765,7 +765,15 @@ test('test:package runs the stale-payload guard and the release guards', async (
 
 test('the existing CI keeps the package contract step and its jobs', async () => {
   const text = await readFile(path.join(root, '.github/workflows/ci.yml'), 'utf8')
-  for (const job of ['typescript', 'panel-e2e', 'windows-crap', 'windows-mutate', 'windows-quality']) {
+  for (const job of [
+    'typescript',
+    'panel-e2e',
+    'windows-hermetic',
+    'windows-mutate',
+    'toolchain-crapper',
+    'toolchain-mutator',
+    'ci-gate',
+  ]) {
     assert.match(text, new RegExp(`^  ${job}:`, 'm'), `ci.yml job ${job}`)
   }
   assert.match(text, /pnpm test:package/)
